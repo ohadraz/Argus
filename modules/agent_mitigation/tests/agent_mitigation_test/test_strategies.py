@@ -20,16 +20,21 @@ from agent_mitigation import (
     RestartServiceStrategy,
     ScaleOutStrategy,
     Strategies,
-    a_mitigation_answers,
     propose_action,
+    why_no_mitigation_answers,
+    why_nothing_was_proposed,
 )
-from agent_mitigation.strategies import DEFAULT_STRATEGIES
+from agent_mitigation.strategies import DEFAULT_STRATEGIES, NO_MITIGATION_BECAUSE
+from argus_core.events import a_changed_file_line
 from argus_core.models import (
     PIN_TO_ACCELERATOR,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     ActionType,
+    ChangeEvent,
+    ChangeKind,
     Circumstances,
+    DeploymentChanges,
     DiscardCacheEntries,
     FailureMode,
     FlagChange,
@@ -37,6 +42,7 @@ from argus_core.models import (
     PinToAccelerator,
     PodPlacement,
     RecordedPlacement,
+    Refusal,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -71,6 +77,17 @@ SOME_APPLICATION_THE_ALERT_NAMES = "io-shop"
 # The card the fleet ran on before the incident, which is the one a pin holds
 # it to.
 THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
+
+
+# A file a candidate can blame in place of a revision, two deploys that could
+# have changed it, and the minute the incident is dated from - with a moment
+# inside that minute, which counts as before it, and one after it.
+SOME_FILE = "src/io_shop/purchase_ledger.py"
+SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+ANOTHER_REVISION = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+THE_ONSET = datetime(2026, 8, 20, 11, 5, tzinfo=UTC)
+IN_THE_ONSET_S_MINUTE = "2026-08-20T11:05:30Z"
+AFTER_THE_ONSET = "2026-08-20T11:07:00Z"
 
 
 @pytest.mark.unit
@@ -173,7 +190,7 @@ def test_a_leak_whose_cause_describes_nothing_is_still_answered_with_a_restart()
 @pytest.mark.unit
 def test_a_flag_that_moved_during_a_leak_does_not_change_what_is_proposed() -> None:
     # No toggle causes a heap to grow. A flag that happened to move during the
-    # climb is a coincidence, and an agent that reached for it would put back a
+    # climb is a coincidence, and an agent that reached for it would revert a
     # change nobody had any reason to suspect and leave the leak running.
     some_alerting_service = "kuki-service"
 
@@ -218,7 +235,7 @@ def test_the_registry_argus_ships_answers_a_leak_with_a_restart() -> None:
 @pytest.mark.unit
 def test_nothing_answers_an_upstream_dependency_failure() -> None:
     # The absence is the decision, not an omission. Argus's mitigations reach
-    # its own deployment - a flag it can put back, a process it can restart -
+    # its own deployment - a flag it can revert, a process it can restart -
     # and another company's service is outside all of them. A strategy
     # registered here would be Argus claiming it could do something about an
     # outage it cannot reach.
@@ -262,52 +279,174 @@ def test_nothing_answers_monitoring_configuration_drift_though_a_revision_is_the
 
 
 @pytest.mark.unit
-def test_a_mode_nothing_answers_says_so_when_asked() -> None:
+def test_nothing_answers_an_upstream_failure_because_the_service_is_somebody_elses() -> None:
     # Asked of the policy that holds the mapping, because the gate has to tell
-    # two silences apart - a mode with no mitigation at all, and a mode whose
-    # mitigation could not identify what to act on - and a gate holding its own
-    # copy of the set would be a second place for the answer to drift.
+    # a mode with no mitigation at all from a mode whose mitigation proposed
+    # nothing - and a gate holding its own copy of the set would be a second
+    # place for the answer to drift.
     Scenario() \
         .given(
-            the_mode_nothing_answers := FailureMode.UPSTREAM_DEPENDENCY_FAILURE
+            an_upstream_failure := FailureMode.UPSTREAM_DEPENDENCY_FAILURE
         ) \
         .when(
-            lambda: a_mitigation_answers(the_mode_nothing_answers)
+            lambda: why_no_mitigation_answers(an_upstream_failure)
         ) \
         .then(
-            _the_answer_is(False)
+            _the_refusal_is(Refusal.SOMEBODY_ELSES_SERVICE)
         )
 
 
 @pytest.mark.unit
-def test_a_mode_with_a_strategy_is_answered() -> None:
+def test_argus_takes_nothing_for_drift_because_the_only_answer_undoes_a_meant_change() -> None:
+    # Not the upstream failure's reason, and the difference is what a reader
+    # does next. There nothing Argus has reaches the fault; here a rollback
+    # reaches it and would bring the sight back, and is declined because the
+    # revision it returns is somebody's intended work. Said as "nothing can be
+    # done", it sent a model to write that Argus could not act.
+    Scenario() \
+        .given(
+            drift := FailureMode.MONITORING_CONFIGURATION_DRIFT
+        ) \
+        .when(
+            lambda: why_no_mitigation_answers(drift)
+        ) \
+        .then(
+            _the_refusal_is(Refusal.WOULD_UNDO_A_MEANT_CHANGE)
+        )
+
+
+@pytest.mark.unit
+def test_a_mode_with_a_strategy_has_no_reason_to_lack_one() -> None:
     Scenario() \
         .given(
             the_mode_a_revert_answers := FailureMode.FEATURE_FLAG_TOGGLE
         ) \
         .when(
-            lambda: a_mitigation_answers(the_mode_a_revert_answers)
+            lambda: why_no_mitigation_answers(the_mode_a_revert_answers)
         ) \
         .then(
-            _the_answer_is(True)
+            _the_refusal_is(None)
         )
 
 
 @pytest.mark.unit
-def test_no_mode_at_all_is_answered_by_nothing() -> None:
-    # A candidate that named no cause has nothing to look a strategy up by,
-    # which is not the same as a cause whose answer is "nothing can be done" -
-    # and the two must not end up reading the same way to whoever picks the
-    # incident up.
+@pytest.mark.parametrize("mode", [FailureMode.FEATURE_FLAG_TOGGLE,
+                                  FailureMode.SILENT_DATA_CORRUPTION],
+                         ids=["a-flag-toggle", "damage-a-change-left"])
+def test_a_candidate_naming_a_change_nothing_recorded_is_left_to_a_person(
+        mode: FailureMode) -> None:
+    # The flag the candidate blames is not in the provider's record, so there
+    # is nothing to say which way to put it back. Said as "no mitigation was
+    # proposed", a write-up read it as Argus having no flag mitigation, asked
+    # for one to be built, and never told a person to switch the flag off.
     Scenario() \
         .given(
-            no_mode_was_determined := None
+            a_candidate_naming_an_unrecorded_flag := a_hypothesis_blaming(
+                mode, subject="kuki-flag")
         ) \
         .when(
-            lambda: a_mitigation_answers(no_mode_was_determined)
+            lambda: why_nothing_was_proposed(
+                a_candidate_naming_an_unrecorded_flag,
+                Circumstances(service=DONT_CARE_SERVICE,
+                              flag_changes=[an_enabling_of("another-flag")],
+                              deployments=[a_deployment()]))
         ) \
         .then(
-            _the_answer_is(False)
+            _the_refusal_is(Refusal.NAMED_CHANGE_NOT_RECORDED)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("candidate", "circumstances"), [
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)),
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE, subject="kuki-flag"), None),
+    (a_hypothesis_blaming(FailureMode.INTERNAL_DEPENDENCY_FAILURE, subject="kuki-service"),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)),
+    (None, Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)),
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE, subject="kuki-flag"),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=[an_enabling_of("kuki-flag")])),
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE,
+                          subject=(a_recorded_deployment := a_deployment()).reference),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED,
+                   deployments=[a_recorded_deployment]))
+], ids=["names-nothing", "the-record-was-not-read", "a-mitigation-that-undoes-no-change",
+        "no-candidate", "a-flag-the-record-holds", "a-revision-the-record-holds"])
+def test_a_candidate_whose_evidence_said_nothing_to_act_on_is_said_so(
+        candidate: Hypothesis | None, circumstances: Circumstances | None) -> None:
+    # Not a change missing from the record. A candidate naming nothing, a
+    # record nobody could read, a mitigation that does not undo a change, and
+    # a change the record does hold each leave nothing the record could be
+    # said to lack.
+    Scenario() \
+        .given(candidate) \
+        .when(
+            lambda: why_nothing_was_proposed(candidate, circumstances)
+        ) \
+        .then(
+            _the_refusal_is(Refusal.NO_MITIGATION_PROPOSED)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("mode", "deploys"), [
+    (FailureMode.FEATURE_FLAG_TOGGLE, [(SOME_REVISION, IN_THE_ONSET_S_MINUTE)]),
+    (FailureMode.SILENT_DATA_CORRUPTION,
+     [(SOME_REVISION, IN_THE_ONSET_S_MINUTE), (ANOTHER_REVISION, IN_THE_ONSET_S_MINUTE)])
+], ids=["a-flag-toggle", "damage-either-of-two-deploys-left"])
+def test_a_candidate_naming_a_file_a_deploy_changed_names_no_change_the_record_lacks(
+        mode: FailureMode, deploys: list[tuple[str, str]]) -> None:
+    # The record holds the change: a deploy's diff names the file among those
+    # it changed. Refused as a change nothing recorded, every surface said the
+    # change was missing, beside the deploy that made it.
+    Scenario() \
+        .given(
+            naming_a_file := a_hypothesis_blaming(mode, subject=SOME_FILE)
+        ) \
+        .when(
+            lambda: why_nothing_was_proposed(
+                naming_a_file, _circumstances_where_the_file_was_changed_by(deploys))
+        ) \
+        .then(
+            _the_refusal_is(Refusal.NO_MITIGATION_PROPOSED)
+        )
+
+
+@pytest.mark.unit
+def test_a_mode_argus_takes_nothing_for_is_said_as_its_reason_whatever_it_names() -> None:
+    # The mode's reason comes first: another company's outage is not Argus's
+    # to undo, whether or not its candidate names something the record lacks.
+    Scenario() \
+        .given(
+            an_upstream_failure := a_hypothesis_blaming(
+                FailureMode.UPSTREAM_DEPENDENCY_FAILURE, subject="kuki-flag")
+        ) \
+        .when(
+            lambda: why_nothing_was_proposed(
+                an_upstream_failure,
+                Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED))
+        ) \
+        .then(
+            _the_refusal_is(Refusal.SOMEBODY_ELSES_SERVICE)
+        )
+
+
+@pytest.mark.unit
+def test_every_mode_has_a_strategy_or_a_reason_it_has_none() -> None:
+    # Over the whole set, because a new mode is added to the enum and to
+    # whichever table its author remembered. In neither, the gate has no
+    # sentence for it and the walk raises; in both, the gate refuses a mode a
+    # strategy stands ready to answer.
+    Scenario() \
+        .given(
+            every_mode := list(FailureMode)
+        ) \
+        .when(
+            lambda: [mode for mode in every_mode
+                     if (mode in DEFAULT_STRATEGIES) == (mode in NO_MITIGATION_BECAUSE)]
+        ) \
+        .then(
+            _no_mode_is_in_neither_table_or_both()
         )
 
 
@@ -345,19 +484,22 @@ def test_a_bad_deployment_is_answered_by_rolling_the_deployment_back() -> None:
 def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it() -> None:
     # The fourth mode reaching a strategy it does not own, and the only one that
     # maps to an action Argus will not be allowed to take. That is the gate's
-    # judgement and not this lookup's: a mode with no strategy answers `None`,
-    # which is refused as "nothing answers this kind of failure" and escalates
-    # with nothing named - so the incident would end saying a person is needed
-    # and not saying what for.
+    # judgement and not this lookup's: a mode with no strategy proposes `None`,
+    # so the incident would end saying a person is needed and not saying what
+    # for.
     #
     # The action is the flag toggle's exactly, because the cause is a flag that
-    # moved and putting it back is what stops the drift. What differs is
+    # moved and reverting it is what stops the drift. What differs is
     # everything after: it repairs nothing already written, and nothing can
     # confirm it inside the time Argus waits.
+    naming_a_flag = a_hypothesis_blaming(
+        FailureMode.SILENT_DATA_CORRUPTION, subject=DONT_CARE_FLAG
+    )
+
     Scenario() \
-        .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .given(naming_a_flag) \
         .when(lambda: propose_action(
-            a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
+            naming_a_flag,
             Circumstances(service=DONT_CARE_SERVICE,
                           flag_changes=[an_enabling_of(DONT_CARE_FLAG)])
         )) \
@@ -367,18 +509,75 @@ def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it
 @pytest.mark.unit
 def test_silent_data_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> None:
     # The mode names the damage and not the change, so the action follows the
-    # record rather than the mode. A walk that read a flat window and reached
-    # for a flag would have learned the flag scenario rather than the mode, and
-    # here it would find no flag to put back and recommend nothing at all.
+    # change the candidate named rather than the mode. A walk that reached for a
+    # flag would have learned the flag scenario rather than the mode, and here
+    # it would find no flag to revert and recommend nothing at all.
+    the_deployment = a_deployment()
+    naming_its_revision = a_hypothesis_blaming(
+        FailureMode.SILENT_DATA_CORRUPTION, subject=the_deployment.reference
+    )
+
     Scenario() \
-        .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .given(naming_its_revision) \
         .when(lambda: propose_action(
-            a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
+            naming_its_revision,
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[the_deployment])
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_naming_no_change_proposes_nothing_beside_a_deployment() -> None:
+    # A deployment in the window is not a candidate blaming it. The walk reads
+    # the deploy history over a window of its own, so the revision can be one the
+    # Investigator never saw - and a rollback recommended for it sends a person
+    # to undo somebody else's work for a fault nobody weighed.
+    Scenario() \
+        .given(naming_nothing := a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .when(lambda: propose_action(
+            naming_nothing,
             Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
                           flag_changes=NO_FLAGS_CHANGED,
                           deployments=[a_deployment()])
         )) \
-        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+        .then(nothing_was_proposed())
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_naming_no_change_proposes_nothing_beside_one_flag() -> None:
+    # The flag history's half of the case above: one flag that moved is not a
+    # candidate blaming it.
+    Scenario() \
+        .given(naming_nothing := a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .when(lambda: propose_action(
+            naming_nothing,
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=[an_enabling_of(DONT_CARE_FLAG)])
+        )) \
+        .then(nothing_was_proposed())
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_naming_a_revision_nobody_recorded_proposes_nothing() -> None:
+    # The revision named is checked against what the platform recorded, as a
+    # named flag is against the flag history: a name in no recorded change may
+    # be one the model invented, and a deployment beside it is not the one blamed.
+    some_revision_nobody_recorded = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+    naming_it = a_hypothesis_blaming(
+        FailureMode.SILENT_DATA_CORRUPTION, subject=some_revision_nobody_recorded
+    )
+
+    Scenario() \
+        .given(naming_it) \
+        .when(lambda: propose_action(
+            naming_it,
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[a_deployment()])
+        )) \
+        .then(nothing_was_proposed())
 
 
 @pytest.mark.unit
@@ -420,6 +619,50 @@ def test_a_flag_the_corruption_names_wins_over_a_deployment_beside_it() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("subject", [SOME_FILE, f"{SOME_FILE}:monthly_total"],
+                         ids=["the-file", "a-setting-in-it"])
+def test_corruption_naming_a_file_one_deploy_changed_is_answered_by_rolling_it_back(
+        subject: str) -> None:
+    # A candidate can blame the file a deploy changed rather than its revision.
+    # What carried it is the deploy whose diff names that file among those it
+    # changed, made by the end of the onset - the rule the write-up names it by.
+    # Read as no recorded change, the walk refused the candidate as one the
+    # record did not hold, beside a page whose own trigger named the deploy.
+    naming_its_file = a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION, subject=subject)
+
+    Scenario() \
+        .given(naming_its_file) \
+        .when(lambda: propose_action(
+            naming_its_file,
+            _circumstances_where_the_file_was_changed_by([(SOME_REVISION, IN_THE_ONSET_S_MINUTE)])
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("deploys", "recorded"), [
+    ([(SOME_REVISION, IN_THE_ONSET_S_MINUTE), (ANOTHER_REVISION, IN_THE_ONSET_S_MINUTE)], True),
+    ([(SOME_REVISION, AFTER_THE_ONSET)], True),
+    ([(SOME_REVISION, IN_THE_ONSET_S_MINUTE)], False)
+], ids=["two-deploys-changed-it", "changed-only-after-the-onset", "a-deploy-nobody-recorded"])
+def test_corruption_naming_a_file_no_one_recorded_deploy_carried_proposes_nothing(
+        deploys: list[tuple[str, str]], recorded: bool) -> None:
+    # Two deploys, and the diffs cannot say which to undo; one made after the
+    # incident began did not begin it; and one the platform did not record is
+    # not the deploy a rollback of the service returns. Each would be a
+    # rollback of a change nothing showed carried the damage.
+    naming_the_file = a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION, subject=SOME_FILE)
+
+    Scenario() \
+        .given(naming_the_file) \
+        .when(lambda: propose_action(
+            naming_the_file,
+            _circumstances_where_the_file_was_changed_by(deploys, recorded=recorded)
+        )) \
+        .then(nothing_was_proposed())
+
+
+@pytest.mark.unit
 def test_a_deployment_recorded_changes_nothing_for_any_other_mode() -> None:
     # One mode reads the deploy history. A leak answered by a restart must not
     # change because a revision happened to go out while the heap climbed.
@@ -436,9 +679,9 @@ def test_a_deployment_recorded_changes_nothing_for_any_other_mode() -> None:
 
 @pytest.mark.unit
 def test_the_strategy_answering_corruption_declares_both_actions_it_may_take() -> None:
-    # Which change is undone is the record's to say, so either kind may come
-    # back - and a declaration naming one would be wrong whenever the record
-    # held the other.
+    # Which change is undone is the candidate's to name, so either kind may come
+    # back - and a declaration naming one would be wrong whenever the candidate
+    # named the other.
     Scenario() \
         .given(the_mode := FailureMode.SILENT_DATA_CORRUPTION) \
         .when(lambda: DEFAULT_STRATEGIES[the_mode].action_types) \
@@ -458,7 +701,7 @@ def test_a_monitoring_blind_spot_is_answered_by_rolling_the_deployment_back() ->
     # A flag is handed in and must not be acted on. The blind spot is staged by
     # a revision that stopped the rows reaching the scrape, and a flag that
     # happened to move while that revision was running is a coincidence: a
-    # revert would put back something that was never the cause, and would then
+    # revert would reverse something that was never the cause, and would then
     # be judged against readings that are still absent.
     #
     # Registered rather than left out, for the reason silent data corruption is:
@@ -642,7 +885,7 @@ def test_the_registry_argus_ships_answers_an_internal_dependency_failure() -> No
 def test_demand_saturation_is_answered_by_scaling_the_deployment_out() -> None:
     # The fourth generic mitigation, and the first that adds something rather
     # than restoring something. What a saturated deployment needs is headroom it
-    # never had, which none of the three that put something back can buy.
+    # never had, which none of the three that revert something can buy.
     Scenario() \
         .given(
             a_deployment_that_outgrew_its_size := a_hypothesis_blaming(
@@ -940,10 +1183,10 @@ def test_the_registry_argus_ships_answers_state_divergence() -> None:
             the_mode_a_discard_answers := FailureMode.STATE_DIVERGENCE
         ) \
         .when(
-            lambda: a_mitigation_answers(the_mode_a_discard_answers)
+            lambda: why_no_mitigation_answers(the_mode_a_discard_answers)
         ) \
         .then(
-            _the_answer_is(True)
+            _the_refusal_is(None)
         )
 
 
@@ -969,6 +1212,35 @@ class _StandInStrategy:
                 dont_care_hypothesis: Hypothesis,
                 dont_care_circumstances: Circumstances) -> Action | None:
         return self._proposing
+
+
+def _a_deploy_of(revision: str, at: str) -> ChangeEvent:
+    return ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=at, reference=revision,
+                       summary="dont-care-summary")
+
+
+def _a_diff_changing(path: str) -> DeploymentChanges:
+    """What a deploy changed, as the read tier says it: its header, then the
+    line naming the one file it changed."""
+    return DeploymentChanges(
+        said=["Deployment of revision dont-care to io-shop, compared against dont-care",
+              a_changed_file_line("modified", path)],
+        lists_every_file=True
+    )
+
+
+def _circumstances_where_the_file_was_changed_by(deploys: list[tuple[str, str]],
+                                                 recorded: bool = True) -> Circumstances:
+    """The alerting service's round, where each of `deploys` - a revision, and
+    when it went out - changed `SOME_FILE`, and the platform recorded every one
+    of them unless `recorded` is false."""
+    return Circumstances(
+        service=SOME_APPLICATION_THE_ALERT_NAMES,
+        flag_changes=NO_FLAGS_CHANGED,
+        deployments=[_a_deploy_of(revision, at) for revision, at in deploys] if recorded else [],
+        deployment_changes={revision: _a_diff_changing(SOME_FILE) for revision, _ in deploys},
+        onset=THE_ONSET
+    )
 
 
 def _a_strategy_proposing(action: Action) -> MitigationStrategy:
@@ -1011,11 +1283,24 @@ def _the_service_to_restart_is(service: str) -> Assertion[Action | None]:
     return assertion
 
 
-def _the_answer_is(expected: bool) -> Assertion[bool]:
-    def assertion(answered: bool) -> bool:
-        if answered is not expected:
+def _the_refusal_is(expected: Refusal | None) -> Assertion[Refusal | None]:
+    def assertion(refusal: Refusal | None) -> bool:
+        if refusal is not expected:
             raise AssertionError(
-                f"Expected [{expected}], got [{answered}]."
+                f"Expected the refusal [{expected}], got [{refusal}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_mode_is_in_neither_table_or_both() -> Assertion[list[FailureMode]]:
+    def assertion(misplaced: list[FailureMode]) -> bool:
+        if misplaced:
+            raise AssertionError(
+                f"Expected every failure mode to have a strategy or a reason it has "
+                f"none, and never both - [{', '.join(misplaced)}] had neither or both."
             )
 
         return True

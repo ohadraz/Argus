@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS8QYKEAgTGAI4AUIIdGhpbmtpbmcSDFfFgnJzD3P+Ry1mNhoMEEI6hQ3mLpxSDG/GIjCQ3q/u/xgb1aJ+NuxBP3y2k/oT8ode/Tn7w5j4dea6S6Wi7Gcm7JjBV3bXchYghIwqjgYhOjwJ92iumLm3QeESAR6wI6SZRWfZz//DDkpdkCq8nmZd6167+dt2iFhdQ7fhomWFQsE6GxztIgK5iqa5P3FZYHAOBW6m7iRdj8+5+YGzm0tzPuXk6af10gAEyrMguIOS26UROlzOh451R6a05jBJZgaLNlEt4caSO2x+RXnXF7LuxVp8/6P6z9ogFt7tKa5APXiNXcTc/2Pmz1LADfy+KLl7HDdfX+2jJusGcvoQ4cWl66mIUOFvkJWJbz1Fo/rlqObfXTmHnQB7ekUyQwHxzOo0683A/70S3s0zmJvT5oBuisARiq+qT6ZNfjEHCRoNhvIN+LzqBdSfvXDwg78gRcAdvnwnhcTbTtJ9WK966P8QCkkzb5dL+86L5ivWUrmfDC4huvbTW6NcdD+t4DhB4EzOx1QZQCEc0Bf1Jg7L2UavaBCVEQZG7MEZgrWO4VH6zBUGE37JfmXkdqqk5UdvCVoAHGYgLydMqvBybFq0wyTv3RyjSaQGYtZceWJQwjgZhWvMMhhN5mu4ErOqdx6BjFublXWeELkys7kGYwdQ1Pj2ugYqIVuX18LOsJ7unWTzcDdQvEGkpWNxa3J4uf/P1+tok6rsuo2YwOtuIcTNYoMuQ3eUqwOXLO5jpMOAT5C3onh5fjOYJKZlBihulHZtMoW0Y2uJkJFVUNxb8EfSJMyh1zSjnTQAeHxaSWqASnXwC3/hBRZe5zgY4WeCeBE7W8Yuyjled8/e8uU6r0LE88meIV/56XVUVKpLpWycZbvvdAAeIFppm5finK0yazqTXQn6+JPft0l40eZxmFaOsLmpLBsd+966zMKeC+lRtnw2yUkANoY246eJoM0TzTImwxxKPM4aPRSkBW22J4SfYw/UQt7mmkFEi3wkES19xLILl9ZQLgCiNbGbHy+O2q5G+QRuEUBJqj8ZlWG26Xf577SnK572xRCGX3ymJU1ZjGZ2/QQ4HvRSpaK+HCNRZP/qHo8AdtafS+rXZQQbJaFwmdC0REckSzDSY7NCMG0oyO0UisLD/Pw7fl+iNAfATRgB",
+      "thinking": "I'm sorting the causes into order: the symptom first, then the ZeroDivisionError, with the purchases-count divide staying last. The two middle steps are the different request path and why that path errored, so the sequence comes out as 1, 2, 3, 4 and is already correct.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_019bFPaWTvSKVK87WVxUjc3o",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgkFikhajNeXa9YwXMnD1",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1276
+    },
+    "cache_creation_input_tokens": 1276,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 198,
+    "output_tokens_details": {
+      "thinking_tokens": 140
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

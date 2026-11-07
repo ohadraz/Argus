@@ -1,5 +1,6 @@
 """How it was found: when it began, when the alert fired, how long that took,
-and how long the rule waits before it fires.
+and how long the rule waits before it fires - where the lesson on detection
+does not weigh the gap against it.
 
 No gap where no onset was recorded: an alert time alone measures nothing.
 """
@@ -8,10 +9,17 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from argus_core.models import Alert, Detection, PostmortemDocument
+from argus_core import said_as_a_span
+from argus_core.models import (
+    Alert,
+    Detection,
+    PostmortemDocument,
+    TimelineMarker,
+    shorter_than_the_rules_wait,
+)
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import as_span
+from postmortem_rendering.impact import the_alert_s_own_finding
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow
 
@@ -36,41 +44,53 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
     if detection is None:
         return DetectionSection(line=None, absent="How it was detected was not recorded.")
 
+    # Where the metrics stop at the onset, what it dates is their stopping, and
+    # the service may have gone on serving as before - as the timeline says.
+    stopped = any(entry.marker is TimelineMarker.METRICS_STOP for entry in postmortem.timeline)
     if detection.onset_at:
-        runs = [Run(text="The incident on "),
+        runs = [Run(text="The metrics on " if stopped else "The incident on "),
                 Run(text=alert.service, role=Role.CODE),
-                Run(text=" began at "),
+                Run(text=" stopped at " if stopped else " began at "),
                 Run.a_moment(detection.onset_at),
                 Run(text=f". {alert.alert_name} fired at ")]
+    elif postmortem.disproven_at is not None:
+        # Not unknown: the window was read, and no minute of it departed.
+        runs = [Run(text=f"There was no onset: no minute departed from the baseline. "
+                         f"{alert.alert_name} fired at ")]
     else:
         runs = [Run(text=f"The onset is unknown. {alert.alert_name} fired at ")]
 
     runs.append(Run.a_moment(detection.alerted_at))
 
     if detection.gap is not None and detection.gap >= timedelta(0):
-        gap = f", {as_span(detection.gap)} later"
+        gap = f", {said_as_a_span(detection.gap)} later"
     elif detection.gap is not None:
         # The sender dates the alert and Argus measures the onset, and the two
         # can cross: a rule with no wait fires on the first minute that departs.
-        gap = f", {as_span(-detection.gap)} before the measured onset"
+        gap = f", {said_as_a_span(-detection.gap)} before the measured onset"
     else:
         gap = ""
 
-    if said_after := gap + _the_rules_wait(detection):
+    if said_after := gap + _the_rules_wait(detection,
+                                           weighed=postmortem.detection_lesson is not None):
         runs.append(Run(text=said_after))
 
     runs.append(Run(text="."))
 
-    said = detection.said
+    # An alert's own finding is the measure of the damage, and Impact says it
+    # under the label it is cited by: a row here would say it again.
+    said = detection.said if the_alert_s_own_finding(alert) is None else None
     return DetectionSection(line=Line(runs=tuple(runs)), absent=None,
                             said=(EvidenceRow(label=said.label,
                                               said=Line(runs=(Run(text=said.text),)))
                                   if said is not None else None))
 
 
-def _the_rules_wait(detection: Detection) -> str:
+def _the_rules_wait(detection: Detection, weighed: bool) -> str:
     """How long the rule's condition must hold before it fires, said beside the
-    gap and never inside it - and nothing where no rule paged.
+    gap and never inside it - and nothing where no rule paged, or where the
+    lesson on detection weighs the gap against it (`weighed`), with every other
+    part the rule spends: said here as well, a page told the wait twice.
 
     A rule fires only once its condition has held for its wait, so an alert
     fewer minutes after the onset than that claims the condition held before
@@ -94,14 +114,12 @@ def _the_rules_wait(detection: Detection) -> str:
     if not waits:
         return " - its rule fires as soon as its condition holds"
 
-    shorter = (f" - shorter than the {as_span(waits)} its rule's condition must hold "
-               f"before it fires")
     if detection.gap is not None and timedelta(0) <= detection.gap < waits:
-        if detection.held_before_the_onset is True:
-            return f"{shorter}, so the condition held before the measured onset"
-        if detection.held_before_the_onset is False:
-            return (f"{shorter}, though not every minute of that wait before the measured "
-                    f"onset met it")
-        return shorter
+        shorter = shorter_than_the_rules_wait(said_as_a_span(waits),
+                                              detection.held_before_the_onset)
+        return f" - {shorter}"
 
-    return f" - its rule fires only once its condition has held for {as_span(waits)}"
+    if weighed:
+        return ""
+
+    return f" - its rule fires only once its condition has held for {said_as_a_span(waits)}"

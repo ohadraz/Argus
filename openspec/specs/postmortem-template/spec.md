@@ -14,7 +14,7 @@ was composed. Its sections SHALL follow Google's example postmortem in this
 order: Summary, Impact, Root cause and contributing factors, Hypotheses
 considered, Trigger, Resolution, Detection, Action items, Lessons learned,
 Timeline, What people told Argus,
-Cost of the response, Supporting information, Review checklist. A section with
+Response effort, Supporting information, Review checklist. A section with
 nothing to say SHALL say so rather than be left out, except What people told
 Argus, which an incident nobody wrote in has none of.
 
@@ -91,7 +91,11 @@ none was established.
 
 Resolution SHALL list every action taken, in order, with its time, the action
 in the narration's words, who took it, whether it can be undone, and what it
-came to, including whether it still stands. A person's resolution SHALL appear
+came to, including whether it still stands - and, in its place among them,
+every refusal to act, in the narration's words, with nothing to put back, as
+not taken, and under no label, since no prose cites it as an action. A
+refusal SHALL NOT be what the document says ended the incident: nothing was
+done in it. A person's resolution SHALL appear
 with their name, channel, time and note, read from the record when the
 document is shown, since it can arrive after the document was written.
 
@@ -99,6 +103,12 @@ document is shown, since it can arrive after the document was written.
 - **WHEN** Argus turned a flag off and the recovery was confirmed
 - **THEN** Resolution lists it as Argus's, reversible, recovered and still in
   place
+
+#### Scenario: A refusal to act
+- **WHEN** the gate refused the one action that would answer the cause, since
+  it would undo a change made on purpose
+- **THEN** Resolution lists the refusal in its place among the actions, as not
+  taken, and the head does not say it ended the incident
 
 #### Scenario: A person resolved it afterwards
 - **GIVEN** an escalated incident whose postmortem is written
@@ -172,17 +182,25 @@ SHALL be present.
 ### Requirement: The timeline is the narration with four markers
 
 Timeline SHALL be the incident's narration, in order, in UTC, with four
-markers placed by code: IMPACT BEGINS at the onset, DETECTED at the alert,
-MITIGATED at the first action whose recovery was confirmed, and IMPACT ENDS at
-the recovery. A marker whose time is unknown SHALL be left out.
+markers placed by code: IMPACT BEGINS at the onset - METRICS STOP there
+instead, where the metrics carry no minute from the onset on, since the onset
+then dates the metrics stopping and not the service being hurt - DETECTED at the
+alert, MITIGATION APPLIED on the line that took the first action whose recovery
+was confirmed, and IMPACT ENDS at the recovery. A marker whose time is unknown
+SHALL be left out.
 
 #### Scenario: All four markers
 - **WHEN** a postmortem is written for an incident Argus mitigated
 - **THEN** its timeline carries the four markers at those times
 
-#### Scenario: An escalated incident has no MITIGATED
+#### Scenario: An escalated incident has no MITIGATION APPLIED
 - **WHEN** a postmortem is written for an incident nothing mitigated
-- **THEN** its timeline carries no MITIGATED marker
+- **THEN** its timeline carries no MITIGATION APPLIED marker
+
+#### Scenario: Metrics that stop at the onset are marked as stopping
+- **WHEN** a postmortem is written for an incident whose metrics carry no minute
+  from the onset on
+- **THEN** its timeline carries METRICS STOP at the onset, and no IMPACT BEGINS
 
 ### Requirement: Supporting information holds the links and the evidence
 
@@ -258,12 +276,13 @@ be stored at the precision it was computed to.
 ### Requirement: No pay-band figure appears in the document
 
 No figure from which a pay band can be read SHALL appear in the document:
-neither a band's endpoints nor the response cost's range. The assumptions SHALL
-say the cost was priced at the midpoint of each title's band, without its
-figures.
+neither a band's endpoints nor the response cost's range. How the response was
+priced - the working year and the band's midpoint - SHALL be stored beside the
+cost and never stated among the document's assumptions.
 
 #### Scenario: A priced response
 - **GIVEN** a responder priced at a band of 190000 to 250000 USD a year
 - **WHEN** the postmortem is written and shown
-- **THEN** neither endpoint, nor the range of the cost, appears in it
+- **THEN** neither endpoint, nor the range of the cost, nor how it was priced,
+  appears in it
 

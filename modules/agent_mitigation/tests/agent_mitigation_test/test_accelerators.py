@@ -79,6 +79,24 @@ def test_a_pod_placed_within_a_minute_of_the_onset_counts_as_placed_at_it(
 
 
 @pytest.mark.unit
+def test_a_placement_read_against_the_alarms_minute_pins_nothing() -> None:
+    # A pin answers a replica moved as the incident began. Where nothing dates
+    # the incident, the minute is the alarm's own, and a pod placed then was
+    # placed as the alarm went off - so the same placement that pins
+    # against an onset pins nothing here.
+    Scenario() \
+        .given(
+            a_placement := _placed(
+                _a_pod_on(THE_FLEETS_CARD, LONG_BEFORE_THE_ONSET),
+                _a_pod_on(THE_FLEETS_CARD, LONG_BEFORE_THE_ONSET),
+                _a_pod_on(ANOTHER_CARD, JUST_BEFORE_THE_ONSET)
+            ).model_copy(update={"against_the_alarm": True})
+        ) \
+        .when(lambda: the_accelerator_to_pin_to(a_placement)) \
+        .then(_the_card_to_pin_to_is(None))
+
+
+@pytest.mark.unit
 def test_a_pod_placed_at_the_onset_on_the_fleets_own_card_pins_nothing() -> None:
     # Two pods moved at the onset, one onto the other card and one onto the
     # fleet's. The second is evidence that a reschedule onto the fleet's card is

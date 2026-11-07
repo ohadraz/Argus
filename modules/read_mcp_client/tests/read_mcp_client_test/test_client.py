@@ -8,11 +8,21 @@ from typing import NamedTuple
 import pytest
 from argus_core import ReadMcpEndpoint, get_settings, parse_iso
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, RuleReading
-from argus_testkit.assertions import Assertion, all_of
+from argus_core.models import (
+    ChangeEvent,
+    CodeOutsideThePatch,
+    CodeUse,
+    MetricBucket,
+    PodPlacement,
+    RuleLine,
+    RuleReading,
+)
+from argus_testkit.assertions import Assertion, all_of, the_answer_was
 from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import (
+    branch_contains_revision,
     get_change_events,
+    get_code_outside_the_patch,
     get_log_lines,
     get_metrics_summary,
     get_placements,
@@ -43,6 +53,9 @@ from read_mcp_client_test.framework.builders import (
     a_metric_at,
     an_iso_minute,
 )
+
+SOME_BRANCH = "main"
+SOME_REVISION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
 
 
 @pytest.mark.integration
@@ -196,7 +209,8 @@ def test_the_paging_rules_series_reaches_the_caller_through_the_client(
             ))
         ) \
         .then(
-            _every_bucket_carried(RuleReading(value=0.41, worse_when="below"))
+            _every_bucket_carried(RuleReading(value=0.41, worse_when="below",
+                                              line=RuleLine(at=0.8, fires_on_it=False)))
         )
 
 
@@ -236,6 +250,93 @@ def test_where_the_replicas_run_reaches_the_caller_through_the_client(
                 started_at=datetime(2026, 10, 7, 21, 40, 30, tzinfo=UTC)
             )])
         )
+
+
+@pytest.mark.integration
+def test_whether_the_branch_contains_a_revision_reaches_the_caller_through_the_client(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    # Held, rather than the `False` a lost answer would read as: Code-Fix is
+    # told the files it reads are not the files that ran only when they are not.
+    Scenario() \
+        .given(
+            calling(_github_compares(running_read_mcp, {
+                f"{SOME_REVISION}...{SOME_BRANCH}": "ahead"
+            }))
+        ) \
+        .when(
+            _asking_the_server(lambda client: branch_contains_revision(
+                SOME_BRANCH, SOME_REVISION, client=client
+            ))
+        ) \
+        .then(
+            _the_branch_contains_it()
+        )
+
+
+@pytest.mark.integration
+def test_the_code_outside_a_patch_reaches_the_caller_through_the_client(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    # The patch crosses the protocol one way, whole files keyed by path, and the
+    # rows and the map of names to files cross it back - the half no unit test
+    # reaches: a row lost on the way is a use of what changed that nobody hears of.
+    some_ledger = "src/io_shop/ledger.py"
+    some_summary = "src/io_shop/summary.py"
+
+    Scenario() \
+        .given(
+            calling(_github_archives(running_read_mcp, {
+                some_ledger: "def record(account, price):\n"
+                             "    return replace(account, total=account.total + price)\n",
+                some_summary: "def average(account, count):\n"
+                              "    return account.month // count\n"
+            }))
+        ) \
+        .when(
+            _asking_the_server(lambda client: get_code_outside_the_patch(
+                {some_ledger: "def record(account, price):\n"
+                              "    return replace(account, total=account.total + price, "
+                              "month=account.month + price)\n"},
+                SOME_BRANCH,
+                client=client
+            ))
+        ) \
+        .then(
+            the_answer_was(CodeOutsideThePatch(
+                uses=[CodeUse(name="month", path=some_summary, line=2, function="average",
+                              does="divides with it: account.month // count")],
+                defined={"average": [some_summary]}
+            ))
+        )
+
+
+def _github_archives(handler: type[FakeTargetServiceHandler],
+                     files: dict[str, str]) -> Callable[[], None]:
+    def step() -> None:
+        handler.archive = files
+
+    return step
+
+
+def _github_compares(handler: type[FakeTargetServiceHandler],
+                     comparisons: dict[str, str]) -> Callable[[], None]:
+    def step() -> None:
+        handler.comparisons = comparisons
+
+    return step
+
+
+def _the_branch_contains_it() -> Assertion[bool]:
+    def assertion(contained: bool) -> bool:
+        if contained is not True:
+            raise AssertionError(
+                f"Expected the branch to contain the revision, and the caller got {contained}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_platform_places(handler: type[FakeTargetServiceHandler],

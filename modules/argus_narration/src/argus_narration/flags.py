@@ -9,6 +9,7 @@ something about `legacy-checkout-fallback` that is exactly backwards.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Final
 
 from argus_core.models import FlagChange
@@ -49,12 +50,14 @@ class FlagToggleRow(BaseModel):
     latest_for_flag: bool = False
 
 
-def a_flag_history(toggles: list[FlagChange]) -> list[FlagToggleRow]:
-    """The recorded toggles, each said as the move it was."""
+def a_flag_history(toggles: Sequence[tuple[FlagChange, str]]) -> list[FlagToggleRow]:
+    """The recorded toggles, each said as the move it was - and when it was
+    made against the moment of the line that read it, as a change read is, so
+    a toggle made on another day keeps its date."""
     return _with_the_latest_marked([
         FlagToggleRow(
             flag=toggle.flag,
-            when=a_moment(toggle.occurred_at),
+            when=a_moment(toggle.occurred_at, beside=read_at),
             # The state before a change is the other one. Not an assumption
             # about production but the meaning of the record: the provider
             # writes one of these when a flag's state changes, so a flag that
@@ -63,7 +66,7 @@ def a_flag_history(toggles: list[FlagChange]) -> list[FlagToggleRow]:
             now=on_or_off(toggle.enabled),
             actor=toggle.actor
         )
-        for toggle in toggles
+        for toggle, read_at in toggles
     ])
 
 

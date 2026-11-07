@@ -15,6 +15,7 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    DeploymentChanges,
     FailureMode,
     Hypothesis,
     Meaning,
@@ -23,6 +24,8 @@ from argus_core.models import (
     PodPlacement,
     ReportChannel,
     RetrievalChannel,
+    RolloutAccount,
+    RolloutProgress,
     RuleReading,
     ServiceDependency,
     ThreadMessage,
@@ -35,7 +38,10 @@ from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 
 from tests.framework.assertions import the_cause_was_identified_as
-from tests.framework.investigating import the_configured_thresholds
+from tests.framework.investigating import (
+    the_configured_thresholds,
+    what_the_read_tier_offers_the_investigator,
+)
 from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
@@ -500,22 +506,23 @@ DEPLOYED_LONG_BEFORE_THE_ONSET = -40
 THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY = "696c33a"
 THE_REVISION_STILL_SERVING = "5470c1a"
 
-# What the rollout channel answers. Prose rather than a shape, because that is
-# what the channel returns: a replica count, two revisions, whether the update
-# is paused, and when the state began.
-A_ROLLOUT_STOPPED_HALF_WAY = [
-    f"Deployment of io-shop has not converged: 3 of 6 replicas are running "
-    f"revision [{THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY}], and 3 are still "
-    f"running revision [{THE_REVISION_STILL_SERVING}].",
-    "Its rolling update is paused, so the platform is not converging it on its "
-    "own.",
-    "The revision it is converging on was deployed at 2026-08-20T11:05:00Z, "
-    "which is when the replicas first differed."
-]
-A_CONVERGED_DEPLOYMENT = [
-    "Deployment of io-shop has converged: all 3 replicas are running revision "
-    "[a3f9c21], deployed at 2026-08-20T11:05:00Z."
-]
+# What the rollout channel answers: the counts, the revision going out and the
+# one before it, each with when it was deployed. The model reads it in the
+# Investigator's words, written from these - the same words this eval staged
+# when the channel answered in prose.
+A_ROLLOUT_STOPPED_HALF_WAY = RolloutAccount(
+    progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=3,
+                             is_paused=True),
+    going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-20T11:05:00Z",
+                          reference=THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY,
+                          summary="dont care"),
+    before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-20T10:05:00Z",
+                          reference=THE_REVISION_STILL_SERVING, summary="dont care"))
+A_CONVERGED_DEPLOYMENT = RolloutAccount(
+    progress=RolloutProgress(replicas_wanted=3, replicas_serving=3, replicas_updated=3),
+    going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-20T11:05:00Z",
+                          reference="a3f9c21", summary="dont care"),
+    before_it=None)
 
 # What the deployment carried. A stored shape that changed, with no read path
 # kept for the old one - which is the missing expand step of an expand-contract
@@ -991,7 +998,7 @@ def test_an_onset_that_is_only_a_lower_bound_is_read_past() -> None:
 def test_data_that_went_wrong_silently_is_told_from_a_flag_that_broke_the_service() -> None:
     # The fourth matched pair, and the one whose halves share the most. Its twin
     # is `test_a_flag_that_was_toggled_on_is_identified`: both stage a flag
-    # switched on, both are answered by putting the same flag back, and a model
+    # switched on, both are answered by reverting the same flag, and a model
     # that reads "flag on, then trouble" gets both wrong in the same breath.
     #
     # Two things separate them, and both are readable. The window holds no
@@ -1312,8 +1319,8 @@ class Incident:
     # same kind of fact as the two above, for the third pair that arrives
     # identically: a revision that is wrong and a revision that reached half the
     # fleet are one deploy at the onset either way, and only this separates them.
-    # Empty for every case where no rollout decides anything.
-    rollout: list[str] = field(default_factory=list)
+    # None for every case where no rollout decides anything.
+    rollout: RolloutAccount | None = None
     # Where the service's pods ran, as the platform would answer. Calm rather
     # than empty for every case that stages nothing, because production always
     # reads one - and an empty placement says the service runs on no pod.
@@ -1715,7 +1722,7 @@ def an_incident_where_the_cache_fell_behind_the_ledger() -> Incident:
     The alert says which side disagreed. A ledger that agrees with itself and
     copies that do not is a stale copy; a stored total that disagrees with the
     purchases behind it is a wrong record. The mitigations are opposites -
-    throw the copies away, or put back whatever started writing the wrong
+    throw the copies away, or revert whatever started writing the wrong
     number - so the wrong answer here reaches an action that repairs nothing.
 
     And the change channel holds no flag. The twin's cause is a toggle a week
@@ -2071,8 +2078,7 @@ def a_deploy_at(offset_minutes: int, revision: str, summary: str) -> ChangeEvent
         occurred_at=_minute(offset_minutes),
         reference=revision,
         summary=summary,
-        actor="release-bot",
-        source="https://github.com/acme/k8s-configs/apps/checkout/production"
+        actor="release-bot"
     )
 
 
@@ -2178,7 +2184,7 @@ def _a_window_where_the_capacity_kept_moving() -> list[MetricBucket]:
     one number the load outgrew, and here it takes two - the controller adds
     replicas on a saturated minute, the minute after is still served at the old
     size while they warm, and the third runs at the larger size and reports a
-    fraction of its target, which the controller answers by taking them back.
+    fraction of its target, which the controller answers by scaling them back down.
 
     So the traffic ramps exactly as its twin's does and stops at the same place.
     What a reader has to notice is that `cpu_limit_cores` is not the same number in
@@ -2300,7 +2306,7 @@ def _an_incident(alert: Alert,
                  changes: list[ChangeEvent],
                  dependencies: list[ServiceDependency] | None = None,
                  what_each_deployment_changed: dict[str, list[str]] | None = None,
-                 rollout: list[str] | None = None,
+                 rollout: RolloutAccount | None = None,
                  placement: list[PodPlacement] | None = None
                  ) -> Incident:
     return Incident(alert=alert, buckets=buckets, log_lines=log_lines,
@@ -2308,7 +2314,7 @@ def _an_incident(alert: Alert,
                     what_each_deployment_changed=(
                         what_each_deployment_changed or {}
                     ),
-                    rollout=rollout or [],
+                    rollout=rollout,
                     placement=placement or a_calm_placement())
 
 
@@ -2332,7 +2338,7 @@ def _the_register_for(incident: Incident) -> Callable[[str], list[ServiceDepende
 
 
 def _what_a_deployment_changed_for(incident: Incident
-                                  ) -> Callable[[str, str], list[str]]:
+                                  ) -> Callable[[str, str], DeploymentChanges]:
     """What the fixture records a deployment as having changed.
 
     Per incident like the register, and evidence for the same reason: two causes
@@ -2343,12 +2349,15 @@ def _what_a_deployment_changed_for(incident: Incident
     than answered emptily. "This deployment changed nothing" rules a deployment
     out, and a case that simply has no diff staged would otherwise rule out the
     deployment it staged.
+
+    Never as listing every file: the fixture's lines are what the case needs
+    the model to see, not a comparison of two revisions.
     """
-    def fetch(dont_care_service: str, revision: str) -> list[str]:
-        return incident.what_each_deployment_changed.get(revision) or [
+    def fetch(dont_care_service: str, revision: str) -> DeploymentChanges:
+        return DeploymentChanges(said=incident.what_each_deployment_changed.get(revision) or [
             f"This evaluation records nothing about what the deployment of "
             f"[{revision}] changed, so take it as unread rather than as empty."
-        ]
+        ], lists_every_file=False)
 
     return fetch
 
@@ -2367,7 +2376,7 @@ def _the_placement_of(incident: Incident) -> Callable[[str], list[PodPlacement]]
     return fetch
 
 
-def _the_rollout_of(incident: Incident) -> Callable[[str], list[str]]:
+def _the_rollout_of(incident: Incident) -> Callable[[str], RolloutAccount]:
     """How far the fixture records this incident's deployment as having got.
 
     Per incident like the register and the diff, and evidence for the same
@@ -2375,15 +2384,17 @@ def _the_rollout_of(incident: Incident) -> Callable[[str], list[str]]:
     at once is whether the deployment converged, so which is correct for a set
     of metrics is decided here and nowhere else.
 
-    An incident that records nothing is answered as unread rather than as
+    An incident that records nothing is refused rather than answered as
     converged. "It converged" rules a failure mode out, so a default that said
-    it would hand every case a finding no fixture made.
+    it would hand every case a finding no fixture made - and the channel
+    answers with a value, which has no way to say "unread".
     """
-    def fetch(dont_care_service: str) -> list[str]:
-        return incident.rollout or [
-            "This evaluation records nothing about how far this deployment got, "
-            "so take the rollout as unread rather than as finished."
-        ]
+    def fetch(dont_care_service: str) -> RolloutAccount:
+        if incident.rollout is None:
+            raise LookupError(
+                "this evaluation records nothing about how far this deployment got")
+
+        return incident.rollout
 
     return fetch
 
@@ -2439,6 +2450,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             leads=lambda: list(incident.leads),
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
+            read_tier_tools=what_the_read_tier_offers_the_investigator,
             converse=speak,
             budget=spend
         )
@@ -2570,7 +2582,9 @@ def the_configuration_under_test() -> Configuration:
             # so the digest is about the content rather than about dictionary
             # order.
             "tools": json.dumps(
-                [offered.to_wire() for offered in investigator_tools()],
+                [offered.to_wire() for offered in investigator_tools(
+                    what_the_read_tier_offers_the_investigator()
+                )],
                 sort_keys=True
             )
         })
@@ -2909,9 +2923,7 @@ def a_flag_switched_off_at(offset_minutes: int, flag: str) -> ChangeEvent:
         occurred_at=_minute(offset_minutes),
         reference=flag,
         summary=f"feature flag '{flag}' switched from 'on' to 'off'",
-        actor="ops-console",
-        source="https://flags.acme.internal/projects/default/features/"
-               f"{flag}"
+        actor="ops-console"
     )
 
 
@@ -2927,9 +2939,7 @@ def a_flag_change_at(offset_minutes: int, flag: str) -> ChangeEvent:
         occurred_at=_minute(offset_minutes),
         reference=flag,
         summary=f"feature flag '{flag}' switched from 'off' to 'on'",
-        actor="ops-console",
-        source="https://flags.acme.internal/projects/default/features/"
-               f"{flag}"
+        actor="ops-console"
     )
 
 

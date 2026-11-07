@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any, Final
 
 from argus_core.events import StatusChanged
-from argus_core.models import IncidentStatus
+from argus_core.models import IncidentStatus, Meaning
 from argus_incidents import EndedByAPerson, WaitForPeople
 
 from orchestrator.walk.deltas import StateDelta
@@ -96,19 +96,28 @@ def with_status(
     `stops_for` is which endings stop this node, and it is every person's
     ending for every node but one. The postmortem stops only for a withdrawal:
     a person who reported the incident resolved is owed the write-up, and the
-    person who took it back is not waiting to be told what Argus made of it.
+    person who withdrew it is not waiting to be told what Argus made of it.
     A node that runs on an incident a person already ended moves it nowhere -
     the row says how it ended, and nothing the node did changes that.
 
-    Once a step is done and its status written, the walk waits for anybody
-    Argus has asked to confirm the incident is over (`wait_for_people`) - after
-    the step rather than before the next, so the press the wait was for is
-    heard before the next step is even chosen, and that step is never entered.
-    Here for the reason the ending is asked here: every node passes through, so
-    no step can follow another while a person is being asked. A wait that
-    waited asks the ending again. The default waits for nobody, for the cases
-    about everything else and for the postmortem, after which there is no step
-    to hold off; the graph hands every other node the real one.
+    Once a step is done, the walk waits for anybody Argus has asked to confirm
+    the incident is over (`wait_for_people`) - after the step rather than
+    before the next, so the press the wait was for is heard before the next
+    step is even chosen, and that step is never entered. And before the step's
+    status is written rather than after: a move to act, written while a
+    person's report waits, is announced on the page and in the thread after
+    they said it was over, and reads as Argus pressing on regardless of them.
+    A wait the person's press ended moves the incident nowhere - their ending
+    is the row's. A move that takes away an ending a person could have been
+    offered is the exception, and is written first: the wait reads the row to
+    decide whether an offer still stands, and a row left at `mitigating` while a
+    confirmed mitigation waits would let a press withdraw it - the unwind
+    putting the failure back. Here for the reason the ending is asked here:
+    every node passes through, so no step can follow another while a person is
+    being asked. A wait that waited asks the ending again. The default waits
+    for nobody, for the cases about everything else and for the postmortem,
+    after which there is no step to hold off; the graph hands every other node
+    the real one.
 
     The answer is reported into the state rather than swallowed. A node that
     quietly did nothing leaves every field as it was, and the routers decide
@@ -119,22 +128,6 @@ def with_status(
     already says it, and whoever ended the incident recorded that.
     """
     def run(state: IncidentState) -> dict[str, Any]:
-        updates = stepped(state)
-
-        # A step that ended the walk has nobody to wait for: the person's
-        # ending is already its answer.
-        if updates.get("status") in stops_for or not wait_for_people(state.incident_id):
-            return updates
-
-        ending = ended_by_a_person(state.incident_id)
-
-        if ending in stops_for:
-            logger.info("ended by a person while the walk waited", extra={"ending": ending})
-            return {**updates, "status": ending}
-
-        return updates
-
-    def stepped(state: IncidentState) -> dict[str, Any]:
         ending = ended_by_a_person(state.incident_id)
 
         if ending in stops_for:
@@ -160,8 +153,49 @@ def with_status(
         if ending is not None:
             return updates
 
-        narration = delta.narration
         next_status = status_after(state.model_copy(update=updates), max_rounds)
+
+        if not _takes_an_ending_away(state.status, next_status):
+            ending = ended_while_waiting(state.incident_id)
+
+            if ending is not None:
+                return {**updates, "status": ending}
+
+            return moved(state, next_status, delta, updates)
+
+        # Written before the wait, because the wait reads the row to decide
+        # whether an offer still stands: left at the status before, it would
+        # hold open an ending this move takes away.
+        updates = moved(state, next_status, delta, updates)
+
+        # A refused move already carries the person's ending.
+        if updates["status"] in stops_for:
+            return updates
+
+        ending = ended_while_waiting(state.incident_id)
+
+        return updates if ending is None else {**updates, "status": ending}
+
+    def ended_while_waiting(incident_id: str) -> IncidentStatus | None:
+        """The ending a person gave while the walk waited for them, or `None`
+        where nobody was waited for or nobody ended it."""
+        if not wait_for_people(incident_id):
+            return None
+
+        ending = ended_by_a_person(incident_id)
+
+        if ending not in stops_for:
+            return None
+
+        logger.info("ended by a person while the walk waited", extra={"ending": ending})
+
+        return ending
+
+    def moved(state: IncidentState, next_status: IncidentStatus, delta: StateDelta,
+              updates: dict[str, Any]) -> dict[str, Any]:
+        """The status the step implies, written with the line saying why -
+        or the updates as they were where it implies none."""
+        narration = delta.narration
 
         if next_status == state.status:
             return updates
@@ -207,3 +241,12 @@ def with_status(
         return {**updates, "status": next_status}
 
     return run
+
+
+def _takes_an_ending_away(before: IncidentStatus, after: IncidentStatus) -> bool:
+    """Whether moving from `before` to `after` refuses an ending a person could
+    have been offered at `before` - a withdrawal once a mitigation held, a
+    resolution once the alarm was disproven."""
+    return any(before.accepts_what_was_asked(meaning)
+               and not after.accepts_what_was_asked(meaning)
+               for meaning in Meaning)

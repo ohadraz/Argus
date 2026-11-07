@@ -28,7 +28,7 @@ from argus_testkit import (
     the_error_mentioned,
 )
 from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
-from metrics_source.prometheus_adapter import buckets_between
+from metrics_source.prometheus_adapter import buckets_between, is_a_latency, is_the_error_rate
 
 # Prometheus's own vocabulary, spelled out here rather than shared with the
 # module under test: the assertion is that Argus speaks *these* words, and a
@@ -191,6 +191,67 @@ def test_a_series_a_service_does_not_expose_is_reported_as_absent() -> None:
         ) \
         .then(
             _the_only_bucket_left_absent(not_exposed)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("field", "answered"), [
+    ("p95_ms", "NaN"),
+    ("p95_ms", "+Inf"),
+    ("error_rate", "NaN")
+], ids=["a-quantile-nothing-was-observed-by", "a-latency-of-infinity",
+        "a-ratio-over-no-requests"])
+def test_a_minute_a_needed_reading_of_which_is_no_number_is_not_reported(field: str,
+                                                                        answered: str) -> None:
+    # Prometheus's arithmetic is IEEE 754's: a summary nothing was observed by
+    # exports NaN for every quantile, and a ratio over a minute with no requests
+    # answers NaN. A latency of that failed the whole window's read, rounded to
+    # a whole number; an error rate of it was judged, and NaN compares false
+    # with every line. No number is no reading, and the minute is one missing it.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    the_next_minute = some_minute + timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            samples := {
+                **{query: [(_the_end_of(some_minute), "1"), (_the_end_of(the_next_minute), "1")]
+                   for query in QUERY_FOR.values()},
+                QUERY_FOR[field]: [(_the_end_of(some_minute), "1"),
+                                   (_the_end_of(the_next_minute), answered)]
+            }
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, the_next_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=_a_prometheus_answering(samples))
+        ) \
+        .then(
+            _the_buckets_were_for(["2026-10-04T12:00:00Z"])
+        )
+
+
+@pytest.mark.unit
+def test_a_reading_that_is_no_number_where_a_series_may_be_absent_is_absent() -> None:
+    # A cache that served nothing in a minute has no hit ratio for it, and
+    # absent is what `None` says - not a ratio nobody can compare.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering({
+                **_every_fixed_query_answering_for(some_minute),
+                QUERY_FOR["cache_hit_ratio"]: [(_the_end_of(some_minute), "NaN")]
+            })
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus)
+        ) \
+        .then(
+            _the_only_bucket_left_absent(["cache_hit_ratio"])
         )
 
 
@@ -370,6 +431,35 @@ def test_a_rules_query_prometheus_refuses_leaves_the_fixed_window_intact() -> No
 
 
 @pytest.mark.unit
+def test_a_rules_reading_that_is_no_number_leaves_its_minute_without_one() -> None:
+    # NaN is clear of a rule firing above its line and past one firing below,
+    # since it compares false with both - a verdict nobody measured.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "avg(categoriser_confident_ratio)"
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering({
+                **_every_fixed_query_answering_for(some_minute),
+                some_rule_query: [(_the_end_of(some_minute), "NaN")]
+            })
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
+        ) \
+        .then(
+            all_of(
+                _the_buckets_were_for(["2026-10-04T12:00:00Z"]),
+                _every_bucket_carried(None)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_rules_query_with_no_samples_leaves_every_minute_without_a_reading() -> None:
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
     some_rule_query = "avg(categoriser_confident_ratio)"
@@ -492,6 +582,41 @@ def test_a_rules_query_answered_in_several_series_is_logged_as_a_warning(
                                   "rule query matched several series",
                                   values={"query": some_rule_query, "series": 2})
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("query", "expected"), [
+    (QUERY_FOR["error_rate"], True),
+    ('sum(rate(http_requests_total{code=~"5.."}[1m]))\n  /\n  sum(rate(http_requests_total[1m]))',
+     True),
+    (QUERY_FOR["p95_ms"], False)
+])
+def test_a_query_is_the_error_rate_only_where_it_is_the_one_asked_for_it(query: str,
+                                                                        expected: bool) -> None:
+    # A rule over the error rate itself pages on the figure the postmortem
+    # already gives as the error rate, and said twice it is a repeat. Laid out
+    # differently it is the same query - PromQL reads nothing into spaces.
+    Scenario() \
+        .when(lambda: is_the_error_rate(query)) \
+        .then(the_answer_was(expected))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("query", "expected"), [
+    (QUERY_FOR["p50_ms"], True),
+    (QUERY_FOR["p95_ms"], True),
+    ('max(http_request_duration_seconds{quantile="0.99"})\n  * 1000', True),
+    (QUERY_FOR["error_rate"], False),
+    (QUERY_FOR["memory_used_bytes"], False)
+])
+def test_a_query_is_a_latency_only_where_it_is_one_asked_for_a_quantile(query: str,
+                                                                       expected: bool) -> None:
+    # A rule over a latency pages on how long requests took, which is what the
+    # postmortem gives as the latency - said beside the rule's own series, it
+    # is said twice. Laid out differently it is the same query.
+    Scenario() \
+        .when(lambda: is_a_latency(query)) \
+        .then(the_answer_was(expected))
 
 
 def _every_fixed_query_answering_for(minute: datetime) -> dict[str, list[tuple[float, str]]]:

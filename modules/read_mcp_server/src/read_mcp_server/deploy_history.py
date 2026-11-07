@@ -94,12 +94,7 @@ def _a_deploy_from(record: DeploymentRecord) -> ChangeEvent:
         summary=_what_it_shipped(record.revision, record.repo_url, record.path),
         actor=record.initiated_by,
         revision_source=(where_to_read(record.repo_url, record.revision, record.path)
-                         if record.repo_url else None),
-        source=(
-            f"{record.repo_url}/{record.path}"
-            if record.repo_url and record.path
-            else record.repo_url
-        ),
+                         if record.repo_url else None)
     )
 
 

@@ -26,7 +26,7 @@ from unittest.mock import call, create_autospec
 
 import pytest
 from agent_postmortem import EngagementAnswer, NotPaged, Sources
-from argus_core import connect_from_env, get_settings
+from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
@@ -277,7 +277,8 @@ def test_a_platform_that_cannot_be_read_while_finding_its_incident_cannot_say(
 def _an_incident_known_as(reference: Reference) -> str:
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, Alert(service="kuki-service",
-                                                   alert_name="HighErrorRate"))
+                                                   alert_name="HighErrorRate"),
+                                                   at=utc_now())
         references.add(conn, incident_id, [reference])
         conn.commit()
 

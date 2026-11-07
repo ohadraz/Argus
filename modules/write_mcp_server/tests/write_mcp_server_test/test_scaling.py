@@ -57,12 +57,26 @@ from write_mcp_server.scaling import (
     scale_out,
 )
 
+from write_mcp_server_test.framework.refusals import (
+    it_is_marked_unreachable,
+    it_left_behind,
+    it_was_refused_as,
+    what_it_left_is_known,
+)
+
 SOME_APPLICATION = "io-shop"
 
 # What the deployment is running when anybody looks, and what one doubling of it
 # comes to. Three is the size the fixture's own values file asks for.
 THE_COUNT_RUNNING = 3
 TWICE_THAT = 6
+
+# What a scale-out leaves where it suspended the sync and the count never moved.
+THE_SUSPENSION = ReplicaUndo(
+    application=SOME_APPLICATION,
+    was_replicas=THE_COUNT_RUNNING,
+    was_syncing_itself=True
+)
 
 
 def _running(replicas: int) -> RolloutProgress:
@@ -311,9 +325,9 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
 @pytest.mark.unit
 def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachable() -> None:
     # The suspension is the first thing a scale-out changes, so a platform that
-    # will not take it has left the estate as it found it.
+    # said it did not handle it has left the estate as it found it.
     platform = a_platform()
-    platform.suspend_sync.side_effect = PlatformUnreachable("503")
+    platform.suspend_sync.side_effect = PlatformUnreachable("503", known_not_applied=True)
 
     Scenario() \
         .given(platform) \
@@ -327,7 +341,9 @@ def test_a_platform_that_died_before_a_scale_out_that_changed_nothing_is_unreach
     # the first write - and a platform that stopped answering before it took
     # nothing with it.
     platform = a_platform(reconciling_itself=False)
-    platform.scale.side_effect = PlatformUnreachable("no route to host")
+    platform.scale.side_effect = PlatformUnreachable(
+        "no route to host", known_not_applied=True
+    )
 
     Scenario() \
         .given(platform) \
@@ -343,18 +359,102 @@ def test_a_scale_out_that_left_sync_suspended_says_so_and_still_reports_the_plat
     # the failure, so the walk can narrow itself and still know an application is
     # sitting un-reconciled.
     platform = a_platform(reconciling_itself=True)
-    platform.scale.side_effect = PlatformUnreachable("no route to host")
+    platform.scale.side_effect = PlatformUnreachable(
+        "no route to host", known_not_applied=True
+    )
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _scaling_out(platform))) \
         .then(all_of(
             _it_is_reported_as_an_unreachable_platform(),
-            _it_says_what_it_left_behind(ReplicaUndo(
-                application=SOME_APPLICATION,
-                was_replicas=THE_COUNT_RUNNING,
-                was_syncing_itself=True
-            ))
+            _it_says_what_it_left_behind(THE_SUSPENSION)
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_the_platform_would_not_give_is_known_to_have_changed_nothing() -> None:
+    # Nothing had been asked to change, so however the read failed, nothing did.
+    platform = a_platform()
+    platform.rollout_of.side_effect = PlatformRefused("the manifest has no replicas")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _scaling_out(platform))) \
+        .then(all_of(
+            it_was_refused_as(ScaleRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
+    platform = a_platform()
+    platform.is_syncing_itself.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _scaling_out(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(True),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing() -> None:
+    platform = a_platform()
+    platform.suspend_sync.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _scaling_out(platform))) \
+        .then(all_of(
+            it_was_refused_as(ScaleRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_rejected_after_sync_was_suspended_says_the_suspension_is_left() -> None:
+    # A platform that answered the scale with a no, after the suspension
+    # landed: the suspension is the whole of what is left, and it is said.
+    platform = a_platform(reconciling_itself=True)
+    platform.scale.side_effect = PlatformRefused("400", known_not_applied=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _scaling_out(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(THE_SUSPENSION)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_whose_answer_was_lost_carries_the_suspension_and_no_more() -> None:
+    # The count may be doubling this second. The suspension is carried, and
+    # nothing is said to be all of it.
+    platform = a_platform(reconciling_itself=True)
+    platform.scale.side_effect = PlatformUnreachable("timed out", known_not_applied=False)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _scaling_out(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False),
+            it_left_behind(THE_SUSPENSION)
         ))
 
 

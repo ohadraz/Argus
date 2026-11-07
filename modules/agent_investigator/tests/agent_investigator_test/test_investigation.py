@@ -27,10 +27,13 @@ from agent_investigator.retrieval import (
     PlacementFetcher,
     RolloutFetcher,
 )
-from agent_investigator.tools import DEPENDENCIES_TOOL
+from agent_investigator.tools import DEPENDENCIES_TOOL, DEPLOYMENT_DIFF_TOOL
+from agent_investigator.tools.deployments import REVISION_ARG
+from agent_investigator.tools.offer import ReadTierTools
 from argus_core import new_id, parse_iso, to_iso, to_iso_minute
 from argus_core.anomaly import THE_JUDGED_SIGNALS
 from argus_core.events import (
+    AnchoredOnTheAlarm,
     ChannelsUnread,
     HypothesisFormed,
     IncidentEvent,
@@ -53,8 +56,10 @@ from argus_core.models import (
     SCALE_OUT,
     ActionIdentity,
     AlarmClaim,
+    Alert,
     Ask,
     Attempt,
+    DeploymentChanges,
     EstablishedOnset,
     Evidence,
     HowTheMinuteIsKnown,
@@ -68,6 +73,8 @@ from argus_core.models import (
     RuleReading,
     Standing,
     ThreadMessage,
+    ToolDefinition,
+    ToolResults,
     Turn,
     Weighing,
     WorseWhen,
@@ -82,6 +89,8 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
     raising,
+    returning,
+    the_answer_was,
 )
 
 from agent_investigator_test.framework.builders.budget import (
@@ -161,6 +170,14 @@ THE_TIME_BOUND = "time"
 # reason as the bounds above: the model has to be able to act on it.
 THE_LAST_TURN_WARNING = "last turn"
 
+# What the loop says of a weighing it cannot keep for the answer: one made a
+# turn early, or beside an answer sent back. Restated for the same reason.
+THE_ASK_TO_WEIGH_AGAIN = "again in the turn"
+
+# What the last turn adds where a lead has been shown, there being no turn
+# after it to weigh in.
+THE_LAST_TURN_ASK_TO_WEIGH = "every lead"
+
 # The two turns that are not turns, as the incident record has to say them. A
 # human picking up an escalation acts differently on "it was cut off" than on
 # "it said no", so the distinction has to survive as far as the summary.
@@ -181,6 +198,8 @@ SOME_CALM_SHARE = 0.9
 # the wording the model reads, and the brief has to be talking about the same
 # mark the message makes.
 THE_ONSET_MARK = "started at the onset"
+# And of a pod placed at the alarm's minute, where nothing dated the incident.
+THE_ALARM_MARK = "started at the alarm"
 
 # What an unreadable placement is announced as. Restated because it is what a
 # person reading the timeline sees where the placement would have been.
@@ -967,7 +986,7 @@ def test_the_change_channels_are_read_at_the_stated_onset() -> None:
         ) \
         .then(
             _the_channel_was_read_up_to(
-                investigation.change_fetcher, to_iso(A_STATED_ONSET)
+                investigation.change_fetcher, to_iso(A_STATED_ONSET + timedelta(minutes=1))
             )
         )
 
@@ -1259,18 +1278,47 @@ def test_a_flat_window_with_no_stated_onset_is_still_answered_without_the_model(
 
 
 @pytest.mark.unit
-def test_a_series_alarm_over_a_window_with_no_minutes_disproves_nothing() -> None:
+def test_a_series_alarm_over_a_window_with_no_minutes_is_investigated_from_the_alarms_minute(
+) -> None:
     # The gap between the two branches above and below, and a real case rather
     # than a formality. A window that was read and holds no departure
     # contradicts a series alarm; a window with no minutes in it contradicts
     # nothing, because the retrieval answered and had nothing to say - which is
     # nearer to not having been able to see than to having seen a well service.
     #
-    # So it ends where every undated incident ended before any of this: no
-    # disproof, and no model. Both halves are asserted, because the way this
-    # breaks is the branch below reaching for an anchor it should not have - and
-    # a walk that invented one would investigate a service nothing was read
-    # about, which is what it did the one time this condition was missing.
+    # So no disproof, and no ending either. Ended here, a service nobody could
+    # see in its metrics had its deploys and its logs left unread - the two reads
+    # a person picking it up would make first. It is investigated from the one
+    # minute anybody recorded, the alarm's own, announced as where it looked
+    # from and never as when it began.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed([]))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None),
+                                              publisher=published.append)
+        ) \
+        .then(
+            all_of(
+                _nothing_was_disproven(),
+                _the_model_was_asked(investigation.model, times=1),
+                _the_anchor_published_was(published, to_iso_minute(AN_ALERT_TIME)),
+                _nothing_was_published_as_the_start(published)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_window_with_no_minutes_under_an_alert_that_never_said_when_it_fired_ends_unasked(
+) -> None:
+    # Nothing to anchor on at all: every window is anchored on a minute, the
+    # metrics offered none, and the alarm did not say when it went off. So it
+    # ends where every undated incident ended before any of this - no disproof,
+    # and no model.
     investigation = an_investigation(a_model_that_says())
 
     Scenario() \
@@ -1278,7 +1326,7 @@ def test_a_series_alarm_over_a_window_with_no_minutes_disproves_nothing() -> Non
             calling(investigation.metrics_showed([]))
         ) \
         .when(
-            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+            lambda: investigation.investigate(alert=an_alert(started_at=None, stated_onset=None))
         ) \
         .then(
             all_of(
@@ -1493,6 +1541,10 @@ def test_an_undated_finding_is_anchored_on_the_minute_the_alarm_fired_in() -> No
     # because the alternative that would also pass a vaguer check is the one
     # worth refusing: an onset invented from the window's first row, which would
     # date the incident from wherever the metrics source happens to reach back to.
+    #
+    # Announced as where the investigation looked from, and never as an onset:
+    # said as one, the page and the postmortem dated the incident from the
+    # moment the alarm went off.
     published: list[IncidentEvent] = []
     investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
 
@@ -1507,7 +1559,10 @@ def test_an_undated_finding_is_anchored_on_the_minute_the_alarm_fired_in() -> No
             )
         ) \
         .then(
-            _the_onset_published_was(published, to_iso_minute(AN_ALERT_TIME))
+            all_of(
+                _the_anchor_published_was(published, to_iso_minute(AN_ALERT_TIME)),
+                _nothing_was_published_as_the_start(published)
+            )
         )
 
 
@@ -1721,6 +1776,36 @@ def test_the_model_is_told_which_rule_the_column_is_and_which_way_is_worse(
 
 
 @pytest.mark.unit
+def test_the_rule_is_told_as_the_one_that_fired_never_as_one_that_paged() -> None:
+    # "Paged" is what happens to a person, and a rule that "paged" is how a
+    # write-up came to say the alert paged somebody of an incident nobody was
+    # paged for. A rule fires.
+    some_rule = "kuki-rule"
+    some_metrics = a_window_of(
+        [CALM_ERROR_RATE] * CALM_MINUTES + [0.09, 0.18],
+        rule_readings=[RuleReading(value=SOME_CALM_SHARE, worse_when="below")]
+        * (CALM_MINUTES + 2)
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(rule=some_rule))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model, f"the rule that fired ({some_rule})"
+                ),
+                _what_was_asked_first_avoids(investigation.model, "that paged", "what paged")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_the_rules_column_is_explained_before_the_rows_rather_than_after_them() -> None:
     # The rows are what a model scans for where a series turned, and a sentence
     # after the last of them reads as another row - one with no minute and no
@@ -1831,6 +1916,46 @@ def test_a_restart_already_tried_is_described_as_a_restart() -> None:
             _what_was_asked_first_avoids(
                 investigation.model, f"set {some_restarted_service}"
             )
+        ))
+
+
+@pytest.mark.unit
+def test_an_attempt_already_tried_says_why_it_did_not_help() -> None:
+    # "The service did not recover" was said of every attempt, and it is three
+    # different findings: the rule kept firing, the level never came down, or
+    # the window never showed the incident at all - which points the round at
+    # what was read rather than at the cause. Said as the wait judged it. Not
+    # "undid each one" either: a restart leaves nothing to undo.
+    some_restarted_service = "kuki-service"
+    some_reason = (
+        "the rule that fired was still firing when the time it allows ran out"
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(),
+                already_refuted=[
+                    Attempt(
+                        identity=ActionIdentity(
+                            action_type=RESTART_SERVICE,
+                            subject=some_restarted_service
+                        ),
+                        occurred_at="2026-08-20T11:12:00Z",
+                        refuted_because=some_reason
+                    )
+                ]
+            )
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(investigation.model, "none of them helped", some_reason),
+            _what_was_asked_first_avoids(investigation.model, "did not recover"),
+            _what_was_asked_first_avoids(investigation.model, "did not return to its baseline"),
+            _what_was_asked_first_avoids(investigation.model, "undid each one")
         ))
 
 
@@ -2221,6 +2346,32 @@ def test_the_findings_carry_the_placement_the_loop_recorded() -> None:
 
 
 @pytest.mark.unit
+def test_what_each_deployment_changed_is_handed_back_with_the_findings() -> None:
+    # Read here, by the model's own call, and decided from by the walk: a
+    # candidate blaming a file is answered by the deploy whose diff names it.
+    # Carried out as the placement is, rather than read again from the account.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_changes = DeploymentChanges(said=["modified src/io_shop/purchase_ledger.py"],
+                                     lists_every_file=True)
+    investigation = an_investigation(a_model_that_says(
+        a_turn_calling(DEPLOYMENT_DIFF_TOOL, {REVISION_ARG: some_revision}),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(returning(investigation.deployment_diff_fetcher, some_changes))
+        ) \
+        .when(
+            lambda: investigation.investigate().deployment_changes
+        ) \
+        .then(
+            the_answer_was({some_revision: some_changes})
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "an_investigation_naming_no_cause",
     [
@@ -2264,8 +2415,7 @@ def test_the_model_is_shown_what_people_in_the_thread_told_it() -> None:
     # lead is labelled, so the model can say which one it is weighing.
     some_words = "it's the checkout flag, not the other one"
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2280,8 +2430,7 @@ def test_a_lead_weighed_before_is_shown_with_what_was_made_of_it() -> None:
     # what the last round found, because what was read then still stands.
     some_reason = "the flag was reverted and the errors went on"
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.REFUTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.REFUTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2322,14 +2471,51 @@ def test_an_investigation_nobody_told_anything_is_not_offered_a_way_to_weigh_a_l
 @pytest.mark.unit
 def test_an_investigation_shown_a_lead_is_offered_a_way_to_weigh_it() -> None:
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
         .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
         .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
         .then(_the_model_was_offered_on_turn(investigation.model, 0, WEIGH_TOOL, True))
+
+
+@pytest.mark.unit
+def test_the_model_is_offered_what_the_read_tier_serves_on_every_turn() -> None:
+    # The read tier's reads are offered as it declares them, beside the loop's
+    # own - and a later turn is offered them as the first was.
+    some_served = ToolDefinition(name="some_read",
+                                 description="dont care what it reads",
+                                 properties={},
+                                 required=[])
+    investigation = an_investigation(a_model_that_says(
+        a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm())),
+               calling(investigation.the_read_tier_served([some_served]))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_offered_on_turn(investigation.model, 0, some_served.name, True),
+            _the_model_was_offered_on_turn(investigation.model, 1, some_served.name, True)
+        ))
+
+
+@pytest.mark.unit
+def test_the_read_tier_is_asked_what_it_serves_once_however_many_turns() -> None:
+    # What a tier serves does not change mid-investigation, and asking before
+    # every turn would be a request across the boundary per turn, for nothing.
+    investigation = an_investigation(a_model_that_says(
+        a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(_the_read_tier_was_asked_once(investigation.read_tier_tools))
 
 
 @pytest.mark.unit
@@ -2341,8 +2527,7 @@ def test_a_lead_written_while_the_model_reads_reaches_it_with_its_next_result() 
     some_words = "the checkout flag, not the other one"
     investigation = an_investigation(a_model_that_says(
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2367,8 +2552,7 @@ def test_a_lead_is_shown_once_however_often_the_thread_is_asked() -> None:
     investigation = an_investigation(a_model_that_says(
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:00:00Z"}),
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2385,16 +2569,18 @@ def test_an_answer_with_a_lead_unweighed_is_refused_until_it_is_weighed() -> Non
     some_reason = "the checkout flag moved at the onset"
     investigation = an_investigation(a_model_that_says(
         a_turn_answering(an_explanation()),
-        a_turn_weighing("L1", Standing.SUPPORTED, reason=some_reason),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED, reason=some_reason),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
         .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
         .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
         .then(all_of(
-            _the_model_was_asked(investigation.model, times=3),
+            _the_model_was_asked(investigation.model, times=2),
             _what_the_model_saw_on_turn(investigation.model, turn=1, mentions="not weighed"),
+            _what_the_model_saw_on_turn_avoids(investigation.model, turn=1,
+                                               forbidden=THE_ASK_TO_WEIGH_AGAIN),
             _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, some_reason)])
         ))
 
@@ -2405,8 +2591,7 @@ def test_a_lead_weighed_before_is_weighed_again() -> None:
     # an earlier standing is shown and never carried forward unasked.
     investigation = an_investigation(a_model_that_says(
         a_turn_answering(an_explanation()),
-        a_turn_weighing("L1", Standing.UNVERIFIED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.UNVERIFIED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2416,7 +2601,7 @@ def test_a_lead_weighed_before_is_weighed_again() -> None:
             weighing=Weighing(standing=Standing.REFUTED, reason="some earlier reason")
         )])) \
         .then(all_of(
-            _the_model_was_asked(investigation.model, times=3),
+            _the_model_was_asked(investigation.model, times=2),
             _the_leads_were_weighed_as([("some lead", Standing.UNVERIFIED, A_REASON)])
         ))
 
@@ -2426,9 +2611,9 @@ def test_a_lead_weighed_twice_in_one_investigation_keeps_the_later_weighing() ->
     # Read on, and changed its mind: what it knows at the end is what it says.
     some_later_reason = "the logs name the checkout flag"
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.UNVERIFIED),
-        a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.UNVERIFIED),
+                   a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2438,26 +2623,46 @@ def test_a_lead_weighed_twice_in_one_investigation_keeps_the_later_weighing() ->
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("lead", "standing"), [("L7", Standing.SUPPORTED.value),
-                                                ("L1", "probably")],
-                         ids=["a-lead-nobody-wrote", "a-standing-that-is-not-one"])
-def test_a_weighing_that_cannot_be_read_is_refused_and_weighs_nothing(lead: str,
-                                                                     standing: str) -> None:
-    # The model's to correct, like any other bad call - and nothing it named
-    # is taken as weighed, so the answer after it is still refused.
+def test_a_lead_weighed_early_and_again_beside_the_answer_is_answered_without_a_refusal(
+) -> None:
+    # What the model is told to do with a weighing made a turn early, done:
+    # the answer it then gives is taken, with the weighing made beside it.
+    some_later_reason = "the logs name the checkout flag"
     investigation = an_investigation(a_model_that_says(
-        a_turn_calling(WEIGH_TOOL, {LEAD_ARG: lead, STANDING_ARG: standing,
-                                    REASON_ARG: A_REASON}),
-        a_turn_answering(an_explanation()),
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        a_turn_weighing("L1", Standing.UNVERIFIED),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
         .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
         .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
         .then(all_of(
-            _the_model_was_asked(investigation.model, times=4),
+            _the_model_was_asked(investigation.model, times=2),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, some_later_reason)])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("lead", "standing"), [("L7", Standing.SUPPORTED.value),
+                                                ("L1", "probably")],
+                         ids=["a-lead-nobody-wrote", "a-standing-that-is-not-one"])
+def test_a_weighing_that_cannot_be_read_is_refused_and_weighs_nothing(lead: str,
+                                                                     standing: str) -> None:
+    # The model's to correct, like any other bad call - and nothing it named
+    # is taken as weighed, so the answer beside it is still refused.
+    investigation = an_investigation(a_model_that_says(
+        _a_turn_of(a_turn_calling(WEIGH_TOOL, {LEAD_ARG: lead, STANDING_ARG: standing,
+                                               REASON_ARG: A_REASON}),
+                   a_turn_answering(an_explanation())),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
             _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, A_REASON)])
         ))
 
@@ -2490,6 +2695,53 @@ def test_a_lead_written_in_time_for_the_last_turn_does_not_cost_the_answer() -> 
 
 
 @pytest.mark.unit
+def test_an_answer_whose_subject_is_more_than_one_name_is_refused() -> None:
+    # Something acts on the subject, and a description is nothing it can act
+    # on: "metrics port name" named no key a deploy could be matched to. Every
+    # subject a recorded walk got wrong had a space in it and none it got right
+    # did - a key, a flag, a revision, a service or a path is one name.
+    some_key = "metrics.portName"
+    investigation = an_investigation(a_model_that_says(
+        a_turn_answering(an_explanation(subject="metrics port name")),
+        a_turn_answering(an_explanation(subject=some_key))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions="metrics port name"),
+            _the_subject_is(some_key)
+        ))
+
+
+@pytest.mark.unit
+def test_a_subject_of_more_than_one_name_on_the_last_turn_does_not_cost_the_answer() -> None:
+    # Refused there, an investigation that read plenty ends with nothing for a
+    # subject worded loosely. Taken as it stands, and never quietly dropped: a
+    # candidate shown with no subject reads as one that blamed nothing.
+    some_description = "metrics port name"
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+            a_turn_answering(an_explanation(subject=some_description))
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _the_subject_is(some_description)
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "a_turn_naming_no_cause",
     [
@@ -2504,7 +2756,9 @@ def test_an_investigation_that_named_no_cause_still_carries_what_it_made_of_a_le
 ) -> None:
     # Weighed against what was read, and what was read still comes back from
     # every ending. A weighing dropped because no cause was named is a person
-    # told nothing about what they wrote, by a walk that did weigh it.
+    # told nothing about what they wrote, by a walk that did weigh it. Kept
+    # here, where a last answer taken without one beside it drops an earlier
+    # weighing, because no answer was taken here for it to disagree with.
     some_reason = "the checkout flag moved at the onset"
     two_calls = 2
     investigation = an_investigation(
@@ -2549,6 +2803,197 @@ def test_a_turn_that_weighs_and_answers_together_is_answered() -> None:
 
 
 @pytest.mark.unit
+def test_an_answer_after_a_lead_weighed_in_an_earlier_turn_is_refused_until_weighed_beside_it(
+) -> None:
+    # A weighing made a turn before the answer is one the answer can have
+    # moved on from. A recorded walk weighed a lead "unverified" for pointing
+    # at the other flag, ranked the lead's flag first one turn later, and the
+    # person was told the reason it had dropped. Taken only beside the answer,
+    # the two are one reading of what was read.
+    some_earlier_reason = "the stack trace points at the other flag"
+    some_later_reason = "the renderer split matches the checkout flag exactly"
+    some_early_weighing = "toolu_early_weighing"
+    investigation = an_investigation(a_model_that_says(
+        a_turn_weighing("L1", Standing.UNVERIFIED, reason=some_earlier_reason,
+                        call_id=some_early_weighing),
+        a_turn_answering(an_explanation()),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
+                   a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=3),
+            _the_reply_to(investigation.model, some_early_weighing,
+                          mentions=THE_ASK_TO_WEIGH_AGAIN),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, some_later_reason)])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "explanation",
+    [an_explanation(subject="metrics port name"),
+     an_explanation(failure_mode=None, confidence=0.8)],
+    ids=["a-subject-of-more-than-one-name", "an-answer-that-could-not-be-read"]
+)
+def test_an_answer_sent_back_asks_for_the_lead_weighed_beside_it_to_be_weighed_again(
+    explanation: dict[str, Any]
+) -> None:
+    # The weighing goes back with the answer it was made beside, so the model
+    # is told as much where the answer is refused - rather than learning it
+    # from a second refusal, at the price of a turn.
+    investigation = an_investigation(a_model_that_says(
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(explanation),
+                   named="toolu_sent_back"),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _the_reply_to(investigation.model, "toolu_sent_back_2",
+                          mentions=THE_ASK_TO_WEIGH_AGAIN)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "explanation",
+    [an_explanation(subject="metrics port name"),
+     an_explanation(failure_mode=None, confidence=0.8)],
+    ids=["a-subject-of-more-than-one-name", "an-answer-that-could-not-be-read"]
+)
+def test_a_weighing_beside_an_answer_sent_back_goes_back_with_it(
+    explanation: dict[str, Any]
+) -> None:
+    # Made beside an answer that was not taken, it was a reading of that
+    # answer - so the next answer, given alone, is refused until the lead is
+    # weighed beside it.
+    investigation = an_investigation(a_model_that_says(
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(explanation)),
+        a_turn_answering(an_explanation()),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=3),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, A_REASON)])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "explanation",
+    [an_explanation(subject="metrics port name"),
+     an_explanation(failure_mode=None, confidence=0.8)],
+    ids=["a-subject-of-more-than-one-name", "an-answer-that-could-not-be-read"]
+)
+def test_an_answer_sent_back_in_an_investigation_nobody_told_anything_says_nothing_of_leads(
+    explanation: dict[str, Any]
+) -> None:
+    # The refusal it always was: a sentence about weighing a lead nobody
+    # wrote is a request that changed for nothing.
+    investigation = an_investigation(a_model_that_says(
+        a_turn_answering(explanation),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _what_the_model_saw_on_turn_avoids(investigation.model, turn=1,
+                                               forbidden=THE_ASK_TO_WEIGH_AGAIN)
+        ))
+
+
+@pytest.mark.unit
+def test_a_lead_weighed_only_before_the_last_turn_goes_back_unweighed_with_the_answer() -> None:
+    # The last turn has no turn after it to ask again in, so the answer is
+    # taken - but not with a weighing it may have moved on from. The lead goes
+    # back unweighed, as one written in time for the last turn does: a reason
+    # nothing checked against the answer is worse, for the person told it,
+    # than none.
+    some_answer = "the checkout flag was switched off at the onset"
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_weighing("L1", Standing.UNVERIFIED),
+            a_turn_answering(an_explanation(summary=some_answer))
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_candidates_say(some_answer),
+            _the_leads_were_weighed_as([])
+        ))
+
+
+@pytest.mark.unit
+def test_the_last_turn_of_an_investigation_shown_a_lead_asks_for_it_weighed_in_that_turn(
+) -> None:
+    # There is no turn after it to weigh in, so the warning that it is the last
+    # says so - and a lead weighed beside that answer goes back weighed.
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+            _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED),
+                       a_turn_answering(an_explanation()))
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=THE_LAST_TURN_WARNING),
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=THE_LAST_TURN_ASK_TO_WEIGH),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, A_REASON)])
+        ))
+
+
+@pytest.mark.unit
+def test_the_last_turn_of_an_investigation_nobody_told_anything_says_nothing_of_leads() -> None:
+    # The same warning it always was: a sentence about leads nobody wrote is a
+    # request that changed for nothing.
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+            a_turn_answering(an_explanation())
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=THE_LAST_TURN_WARNING),
+            _what_the_model_saw_on_turn_avoids(investigation.model, turn=1,
+                                               forbidden=THE_LAST_TURN_ASK_TO_WEIGH)
+        ))
+
+
+@pytest.mark.unit
 def test_a_lead_written_mid_investigation_is_labelled_on_from_those_shown_before() -> None:
     # The model already holds L1. A lead written since is L2, so a weighing of
     # "L1" can only ever mean the lead the model was first shown.
@@ -2556,9 +3001,9 @@ def test_a_lead_written_mid_investigation_is_labelled_on_from_those_shown_before
     a_later_lead = _a_lead("the buki deploy went out at noon too", ts="1760000200.000300")
     investigation = an_investigation(a_model_that_says(
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
-        a_turn_weighing("L1", Standing.UNVERIFIED),
-        a_turn_weighing("L2", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.UNVERIFIED),
+                   a_turn_weighing("L2", Standing.SUPPORTED),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2572,6 +3017,58 @@ def test_a_lead_written_mid_investigation_is_labelled_on_from_those_shown_before
             _the_leads_were_weighed_as([(a_lead_shown_first.text, Standing.UNVERIFIED, A_REASON),
                                         (a_later_lead.text, Standing.SUPPORTED, A_REASON)])
         ))
+
+
+def _a_turn_of(*turns: Turn, named: str = "toolu") -> Turn:
+    """One turn making every call these turns make, in their order - the model
+    doing several things at once, as it does when it weighs a lead beside its
+    answer. Each call gets an id of its own, as the API gives them: `named`
+    and its place in the turn, so a test can find what one was answered with."""
+    calls = [call for turn in turns for call in turn.tool_calls]
+
+    return Turn(text="",
+                tool_calls=[call.model_copy(update={"id": f"{named}_{number}"})
+                            for number, call in enumerate(calls, start=1)],
+                input_tokens=sum(turn.input_tokens for turn in turns),
+                output_tokens=sum(turn.output_tokens for turn in turns))
+
+
+def _the_reply_to(model: Mock, call_id: str, mentions: str) -> Assertion[Findings]:
+    """What the loop answered one call with, found by its id wherever in the
+    conversation it came back - not by turn, since every turn's arguments are
+    the one transcript the loop goes on appending to."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        transcript = model.call_args_list[-1].args[0]
+        replies = [result for exchange in transcript if isinstance(exchange, ToolResults)
+                   for result in exchange.results if result.call_id == call_id]
+
+        if len(replies) != 1 or mentions.lower() not in replies[0].content.lower():
+            raise AssertionError(
+                f"Expected the call [{call_id}] to be answered once, saying [{mentions}], "
+                f"and it was answered {replies}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_the_model_saw_on_turn_avoids(model: Mock,
+                                       turn: int,
+                                       forbidden: str) -> Assertion[Findings]:
+    """The counterpart to `_what_the_model_saw_on_turn`: words nothing in the
+    transcript by the model's `turn`th turn may say."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        seen = str(_the_transcript_of(model, turn))
+        if forbidden.lower() in seen.lower():
+            raise AssertionError(
+                f"Expected the model not to have been told [{forbidden}] by its turn {turn}, "
+                f"and it was shown [{seen}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_lead(words: str,
@@ -2635,6 +3132,19 @@ def _the_model_was_offered_on_turn(model: Mock,
             raise AssertionError(
                 f"Expected [{tool}] {'' if expected else 'not '}offered on turn {turn}, "
                 f"and it was offered {offered}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_read_tier_was_asked_once(read_tier_tools: Mock) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        if read_tier_tools.call_count != 1:
+            raise AssertionError(
+                f"Expected the read tier asked once what it serves, and it was asked "
+                f"{read_tier_tools.call_count} times."
             )
 
         return True
@@ -3207,6 +3717,31 @@ def _what_was_asked_first_avoids(model: Mock, *forbidden: str) -> Assertion[Find
     return assertion
 
 
+def _what_was_asked_first_says_once(model: Mock, *expected: str) -> Assertion[Findings]:
+    """Words the opening message says, and says only once.
+
+    A sentence said twice running costs the model nothing to read past, and
+    tells it nothing the first saying did not - so the second is noise in front
+    of the one reader who cannot ask what it was for.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        opening = _the_transcript_of(model, turn=0)[0]
+        if not isinstance(opening, Ask):
+            raise AssertionError(f"Expected the conversation to open with an ask, got [{opening}].")
+
+        counted = {mention: opening.text.count(mention) for mention in expected}
+        not_once = {mention: count for mention, count in counted.items() if count != 1}
+        if not_once:
+            raise AssertionError(
+                f"Expected the opening message to say each of {list(expected)} once, "
+                f"and it said {not_once} times, got [{opening.text}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _what_was_asked_first_names_the_rule_before_the_rows(model: Mock,
                                                           rule: str) -> Assertion[Findings]:
     """The rule's column is placed before the table, not after its last row.
@@ -3295,6 +3830,19 @@ def _the_evidence_is(*cited: Evidence) -> Assertion[Findings]:
 
         if rested_on != list(cited):
             raise AssertionError(f"Expected the evidence {list(cited)}, got {rested_on}.")
+
+        return True
+
+    return assertion
+
+
+def _the_subject_is(expected: str | None) -> Assertion[Findings]:
+    """The specific thing the first candidate blamed."""
+    def assertion(findings: Findings) -> bool:
+        blamed = findings.candidates[0].subject
+
+        if blamed != expected:
+            raise AssertionError(f"Expected the subject [{expected}], got [{blamed}].")
 
         return True
 
@@ -3617,6 +4165,116 @@ def test_a_published_candidate_carries_the_transition_it_blamed() -> None:
 
 
 @pytest.mark.unit
+def test_a_later_round_numbers_its_candidates_on_from_the_earlier_rounds() -> None:
+    # Each is said by its number the moment it is formed - in the chat, where
+    # nothing said can be renumbered - so the count carries on from the rounds
+    # before rather than starting at one again, as each round's rank does.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(a_turn_answering(an_explanation(), an_explanation()))
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append,
+                                              earlier_candidates=1)
+        ) \
+        .then(
+            all_of(
+                _the_candidates_are_numbered(2, 3),
+                _the_candidates_published_are_numbered(published, 2, 3)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("an_investigation_naming_no_cause", "what_the_metrics_said", "the_alert"),
+    [
+        (lambda: an_investigation(a_model_that_is_always_cut_short()),
+         lambda investigation: investigation.metrics_showed(a_window_that_starts_calm()),
+         an_alert()),
+        (lambda: an_investigation(a_model_that_says(a_turn_the_model_declined())),
+         lambda investigation: investigation.metrics_showed(a_window_that_starts_calm()),
+         an_alert()),
+        (lambda: an_investigation(
+            a_model_that_never_stops_reading(), budget=a_budget(tool_calls=1)),
+         lambda investigation: investigation.metrics_showed(a_window_that_starts_calm()),
+         an_alert()),
+        (lambda: an_investigation(a_model_that_says()),
+         lambda investigation: investigation.metrics_showed([]),
+         an_alert(started_at=None)),
+        (lambda: an_investigation(a_model_that_says()),
+         lambda investigation: raising(investigation.metrics_fetcher, McpToolError(
+             "MCP tool call [get_metrics_summary] failed: timed out")),
+         an_alert(started_at=None))
+    ],
+    ids=["cut-short", "declined", "ran-out", "nothing-to-say", "nothing-could-be-read"]
+)
+def test_a_round_that_named_no_cause_numbers_its_candidate_on_too(
+    an_investigation_naming_no_cause: Callable[[], Investigation],
+    what_the_metrics_said: Callable[[Investigation], Callable[[], None]],
+    the_alert: Alert
+) -> None:
+    # A candidate like any other: recorded, and said by its number. Each ending
+    # forms it on a path of its own, so each is asked: one that slipped would
+    # be said as #1, the first round's own number, with nothing else wrong.
+    #
+    # The last two under an alert that never said when it fired, which is the
+    # only one those two endings are reached by: any other is anchored on its
+    # minute and investigated.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation_naming_no_cause()
+
+    Scenario() \
+        .given(
+            calling(what_the_metrics_said(investigation))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=the_alert,
+                                              publisher=published.append,
+                                              earlier_candidates=2)
+        ) \
+        .then(
+            all_of(
+                _the_candidates_are_numbered(3),
+                _the_candidates_published_are_numbered(published, 3)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_numbers_its_candidate_on_and_says_none_was_formed() -> None:
+    # The round still carries a candidate naming no cause, numbered on from the
+    # rounds before - and does not say it formed one. A candidate is an
+    # explanation of a fault, and this round found there was none: the walk
+    # records no candidate here, and one said in the chat and on the timeline
+    # was a candidate every other account said was never formed.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None),
+                                              publisher=published.append,
+                                              earlier_candidates=2)
+        ) \
+        .then(
+            all_of(
+                _the_alarm_was_disproven_over(THE_JUDGED_SIGNALS),
+                _the_candidates_are_numbered(3),
+                _the_candidates_published_are_numbered(published)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_channel_that_was_never_asked_for_is_published_as_unread() -> None:
     # "Nobody asked" and "asked, and nothing came back" leave the same silence
     # in an account and mean opposite things - one is a gap in the
@@ -3798,22 +4456,17 @@ def test_a_log_read_the_tier_would_not_answer_is_said_rather_than_ending_the_wal
 
 
 @pytest.mark.unit
-def test_metrics_that_could_not_be_read_stop_the_investigation_at_its_first_act() -> None:
+def test_metrics_that_could_not_be_read_are_said_and_investigated_from_the_alarms_minute(
+) -> None:
     # The read that happens before the model is ever asked, and so the failure
-    # that costs the most: it ends the investigation at its first act, and
-    # nothing above it catches it - the walk dies, and the only account of why
-    # is the run's own failure.
+    # that costs the most: let out of here, the walk dies, and the only account
+    # of why is the run's own failure. Ended here, a service nobody could see in
+    # its metrics had its deploys and its logs left unread.
     #
-    # Ending here rather than carrying on is right, and stays. Every window the
-    # model could ask for is anchored on an onset, the onset is measured from
-    # these minutes, and without them there is nothing to converse about - so
-    # this ends the way an empty window does: one candidate, no cause named, no
-    # turn bought.
-    #
-    # What it must not borrow is that path's account. "No metrics were
-    # retrieved" is what an answer with nothing in it earns; a read nobody could
-    # take is the opposite claim, and the two arriving in the same sentence is
-    # exactly what this line exists to stop.
+    # So it is said, as a read nobody answered and never as a window that came
+    # back - a window of no minutes beside it would read as an answer - and the
+    # investigation goes on from the one minute anybody recorded, the alarm's
+    # own, with the model told the metrics could not be read.
     published: list[IncidentEvent] = []
     investigation = an_investigation(
         a_model_that_says(a_turn_answering(an_explanation()))
@@ -3830,8 +4483,237 @@ def test_metrics_that_could_not_be_read_stop_the_investigation_at_its_first_act(
         ) \
         .then(all_of(
             _the_reads_said_to_have_gone_unanswered(published, "the service's metrics"),
+            _no_window_was_published(published),
+            _the_anchor_published_was(published, to_iso_minute(AN_ALERT_TIME)),
+            _the_model_was_asked(investigation.model, times=1),
+            _what_was_asked_first_mentions(investigation.model, "could not be read")
+        ))
+
+
+@pytest.mark.unit
+def test_metrics_that_could_not_be_read_under_an_alert_that_never_said_when_it_fired_end_it(
+) -> None:
+    # Nothing to anchor on: every window the model could ask for is anchored on
+    # a minute, and neither the metrics nor the alarm offered one. So this ends
+    # at its first act: one candidate, no cause named, no turn bought.
+    #
+    # What it must not borrow is the empty window's account. "No metrics were
+    # retrieved" is what an answer with nothing in it earns; a read nobody could
+    # take is the opposite claim, and the two arriving in the same sentence is
+    # exactly what this line exists to stop.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(a_turn_answering(an_explanation()))
+    )
+
+    Scenario() \
+        .given(
+            calling(raising(investigation.metrics_fetcher, McpToolError(
+                "MCP tool call [get_metrics_summary] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(started_at=None),
+                                              publisher=published.append)
+        ) \
+        .then(all_of(
+            _the_reads_said_to_have_gone_unanswered(published, "the service's metrics"),
             _the_only_candidate_says("could not be read"),
             _the_model_was_never_asked(investigation.model)
+        ))
+
+
+@pytest.mark.unit
+def test_metrics_that_could_not_be_read_under_a_stated_onset_are_investigated_from_it() -> None:
+    # The alarm said nothing of when it fired, but it said when the incident
+    # began - a minute to look from, as it is where the window came back empty.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(a_turn_answering(an_explanation()))
+    )
+
+    Scenario() \
+        .given(
+            calling(raising(investigation.metrics_fetcher, McpToolError(
+                "MCP tool call [get_metrics_summary] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(started_at=None, stated_onset=A_STATED_ONSET),
+                publisher=published.append)
+        ) \
+        .then(all_of(
+            _the_onset_published_was(published, to_iso(A_STATED_ONSET)),
+            _the_model_was_asked(investigation.model, times=1),
+            _what_was_asked_first_mentions(investigation.model, "stated by the alert",
+                                           "could not be read")
+        ))
+
+
+@pytest.mark.unit
+def test_metrics_that_could_not_be_read_can_be_asked_for_again() -> None:
+    # Nothing of them is in front of the model, and asking again is the one way
+    # something might be - so the read that failed is not counted as made, and
+    # the model's own ask for them is served rather than turned away as a read
+    # already in hand.
+    investigation = an_investigation(
+        a_model_that_says(a_turn_calling(METRICS_TOOL), a_turn_answering(an_explanation()))
+    )
+
+    Scenario() \
+        .given(
+            calling(raising(investigation.metrics_fetcher, McpToolError(
+                "MCP tool call [get_metrics_summary] failed: timed out"
+            )))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_metrics_were_asked_for(investigation.metrics_fetcher, times=2)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("what_the_metrics_said", "why"), [
+    (lambda investigation: investigation.metrics_showed([]),
+     "came back with no minute in them"),
+    (lambda investigation: raising(investigation.metrics_fetcher, McpToolError(
+        "MCP tool call [get_metrics_summary] failed: timed out")),
+     "could not be read")
+], ids=["read-and-empty", "never-answered"])
+def test_a_model_with_no_minute_of_metrics_is_told_why_and_never_of_a_flat_window(
+    what_the_metrics_said: Callable[[Investigation], Callable[[], None]],
+    why: str
+) -> None:
+    # Told of a window below in which no series departs, a model reads a service
+    # nobody could see as one that looked flat - and an empty table under a
+    # sentence about what its rows are reads as one that was cut off.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(what_the_metrics_said(investigation))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(investigation.model, why, "where to look from"),
+                _what_was_asked_first_avoids(investigation.model, "No series departs",
+                                             "no series departs", "One row per minute"),
+                _what_was_asked_first_says_once(investigation.model, why)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_stated_onset_over_no_minute_of_metrics_is_never_told_of_a_flat_window() -> None:
+    # The stated onset's own paragraph is about a window that was read and is
+    # flat. With no window at all, the minute is still the alert's testimony,
+    # and the rest is why nothing else is in front of the model.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed([]))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=A_STATED_ONSET))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(investigation.model, "stated by the alert",
+                                               "came back with no minute in them"),
+                _what_was_asked_first_avoids(investigation.model, "no series departs")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_later_round_reading_no_minute_is_told_its_onset_was_measured_by_an_earlier_one(
+) -> None:
+    # The one way a measured minute meets a window with nothing in it: handed by
+    # an earlier round, to a round whose own read came back empty. "Measured from
+    # the per-minute metrics below" would point at rows that are not there.
+    some_metrics = a_window_that_starts_calm()
+    earlier_onset = EstablishedOnset(
+        minute=some_metrics[0].bucket_id, how_known=HowTheMinuteIsKnown.MEASURED
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed([]))
+        ) \
+        .when(
+            lambda: investigation.investigate(established_onset=earlier_onset)
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(investigation.model, "an earlier round read"),
+                _what_was_asked_first_avoids(investigation.model, "metrics below")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_pods_placed_at_the_alarms_minute_are_marked_as_that_and_never_as_at_the_onset(
+) -> None:
+    # Nothing dated the incident, so the minute the placement is read against is
+    # the alarm's own. A pod placed then was placed as the alarm went
+    # off, and a model told it started at the onset reads the replacement as
+    # the cause.
+    some_pods = _pods_either_side_of(to_iso_minute(AN_ALERT_TIME))
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window())),
+            calling(investigation.the_platform_placed(some_pods))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None, claim=AlarmClaim.ITS_OWN_FINDING))
+        ) \
+        .then(all_of(
+            _the_opening_line_naming(investigation.model, A_POD_MOVED_AT_THE_ONSET,
+                                     mentions=(THE_ALARM_MARK,), avoids=(THE_ONSET_MARK,)),
+            _what_was_asked_first_avoids(investigation.model, "read at the onset",
+                                         "of the incident beginning"),
+            _the_placement_was_read_against_the_alarm()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("metrics", "alert"), [
+    (a_window_that_starts_calm(), an_alert()),
+    ([], an_alert(stated_onset=None))
+], ids=["measured-onset", "the-alarms-minute"])
+def test_a_platform_that_reported_no_pods_is_said_to_have_and_no_pod_is_described(
+    metrics: list[MetricBucket],
+    alert: Alert
+) -> None:
+    # The platform answering, and said as that. A paragraph about what each pod
+    # line marks, over no pod line, reads as a list that was cut off - and the
+    # model goes looking for a placement it was never given.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(metrics)),
+            calling(investigation.the_platform_placed([]))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=alert)
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(investigation.model,
+                                           "The platform reported no pods for the service."),
+            _what_was_asked_first_avoids(investigation.model, "Each of the service's pods",
+                                         "A pod marked")
         ))
 
 
@@ -4071,6 +4953,82 @@ def _no_onset_was_published(published: list[IncidentEvent]) -> Assertion[Finding
     return assertion
 
 
+def _the_anchor_published_was(published: list[IncidentEvent],
+                              minute: str) -> Assertion[Findings]:
+    """The minute the investigation said it looked from."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        anchored = [event.minute for event in published
+                    if isinstance(event, AnchoredOnTheAlarm)]
+        if anchored != [minute]:
+            raise AssertionError(
+                f"Expected the investigation to say it looked from [{minute}], and it "
+                f"said {anchored}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_published_as_the_start(published: list[IncidentEvent]) -> Assertion[Findings]:
+    """No onset, where nothing dated the incident."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        detected = [event.onset for event in published if isinstance(event, OnsetDetected)]
+        if detected:
+            raise AssertionError(
+                f"Expected nothing to be published as when an incident nothing dated "
+                f"began, and {detected} was - so the record dates it from the moment "
+                f"the alarm went off."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_window_was_published(published: list[IncidentEvent]) -> Assertion[Findings]:
+    """No window of metrics, where the read never answered."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        retrieved = [event for event in published if isinstance(event, MetricsRetrieved)]
+        if retrieved:
+            raise AssertionError(
+                f"Expected no window of metrics to be published for a read nobody "
+                f"answered, and {len(retrieved)} was - which reads as an answer."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_placement_was_read_against_the_alarm() -> Assertion[Findings]:
+    """Carried as read against the alarm's minute, which is all the minute was -
+    so the strategy that pins a card reads it as that too."""
+    def assertion(findings: Findings) -> bool:
+        if findings.placement is None or not findings.placement.against_the_alarm:
+            raise AssertionError(
+                f"Expected the placement to be carried as read against the alarm's "
+                f"minute, and it was carried as {findings.placement!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_metrics_were_asked_for(fetcher: Mock, times: int) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        if fetcher.call_count != times:
+            raise AssertionError(
+                f"Expected the metrics to be asked for {times} time(s), and they were "
+                f"asked for {fetcher.call_count}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_onset_carried_is(expected: EstablishedOnset) -> Assertion[Findings]:
     def assertion(findings: Findings) -> bool:
         if findings.onset != expected:
@@ -4149,6 +5107,35 @@ def _both_concluded_the_same() -> Assertion[tuple[Findings, Findings]]:
             raise AssertionError(
                 f"Expected the same evidence to be read either way, got "
                 f"{heard.already_read} and {unheard.already_read}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidates_are_numbered(*numbers: int) -> Assertion[Findings]:
+    def assertion(findings: Findings) -> bool:
+        numbered = [candidate.number for candidate in findings.candidates]
+        if numbered != list(numbers):
+            raise AssertionError(
+                f"Expected the candidates numbered {list(numbers)}, and they were "
+                f"numbered {numbered}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidates_published_are_numbered(published: list[IncidentEvent],
+                                           *numbers: int) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        numbered = [event.number for event in published if isinstance(event, HypothesisFormed)]
+        if numbered != list(numbers):
+            raise AssertionError(
+                f"Expected the candidates published numbered {list(numbers)}, and they "
+                f"were numbered {numbered}."
             )
 
         return True
@@ -4466,6 +5453,7 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
         ),
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),
+        read_tier_tools=create_autospec(ReadTierTools, instance=True, return_value=[]),
         converse=a_model_that_says(a_turn_answering(an_explanation())),
         budget=a_budget(),
         recorder=recorded.take

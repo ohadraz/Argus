@@ -1,9 +1,11 @@
-"""Binding the model and the store together, which is where the pairing can break.
+"""Keeping a record in the store, which is where the pairing can break.
 
 The store takes vectors and the walk has text, so something has to embed one
 into the other - twice, once at each end. These cases are about that: whether
 what is kept is the description's own vector, and whether the question is put
-through the same model the records went through.
+through the same model the records went through. And about what keeping does to
+the store itself: one record per incident however often it is kept, in a
+collection that can narrow by service without a scan.
 
 The embedder is a stand-in with an arrangement of its own, so "the same model
 both times" is something a test can actually observe. Two vectors from two
@@ -16,11 +18,13 @@ from __future__ import annotations
 
 import pytest
 from argus_core.embedding import Embedder
-from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict
-from argus_testkit import Assertion, Scenario, all_of
-from incident_memory.keeping import Recaller, kept_in, recalling_from
-from incident_memory.records import RememberedIncident, WhatWasTried
+from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
+from argus_testkit import Assertion, Scenario, all_of, calling
+from incident_memory.keeping import kept_in
+from incident_memory.recalling import SERVICE_FIELD, Recaller, recalling_from
+from incident_memory.records import RememberedIncident
 from qdrant_client import QdrantClient
+from qdrant_client.models import CollectionInfo, PayloadSchemaType
 
 from incident_memory_test.framework.assertions import these_incidents_come_back
 
@@ -104,6 +108,48 @@ def test_the_whole_record_comes_back_not_just_what_it_was_found_by(store: Qdrant
         ))
 
 
+@pytest.mark.component
+def test_one_incident_kept_twice_is_one_record(store: QdrantClient) -> None:
+    # A record refiled is delivered again. Two copies of one incident would
+    # count twice in an ordering, which is a past incident given a second vote
+    # for having been interrupted.
+    the_same_incident = "the-flag-one"
+
+    Scenario() \
+        .given(
+            calling(lambda: kept_in(store, SOME_COLLECTION, _an_embedder())(
+                _an_incident(the_same_incident, WHAT_HAPPENED_BEFORE)
+            )),
+            calling(lambda: kept_in(store, SOME_COLLECTION, _an_embedder())(
+                _an_incident(the_same_incident, WHAT_HAPPENED_HERE)
+            ))
+        ) \
+        .when(lambda: _recalling(store)(WHAT_HAPPENED_HERE, SOME_SERVICE)) \
+        .then(these_incidents_come_back([the_same_incident]))
+
+
+@pytest.mark.component
+def test_the_field_every_search_narrows_by_is_indexed(store: QdrantClient) -> None:
+    # Every search here narrows to one service before anything is compared, and
+    # narrowing during the search rather than after it is why a store like this
+    # was chosen. Without the payload index the answers are the same and the
+    # work is a scan, which is invisible until there are enough incidents for
+    # it not to be.
+    #
+    # Only a real store can answer this: the in-memory client accepts the call,
+    # warns that payload indexes do nothing locally, and reports no schema. The
+    # collection is made by the first record kept rather than declared anywhere,
+    # so keeping one is what brings it into existence.
+    Scenario() \
+        .given(
+            calling(lambda: kept_in(store, SOME_COLLECTION, _an_embedder())(
+                _an_incident("the-one-that-made-the-collection", WHAT_HAPPENED_BEFORE)
+            ))
+        ) \
+        .when(lambda: store.get_collection(SOME_COLLECTION)) \
+        .then(_the_payload_field_indexed_is(SERVICE_FIELD))
+
+
 def _an_embedder() -> Embedder:
     """A model with an arrangement instead of weights.
 
@@ -169,6 +215,30 @@ def _it_remembers_the_verdict(verdict: Verdict) -> Assertion[list[RememberedInci
 
         if verdict not in verdicts:
             raise AssertionError(f"Expected [{verdict}] among {verdicts}")
+
+        return True
+
+    return assertion
+
+
+def _the_payload_field_indexed_is(field: str) -> Assertion[CollectionInfo]:
+    """The store's own account of which field it can narrow on cheaply."""
+    def assertion(described: CollectionInfo) -> bool:
+        indexed = dict(described.payload_schema or {})
+
+        if field not in indexed:
+            raise AssertionError(
+                f"Expected [{field}] to carry a payload index, and the collection "
+                f"indexes {sorted(indexed)} - so every search narrowing by it is "
+                f"answered by scanning."
+            )
+
+        if indexed[field].data_type != PayloadSchemaType.KEYWORD:
+            raise AssertionError(
+                f"Expected [{field}] indexed as a keyword, and it is indexed as "
+                f"[{indexed[field].data_type}] - a filter matching an exact value "
+                f"has nothing to traverse."
+            )
 
         return True
 

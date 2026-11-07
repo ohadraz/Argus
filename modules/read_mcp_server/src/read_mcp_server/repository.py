@@ -28,6 +28,7 @@ from typing import Any, Final, Protocol
 
 import httpx2
 from argus_core import SettingsSlice
+from argus_core.models import CodeOutsideThePatch
 from argus_core.source_scope import belongs_to_the_service
 from repository_source import RepositorySourceSettings, the_source_at
 
@@ -36,6 +37,8 @@ from repository_source import RepositorySourceSettings, the_source_at
 # truncated - so it is part of what this module offers, and mypy is right to
 # want that said out loud instead of inferred from an import.
 from repository_source import RepositoryUnreadable as RepositoryUnreadable
+
+from read_mcp_server.outside_the_patch import code_outside_the_patch
 
 HttpGet = Callable[..., httpx2.Response]
 
@@ -233,6 +236,35 @@ def search_repository(query: str,
             hits.append(f"{path}:{number}: {line.strip()}")
 
     return hits
+
+
+def read_code_outside_the_patch(
+    patch: dict[str, str],
+    ref: str,
+    settings: RepositoryReadSettings,
+    read_source: SourceReader = the_source_at,
+    analyse: Callable[[dict[str, str], dict[str, str]], CodeOutsideThePatch] = (
+        code_outside_the_patch
+    )
+) -> CodeOutsideThePatch:
+    """How the service's own code at `ref` uses what `patch` changes, and every
+    name that code defines outside the patch's files.
+
+    One archive, read as a search reads it and scoped as a search is scoped: the
+    rig that stages incidents is not where the patch's readers live. What each
+    line does is the syntax tree's to say, in `outside_the_patch`.
+
+    Raises `RepositoryUnreadable` when the source could not be fetched. No uses
+    because none exist and no uses because nothing was read are opposite facts,
+    and the silent one says nothing outside the patch depends on what it changed.
+    """
+    held = read_source(ref, the_source_settings(settings))
+
+    return analyse(
+        {path: source for path, source in held.items()
+         if _is_the_service_s_own(path, settings)},
+        patch
+    )
 
 
 def the_source_settings(

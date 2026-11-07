@@ -2,16 +2,18 @@
 asks about before reading any of it.
 
 Which incident, when it was broken, how finished the document is, who wrote it
-and when, and who ended the incident. The two times a reader most easily takes
-for each other - when the service was broken, and when this was written about
-it - are separate rows, each saying which it is.
+and when, when Argus first posted about it, and who ended the incident. The
+two times a reader most easily takes for each other - when the service was
+broken, and when this was written about it - are separate rows, each saying
+which it is.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Final
 
+from argus_core import said_as_a_time
 from argus_core.models import (
     ActionItemStatus,
     Alert,
@@ -22,24 +24,27 @@ from argus_core.models import (
     PostmortemDocument,
     TimelineMarker,
 )
+from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW, where_a_report_came_from
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import as_revision, on_the_clock
+from postmortem_rendering.formatting import as_revision, on_the_day_and_clock
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
-
-# A moment with its date, as the head says the start of the incident's window.
-_WITH_THE_DAY: Final = "%b %d, %Y, %H:%M"
-
-# The end of a window that falls on the day it began, which says that day once.
-_THE_TIME_OF_DAY: Final = "%H:%M"
+from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
 
 _THE_AUTHOR: Final = "Argus Postmortem agent"
+# A postmortem is a snapshot: each part holds as of the end of the work it
+# reports, which the timeline dates - except who ended it, read afresh.
+_AS_OF: Final = ("Each part is as of when the work it reports ended, which the timeline "
+                 "dates; who ended the incident is as of now.")
 
 
 class Head(BaseModel):
     """The rows above the first section, each a line of the document, and
     `labels` - what each row is called, in the order the rows are read.
+
+    `first_told` is when Argus first posted about the incident where people
+    could read it; `None`, and no row, where no post was accepted.
 
     `ended_by_whom` is whoever `ended_by` names, on its own, for a destination
     that marks the row with them; `None` where nobody is recorded.
@@ -47,13 +52,19 @@ class Head(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    labels: tuple[str, ...] = ("Incident", "Date", "Status", "Written by", "Ended by")
     incident: Line
     date: Line
     status: Line
     written_by: Line
+    first_told: Line | None = None
     ended_by: Line
     ended_by_whom: str | None
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """What each row is called, in the order the rows are read."""
+        return ("Incident", "Date", "Status", "Written by",
+                *(("First told",) if self.first_told is not None else ()), "Ended by")
 
 
 def a_title(postmortem: PostmortemDocument | None, alert: Alert) -> Line:
@@ -68,20 +79,22 @@ def a_title(postmortem: PostmortemDocument | None, alert: Alert) -> Line:
     if postmortem is None or not postmortem.symptom:
         return Line(runs=(Run(text=f"{alert.alert_name} on {alert.service}"),))
 
+    # The model's words, and Markdown like the rest of them.
+    symptom = Run(text=postmortem.symptom).with_code_set_apart()
     trigger = postmortem.trigger
     if trigger is None or trigger.suspected or not trigger.to_state:
-        return Line(runs=(Run(text=postmortem.symptom),))
+        return Line(runs=symptom)
 
     # A deployment's subject is the service and its state a revision, so it is
     # said as the service running that revision rather than as a flag's "was".
     if trigger.kind is ChangeKind.DEPLOY:
-        return Line(runs=(Run(text=postmortem.symptom),
+        return Line(runs=(*symptom,
                           Run(text=" while "),
                           Run(text=alert.service, role=Role.CODE),
                           Run(text=" ran "),
                           Run(text=as_revision(trigger.to_state), role=Role.CODE)))
 
-    return Line(runs=(Run(text=postmortem.symptom),
+    return Line(runs=(*symptom,
                       Run(text=" while "),
                       Run(text=trigger.subject, role=Role.CODE),
                       Run(text=" was "),
@@ -106,24 +119,73 @@ def a_head(postmortem: Postmortem,
                 date=_the_incident_s_window(postmortem),
                 status=_how_finished(postmortem),
                 written_by=_who_wrote_it(postmortem),
+                first_told=_who_was_first_told(postmortem),
                 ended_by=ended_by,
                 ended_by_whom=ended_by_whom)
 
 
-def _the_incident_s_window(postmortem: Postmortem) -> Line:
-    """From onset to back to normal, the day said once where both fall on it."""
-    began = _the_marker(postmortem, TimelineMarker.IMPACT_BEGINS)
-    if began is None:
-        return Line(runs=(Run(text="onset unknown"),))
+def the_day_it_is_dated_by(postmortem: Postmortem) -> date | None:
+    """The day the head names for the incident: its onset's, where the
+    timeline places one, and its alert's where it does not - as the write-up
+    dates it. `None` where there is neither.
 
+    Public because every moment below the head of that day is said by its time
+    alone (`rendering`), which leans on the head having said the day."""
+    began = _when_it_began(postmortem)
+    if began is not None:
+        return began.astimezone(UTC).date()
+
+    detection = postmortem.detection
+    return detection.alerted_at.astimezone(UTC).date() if detection is not None else None
+
+
+def _when_it_began(postmortem: Postmortem) -> datetime | None:
+    """Where the metrics stopped, or else where the impact began."""
+    return (_the_marker(postmortem, TimelineMarker.METRICS_STOP)
+            or _the_marker(postmortem, TimelineMarker.IMPACT_BEGINS))
+
+
+def _the_incident_s_window(postmortem: Postmortem) -> Line:
+    """From onset to back to normal, the day said once where both fall on it -
+    or, where the metrics stopped at the onset, from there with them missing:
+    a service nobody measured from then on may never have left normal. Where
+    they resumed, from there to then, said as missing until then.
+
+    With no onset, the alert's moment after it: every moment of that day is
+    said below by its time alone, so the head is where the day is said. And
+    of a disproven alarm, the alert and when Argus closed it: there was no
+    onset to be unknown."""
+    stopped = _the_marker(postmortem, TimelineMarker.METRICS_STOP)
+    began = _when_it_began(postmortem)
+    if began is None:
+        detection = postmortem.detection
+        disproven = postmortem.disproven_at
+        if detection is not None and disproven is not None:
+            return Line(runs=(Run(text="alerted "),
+                              Run.a_moment(detection.alerted_at),
+                              Run(text=", disproven at "),
+                              Run(text=f"{_the_end_said(detection.alerted_at, disproven)} UTC",
+                                  role=Role.MOMENT, at=disproven)))
+
+        if detection is None:
+            return Line(runs=(Run(text="onset unknown"),))
+
+        return Line(runs=(Run(text="onset unknown, alerted "),
+                          Run.a_moment(detection.alerted_at)))
+
+    impact = postmortem.impact
     ended = _the_marker(postmortem, TimelineMarker.IMPACT_ENDS)
     if ended is not None:
-        return Line(runs=(Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} to "
-                                   f"{on_the_clock(ended, _the_end_said(began, ended))} UTC",
-                              role=Role.MOMENT, at=began, until=ended),))
+        window = Run(text=f"{on_the_day_and_clock(began)} to {_the_end_said(began, ended)} UTC",
+                     role=Role.MOMENT, at=began, until=ended)
+        resumed = impact is not None and impact.extent is ImpactExtent.METRICS_RESUMED
+        return Line(runs=(window, Run(text=", metrics missing until then")) if resumed
+                    else (window,))
 
-    since = Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} UTC", role=Role.MOMENT, at=began)
-    impact = postmortem.impact
+    since = Run.a_moment(began)
+    if stopped is not None:
+        return Line(runs=(since, Run(text=", metrics missing from then")))
+
     if impact is None or impact.extent is not ImpactExtent.AT_LEAST:
         return Line(runs=(since, Run(text=", not seen back to normal")))
 
@@ -132,13 +194,16 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
     still_not = began + impact.duration
     return Line(runs=(since,
                       Run(text=", not back to normal by "),
-                      Run(text=f"{on_the_clock(still_not, _the_end_said(began, still_not))} UTC",
+                      Run(text=f"{_the_end_said(began, still_not)} UTC",
                           role=Role.MOMENT, at=still_not)))
 
 
 def _the_end_said(began: datetime, ended: datetime) -> str:
-    """How the end of a window is said: its time alone on the day it began."""
-    return _THE_TIME_OF_DAY if ended.date() == began.date() else _WITH_THE_DAY
+    """The end of a window: its time alone on the day it began."""
+    if ended.date() == began.date():
+        return said_as_a_time(ended)
+
+    return on_the_day_and_clock(ended)
 
 
 def _how_finished(postmortem: Postmortem) -> Line:
@@ -156,20 +221,46 @@ def _how_finished(postmortem: Postmortem) -> Line:
 
 
 def _who_wrote_it(postmortem: Postmortem) -> Line:
-    """The agent that wrote it, when, and whether a person has reviewed it."""
+    """The agent that wrote it, when, whether a person has reviewed it, and as
+    of when what it says holds.
+
+    Each part is as of the end of the work it reports, not of the writing: a
+    person can resolve the incident after Argus's last move, and read as of
+    the writing, what Argus held it until reads as false. Who ended it is the
+    one part read off the record each time it is shown.
+    """
     return Line(runs=(Run(text=f"{_THE_AUTHOR}, "),
                       Run.a_moment(postmortem.created_at),
-                      Run(text=". Reviewed." if _reviewed(postmortem) else ". Not reviewed yet.")))
+                      Run(text=". Reviewed." if _reviewed(postmortem) else ". Not reviewed yet."),
+                      Run(text=f" {_AS_OF}")))
+
+
+def _who_was_first_told(postmortem: Postmortem) -> Line | None:
+    """Where and when Argus first posted about the incident, as recorded - or
+    nothing, where no post was accepted. Said as the post, never as who read
+    it: the record shows the platform took the line, not that anybody saw it."""
+    detection = postmortem.detection
+    told = detection.first_told if detection is not None else None
+    if told is None:
+        return None
+
+    return Line(runs=(Run(text=f"{_ARGUS} posted in {where_a_report_came_from(told.channel)}, "),
+                      Run.a_moment(told.at)))
 
 
 def _who_ended_it(postmortem: Postmortem,
                   resolution: ReportedResolution | None,
                   escalation: Escalation | None) -> tuple[Line, str | None]:
-    """A person's resolution where there is one; else whichever came later of
-    Argus's escalation and the last step taken - a walk that acted and then
-    gave up ended by giving up, and one escalated and then walked again ended
-    by what it did then; else that nothing is recorded - with whoever that
-    names."""
+    """A person's resolution where there is one; else Argus closing it as
+    disproven, an ending nothing moves an incident on from; else whichever
+    came latest of Argus's escalation, its recommendation and the last step
+    taken - a walk that acted and then gave up ended by giving up, and one
+    escalated and then walked again ended by what it did then; else that
+    nothing is recorded -
+    with whoever that names. A refusal to act is no step taken: nothing was
+    done in it, so it ended nothing, and the step that did is the last action
+    before it - unless the refusal is the one that recommended what was
+    refused, which hands the incident to a person as an escalation does."""
     if resolution is not None:
         runs = [Run(text=resolution.by),
                 Run(text=f" from {resolution.channel}, "),
@@ -179,7 +270,21 @@ def _who_ended_it(postmortem: Postmortem,
 
         return Line(runs=tuple(runs)), resolution.by
 
-    last = postmortem.resolution[-1] if postmortem.resolution else None
+    if postmortem.disproven_at is not None:
+        return Line(runs=(Run(text=_ARGUS),
+                          Run(text=": closed it as disproven, "),
+                          Run.a_moment(postmortem.disproven_at),
+                          Run(text=f" - {THE_CLAIM_WAS_NOT_IN_THE_WINDOW}"))), _ARGUS
+
+    last = next((step for step in reversed(postmortem.resolution) if step.refused is None),
+                None)
+    refused = next((step for step in reversed(postmortem.resolution) if step.refused is not None),
+                   None)
+    before = [ending.at for ending in (last, escalation) if ending is not None]
+    if (postmortem.recommended_action and refused is not None
+            and all(refused.at > at for at in before)):
+        return _the_recommendation(postmortem.recommended_action, refused.at), _ARGUS
+
     if escalation is not None and (last is None or escalation.at > last.at):
         return _the_escalation(escalation, postmortem.pull_request), _ARGUS
 
@@ -198,15 +303,22 @@ def _the_escalation(escalation: Escalation, fix: OpenedPullRequest | None) -> Li
     runs = [Run(text=_ARGUS), Run(text=": escalated to a person, "), Run.a_moment(escalation.at)]
     if fix is not None:
         runs += [Run(text=" - "),
-                 Run.a_pull_request(fix.number).linked_to(fix.url),
-                 Run(text=", a draft, waits for a person to merge")]
+                 Run.a_pull_request(fix).linked_to(fix.url),
+                 Run(text=f", {OPENED_AS_A_DRAFT}")]
     elif escalation.detail:
         runs += [Run(text=f" - {escalation.detail}")]
 
     return Line(runs=tuple(runs))
 
 
-# Who ends an incident by escalating it.
+def _the_recommendation(action: str, at: datetime) -> Line:
+    """Argus handing the incident to a person with the move it worked out and
+    declined to make, and when."""
+    return Line(runs=(Run(text=_ARGUS), Run(text=": recommended to a person, "),
+                      Run.a_moment(at), Run(text=f" - {action[:1].lower()}{action[1:]}")))
+
+
+# Who ends an incident by escalating it, or by recommending what to do.
 _ARGUS: Final = "Argus"
 
 

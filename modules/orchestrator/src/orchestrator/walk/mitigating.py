@@ -8,7 +8,7 @@ from datetime import datetime
 from functools import partial
 
 from agent_mitigation import Verdict
-from argus_core import utc_now
+from argus_core import utc_now, was_lost
 from argus_core.events import (
     ActionTaken,
     AgentInvoked,
@@ -22,9 +22,11 @@ from argus_core.events import (
 from argus_core.models import (
     FLAG_PROVIDER,
     Action,
+    ActionProgress,
     Actor,
     AlarmClaim,
     IncidentStatus,
+    UndoDescriptor,
     UnreadVerdict,
     the_accelerator_of,
     the_actions_through,
@@ -38,6 +40,7 @@ from argus_incidents import IsStillWanted
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     ActionAlreadyTaken,
+    AdvanceAction,
     ChangeLanded,
     CompleteAction,
     RecordAction,
@@ -59,6 +62,7 @@ def mitigation_node(
     record_action: RecordAction,
     complete_action: CompleteAction,
     already_taken: ActionAlreadyTaken,
+    advance_action: AdvanceAction,
     record_outcome: RecordOutcome,
     still_wanted: IsStillWanted,
     take: TakeAction,
@@ -80,6 +84,11 @@ def mitigation_node(
 
     `now` is the clock the action is dated by, and the walk carries that date
     on to the attempt it remembers.
+
+    `advance_action` writes on the claim what is learnt before the verdict:
+    that the change was made, the moment the agent says so, with what would
+    put it back - so a worker that dies during the wait leaves a row a
+    withdrawal can undo and a write-up can call tried.
     """
     # Both, because an action is taken *for* a candidate: one without the other
     # is not an attempt this node can account for, and recording it would leave
@@ -99,13 +108,19 @@ def mitigation_node(
         # row is the only account of what this attempt changed, and every
         # reader of it afterwards - the write-up, and the memory the next
         # incident is ordered by - has nowhere else to ask. A candidate's
-        # subject is prose a model wrote about the symptom, so a row carrying
-        # it quotes something nobody did, and the cap on attempts per subject
-        # counts a phrase that comes out different every round.
-        subject=the_subject_of(state.proposed_action)
+        # subject is never an address, and is often prose a model wrote about
+        # the symptom, so a row carrying it quotes something nobody did, and the
+        # cap on attempts per subject counts a phrase that comes out different
+        # every round.
+        subject=the_subject_of(state.proposed_action),
+        # When the claim was written, which is not when the action was: the
+        # agent is called in after it, and the action announced after that.
+        # Dated by the claim, the action came before the agent that took it -
+        # so what dates the action is its announcement.
+        at=now()
     ):
         resumed = _what_the_earlier_attempt_left(
-            state, already_taken, change_landed, publisher
+            state, already_taken, change_landed, advance_action, publisher
         )
 
         # `None` means the earlier attempt left nothing behind - the claim was
@@ -115,26 +130,12 @@ def mitigation_node(
             return resumed
 
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
-    # Published from here rather than from inside Mitigation, which is not
-    # incident-scoped: neither `take_action` nor `Action` carries an incident,
-    # and threading one through an agent purely so it can narrate would put a
-    # field in the domain for the account's benefit.
-    announced = ActionTaken(
-        incident_id=state.incident_id,
-        hypothesis_id=state.hypothesis.id,
-        action_type=state.proposed_action.action_type,
-        subject=the_subject_of(state.proposed_action),
-        enabled=the_direction_of(state.proposed_action),
-        a_dependency_of=_whose_dependency_was_acted_on(
-            state.proposed_action, state.alert.service
-        ),
-        accelerator=the_accelerator_of(state.proposed_action),
-        at=now()
-    )
-    publish(announced, publisher)
+    # The announcement, once the agent says the change was made - and none for
+    # an attempt that ended before its write, which its verdict says instead.
+    announced: list[ActionTaken] = []
 
-    # The incident and the publisher travel with the action, so the wait for
-    # the service to answer - the longest silence in an incident - is narrated
+    # The incident and the publisher travel with the action, so the
+    # verification wait - the longest silence in an incident - is narrated
     # from inside Mitigation, where the looking actually happens. So does the
     # question of whether anybody still wants it: that wait is the one stretch
     # long enough for somebody to give up on it, and the only place in the walk
@@ -159,8 +160,24 @@ def mitigation_node(
             state.alert.rule
             if state.alert.claim is AlarmClaim.A_SERIES_CONDITION
             else None
+        ),
+        change_made=partial(
+            _the_change_was_made,
+            advance_action,
+            announced,
+            publisher,
+            now,
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            candidate_number=state.hypothesis.number,
+            action=state.proposed_action,
+            alerting_service=state.alert.service
         )
     )
+    # When the change was made, for the round that remembers the attempt - and
+    # nothing where none was: an action never performed is no attempt a later
+    # round may be told was refuted.
+    acted_at = announced[0].at if announced else None
     outcome = result.verdict
     logger.info("verdict reached", extra={
         "verdict": outcome,
@@ -181,38 +198,66 @@ def mitigation_node(
         hypothesis_id=state.hypothesis.id,
         outcome=outcome,
         undo_descriptor=result.undo_descriptor,
+        performed=result.performed,
+        # What tells a refusal that asked for no change from one nobody can
+        # account for, which the write-up says differently.
+        left_behind_known=result.left_behind_known,
+        # What putting a refuted change back did, so the cleanup after the
+        # incident does not put it back a second time.
+        undone=result.undone,
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
-            outcome=result.verdict
+            candidate_number=state.hypothesis.number,
+            outcome=result.verdict,
+            # What was reached for, and whether it was done: for an attempt
+            # that ended before its write, this is the only line saying so.
+            action_type=state.proposed_action.action_type,
+            subject=the_subject_of(state.proposed_action),
+            performed=result.performed,
+            not_performed_because=result.not_performed_because,
+            undone=result.undone,
+            undone_detail=result.undone_detail,
+            judged=result.judged
         )
     )
     # This candidate was genuinely tested: an action was taken and the service
-    # was measured afterwards. The verdict is the answer it was tested for, so
-    # it belongs on the candidate's own row and not only on the timeline - a
-    # list of explanations with no sign of which one the walk was on is a list
-    # nobody can read the incident from.
+    # was watched to a verdict afterwards. The verdict is the answer it was
+    # tested for, so it belongs on the candidate's own row and not only on the
+    # timeline - a list of explanations with no sign of which one the walk was
+    # on is a list nobody can read the incident from.
     #
-    # Unless nothing was measured, in which case the candidate learns nothing.
+    # Unless nothing was judged, in which case the candidate learns nothing.
     # Marking it tested would leave the incident claiming an explanation was
-    # ruled out by an experiment that took no reading - an abandoned attempt, or
-    # a wait whose every look at the service went unanswered. The action row
-    # above still carries the change and its undo, because the flag really was
-    # set and something has to put it back.
+    # ruled out by an experiment that reached no verdict - an abandoned
+    # attempt, or a wait whose every look at the service went unanswered. The
+    # action row above still carries the change and its undo, because the flag
+    # really was set and something has to put it back.
     #
-    # Two clauses, and they answer different questions. A withdrawal is
-    # unmeasured by definition - the walk was stopped, whatever the outcome says
+    # Two clauses, and they answer different questions. A stop judges nothing
+    # by definition - a person ended the incident, whatever the outcome says
     # about itself - so the verdict settles it here and an outcome that forgot
     # to say cannot talk the walk out of it. Everything else has to be asked,
     # because the verdict does not tell: `ESCALATED` is the word for a wait that
     # never saw the service *and* for a refutation whose change could not be put
-    # back, and the second of those measured it.
+    # back, and the second of those judged it.
     if (
         state.hypothesis is not None
-        and result.verdict is not Verdict.WITHDRAWN
-        and result.measured
+        and result.verdict is not Verdict.STOPPED
+        and result.judged
     ):
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
+    # Not performed, and a tier said why: the candidate was passed over untested,
+    # and its row keeps the reason as the gate's refusals keep theirs - the one
+    # thing a reader of the list has for why this explanation was never tried.
+    # Untested, so nothing here reads as a verdict on it.
+    elif (
+        state.hypothesis is not None
+        and not result.performed
+        and result.not_performed_because is not None
+    ):
+        record_outcome(state.hypothesis.id, tested=False,
+                       result=result.not_performed_because)
 
     if result.verdict is Verdict.PLATFORM_UNREACHABLE:
         # Recorded here because here is the only place that holds both halves:
@@ -249,14 +294,18 @@ def mitigation_node(
 
         return StateDelta(
             action_outcome=outcome,
-            acted_at=announced.at,
+            action_because=result.because,
+            acted_at=acted_at,
             unreachable_platforms=[*state.unreachable_platforms, platform],
             narration=Narration(action="mitigation attempted", detail=result.detail)
         )
 
     return StateDelta(
         action_outcome=outcome,
-        acted_at=announced.at,
+        # Carried for the round that reads this attempt, which is told how it
+        # did not help and nothing else about it.
+        action_because=result.because,
+        acted_at=acted_at,
         narration=Narration(action="mitigation attempted", detail=result.detail)
     )
 
@@ -296,9 +345,65 @@ def _whose_dependency_was_acted_on(action: Action,
     return alerting_service
 
 
+def _the_change_was_made(advance_action: AdvanceAction,
+                         announced: list[ActionTaken],
+                         publisher: Publisher,
+                         now: Callable[[], datetime],
+                         undo_descriptor: UndoDescriptor | None,
+                         *,
+                         incident_id: str,
+                         hypothesis_id: str,
+                         candidate_number: int,
+                         action: Action,
+                         alerting_service: str) -> None:
+    """Puts on the claim that its change was made, and what would put it back
+    - then says so, dated now, into `announced`.
+
+    A write that fails is logged and the attempt goes on. The change is made
+    by now, and the wait that follows is what judges it: abandoning it over a
+    record would leave the world changed and unmeasured, where carrying on
+    loses only an early copy - the completion writes the same facts again once
+    the wait has a verdict. The early copy only ever mattered to a worker that
+    dies during the wait, and this one is alive. All but a write refused for a
+    lost run, which is no early copy: the walk no longer holds its run, and a
+    wait from here would be nobody's walk watching production for minutes.
+
+    Announced here and nowhere earlier: before the write, an attempt the
+    platform refused was told as done. Published from the walk rather than
+    from inside Mitigation, which is not incident-scoped: neither `take_action`
+    nor `Action` carries an incident, and threading one through an agent purely
+    so it can narrate would put a field in the domain for the account's benefit.
+    """
+    try:
+        advance_action(incident_id, hypothesis_id=hypothesis_id,
+                       to=ActionProgress.PERFORMED, undo_descriptor=undo_descriptor)
+    except Exception as error:
+        if was_lost(error):
+            raise
+
+        logger.warning("the change could not be recorded as made before the wait",
+                       exc_info=True,
+                       extra={"incident_id": incident_id, "hypothesis_id": hypothesis_id})
+
+    announcement = ActionTaken(
+        incident_id=incident_id,
+        hypothesis_id=hypothesis_id,
+        candidate_number=candidate_number,
+        action_type=action.action_type,
+        subject=the_subject_of(action),
+        enabled=the_direction_of(action),
+        a_dependency_of=_whose_dependency_was_acted_on(action, alerting_service),
+        accelerator=the_accelerator_of(action),
+        at=now()
+    )
+    publish(announcement, publisher)
+    announced.append(announcement)
+
+
 def _what_the_earlier_attempt_left(state: IncidentState,
                                    already_taken: ActionAlreadyTaken,
                                    change_landed: ChangeLanded,
+                                   advance_action: AdvanceAction,
                                    publisher: Publisher
                                    ) -> StateDelta | None:
     """What a walk resumed inside the mitigation node should answer with, or
@@ -312,21 +417,28 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     `action_outcome` as a verdict and a new spelling would have to be
     understood in every one of those places.
 
-    No outcome means the worker died mid-action. The provider's log is asked
-    whether the change actually landed, under the flag the *action* names -
-    the log answers about a flag it recorded moving, where the candidate says
-    only what a model thought was wrong. It is the only record of what a
-    process that no longer exists managed to do. If the change did land, the
-    incident escalates: a change was made and nobody measured what followed,
-    and neither acting again nor inventing a verdict would produce that
-    measurement.
+    No outcome means the worker died mid-action, and the claim's progress says
+    how far it got. Told as made, the change was made: the incident escalates
+    without asking anybody, since a change was made and nobody recorded what
+    came of it, and neither acting again nor inventing a verdict would produce
+    that record. Told as unknown, an earlier resume already failed to find out,
+    and the incident escalates on that - asking again could only be read as
+    licence to act a second time on a change somebody may already have made.
+
+    Still only claimed, the provider's log is asked whether the change actually
+    landed, under the flag the *action* names - the log answers about a flag it
+    recorded moving, where the candidate says only what a model thought was
+    wrong. It is the only record of what a process that no longer exists
+    managed to do. If the change did land, the claim is told so and the
+    incident escalates as above.
 
     If the change never landed, nothing happened at all - so this walk takes
     the action, on the claim already written.
 
     A provider that cannot say is treated as the first case, not the second. An
     unanswerable question is not a "no", and acting on it would be acting on a
-    guess about whether production has already been changed.
+    guess about whether production has already been changed. The claim is told
+    that nobody can say, which is final: no walk will ask it again.
 
     An action that does not go through the flag provider is never asked about,
     and reaches that same case. The provider's log answers about flags: asked
@@ -382,6 +494,10 @@ def _what_the_earlier_attempt_left(state: IncidentState,
         # The walk that announced it is gone, and the row is all that is left.
         return StateDelta(
             action_outcome=outcome,
+            # Told outright: the claim records the verdict and not the reason,
+            # and left unset the walk would keep an earlier round's reason and
+            # hand it on as this action's.
+            action_because=None,
             acted_at=claimed.claimed_at,
             narration=Narration(
                 action="mitigation resumed",
@@ -389,6 +505,15 @@ def _what_the_earlier_attempt_left(state: IncidentState,
                        f"{outcome}"
             )
         )
+
+    # Already answered on the claim, so nobody is asked. Made is made, whoever
+    # the provider would credit with it; and unknown was an earlier resume's
+    # answer that nobody can say, which asking again cannot improve on.
+    if claimed is not None and claimed.progress is ActionProgress.PERFORMED:
+        return _the_resumed_walk_stops(landed=True)
+
+    if claimed is not None and claimed.progress is ActionProgress.UNKNOWN:
+        return _the_resumed_walk_stops(landed=None)
 
     # Both are needed to ask the question at all: which flag, and from when. A
     # claim whose moment cannot be read is a question that cannot be put -
@@ -411,6 +536,24 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     if landed is False:
         return None
 
+    # The answer kept on the claim, so the next walk to find it - the one
+    # resumed after this one dies before escalating - reads it rather than
+    # asking again. Not where no claim was found: there is no row to keep it.
+    if claimed is not None:
+        advance_action(
+            state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            to=ActionProgress.PERFORMED if landed else ActionProgress.UNKNOWN,
+            # What the dead worker was told would put it back went with it.
+            undo_descriptor=None
+        )
+
+    return _the_resumed_walk_stops(landed)
+
+
+def _the_resumed_walk_stops(landed: bool | None) -> StateDelta:
+    """The incident handed to a person by a resumed walk that cannot carry
+    the earlier attempt on."""
     return StateDelta(
         status=IncidentStatus.ESCALATED,
         narration=Narration(
@@ -429,6 +572,12 @@ def _why_the_resumed_walk_stopped(landed: bool | None) -> str:
     service, the second needs somebody to establish what the earlier attempt
     managed before it stopped.
 
+    The first names the action rather than a flag. A change told as made
+    before the wait can be any kind of action, a rollback as much as a flag.
+    And it says the attempt stopped before *recording* what came of it rather
+    than before measuring it: a verdict can be reached and the worker die
+    before writing it, and the row cannot tell the two apart.
+
     The second is not always a provider that would not answer. An action
     through any platform but the flag provider is never asked about in the
     first place - there is no log of a restart or a rollback to consult - so the
@@ -436,8 +585,8 @@ def _why_the_resumed_walk_stopped(landed: bool | None) -> str:
     provider that was never involved.
     """
     if landed:
-        return ("an earlier attempt changed this flag and stopped before "
-                "measuring what followed")
+        return ("an earlier attempt carried out this action and stopped before "
+                "recording what came of it")
 
     return ("an earlier attempt claimed this action and nothing can say "
             "whether it was carried out")
@@ -453,6 +602,8 @@ def _nothing_to_act_on() -> StateDelta:
     """
     return StateDelta(
         action_outcome=Verdict.ESCALATED,
+        # Nothing was watched, and an earlier round's reason is not this one's.
+        action_because=None,
         narration=Narration(
             action="mitigation attempted",
             detail="no action reached the mitigation step"
@@ -464,12 +615,12 @@ def route_after_mitigation(state: IncidentState) -> str:
     """A confirmed action goes on to look for a permanent fix; anything else
     that left the world intact hands over to the walk.
 
-    A mitigation that worked is not the end of the incident, and this is where
-    that stopped being pretended. The symptom is gone and the fault that caused
-    it is still in the code with a flag holding it off, so the incident carries
-    on to Code-Fix - which is why `fixing` is reached by two different roads
-    now. The other one is Argus running out of mitigations it may take; this one is
-    Argus having made one that worked.
+    A mitigation that worked does not resolve the incident. The symptom is gone
+    and the fault that caused it is still in the code with a flag holding it
+    off, so the walk carries on to Code-Fix - with the incident `mitigated`,
+    which it stays whatever Code-Fix finds. Another road to Code-Fix is
+    `fixing`, Argus running out of mitigations it may take; this one is Argus
+    having made one that worked.
 
     A refuted action stays in `mitigating` and goes to the node that decides
     whether another explanation is left to try.

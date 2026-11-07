@@ -27,6 +27,7 @@ from agent_investigator import (
     logs_over,
     metrics_over,
     placements_over,
+    read_tier_tools_over,
     rollouts_over,
 )
 from agent_investigator import investigate as _investigate
@@ -47,7 +48,7 @@ from agent_mitigation import (
     take_action,
 )
 from agent_postmortem import postmortem_policy
-from argus_core import Connections, SettingsSlice, get_settings
+from argus_core import Connections, Holding, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
 from argus_core.events import Publisher
@@ -56,11 +57,13 @@ from argus_core.mcp_transport import McpClient
 from argus_core.replay import Recorder
 from argus_incidents import (
     EndedByAPerson,
+    StillHeld,
     WaitForPeople,
     calls_into,
     ended_by_a_person_via,
     events_into,
     events_into_connection,
+    still_held_via,
     waiting_for_people_via,
 )
 from incident_memory.records import RememberedIncident
@@ -74,6 +77,7 @@ from orchestrator.walk.ports import (
     ActionAlreadyTaken,
     ActionsTaken,
     Admitted,
+    AdvanceAction,
     ChangeLanded,
     CompleteAction,
     FetchDependencies,
@@ -91,11 +95,12 @@ from orchestrator.walk.ports import (
     RememberIncident,
     TakeAction,
     TransitionIncident,
+    WhatArgusDidIn,
     WritePostmortem,
 )
 
 if TYPE_CHECKING:
-    from qdrant_client import QdrantClient
+    from incident_memory.recalling import MemoryStore
 
 _logger = logging.getLogger(__name__)
 
@@ -126,6 +131,7 @@ class Collaborators:
     record_action: RecordAction
     complete_action: CompleteAction
     already_taken: ActionAlreadyTaken
+    advance_action: AdvanceAction
     change_landed: ChangeLanded
     propose_fix: ProposeFix
     actions_taken: ActionsTaken
@@ -140,6 +146,10 @@ class Collaborators:
     # every node and by the agents between their steps, and the one thing a
     # walk's own state cannot tell it.
     ended_by_a_person: EndedByAPerson
+    # Whether the run being walked is still this process's. Asked with the
+    # ending by the agents between their steps, so a walk paused past its lease
+    # stops at its next turn rather than paying for every turn left.
+    still_held: StillHeld
     # Holds the walk off its next step while a person Argus asked to confirm
     # the incident is over has yet to answer (D11). Asked before every node.
     wait_for_people: WaitForPeople
@@ -149,6 +159,10 @@ class Collaborators:
     # while an agent is working.
     leads_of: LeadsOf
     record_weighing: RecordWeighing
+    # What Argus did about the incident, read back for Code-Fix with whether
+    # each change still stands - the later word on what the leads were weighed
+    # as.
+    what_argus_did: WhatArgusDidIn
     # How many times one incident may be investigated. On the record
     # rather than read by the graph, because it is a fact about the
     # deployment and `build_graph` is where a walk is assembled, not
@@ -157,19 +171,20 @@ class Collaborators:
 
 
 class IncidentMemorySettings(SettingsSlice):
-    """Whether earlier incidents are remembered, where, and how forgivingly.
+    """Whether earlier incidents are searched, where, and how forgivingly.
 
     Six fields rather than the whole of `Settings`, for the reason every other
     slice is narrow: what it takes to ask whether an incident like this one has
     been seen before is a URL, a collection and a model, and nothing that reads
     only those should be able to name a credential.
 
-    Declared here rather than in `incident_memory`, which reads no
-    configuration at all - it is handed a client, a collection and an embedder,
-    and deciding what those are is this module's whole job. Putting it there
-    would also mean importing a module that imports Qdrant in order to name six
-    strings, which is the deferral in the factories below undone by their own
-    settings.
+    Declared here rather than in `incident_memory`, whose walk-side modules
+    read no configuration at all - they are handed a client, a collection and
+    an embedder, and deciding what those are for a walk is this module's job.
+    The deliverer reads a slice of its own, being a process of its own. Putting
+    this one there would also mean importing a module that imports Qdrant in
+    order to name six strings, which is the deferral in the factory below
+    undone by its own settings.
     """
 
     incident_memory_enabled: bool
@@ -181,21 +196,21 @@ class IncidentMemorySettings(SettingsSlice):
 
 
 @contextmanager
-def the_store_for(settings: IncidentMemorySettings) -> Generator[QdrantClient | None]:
+def the_store_for(settings: IncidentMemorySettings) -> Generator[MemoryStore | None]:
     """The one vector store a process holds, for as long as it runs. Or none.
 
     Opened where a process starts and closed when it stops, beside the pool and
     the two MCP sessions - because that is what it is: a session to a server,
     and a resource with two openers and no closer is the one nobody owns.
 
-    `None` where this deployment keeps no long-term memory, which is a real
+    `None` where this deployment searches no long-term memory, which is a real
     configuration rather than a switched-off feature (§21 asks what memory is
     worth, and two runs differing in exactly one thing are how that is asked).
-    Read here rather than by the factories below, so that whether there is a
+    Read here rather than by the factory below, so that whether there is a
     store to speak of is settled once, by the process, before a graph exists.
 
-    Not a `with` around the client itself: `QdrantClient` closes but is not a
-    context manager, which is the same bargain `code_index`'s catch-up makes.
+    Opened through the reading side of the store, which is the only side a walk
+    may know: the walk searches what is there and files the rest.
     """
     if not settings.incident_memory_enabled:
         _logger.info("incident memory disabled")
@@ -204,20 +219,17 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[QdrantClient | 
 
         return
 
-    from qdrant_client import QdrantClient
+    from incident_memory.recalling import the_store_at
 
-    store = QdrantClient(url=settings.qdrant_url)
-
-    try:
+    with the_store_at(settings.qdrant_url) as store:
         yield store
-    finally:
-        store.close()
 
 
 def against(connections: Connections,
             read: McpClient,
             write: McpClient,
-            store: QdrantClient | None) -> Collaborators:
+            store: MemoryStore | None,
+            holding: Holding) -> Collaborators:
     """The real ones, for a process that has a database, a model and two tiers.
 
     Built once where the process starts. Everything derived from `connections`
@@ -225,8 +237,9 @@ def against(connections: Connections,
     reaches nothing - a walk is what opens one, when a node actually runs. The
     two clients are the same bargain: each is one session to one server, opened
     by the process that owns it and handed here rather than dialled per call.
-    So is the store, which both memory factories are handed rather than each
-    opening one: `None` there says this process remembers nothing.
+    So is the store, which recall is handed rather than opening one: `None`
+    there says this process searches no memory. Filing is not handed it - what
+    the incident tried is a row, written through `connections` like every other.
 
     Being handed the store is what keeps a test off the network, and not only
     tidy. Constructing a `QdrantClient` starts a daemon thread that asks the
@@ -235,6 +248,9 @@ def against(connections: Connections,
     reached out silently. Passing `None`, or a double, is the only way that
     does not happen, and it is available only because nothing here constructs
     a client.
+
+    `holding` is the run the process is walking, which is all a walk asking
+    whether its run is still its own needs to be answered.
 
     Which tier answers which question is decided here and nowhere else. The read
     client serves every retrieval channel and the verification metrics; the write
@@ -295,7 +311,10 @@ def against(connections: Connections,
             fetch_rollout=rollouts_over(read),
             # And the one the loop reads for itself after the onset, which no
             # model is offered: where each replica runs, over the read tier.
-            fetch_placements=placements_over(read)
+            fetch_placements=placements_over(read),
+            # The three channels above that are the read tier's, offered to the
+            # model as that tier declares them.
+            read_tier_tools=read_tier_tools_over(read)
         ),
         record_hypothesis=records.hypothesis,
         # The same channel the investigation reads, asked again by the walk -
@@ -348,6 +367,7 @@ def against(connections: Connections,
         record_action=records.claim_action,
         complete_action=records.complete_action,
         already_taken=records.claimed_action,
+        advance_action=records.advance_action,
         change_landed=partial(
             argus_changed_flag_since, settings=mitigation, fetch=flag_history
         ),
@@ -357,7 +377,9 @@ def against(connections: Connections,
         propose_fix=fixes_over(read, write, FixSettings.of(settings), recorder),
         actions_taken=records.actions_taken,
         recall_similar=_recalling(memory, store),
-        remember_incident=_remembering(memory, store),
+        # Filed whether or not this deployment searches memory: the store is a
+        # view of the rows, and memory switched on later delivers them all.
+        remember_incident=records.memory,
         write_postmortem=partial(
             write_postmortem_for,
             connections=connections,
@@ -379,15 +401,17 @@ def against(connections: Connections,
         publisher=events_into(connections),
         recorder=recorder,
         ended_by_a_person=ended_by_a_person_via(connections),
+        still_held=still_held_via(connections, holding),
         wait_for_people=waiting_for_people_via(connections, events_into(connections)),
         leads_of=records.leads,
         record_weighing=records.weighing,
+        what_argus_did=records.what_argus_did,
         max_rounds=settings.investigation_max_rounds
     )
 
 
 def _recalling(settings: IncidentMemorySettings,
-               store: QdrantClient | None) -> RecallSimilar:
+               store: MemoryStore | None) -> RecallSimilar:
     """What earlier incidents this one resembles, or nothing at all.
 
     Nothing where the process holds no store, and nothing where the store
@@ -403,7 +427,7 @@ def _recalling(settings: IncidentMemorySettings,
     if store is None:
         return lambda dont_care_description, dont_care_service: []
 
-    from incident_memory.keeping import recalling_from
+    from incident_memory.recalling import recalling_from
 
     recall = recalling_from(
         store,
@@ -422,29 +446,3 @@ def _recalling(settings: IncidentMemorySettings,
             return []
 
     return recall_what_it_can
-
-
-def _remembering(settings: IncidentMemorySettings,
-                 store: QdrantClient | None) -> RememberIncident:
-    """Where a finished incident's record goes, or nowhere.
-
-    Nowhere is a real configuration rather than a way of switching off something
-    broken - the process opened no store, and the node above cannot tell that
-    from one that was written to.
-
-    The model is built here, once, for the reason every other collaborator is:
-    a walk is not where a process discovers its configuration, and loading an
-    ONNX runtime per incident would be paying for the model at exactly the
-    wrong moment. It is loaded lazily and cached on its name, so naming it
-    here and in `_recalling` is one model, not two.
-    """
-    if store is None:
-        return lambda dont_care_record: None
-
-    from incident_memory.keeping import kept_in
-
-    return kept_in(
-        store,
-        settings.incident_memory_collection,
-        an_embedder(settings.incident_memory_embedding_model)
-    )

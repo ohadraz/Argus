@@ -8,19 +8,16 @@ backwards.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
-from typing import Final
+from collections.abc import Callable, Collection, Mapping
 
-from argus_core import said_short
-from argus_core.models import PostmortemDocument, RecordedPlacement
+from argus_core import said_as_a_time, said_short
+from argus_core.models import PostmortemDocument
 from argus_narration import as_shown
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import on_the_clock
+from postmortem_rendering.formatting import on_the_day
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
-
-_THE_DAY: Final = "%b %d"
 
 
 class TimelineRow(BaseModel):
@@ -47,7 +44,8 @@ class TimelineSection(BaseModel):
     absent: str | None
 
 
-def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
+def the_timeline(postmortem: PostmortemDocument,
+                 address_of: Callable[[str], str]) -> TimelineSection:
     """The account as the agent laid it out, its markers already in place.
 
     A line naming the candidates it formed cites each one with a row among the
@@ -57,33 +55,45 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
 
     A line of the walk names a revision whole, or by as much of it as the
     model liked; either is said by the change's short form, as the dashboard
-    and the channel say it. A line from outside the walk - a person's among
+    and the channel say it, and every other name it quotes in brackets is said
+    as code, as they say it too. A line from outside the walk - a person's among
     them - is said as it was written: its brackets, its revisions whole, and
     nothing in it a link, which is how the dashboard shows it too.
 
-    A line recording where the replicas ran is said in a line of its own where
-    the listing tells nothing apart, laid out from the placement it carries
-    rather than from its sentence - which stays as the model was told it.
+    A line of the walk naming the fix the document carries by its address
+    names it "PR #N", as the rest of the document does, and leads there - the
+    address is written out once, under the supporting information. A fix the
+    walk proposed and then superseded keeps its address: the name is defined
+    only by that row, and the superseded one has none.
+
+    A line about another incident - an earlier one memory found - names it by
+    a whole id, and leads to its page (`address_of`), as the dashboard's line
+    does: an id is no name to look up by hand.
     """
     candidates = {label for hypothesis in postmortem.hypotheses
                   for label in (hypothesis.label, *hypothesis.also) if label}
     shorts = the_short_forms(postmortem.changes_read)
     addresses = the_revision_addresses(postmortem.changes_read)
+    fix = postmortem.pull_request
+    named = {fix.url: fix.name} if fix is not None else {}
+    addresses |= {name: address for address, name in named.items()}
     rows = []
     day = None
 
     for entry in postmortem.timeline:
-        said_day = on_the_clock(entry.at, _THE_DAY)
-        at = on_the_clock(entry.at) if said_day == day else f"{said_day} {on_the_clock(entry.at)}"
+        said_day = on_the_day(entry.at)
+        time = said_as_a_time(entry.at)
+        at = time if said_day == day else f"{said_day} {time}"
         day = said_day
 
-        collapsed = _one_card_long_before(entry.placement) if entry.placement else None
-        if collapsed is not None:
-            said = _said(collapsed, candidates, {})
-        elif entry.outside_the_walk:
+        if entry.outside_the_walk:
             said = _said(entry.text, candidates, {})
         else:
-            said = _said(as_shown(said_short(entry.text, shorts)), candidates, addresses)
+            other = ({entry.names_incident: address_of(entry.names_incident)}
+                     if entry.names_incident else {})
+            said = _said(as_shown(said_short(_by_name(entry.text, named), shorts),
+                                  bare=frozenset(shorts.values())),
+                         candidates, addresses | other)
         rows.append(TimelineRow(label=entry.label,
                                 at=at,
                                 marker=entry.marker.value.upper() if entry.marker else None,
@@ -95,28 +105,25 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
                            absent=None if rows else "No timeline was recorded.")
 
 
-def _one_card_long_before(placement: RecordedPlacement) -> str | None:
-    """Where the replicas ran said in a line, where the full listing tells
-    nothing apart: several pods, every one on the same card, and none come up
-    at the onset or since. `None` wherever the listing is the finding - the
-    cards differ, a pod came up at the onset, or a node reported no card."""
-    cards = {pod.accelerator for pod in placement.pods}
+def _by_name(text: str, named: Mapping[str, str]) -> str:
+    """`text` with each address in `named` said by its name."""
+    for address, name in named.items():
+        text = text.replace(address, name)
 
-    if len(placement.pods) < 2 or len(cards) != 1 or placement.started_at_the_onset():
-        return None
-
-    card = next(iter(cards))
-    if card is None:
-        return None
-
-    return f"Recorded where the {len(placement.pods)} replicas run - all on {card}"
+    return text
 
 
 def _said(text: str, candidates: Collection[str],
           addresses: Mapping[str, str]) -> tuple[Run, ...]:
-    """A line of the narration cut at every candidate it cites and every
-    revision in `addresses` it names."""
+    """A line of the narration cut at the code it quotes, and its words between
+    at every candidate they cite and every revision in `addresses` they name.
+
+    Code first, as the page's prose sets it: a name the line says as code is
+    the code's text, and a label or a revision inside it neither cited nor
+    linked."""
     return tuple(run
-                 for cited in Run(text=text, role=Role.NARRATION).with_citations(candidates)
+                 for quoted in Run(text=text, role=Role.NARRATION).with_code_set_apart()
+                 for cited in ((quoted,) if quoted.role is Role.CODE
+                               else quoted.with_citations(candidates))
                  for run in (cited.with_links(addresses) if cited.role is Role.NARRATION
                              else (cited,)))

@@ -1,4 +1,4 @@
-"""How an incident is taken back - and nothing about how one is walked.
+"""How an incident is withdrawn - and nothing about how one is walked.
 
 The Orchestrator's second entrypoint, beside `intake`, and in this package for
 its reason rather than for tidiness: `argus_web` calls this, and anything
@@ -39,21 +39,21 @@ def withdraw_incident(incident_id: str,
     incident that had already ended - and published only where the row actually
     moved, so a second press does not tell every watcher the incident ended
     twice.
+
+    The change is built before the row is written, so the row ends at the
+    moment the account says it ended.
     """
+    narrating = StatusChanged(incident_id=incident_id,
+                              to_status=IncidentStatus.WITHDRAWN,
+                              reported=reported)
+
     with connections() as conn:
-        withdrawn = incidents.withdraw(conn, incident_id)
+        withdrawn = incidents.withdraw(conn, incident_id, at=narrating.at)
 
     if withdrawn:
         # The channel and not the name, as for a resolution: which door it came
         # through is what an operator reading the log needs.
         logger.info("incident withdrawn", extra={"channel": reported.channel})
-        publish(
-            StatusChanged(
-                incident_id=incident_id,
-                to_status=IncidentStatus.WITHDRAWN,
-                reported=reported
-            ),
-            publisher
-        )
+        publish(narrating, publisher)
 
     return withdrawn

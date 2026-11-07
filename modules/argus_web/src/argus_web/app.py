@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Final
 
 import psycopg
-from argus_core import Connections, DatabaseSettings, get_settings, open_pool
+from argus_core import (
+    Connections,
+    DatabaseSettings,
+    get_settings,
+    open_pool,
+    said_as_a_time,
+)
 from argus_core.events import Publisher
 from argus_core.models import (
     Incident,
@@ -51,7 +57,7 @@ from postmortem_rendering import (
 
 from argus_web import reads
 from argus_web.chat import receive_chat_delivery
-from argus_web.formatting import marked_up, with_references
+from argus_web.formatting import from_markdown, marked_up, with_references
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 from argus_web.oncall import OnCallDeliverySettings, receive_delivery
 from argus_web.pushes import (
@@ -61,7 +67,7 @@ from argus_web.pushes import (
     Watermark,
     receive_push,
 )
-from argus_web.views import IncidentDetail
+from argus_web.views import IncidentDetail, Story, the_rows_held
 
 logger = logging.getLogger(__name__)
 
@@ -204,8 +210,10 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 # shows arrives already written, in `postmortem_rendering`'s values.
 templates.env.filters["utc"] = in_utc
 templates.env.filters["clock"] = on_the_clock
+templates.env.filters["time"] = said_as_a_time
 templates.env.filters["references"] = with_references
 templates.env.filters["marked_up"] = marked_up
+templates.env.filters["from_markdown"] = from_markdown
 
 
 @app.post("/webhooks/alerts", status_code=202)
@@ -505,7 +513,7 @@ def withdraw(incident_id: str,
              connections: UsingConnections,
              publisher: Publishing,
              tracer: Tracing) -> dict[str, str]:
-    """Takes an incident back from Argus, at somebody's say-so.
+    """Withdraws an incident from Argus, at somebody's say-so.
 
     The one thing this application exposes that changes an incident, and it is
     one because it is the human's own act rather than Argus's: it stops the
@@ -518,7 +526,7 @@ def withdraw(incident_id: str,
 
     A refusal is a `409` rather than a quiet success. An incident that has
     already ended cannot be stopped, and answering as though it had been would
-    have somebody believe they had taken back a mitigation that is still
+    have somebody believe they had undone a mitigation that is still
     holding the service up.
 
     Done inside the incident's own trace, since a person stopping the response
@@ -669,8 +677,8 @@ def incident_page(request: Request,
     """One incident's whole walk: the alert it opened on, every ranked
     candidate with what was tried for it, and the transitions it went through."""
     with connections() as conn:
-        incident = _an_incident_or_404(conn, incident_id)
         story = reads.read_story(conn, incident_id)
+        incident = _an_incident_or_404(conn, incident_id, beside=story)
 
     return templates.TemplateResponse(
         request, "incident.html", {"incident": incident, "story": story}
@@ -694,8 +702,8 @@ def incident_walk(request: Request,
     second button on screen.
     """
     with connections() as conn:
-        incident = _an_incident_or_404(conn, incident_id)
         story = reads.read_story(conn, incident_id)
+        incident = _an_incident_or_404(conn, incident_id, beside=story)
 
     return templates.TemplateResponse(
         request,
@@ -719,10 +727,9 @@ def postmortem_page(request: Request,
     one written before the report is not rewritten, and the person who ended
     the incident is part of what a reader of its write-up is owed.
     """
-    address = str(request.url_for("incident_page", incident_id=incident_id))
     with connections() as conn:
         incident = _an_incident_or_404(conn, incident_id)
-        postmortem = reads.read_postmortem(conn, incident, address)
+        postmortem = reads.read_postmortem(conn, incident, _the_address_of(request))
         resolution = reads.read_resolution(conn, incident_id)
 
     # Where nothing has been written, the page still names the incident and who
@@ -750,10 +757,9 @@ def postmortem_pdf(request: Request,
     where nothing has been written, unlike the page: a download of nothing has
     nothing to send.
     """
-    address = str(request.url_for("incident_page", incident_id=incident_id))
     with connections() as conn:
         incident = _an_incident_or_404(conn, incident_id)
-        postmortem = reads.read_postmortem(conn, incident, address)
+        postmortem = reads.read_postmortem(conn, incident, _the_address_of(request))
 
     if postmortem is None:
         raise HTTPException(status_code=404, detail=f"incident {incident_id} has no postmortem")
@@ -763,14 +769,33 @@ def postmortem_pdf(request: Request,
                              f'attachment; filename="argus-postmortem-{incident_id}.pdf"'})
 
 
-def _an_incident_or_404(conn: psycopg.Connection, incident_id: str) -> IncidentDetail:
+def _an_incident_or_404(conn: psycopg.Connection,
+                        incident_id: str,
+                        beside: Story | None = None) -> IncidentDetail:
     """The incident, or the answer that there is no such incident.
 
     A 404 rather than an empty page: an id that never existed has no walk to be
     empty, and rendering one for it invents a record.
+
+    `beside` is the story shown on the same page, whose minutes and log lines
+    the walk's findings lead to, and whose revisions its candidates say alike.
     """
-    incident = reads.read_incident(conn, incident_id)
+    held = the_rows_held(beside.metrics, beside.logs, beside.flag_changes) if beside else None
+    incident = reads.read_incident(conn, incident_id,
+                                   minutes=held.minutes if held else (),
+                                   logged=held.logged if held else (),
+                                   revisions=beside.revisions if beside else None)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
 
     return incident
+
+
+def _the_address_of(request: Request) -> Callable[[str], str]:
+    """An incident's page by its full address, as this request reaches the
+    server - for a document read away from the page it came from, where an
+    address relative to nothing leads nowhere."""
+    def address_of(incident_id: str) -> str:
+        return str(request.url_for("incident_page", incident_id=incident_id))
+
+    return address_of

@@ -39,9 +39,7 @@ decides for itself whether the change it is looking at was a mistake.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime, timedelta
-from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx2
@@ -66,6 +64,10 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
     the_shop_raises_its_own_alert,
 )
+from tests.e2e.framework.deployments import (
+    THE_PORTS_NAMED_FOR_THEIR_PROTOCOL,
+    the_deployment_was_staged,
+)
 from tests.e2e.framework.world import a_scenario_was_seeded, the_shops_window
 
 # The scenario, named as the Target Service registers it.
@@ -75,31 +77,6 @@ A_SHOP_RENAMED_TO_THE_CONVENTION = "monitoring-configuration-drift"
 # be open. The blind-spot case asks the same of the stretch it saw close; here it
 # is asked of the stretch that never did.
 A_HOLE_WORTH_PAGING_FOR = timedelta(minutes=3)
-
-# The two commits this scenario's deployment history names, and the one path
-# between them. Written here because this is the case that chose them: the shop
-# stages the same pair under its own names, and these are the only other place
-# they appear.
-BEFORE_THE_CONVENTION = "f061a97b221b57258899d4b3d82998815008d7bf"
-THE_CONVENTION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
-
-# The diff is the whole of what separates this case from the blind spot: every
-# port renamed to one rule, with the rule stated, rather than one name changed.
-THE_MANIFEST = "deploy/values-production.yaml"
-THE_PORTS_BEFORE = (
-    "ports:\n"
-    "  web:\n    port: 8000\n    portName: web\n"
-    "  admin:\n    port: 8081\n    portName: admin\n"
-    "  metrics:\n    port: 9090\n    portName: metrics\n"
-)
-THE_PORTS_AFTER = (
-    "# Every port is named for the protocol it carries, then what it is for:\n"
-    "# `<protocol>[-<purpose>]`. The platform's convention, applied estate-wide.\n"
-    "ports:\n"
-    "  web:\n    port: 8000\n    portName: http\n"
-    "  admin:\n    port: 8081\n    portName: http-admin\n"
-    "  metrics:\n    port: 9090\n    portName: http-metrics\n"
-)
 
 # The file a roll-forward has to write: the monitoring's own configuration.
 THE_SCRAPE_CONFIGURATION = "deploy/scrape.yaml"
@@ -115,7 +92,10 @@ def test_a_rename_the_monitoring_did_not_follow_is_fixed_forward_not_rolled_back
             calling(a_scenario_was_seeded(A_SHOP_RENAMED_TO_THE_CONVENTION,
                                           as_recorded_in=RECORDED_MONITORING_CONFIGURATION_DRIFT)),
             calling(the_model_answers_from(RECORDED_MONITORING_CONFIGURATION_DRIFT)),
-            calling(_the_deployment_history_was_staged())
+            # The diff is the whole of what separates this case from the
+            # blind spot: every port renamed to one rule, with the rule
+            # stated, rather than one name changed.
+            calling(the_deployment_was_staged(THE_PORTS_NAMED_FOR_THEIR_PROTOCOL))
         ) \
         .when(
             the_shop_raises_its_own_alert()
@@ -135,28 +115,6 @@ def test_a_rename_the_monitoring_did_not_follow_is_fixed_forward_not_rolled_back
                 timeout=WALK_TIMEOUT_SECONDS
             )
         )
-
-
-def _the_deployment_history_was_staged() -> Callable[[], bool]:
-    """Puts this scenario's two commits into the repository double.
-
-    Staged by the case rather than held by the double, for the reason the
-    blind-spot case gives: they are this scenario's facts and nothing else's.
-    """
-    def stage_them() -> bool:
-        return all(
-            httpx2.post(
-                f"{GITHUB_DOUBLE_BASE_URL}/double-control/stage-commit",
-                json={"sha": sha, "files": {THE_MANIFEST: manifest}},
-                timeout=REQUEST_TIMEOUT_SECONDS
-            ).status_code == HttpStatus.OK
-            for sha, manifest in (
-                (BEFORE_THE_CONVENTION, THE_PORTS_BEFORE),
-                (THE_CONVENTION, THE_PORTS_AFTER)
-            )
-        )
-
-    return stage_them
 
 
 def _argus_took_no_action() -> Assertion[httpx2.Response]:

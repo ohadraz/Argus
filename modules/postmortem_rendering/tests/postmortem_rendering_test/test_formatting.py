@@ -8,56 +8,16 @@ shows it rounds. Each case is one value and the words it must come out as.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
-from decimal import Decimal
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from postmortem_rendering.formatting import as_money, as_revision, as_span, in_utc, on_the_clock
-
-
-@pytest.mark.unit
-def test_money_is_shown_to_two_places_with_its_thousands_grouped() -> None:
-    Scenario() \
-        .given(
-            some_loss := Decimal("1736.68485900091116011163646")
-        ) \
-        .when(
-            lambda: as_money(some_loss)
-        ) \
-        .then(
-            the_answer_was("1,736.68")
-        )
-
-
-@pytest.mark.unit
-def test_half_a_cent_rounds_up() -> None:
-    # As a till rounds, not as a statistician does: a reader checking the
-    # figure by hand rounds half up, and a page rounding half to even would
-    # disagree with them whenever the cent below is even.
-    Scenario() \
-        .given(
-            some_amount := Decimal("0.125")
-        ) \
-        .when(
-            lambda: as_money(some_amount)
-        ) \
-        .then(
-            the_answer_was("0.13")
-        )
-
-
-@pytest.mark.unit
-def test_a_whole_amount_still_shows_its_cents() -> None:
-    Scenario() \
-        .given(
-            some_amount := Decimal("500")
-        ) \
-        .when(
-            lambda: as_money(some_amount)
-        ) \
-        .then(
-            the_answer_was("500.00")
-        )
+from postmortem_rendering.formatting import (
+    as_revision,
+    as_span,
+    in_utc,
+    on_the_clock,
+    on_the_day,
+)
 
 
 @pytest.mark.unit
@@ -202,29 +162,64 @@ def test_a_moment_in_another_zone_is_said_in_utc_and_says_so() -> None:
 
 
 @pytest.mark.unit
-def test_a_moment_is_said_in_whatever_pattern_it_is_asked_for() -> None:
+def test_a_moment_with_seconds_is_said_in_utc_to_the_second() -> None:
+    # As every instant is said. "Opened 19:12" sat above the walk's first line,
+    # the acknowledgement, saying the same instant as 19:12:56.
     Scenario() \
         .given(
-            some_moment := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+            some_moment := datetime(2026, 10, 14, 14, 3, 9, tzinfo=UTC)
         ) \
         .when(
-            lambda: in_utc(some_moment, "%b %d, %Y, %H:%M")
+            lambda: in_utc(some_moment)
         ) \
         .then(
-            the_answer_was("Oct 14, 2026, 14:03 UTC")
+            the_answer_was("2026-10-14 14:03:09 UTC")
         )
 
 
 @pytest.mark.unit
 def test_a_moment_on_the_clock_is_converted_and_left_unlabelled() -> None:
-    # For a column whose heading says UTC once, rather than every row of it.
+    # For markup a script reads, in the pattern it reads: every moment a person
+    # reads is said through the kernel's time.
     Scenario() \
         .given(
             some_moment := datetime(2026, 10, 14, 16, 3, 9, tzinfo=timezone(timedelta(hours=2)))
         ) \
         .when(
-            lambda: on_the_clock(some_moment)
+            lambda: on_the_clock(some_moment, "%Y-%m-%dT%H:%M:%SZ")
         ) \
         .then(
-            the_answer_was("14:03:09")
+            the_answer_was("2026-10-14T14:03:09Z")
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_s_day_is_the_day_it_falls_on_in_utc() -> None:
+    # Past midnight in the connection's zone and still the evening before in
+    # UTC: the day is the one the rest of the page's UTC times fall on.
+    Scenario() \
+        .given(
+            some_moment := datetime(2026, 10, 15, 1, 3, tzinfo=timezone(timedelta(hours=2)))
+        ) \
+        .when(
+            lambda: on_the_day(some_moment)
+        ) \
+        .then(
+            the_answer_was("Oct 14")
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_s_day_is_followed_by_whatever_it_is_asked_for() -> None:
+    # The day the kernel's way, which narration's lines on the same page say
+    # too, and the rest of the moment in whatever pattern the place wants.
+    Scenario() \
+        .given(
+            some_moment := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: on_the_day(some_moment, ", %Y, %H:%M")
+        ) \
+        .then(
+            the_answer_was("Oct 14, 2026, 14:03")
         )

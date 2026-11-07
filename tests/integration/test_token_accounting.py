@@ -26,7 +26,7 @@ import pytest
 from agent_investigator import investigate
 from agent_investigator.budget import InvestigationSettings, a_budget_for
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core import connect_from_env, get_settings
+from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.budget import Budget
 from argus_core.models import Alert
 from argus_incidents.publishing import calls_into
@@ -42,6 +42,7 @@ from tests.framework.investigating import (
     no_rollout_was_read,
     pods_that_never_moved,
     the_configured_thresholds,
+    what_the_read_tier_offers_the_investigator,
 )
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
 
@@ -69,7 +70,7 @@ def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
     # investigation at one figure while a human was shown another would be two
     # answers to what the incident cost, and either could be the wrong one.
     with psycopg.connect(DATABASE_URL) as conn:
-        incident_id = incidents.create(conn, _an_alert())
+        incident_id = incidents.create(conn, _an_alert(), at=utc_now())
         conn.commit()  # the recorder writes on a connection of its own
         the_budget = a_budget_for(InvestigationSettings.of(get_settings()))
 
@@ -90,6 +91,7 @@ def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
                     fetch_placements=pods_that_never_moved,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
+                    read_tier_tools=what_the_read_tier_offers_the_investigator,
                     budget=the_budget,
                     recorder=calls_into(connect_from_env)
                 )

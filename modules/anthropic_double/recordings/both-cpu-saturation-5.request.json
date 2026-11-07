@@ -1,0 +1,270 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: Request volume climbed from 1200/min at 2026-11-06T00:57:00Z to 5400/min by 2026-11-06T01:08:00Z, with nothing deployed. CPU use rose with it until it hit the fixed 3.0-core limit at 2026-11-06T01:06:00Z. Requests then queued, and p95 rose from about 215 ms to about 1700 ms.\n\nWhat that rests on:\n  - request_volume 1200 -> 1566 -> ... -> 5400 while cpu_used_cores rose 0.72 -> 3.0 against cpu_limit_cores 3.0, which never changed\n  - p95_ms 223 at 01:02, then 452, 782, 1056, 1378, 1642, 1803 as CPU reached the limit\n  - get_changes returned: nothing changed in the window. Memory is flat and process_start_time_seconds is unchanged, so there was no leak or restart.\n  - The three pods all started 2026-11-05T13:10:13Z on identical V100 nodes, so no replica moved or was replaced at the onset.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01MgfwK9okaUCUYsDcDXiwMj",
+          "input": {
+            "path": "deploy/values-production.yaml"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01JTe4KmnERbrQAwz6kBwYQC",
+          "input": {
+            "description": "per-request work that grows with total history, e.g. scanning all purchases or recomputing a summary on every request instead of caching"
+          },
+          "name": "search_repository_by_meaning",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 0\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
+          "tool_use_id": "toolu_01MgfwK9okaUCUYsDcDXiwMj",
+          "type": "tool_result"
+        },
+        {
+          "content": "src/io_shop/cache_reconciliation.py:122-145\ndef reconcile_cached_summaries(\n    accounts: Iterable[Account], held: Mapping[str, SummaryEntry]\n) -> CacheReconciliation:\n    \"\"\"Every cached figure that disagrees with the purchases behind it.\n\n    Only accounts the cache actually holds something for are checked, and a\n    shopper it holds nothing for is not a disagreement. A cache with no entry is\n    a cache working normally - every entry has a first request, and the page\n    recomputes and renders - so counting absences as findings would report a cold\n    cache as an incident.\n\n    Keyed by shopper rather than by whatever address the cache stores them under.\n    How an entry is addressed is a property of the deployment's cache, not of the\n    shop's arithmetic, and a comparison that knew the key format would be a\n    comparison that could only be run against one kind of store.\n    \"\"\"\n    return CacheReconciliation(\n        entries_checked=sum(1 for account in accounts if account.shopper_id in held),\n        entries_that_disagree=tuple(\n            stale\n            for account in accounts\n            if (stale := _how_far_behind(account, held.get(account.shopper_id)))\n        )\n    )\n\nsrc/io_shop/accounts.py:1-13\n\"\"\"One shopper's purchase history, as the account page needs it.\n\nThe totals are carried alongside the purchases rather than summed from them,\nbecause that is how a page like this is really assembled: the totals come back\nfrom a query the shop has already run, and the list is what it renders.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom datetime import datetime\n\n\n\nsrc/io_shop/purchase_ledger.py:1-29\n\"\"\"Writing a purchase down - the other side of what the account page reads.\n\nAn account carries two running totals beside its purchases: what the shopper has\nspent altogether, and what they have spent this month. Recording a sale means\nwriting the purchase and moving both of them, and this is where that happens.\n\nRunning totals rather than figures derived on demand, because that is what they\nare for. The account page is the most-visited page the shop has and a history is\nlong; a total that was summed on every render would make every page pay for the\nwhole of a shopper's past. What that buys costs something in return, and the cost\nis the only thing worth knowing about this module: a total is a second copy of\nwhat the purchases already say, so a write that moves one and not the other leaves\nthe shop holding two answers to the same question. Nothing here notices if that\nhappens - see `io_shop.spend_reconciliation`, which is the shop's own check on\nexactly this.\n\nWhich path a purchase is recorded through arrives here already decided, exactly\nas the choice of figure does on the read side - see `io_shop.spend_summary`.\nNothing in this module reads a flag, and nothing in it knows a rollout is\nhappening.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom dataclasses import replace\n\nfrom io_shop.accounts import Account, Purchase\n\n\n\nsrc/io_shop/account_page.py:208-248\ndef _the_figure_for(\n    account: Account,\n    use_monthly_summary: bool,\n    look_up_summary: LookUpSummary | None,\n    cache_endpoint: CacheEndpoint | None,\n    use_typical_spend: bool\n) -> tuple[int, bool, str | None]:\n    \"\"\"The figure to show, whether it came from the cache, and what the cache\n    said if it could not be reached.\n\n    The cache is asked first and is allowed to fail. Whatever it does - answers\n    with a figure, answers with nothing, or cannot be reached at all - this\n    returns a figure, because the shop can always work one out. That is the\n    fallback the whole scenario rests on: the page is correct either way, and\n    the only thing the cache decides is how long getting here took.\n\n    A cache failure is returned rather than raised onward, because it is not\n    this request's failure. The request succeeded.\n    \"\"\"\n    if look_up_summary is None or cache_endpoint is None:\n        return render_spend_summary(\n            account,\n            use_monthly_summary=use_monthly_summary,\n            use_typical_spend=use_typical_spend\n        ), False, None\n\n    cache_failure: str | None = None\n\n    try:\n        found = cached_summary(account.shopper_id, look_up_summary, cache_endpoint)\n    except CacheUnreachable as unreachable:\n        found, cache_failure = None, str(unreachable)\n\n    if found is not None:\n        return found.amount_cents, True, cache_failure\n\n    return render_spend_summary(\n        account,\n        use_monthly_summary=use_monthly_summary,\n        use_typical_spend=use_typical_spend\n    ), False, cache_failure\n\nsrc/io_shop/summary_cache.py:1-46\n\"\"\"The spend figure Io has already worked out once, kept so it need not again.\n\nWorking the figure out means walking a shopper's whole purchase history, and an\naccount page is the most-visited page the shop has. So what that walk produced\nis cached under the shopper it belongs to, and the page reads the cache before\nit computes - which is what makes the shop fast rather than merely correct.\n\nAn entry carries the figure and the number of purchases it was worked out over,\nwritten down together as one piece of text. Both, because the page shows both,\nand a cache holding only the figure sends the page back to the purchase history\nfor the count - which is the walk the cache exists to avoid.\n\nNothing here fails a page. A cache that has nothing for this shopper, and a\ncache that cannot be reached at all, both end the same way: the page works the\nfigure out for itself and renders. That is the designed behaviour and it is\nload-bearing - a shop that failed when its cache did would be a shop whose cache\nis a dependency rather than an optimisation, and losing it would be an outage\ninstead of a slowdown.\n\nWhich is also why losing it is so easy to miss. Every page is still correct.\nThe only thing that changes is how long each one takes.\n\nWhere the cache lives is not this module's to know. The endpoint is deployment\nconfiguration, handed in by whoever is running the shop, and how it is reached\nis a seam the caller supplies.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom collections.abc import Callable\nfrom dataclasses import dataclass\n\n# How the cache is addressed, in the scheme its client speaks. Spelled out so\n# that the endpoint in a failure line is the endpoint the shop actually dialled\n# - a reader comparing it against what the configuration says is doing the one\n# comparison that diagnoses this.\n_ENDPOINT_FORMAT = \"redis://{host}:{port}\"\n\n# How an entry is written down, and what separates the two things it holds.\n# Spelled out so that the text a failure quotes is the text the shop wrote -\n# a reader setting one against the other is doing the one comparison that says\n# whether a writer and a reader agree about the shape.\n_ENTRY_FORMAT = \"{amount_cents}/{items_counted}\"\n_ENTRY_SEPARATOR = \"/\"\n\n\n\nsrc/io_shop/account_page.py:97-171\ndef serve_account_page(account: Account,\n                       use_monthly_summary: bool,\n                       ask_the_provider: AskTheProvider,\n                       ask_the_pricing_service: AskThePricingService,\n                       look_up_summary: LookUpSummary | None = None,\n                       cache_endpoint: CacheEndpoint | None = None,\n                       use_typical_spend: bool = False,\n                       use_monthly_statement: bool = False,\n                       statement_period: StatementPeriod | None = None\n                       ) -> RenderedPage:\n    \"\"\"Renders the account page, reporting a failure rather than raising one.\n\n    Three things are shown, and two of them are needed: what the shopper\n    averages per item, which Io works out for itself, and the card it would\n    charge, which only the payment provider knows. The third, what their basket\n    comes to, which the pricing service works out, is a convenience - the page\n    is still worth showing without it. The basket and the card are calls to\n    other services from inside a page render, which is ordinary and is why a\n    slowdown or an outage over there arrives here as Io's own latency and Io's\n    own error rate.\n\n    The two are not the same kind of neighbour, and nothing in this function\n    tells them apart: one is another team's service and one is another company's,\n    and which is which is published in the service catalogue rather than\n    inferred from a host name.\n\n    `use_monthly_summary` and `use_typical_spend` are the rollout decisions\n    already made - whether this request is one of the ones each new figure is\n    live for. The page does not make those decisions itself; it is told, the way\n    a handler is told by the flag SDK that evaluated for this user. Two of them\n    because there are two rollouts running, and a page carrying one boolean for\n    both would be a page that cannot say which feature a request got.\n\n    `look_up_summary` and `cache_endpoint` are how the figure is looked for\n    before it is worked out. Both optional and both absent together, because a\n    deployment that configured no cache has none - and a page that insisted on\n    one would make an optimisation into a requirement, which is the very thing\n    this shop's cache is not.\n\n    `use_monthly_statement` is the third rollout decision, and it arrives here\n    already made like the other two. `statement_period` is which month the\n    request is asking about, which the page is told rather than deriving: the\n    shop's purchase records carry a month flag and no date, so the only thing\n    here that knows the calendar is whoever handled the request.\n    \"\"\"\n    try:\n        figure_cents, from_cache, cache_failure = _the_figure_for(\n            account, use_monthly_summary, look_up_summary, cache_endpoint,\n            use_typical_spend\n        )\n        statement = _the_statement_for(\n            account, use_monthly_statement, statement_period\n        )\n        basket, pricing_failure = _the_basket_for(\n            account.shopper_id, ask_the_pricing_service\n        )\n        card = card_on_file(account.shopper_id, ask_the_provider)\n    except Exception as error:  # noqa: BLE001 - the boundary records anything\n        failure = f\"{type(error).__name__}: {error} at {_where_it_was_raised(error)}\"\n        record_visit(account.shopper_id, failure)\n\n        return RenderedPage(figure_cents=None, card_last_four=None, failure=failure)\n\n    record_visit(account.shopper_id, str(figure_cents))\n\n    return RenderedPage(figure_cents=figure_cents,\n                        card_last_four=card.last_four,\n                        failure=None,\n                        served_from_cache=from_cache,\n                        cache_failure=cache_failure,\n                        statement=statement,\n                        basket_total_cents=basket.total_cents if basket else None,\n                        pricing_delay=basket.slow_call if basket else None,\n                        pricing_unavailable=None if basket else PRICING_UNAVAILABLE,\n                        pricing_failure=pricing_failure)\n\nsrc/io_shop/visits.py:1-17\n\"\"\"Who has looked at their account page, and what they were shown.\n\nThe shop keeps this so the page can greet a returning shopper with the figure\nthey saw last time instead of an empty panel while the real one loads. It is\nwritten on every render and read on the next visit, which is why it lives in\nthe process rather than in a store: a round trip to the database would cost\nmore than the panel is worth.\n\nOne entry per shopper, the newest render winning. Io has a few million\nregistered shoppers and this holds whichever of them have been by.\n\"\"\"\n\nfrom __future__ import annotations\n\n_LAST_SEEN: dict[str, str] = {}\n\n\n\nsrc/io_shop/spend_reconciliation.py:1-26\n\"\"\"Asking the purchases whether the totals kept up with them.\n\nA running total is a second copy of something the purchases already say. Copies\ndrift, and this is the shop's check on the one copy it keeps: re-add what a\nshopper bought this month and set it against the figure stored beside their\nhistory.\n\nNothing here reads a flag, fixes anything or writes anything back. It answers one\nquestion about a set of accounts, and the answer is a value - which is what lets\nthe same arithmetic be run by the shop's own scheduled job, by a console showing\nwhat it found, and by a test that hands it two accounts.\n\nRepairing what it finds is deliberately not here. A total that has fallen behind\nis corrected by rewriting stored data, which is irreversible and is nobody's to\ndo without being asked; this says how far behind and since when, and stops.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom collections.abc import Iterable\nfrom dataclasses import dataclass\nfrom datetime import datetime\n\nfrom io_shop.accounts import Account, Purchase\n\n",
+          "tool_use_id": "toolu_01JTe4KmnERbrQAwz6kBwYQC",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01MwvCWmHJNdC7YzpHDw3H2P",
+          "input": {
+            "path": "src/io_shop/spend_summary.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01McNhCaPdHza1MCF4mVa1LM",
+          "input": {
+            "path": "src/io_shop/endpoints.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01DgytbQ67gWdpogPsGpLo5H",
+          "input": {
+            "path": "src/io_shop/typical_spend.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"What a shopper has spent, and what that averages to.\n\nThree figures about one history. The lifetime average has been on the account\npage for years; the monthly one narrows it to the current month; the typical\npurchase abandons the average altogether for the middle of the history. The\nlast two are the ones still behind a rollout, and which of them a request gets\nis decided before it reaches here.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\ndef average_spend_per_item(account: Account) -> int:\n    \"\"\"Average spend per item across everything this account has ever bought.\n\n    Live for years. Its divisor is empty only for an account that has never\n    bought anything at all, which no real shopper is.\n\n    Derives the total from the purchases rather than reading the one the account\n    carries, taking each purchase in and recomputing what has been spent by\n    then, so that the figure agrees with the list the shopper is looking at even\n    where the totals the query returned have drifted from it.\n    \"\"\"\n    spent_by_then = 0\n\n    for index, _ in enumerate(account.purchases):\n        spent_by_then = sum(\n            earlier.price_cents for earlier in account.purchases[:index + 1]\n        )\n\n    return spent_by_then // len(account.purchases)\n\n\ndef average_spend_per_item_this_month(account: Account) -> int:\n    \"\"\"Average spend per item this month.\n\n    Narrows the lifetime figure to the current month, so the account page can\n    show what a shopper is spending now rather than what they averaged over\n    three years.\n    \"\"\"\n    bought_this_month = [\n        purchase for purchase in account.purchases if purchase.in_current_month\n    ]\n    return account.total_this_month_cents // len(bought_this_month)\n\n\ndef render_spend_summary(account: Account,\n                         use_monthly_summary: bool,\n                         use_typical_spend: bool = False) -> int:\n    \"\"\"The figure Io's account page shows, through whichever version the rollout\n    selects.\n\n    Raises whatever the selected version raises. Catching belongs at the request\n    boundary - see `io_shop.account_page` - where there is a response to turn a\n    failure into and a log to record it in. A page that swallowed its own errors\n    would render a wrong number instead of an error, which is a worse incident\n    than the one it hid.\n\n    Two rollouts, so two flags to be told about, and the newer one wins where a\n    request is inside both. That is the ordinary arrangement: each is a slice of\n    traffic, the slices overlap, and the page has to render one figure.\n    \"\"\"\n    if use_typical_spend:\n        return typical_spend_per_item(account)\n\n    if use_monthly_summary:\n        return average_spend_per_item_this_month(account)\n\n    return average_spend_per_item(account)\n",
+          "tool_use_id": "toolu_01MwvCWmHJNdC7YzpHDw3H2P",
+          "type": "tool_result"
+        },
+        {
+          "content": "\"\"\"What the shop answers about itself over HTTP: whether it is up, what it\nlogged, and its figures in the text Prometheus scrapes.\n\nThe routes are the shop's; what they report is handed in. The shop keeps no\ncounters of its own - its minutes are generated by whatever runs it - so the\nlines and the exposition arrive as callables, and this module never learns\nwhere they come from. That keeps the dependency pointing one way: `target_app`\nknows the shop, and the shop knows nothing about the rig.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom collections.abc import Callable\n\nfrom fastapi import APIRouter\nfrom fastapi.responses import PlainTextResponse\n\n\ndef the_shops_routes(log_lines: Callable[[], list[str]],\n                     exposition: Callable[[], str],\n                     exposition_content_type: str) -> APIRouter:\n    \"\"\"`/health`, `/logs` and `/metrics`, answering from what is handed in.\"\"\"\n    routes = APIRouter()\n\n    @routes.get(\"/health\")\n    def health() -> dict[str, str]:\n        return {\"status\": \"ok\"}\n\n    @routes.get(\"/logs\", response_model=list[str])\n    def logs() -> list[str]:\n        return log_lines()\n\n    @routes.get(\"/metrics\")\n    def metrics() -> PlainTextResponse:\n        return PlainTextResponse(exposition(), media_type=exposition_content_type)\n\n    return routes\n",
+          "tool_use_id": "toolu_01McNhCaPdHza1MCF4mVa1LM",
+          "type": "tool_result"
+        },
+        {
+          "content": "\"\"\"What this shopper's middle purchase cost.\n\nThe newest thing on the account page, and the one still behind a rollout. An\naverage is dragged around by a single expensive buy - one laptop among twenty\ncoffees averages to a figure describing neither - so the page offers the middle\nof the history instead: the price as many purchases sit below as above.\n\n`typical-purchase-feature` decides whether a request gets this figure, and a\nrequest that does not get it renders the figure it rendered before.\n\nThe figure it produces is right for every history the shop has. What it is not\nis cheap, and the cost follows the shape of the code rather than anything it is\nwaiting on.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\n\n\ndef typical_spend_per_item(account: Account) -> int:\n    \"\"\"The middle price in this shopper's history.\n\n    Found by taking the cheapest purchase that is left, over and over, until\n    the middle of the history is what remains. On an even-length history that\n    lands on the lower of the two middles, which is the one a shopper reading\n    \"your typical purchase\" can point at - a figure interpolated between two\n    prices is one nobody paid.\n    \"\"\"\n    remaining = [purchase.price_cents for purchase in account.purchases]\n    below_the_middle = (len(remaining) - 1) // 2\n\n    for _ in range(below_the_middle):\n        remaining.remove(min(remaining))\n\n    return min(remaining)\n",
+          "tool_use_id": "toolu_01DgytbQ67gWdpogPsGpLo5H",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
+      "strict": true
+    }
+  ]
+}

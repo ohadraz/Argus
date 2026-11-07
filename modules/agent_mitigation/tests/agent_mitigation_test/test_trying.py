@@ -7,7 +7,15 @@ from typing import Any, cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
+from agent_mitigation import (
+    Action,
+    ChangeMade,
+    Outcome,
+    UndoAttempt,
+    Undone,
+    Verdict,
+    take_action,
+)
 from agent_mitigation.tools import (
     AcceleratorPinner,
     Arrival,
@@ -18,22 +26,27 @@ from agent_mitigation.tools import (
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
+    PerformingWrites,
     RuleReader,
     ServiceRestarter,
 )
 from agent_mitigation.trying import UndoChange
-from argus_core import new_id
+from argus_core import RunLost, new_id
 from argus_core.anomaly import AnomalyThresholds
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_KNOWN_MARKER,
     LEFT_BEHIND_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     McpToolError,
     PlatformUnreachable,
+    a_refusal_saying_what_it_left,
     an_exhausted_action,
     an_unreachable_platform,
+    with_what_it_left,
 )
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
@@ -55,6 +68,8 @@ from argus_testkit import (
     Assertion,
     Scenario,
     all_of,
+    an_error_was_raised,
+    attempting,
     calling,
     dont_care_sleep,
     one_record_was_logged,
@@ -96,6 +111,7 @@ from agent_mitigation_test.framework.builders import (
     nobody_can_say,
     nobody_changed_it,
     nobody_wanted_it_before_it_was_taken,
+    nobody_wants_it_after_the_first_look,
     nobody_wants_it_any_more,
     somebody_changed_it,
     the_writes,
@@ -197,6 +213,10 @@ A_SHORT_WAIT_IN_SECONDS = 180.0
 # metrics are read only to date the recovery.
 SOME_RULE = "some-rule"
 
+# What a case putting a change and the looks after it in order keeps of each.
+_MADE = "made"
+_LOOKED = "looked"
+
 
 @pytest.mark.unit
 def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
@@ -247,16 +267,21 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                 undo=an_undo_nobody_calls()
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.CONFIRMED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            # The descriptor is the tier's own account of the change it made.
+            _what_it_left_is_known(True)
+        ))
 
 
 @pytest.mark.unit
 def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -> None:
     # An expired verification is refuted rather than an error: the action was
-    # taken and did not visibly help within the time allowed, which is exactly
-    # what refuted means.
+    # taken and the service was still at the incident's level when the wait
+    # ran out, which is exactly what refuted means. Said as that, rather than
+    # as a service that "did not recover": the brief carries the sentence, and
+    # a refutation that does not say what was judged is no evidence a reader
+    # can weigh.
     Scenario() \
         .given(
             some_old_state := False,
@@ -278,9 +303,12 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
                 undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.REFUTED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("the service was still at the incident's level when the "
+                                 "verification wait ran out"),
+            _the_detail_does_not_mention("did not recover")
+        ))
 
 
 @pytest.mark.unit
@@ -311,9 +339,15 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
             )
         ) \
         .then(all_of(
-            the_verdict_is(Verdict.WITHDRAWN),
-            _the_detail_mentions("a person ended the incident"),
-            _the_detail_does_not_mention("withdrawn")
+            the_verdict_is(Verdict.STOPPED),
+            _the_detail_mentions("a person ended the incident before the verification wait "
+                                 "reached a verdict"),
+            _the_detail_does_not_mention("withdrawn"),
+            # Nothing was watched, so nothing was judged and there is no reason
+            # for a later round to read.
+            _the_reason_is(None),
+            # The change was made, so the candidate was tried all the same.
+            _it_says_it_was_performed(True)
         ))
 
 
@@ -341,14 +375,140 @@ def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
             )
         ) \
         .then(all_of(
-            the_verdict_is(Verdict.WITHDRAWN),
+            the_verdict_is(Verdict.STOPPED),
             _the_flag_was_never_set(set_state),
             _it_carries_nothing_to_put_back(),
+            _it_says_it_was_performed(False),
+            _what_it_left_is_known(True),
+            # A person's ending is said by its own line, so no tier's reason.
+            _why_it_was_not_performed_is(None),
             # The agent holds a yes-or-no and cannot tell a withdrawal from a
             # resolution, so it says what it knows and claims neither.
             _the_detail_mentions("a person ended the incident"),
             _the_detail_does_not_mention("withdrawn")
         ))
+
+
+@pytest.mark.unit
+def test_the_change_is_told_as_made_before_the_service_is_first_looked_at() -> None:
+    # Told the moment the tier answers, with what the tier said would put it
+    # back - not with the verdict. The wait is where a worker dies, and a
+    # change told only once it was judged is one a dead worker made and
+    # nobody can find, or put back.
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            what_the_tier_said_puts_it_back := an_undo_descriptor_for(
+                DONT_CARE_FLAG, was_enabled=some_old_state
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=_each_look_kept_in(happened,
+                                                 metrics_reading(a_recovered_window())),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                change_made=_each_change_kept_in(happened)
+            )
+        ) \
+        .then(
+            _it_was_told_once_before_the_first_look(happened,
+                                                    what_the_tier_said_puts_it_back)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "an_attempt_ending_before_the_write",
+    [
+        pytest.param(lambda: (an_action_setting(DONT_CARE_FLAG, enabled=True),
+                              the_writes(set_state=_a_flag_setter_changing_from(
+                                  DONT_CARE_FLAG, was_enabled=False)),
+                              nobody_wanted_it_before_it_was_taken()),
+                     id="stopped-before-the-write"),
+        pytest.param(lambda: (_a_pin_of(SOME_APPLICATION),
+                              the_writes(pin=_a_pinner_with_no_room_left(
+                                  THE_AUTOSCALER_HAS_NO_ROOM_LEFT)),
+                              wanted_throughout),
+                     id="nowhere-left-to-go"),
+        pytest.param(lambda: (_a_rollback_of(SOME_APPLICATION),
+                              the_writes(roll_back=_a_roller_that_cannot_reach_the_platform(
+                                  THE_PLATFORM_DID_NOT_ANSWER)),
+                              wanted_throughout),
+                     id="platform-unreachable"),
+        pytest.param(lambda: (an_action_setting(DONT_CARE_FLAG, enabled=True),
+                              the_writes(set_state=_a_flag_setter_that_cannot_write(
+                                  "dont care")),
+                              wanted_throughout),
+                     id="write-refused")
+    ]
+)
+def test_an_attempt_that_ended_before_its_write_tells_of_no_change(
+        an_attempt_ending_before_the_write: Callable[
+            [], tuple[Action, PerformingWrites, StillWanted]]) -> None:
+    # The four ways an attempt ends before the action itself is done. Told as
+    # made, the row would say a candidate was tried that never was - and a
+    # withdrawal would go looking for a change that is not there.
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            the_attempt := an_attempt_ending_before_the_write()
+        ) \
+        .when(
+            lambda: take_action(
+                the_attempt[0],
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_attempt[1],
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=the_attempt[2],
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                change_made=_each_change_kept_in(happened)
+            )
+        ) \
+        .then(
+            _no_change_was_told(happened)
+        )
+
+
+@pytest.mark.unit
+def test_an_action_refused_because_the_run_was_lost_is_raised_rather_than_escalated() -> None:
+    # The run is another claim's walk now. An escalation said from here would be
+    # said for an incident somebody else is walking, and the walk that lost the
+    # run stops writing anything at all.
+    Scenario() \
+        .given(
+            set_state := _a_flag_setter_told_the_run_was_lost()
+        ) \
+        .when(attempting(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
 
 
 @pytest.mark.unit
@@ -373,7 +533,7 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 ),
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
-                still_wanted=nobody_wants_it_any_more(),
+                still_wanted=nobody_wants_it_after_the_first_look(),
                 sleep=dont_care_sleep,
                 undo=an_undo_nobody_calls()
             )
@@ -381,6 +541,111 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
         .then(
             _the_service_was_looked_at(fetch_metrics, times=1)
         )
+
+
+@pytest.mark.unit
+def test_a_wait_withdrawn_before_its_first_look_announces_nothing_and_looks_at_nothing() -> None:
+    # The person who said stop has been answered. A wait announced after that,
+    # and posted to Slack, tells them Argus is still at it.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            fetch_metrics := _metrics_that_never_recover(),
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=fetch_metrics,
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=nobody_wants_it_any_more(),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.STOPPED),
+            _the_service_was_looked_at(fetch_metrics, times=0),
+            _the_wait_was_announced(published, times=0)
+        ))
+
+
+@pytest.mark.unit
+def test_a_wait_withdrawn_while_the_service_is_being_read_says_nothing_about_the_wait() -> None:
+    # A read on a fast clock is long enough for the stop to land inside it, and
+    # asked only before the read, the wait was announced and its first look
+    # said after the person who stopped it had been answered.
+    Scenario() \
+        .given(
+            the_stop := _AStopDuringALook(),
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=the_stop.while_reading_the_service(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=the_stop.still_wanted,
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.STOPPED),
+            _nothing_about_the_wait_was_said(published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_wait_withdrawn_while_the_rule_is_being_read_says_nothing_about_the_wait() -> None:
+    # The rule is read after the service, so a stop can land in it with the
+    # service's read already back.
+    Scenario() \
+        .given(
+            the_stop := _AStopDuringALook(),
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=the_stop.still_wanted,
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                rule=SOME_RULE,
+                read_rule=the_stop.while_reading_the_rule(_a_rule_standing(
+                    is_normal=False, evaluated_at=ACTION_TIME + timedelta(minutes=1)
+                )),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.STOPPED),
+            _nothing_about_the_wait_was_said(published)
+        ))
 
 
 @pytest.mark.unit
@@ -445,6 +710,35 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
             _the_service_was_looked_at(fetch_metrics, times=2),
             the_verdict_is(Verdict.CONFIRMED)
         ))
+
+
+@pytest.mark.unit
+def test_a_look_with_no_minute_since_the_action_says_it_saw_none() -> None:
+    # Nothing has answered yet, so the look has no level to report - "still at
+    # the incident's level" said there states what nothing measured.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=_metrics_recovering_only_after_the_action(),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(
+            _the_looks_saw_no_minute(published, True, False)
+        )
 
 
 @pytest.mark.unit
@@ -531,7 +825,8 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
             _the_detail_mentions(some_flag),
-            _the_detail_mentions(some_undo_failure)
+            _the_detail_mentions(some_undo_failure),
+            _putting_it_back_is_carried_as(Undone.NOT_ESTABLISHED, some_undo_failure)
         ))
 
 
@@ -594,7 +889,9 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
             _the_detail_mentions(some_flag),
-            _the_detail_mentions("changed")
+            _the_detail_mentions("changed"),
+            _the_detail_mentions(f"and [{some_flag}] was left as found"),
+            _putting_it_back_is_carried_as(Undone.LEFT_AS_FOUND, "was left as found")
         ))
 
 
@@ -683,7 +980,9 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
         )) \
         .then(all_of(
             _the_change_was_put_back_through(undo),
-            the_verdict_is(Verdict.REFUTED)
+            the_verdict_is(Verdict.REFUTED),
+            _putting_it_back_is_carried_as(Undone.RESTORED,
+                                           f"flag [{some_flag}] was put back")
         ))
 
 
@@ -842,7 +1141,8 @@ def test_a_wait_that_never_read_the_service_reaches_no_verdict() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
+            _it_says_it_was_performed(True),
             _nothing_was_put_back_through(undo),
             _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
         ))
@@ -893,7 +1193,7 @@ def test_a_change_the_platform_stopped_applying_reaches_no_verdict() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
             _the_detail_mentions("never applied"),
             _nothing_was_put_back_through(undo),
             _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
@@ -1744,7 +2044,8 @@ def test_a_scale_out_at_the_ceiling_reaches_the_walk_as_the_refusal_it_is() -> N
             the_verdict_is(Verdict.ESCALATED),
             _the_detail_mentions(f"scale [{SOME_APPLICATION}] out"),
             _the_detail_mentions(THE_CEILING_REFUSED),
-            _there_is_nothing_to_put_back()
+            _there_is_nothing_to_put_back(),
+            _why_it_was_not_performed_is(THE_CEILING_REFUSED)
         ))
 
 
@@ -1772,6 +2073,35 @@ def test_a_refuted_scale_out_says_which_count_it_was_put_back_to() -> None:
             the_verdict_is(Verdict.REFUTED),
             _the_detail_mentions(f"to [{SOME_COUNT_IT_WAS_RUNNING}] replicas"),
             _it_carries_the_count_to_put_back(SOME_COUNT_IT_WAS_RUNNING)
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_scale_out_from_one_replica_says_one_replica() -> None:
+    # Both places the count is said - where it was scaled out from and what it
+    # was put back to - agree with it: "[1] replicas" is the line a reader
+    # stops at.
+    Scenario() \
+        .given(undo := _an_undo_that_puts_the_count_back(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_scale_out_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    scale_out=_a_scaler_returning(SOME_APPLICATION, was_replicas=1)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("from [1] replica,"),
+            _the_detail_mentions("to [1] replica"),
+            _the_detail_does_not_mention("[1] replicas")
         ))
 
 
@@ -1807,13 +2137,16 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
         ) \
         .then(all_of(
             the_verdict_is(Verdict.NOT_ATTEMPTED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
+            _it_says_it_was_performed(False),
             _the_detail_mentions(
                 f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
             ),
             _the_detail_mentions(THE_AUTOSCALER_HAS_NO_ROOM_LEFT),
             _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
-            _there_is_nothing_to_put_back()
+            _there_is_nothing_to_put_back(),
+            _what_it_left_is_known(True),
+            _why_it_was_not_performed_is(THE_AUTOSCALER_HAS_NO_ROOM_LEFT)
         ))
 
 
@@ -1850,7 +2183,8 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
+            _it_says_it_was_performed(False),
             _the_detail_mentions(
                 f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
             ),
@@ -1893,10 +2227,14 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
         ) \
         .then(all_of(
             the_verdict_is(Verdict.PLATFORM_UNREACHABLE),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
+            _it_says_it_was_performed(False),
             _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
             _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
-            _there_is_nothing_to_put_back()
+            _there_is_nothing_to_put_back(),
+            _what_it_left_is_known(True),
+            # Named with the platform, as the tier names it to whoever reads it.
+            _why_it_was_not_performed_is(f"{DEPLOYMENT_PLATFORM} {THE_PLATFORM_DID_NOT_ANSWER}")
         ))
 
 
@@ -1927,6 +2265,131 @@ def test_a_rollback_refused_by_a_platform_that_answered_still_escalates() -> Non
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
             _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
+            _there_is_nothing_to_put_back(),
+            _what_it_left_is_known(False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_refused_before_anything_changed_says_nothing_was_changed() -> None:
+    # The tier said it had asked for no change. The escalation still stands - a
+    # person has to look at why it refused - and the record can say the estate
+    # is as it was.
+    Scenario() \
+        .given(
+            the_platform_refused_it := _a_roller_refusing_saying_what_it_left(
+                THE_ROLLBACK_WAS_REFUSED, None
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_refused_it),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _it_says_it_was_performed(False),
+            _what_it_left_is_known(True),
+            _there_is_nothing_to_put_back(),
+            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
+            _the_detail_does_not_mention(LEFT_BEHIND_KNOWN_MARKER)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_refused_after_the_suspension_carries_what_it_left() -> None:
+    # The suspension the refusal carries is the one record of an application
+    # sitting un-reconciled, and the outcome is where the walk's row reads it
+    # from.
+    Scenario() \
+        .given(
+            the_platform_refused_it := _a_roller_refusing_saying_what_it_left(
+                THE_ROLLBACK_WAS_REFUSED, WHAT_THE_ROLLBACK_LEFT
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_refused_it),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _what_it_left_is_known(True),
+            _it_carries_back(WHAT_THE_ROLLBACK_LEFT),
+            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
+            _the_detail_does_not_mention(LEFT_BEHIND_KNOWN_MARKER),
+            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_is_not_known() -> None:
+    # The revision may be moving: what is carried is what the earlier calls
+    # answered for, and the record must not say that is all.
+    Scenario() \
+        .given(
+            the_answer_was_lost := _a_roller_failing_with_what_it_left(
+                THE_ROLLBACK_WAS_REFUSED, WHAT_THE_ROLLBACK_LEFT
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_answer_was_lost),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _what_it_left_is_known(False),
+            _it_carries_back(WHAT_THE_ROLLBACK_LEFT),
+            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+        ))
+
+
+@pytest.mark.unit
+def test_a_write_that_failed_outside_the_tier_is_not_known_to_have_changed_nothing() -> None:
+    # Not a tool's answer at all - a failure between the agent and the tier -
+    # so nobody said what the estate was left as.
+    roll_back = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = RuntimeError("the session dropped")
+
+    Scenario() \
+        .given(roll_back) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=roll_back),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _what_it_left_is_known(False),
             _there_is_nothing_to_put_back()
         ))
 
@@ -2065,6 +2528,37 @@ def test_a_confirmed_pin_says_which_floor_it_raised_and_to_what() -> None:
 
 
 @pytest.mark.unit
+def test_a_refuted_pin_from_a_floor_of_one_replica_says_one_replica() -> None:
+    # Both places the floor is said - where it was raised from and what it was
+    # put back to - agree with the count: "[1] replicas" is the line a reader
+    # stops at.
+    Scenario() \
+        .given(undo := an_undo_that_put_it_back(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_pin_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    pin=_a_pinner_holding_it_at(
+                        SOME_APPLICATION, THE_FLOOR_IT_WAS_HELD_AT, was_min_replicas=1
+                    )
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("from [1] replica to"),
+            _the_detail_mentions("an autoscaler floor of [1] replica"),
+            _the_detail_does_not_mention("[1] replicas")
+        ))
+
+
+@pytest.mark.unit
 def test_taking_a_pin_to_a_card_asks_the_platform_for_that_card() -> None:
     # The caller names the card as well as the application. Which card was worked
     # out from where the replicas started before the onset, which the tier never
@@ -2169,7 +2663,8 @@ def test_a_deployment_already_held_to_the_card_is_not_attempted_rather_than_esca
         ) \
         .then(all_of(
             the_verdict_is(Verdict.NOT_ATTEMPTED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
+            _it_says_it_was_performed(False),
             _the_detail_mentions(
                 f"hold [{SOME_APPLICATION}]'s pods to [{THE_FLEETS_CARD}]"
             ),
@@ -2344,8 +2839,99 @@ def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there()
             _the_service_was_looked_at(the_rows_return_as_the_action_lands, times=2),
             _the_detail_mentions("could be read again"),
             _the_detail_does_not_mention("never departed"),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level")
         ))
+
+
+@pytest.mark.unit
+def test_the_look_that_sees_a_blind_spot_read_again_is_said_with_when_its_rows_resumed() -> None:
+    # The look that confirmed was the one look never said: the page went from
+    # "no new minute read yet" straight to the verdict, and nothing recorded which
+    # minute came back - though the rows coming back are this incident's recovery.
+    # Dated by the first row after the onset, which is 11:10, the minute the
+    # rollback fell inside, and not 11:11, the minute the verdict is read from:
+    # when the rows returned is a fact about the service.
+    the_minute_the_rows_resumed = "2026-08-20T11:10:00Z"
+
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            some_old_state := False
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=_metrics_whose_rows_return_in_the_actions_own_minute(),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _each_look_reported(published, False, True),
+            _the_last_look_saw_the_rows_back_at(published, the_minute_the_rows_resumed)
+        ))
+
+
+@pytest.mark.unit
+def test_the_wait_on_a_blind_spot_waits_for_its_metrics_to_be_read_again() -> None:
+    # No level was read while its minutes were missing, so none is left to be
+    # still at: said as one, the wait promised a reading nobody took, and the
+    # look that settles it asks whether the metrics can be read again.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            some_old_state := False
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=_metrics_whose_rows_return_in_the_actions_own_minute(),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(
+            _the_wait_waits_for_its_metrics_to_be_read_again(published, True)
+        )
+
+
+@pytest.mark.unit
+def test_the_wait_on_a_service_that_was_watched_waits_for_a_level() -> None:
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: _an_action_is_taken(
+                publisher=published.append, metrics=a_recovered_window()
+            )
+        ) \
+        .then(
+            _the_wait_waits_for_its_metrics_to_be_read_again(published, False)
+        )
 
 
 @pytest.mark.unit
@@ -2552,6 +3138,14 @@ def _a_flag_setter_that_cannot_write(failure: str) -> MagicMock:
     """The provider refuses the write, so the flag never moved."""
     set_state: MagicMock = create_autospec(FlagSetter, instance=True)
     set_state.side_effect = RuntimeError(failure)
+
+    return set_state
+
+
+def _a_flag_setter_told_the_run_was_lost() -> MagicMock:
+    """The write tier refuses the write: the run is a newer claim's."""
+    set_state: MagicMock = create_autospec(FlagSetter, instance=True)
+    set_state.side_effect = RunLost("a newer claim holds this run")
 
     return set_state
 
@@ -2807,7 +3401,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_no_series_ever_moved() -> N
         ) \
         .then(all_of(
             the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level")
         ))
 
 
@@ -2853,7 +3447,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_nothing_is_published() -> N
             # verdict alone would stay green with the receipt still gated, which
             # is the hole this closes rather than the one it reports.
             _the_detail_mentions("the store reported what it removed"),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level")
         ))
 
 
@@ -2963,7 +3557,67 @@ def test_a_restart_is_not_confirmed_by_a_window_that_never_departed() -> None:
         ) \
         .then(all_of(
             _the_verdict_is_not(Verdict.CONFIRMED),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level"),
+            _the_detail_does_not_mention("answer")
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_reached_on_the_actions_own_receipt_announces_no_wait() -> None:
+    # The receipt settles the action on the first window that comes back, and
+    # reads no minute to do it. Announced, the page said it was waiting "from
+    # 15:04 - up to 104s" and gave the verdict 44 ms later, judged from no minute
+    # at all.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(discard=a_discard_removing(1)),
+                fetch_metrics=metrics_reading([]),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                onset=THE_ONSET,
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_wait_was_announced(published, times=0)
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_a_window_that_never_departed_announces_no_wait() -> None:
+    # The other verdict that reads no minute since the action: nothing departed,
+    # so nothing could come back, and no wait was ever under way.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(restart=_a_restarter_bringing_up(SOME_APPLICATION)),
+                fetch_metrics=metrics_reading(a_window_that_never_departed()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_was_announced(published, times=0)
         ))
 
 
@@ -2991,7 +3645,9 @@ def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions("returned to baseline")
+            _the_detail_mentions("the service was no longer at the incident's level"),
+            _the_detail_does_not_mention("baseline"),
+            _the_reason_is("the service was no longer at the incident's level")
         ))
 
 
@@ -3102,6 +3758,53 @@ def _the_detail_mentions(expected: str) -> Assertion[Outcome]:
     return assertion
 
 
+def _why_it_was_not_performed_is(expected: str | None) -> Assertion[Outcome]:
+    """The tier's own sentence for an attempt that ended before its write,
+    carried apart from the sentence that says it - for the candidate's row and
+    the line, which keep the reason and not the rest."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.not_performed_because != expected:
+            raise AssertionError(
+                f"Expected the outcome to say it was not performed because "
+                f"[{expected}], got [{outcome.not_performed_because}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _putting_it_back_is_carried_as(expected: Undone,
+                                   said: str) -> Assertion[Outcome]:
+    """What the undo did, and its own words for it, carried apart from the
+    detail - for the action's row and the verdict's line."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.undone is not expected or said not in (outcome.undone_detail or ""):
+            raise AssertionError(
+                f"Expected the outcome to carry the undo as [{expected}] saying "
+                f"[{said}], got [{outcome.undone}] saying [{outcome.undone_detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_reason_is(expected: str | None) -> Assertion[Outcome]:
+    """What the verification wait judged, carried apart from the sentence that
+    says it - for a later round, which is told the reason and not the rest."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.because != expected:
+            raise AssertionError(
+                f"Expected the outcome to carry the reason [{expected}], "
+                f"got [{outcome.because}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_detail_does_not_mention(forbidden: str) -> Assertion[Outcome]:
     """What a reader must not be shown, asserted rather than assumed.
 
@@ -3149,6 +3852,49 @@ def _the_wait_was_announced(published: list[IncidentEvent], times: int) -> Asser
     return assertion
 
 
+class _AStopDuringALook:
+    """A person stopping the walk while one of its looks is being taken -
+    wanted until the read given here begins, and withdrawn from then on."""
+
+    def __init__(self) -> None:
+        self._landed = False
+
+    def still_wanted(self) -> bool:
+        return not self._landed
+
+    def while_reading_the_service(self, window: list[MetricBucket]) -> MetricsFetcher:
+        def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+            self._landed = True
+            return window
+
+        return read
+
+    def while_reading_the_rule(self, standing: AlertRuleStanding) -> RuleReader:
+        def read(dont_care_rule: str, /) -> AlertRuleStanding:
+            self._landed = True
+            return standing
+
+        return read
+
+
+def _nothing_about_the_wait_was_said(published: list[IncidentEvent]) -> Assertion[Outcome]:
+    """No announcement of the wait and no look's finding - what the page and
+    the thread are told while a wait is under way."""
+    def assertion(_outcome: Outcome) -> bool:
+        said = [type(event).__name__ for event in published
+                if isinstance(event, AwaitingRecovery | RecoveryChecked)]
+
+        if said:
+            raise AssertionError(
+                f"Expected nothing said about the wait once it was withdrawn, and "
+                f"it said {said}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_wait_will_judge_from(published: list[IncidentEvent],
                               minute: str) -> Assertion[Outcome]:
     def assertion(_outcome: Outcome) -> bool:
@@ -3183,6 +3929,23 @@ def _the_wait_allowed(published: list[IncidentEvent],
     return assertion
 
 
+def _the_wait_waits_for_its_metrics_to_be_read_again(published: list[IncidentEvent],
+                                                    expected: bool) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        announced = next(
+            event for event in published if isinstance(event, AwaitingRecovery)
+        )
+        if announced.until_read_again != expected:
+            raise AssertionError(
+                f"Expected the wait to wait for the metrics to be read again to be "
+                f"[{expected}], got [{announced.until_read_again}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _each_look_reported(published: list[IncidentEvent],
                         *recoveries: bool) -> Assertion[Outcome]:
     def assertion(_outcome: Outcome) -> bool:
@@ -3192,6 +3955,22 @@ def _each_look_reported(published: list[IncidentEvent],
         if reported != recoveries:
             raise AssertionError(
                 f"Expected the looks to report {recoveries}, got {reported}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_looks_saw_no_minute(published: list[IncidentEvent],
+                             *expected: bool) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        saw = tuple(event.saw_no_minute for event in published
+                    if isinstance(event, RecoveryChecked))
+
+        if saw != expected:
+            raise AssertionError(
+                f"Expected each look's having seen no minute to be {expected}, got {saw}."
             )
 
         return True
@@ -3226,6 +4005,29 @@ def _the_recovery_was_recorded_at(published: list[IncidentEvent],
             raise AssertionError(
                 f"Expected the recovery to be recorded at [{minute}], got "
                 f"[{confirmed[-1].recovered_minute}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_last_look_saw_the_rows_back_at(published: list[IncidentEvent],
+                                        minute: str) -> Assertion[Outcome]:
+    """The last look found a blind spot's minutes published again, dated by the
+    first of them."""
+    def assertion(_outcome: Outcome) -> bool:
+        looks = [event for event in published if isinstance(event, RecoveryChecked)]
+
+        if not looks or not looks[-1].read_again:
+            raise AssertionError(
+                f"Expected the last look to find the rows back, got {looks}."
+            )
+
+        if looks[-1].recovered_minute != minute:
+            raise AssertionError(
+                f"Expected the rows to be found back at [{minute}], got "
+                f"[{looks[-1].recovered_minute}]."
             )
 
         return True
@@ -3407,7 +4209,8 @@ def _a_replica_descriptor_for(
     )
 
 
-def _a_scaler_returning(application: str) -> MagicMock:
+def _a_scaler_returning(application: str,
+                        was_replicas: int = SOME_COUNT_IT_WAS_RUNNING) -> MagicMock:
     """Answers as the real scaler does - with the descriptor recording both
     things it changed.
 
@@ -3416,7 +4219,7 @@ def _a_scaler_returning(application: str) -> MagicMock:
     repository holds at its next sync, which is the size that was too small.
     """
     scale_out: MagicMock = create_autospec(DeploymentScaler, instance=True)
-    scale_out.return_value = _a_replica_descriptor_for(application)
+    scale_out.return_value = _a_replica_descriptor_for(application, was_replicas)
 
     return scale_out
 
@@ -3533,7 +4336,8 @@ def _a_pinner_that_cannot(failure: str) -> MagicMock:
     return pin
 
 
-def _a_pinner_holding_it_at(application: str, floor_asked_for: int) -> MagicMock:
+def _a_pinner_holding_it_at(application: str, floor_asked_for: int,
+                            was_min_replicas: int = SOME_FLOOR_IT_COULD_FALL_TO) -> MagicMock:
     """Answers as the tier does when the pin went through.
 
     Both floors on the descriptor, because both are what the tier knew: the one the
@@ -3544,7 +4348,7 @@ def _a_pinner_holding_it_at(application: str, floor_asked_for: int) -> MagicMock
     pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
     pin.return_value = AutoscalerUndo(
         application=application,
-        was_min_replicas=SOME_FLOOR_IT_COULD_FALL_TO,
+        was_min_replicas=was_min_replicas,
         min_replicas_asked_for=floor_asked_for,
         was_syncing_itself=True
     )
@@ -3613,6 +4417,49 @@ def _a_roller_that_lost_the_platform_mid_action(failure: str) -> MagicMock:
     )
 
     return roll_back
+
+
+def _a_roller_refusing_saying_what_it_left(
+    failure: str, left_behind: UndoDescriptor | None
+) -> MagicMock:
+    """Answers as the tier does when the platform said no and the tier can say
+    what it left: built as the transport builds it from that refusal."""
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = McpToolError(
+        a_refusal_saying_what_it_left(failure, left_behind),
+        undo_descriptor=left_behind,
+        left_behind_known=True
+    )
+
+    return roll_back
+
+
+def _a_roller_failing_with_what_it_left(failure: str,
+                                        left_behind: UndoDescriptor) -> MagicMock:
+    """Answers as the tier does when a change request's answer was lost after an
+    earlier change landed: what it knows it left, and not that it is all."""
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = McpToolError(
+        with_what_it_left(failure, left_behind),
+        undo_descriptor=left_behind,
+        left_behind_known=False
+    )
+
+    return roll_back
+
+
+def _what_it_left_is_known(expected: bool) -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.left_behind_known is not expected:
+            raise AssertionError(
+                f"Expected the outcome to say what the attempt left behind is "
+                f"{'known' if expected else 'not known'}, and it said "
+                f"left_behind_known={outcome.left_behind_known}: [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_carries_back(expected: UndoDescriptor) -> Assertion[Outcome]:
@@ -3728,7 +4575,73 @@ def _nothing_was_put_back_through(undo: MagicMock) -> Assertion[Outcome]:
     return assertion
 
 
-def _it_says_nothing_was_measured() -> Assertion[Outcome]:
+def _it_says_it_was_performed(expected: bool) -> Assertion[Outcome]:
+    """Whether the action was performed - what says a candidate was tried where
+    nothing was judged. A person's ending stops a test before the write and
+    during the wait alike, and only the second tried the candidate."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.performed != expected:
+            raise AssertionError(
+                f"Expected the outcome to say the action was "
+                f"{'performed' if expected else 'never performed'}, and it says "
+                f"[{outcome.performed}].")
+
+        return True
+
+    return assertion
+
+
+def _each_change_kept_in(happened: list[tuple[str, UndoDescriptor | None]]) -> ChangeMade:
+    """Keeps each change told as made, with what would put it back, in the
+    order it was told among everything else kept beside it."""
+    def change_made(undo_descriptor: UndoDescriptor | None) -> None:
+        happened.append((_MADE, undo_descriptor))
+
+    return change_made
+
+
+def _each_look_kept_in(happened: list[tuple[str, UndoDescriptor | None]],
+                       read: MetricsFetcher) -> MetricsFetcher:
+    """A read of the service that keeps each look it is asked for beside the
+    changes told, so the two can be put in order."""
+    def looked(rule: str | None, /) -> list[MetricBucket]:
+        happened.append((_LOOKED, None))
+
+        return read(rule)
+
+    return looked
+
+
+def _it_was_told_once_before_the_first_look(
+        happened: list[tuple[str, UndoDescriptor | None]],
+        undo_descriptor: UndoDescriptor) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        told = [entry for entry in happened if entry[0] == _MADE]
+        if told != [(_MADE, undo_descriptor)]:
+            raise AssertionError(f"Expected the change told as made once, with "
+                                 f"[{undo_descriptor}], got {told}.")
+
+        if happened[0] != (_MADE, undo_descriptor):
+            raise AssertionError(f"Expected the change told as made before the service "
+                                 f"was first looked at, got {[kind for kind, _ in happened]}.")
+
+        return True
+
+    return assertion
+
+
+def _no_change_was_told(happened: list[tuple[str, UndoDescriptor | None]]
+                        ) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        if happened:
+            raise AssertionError(f"Expected no change told as made, got {happened}.")
+
+        return True
+
+    return assertion
+
+
+def _it_says_nothing_was_judged() -> Assertion[Outcome]:
     """The outcome carrying the one fact its verdict cannot.
 
     `ESCALATED` arrives from two opposite places. One is a refutation whose undo
@@ -3739,11 +4652,11 @@ def _it_says_nothing_was_measured() -> Assertion[Outcome]:
     rather than read out of it.
     """
     def assertion(outcome: Outcome) -> bool:
-        if outcome.measured:
+        if outcome.judged:
             raise AssertionError(
-                "Expected the outcome to say nothing was measured, and it "
-                "claims the service was watched - so the candidate will be "
-                "marked tested by an experiment that took no reading."
+                "Expected the outcome to say nothing was judged, and it "
+                "claims the action was - so the candidate will be marked "
+                "tested by an experiment that reached no verdict."
             )
 
         return True
@@ -3808,7 +4721,11 @@ def test_a_rule_that_stopped_firing_after_the_action_confirms_it() -> None:
             )
         ) \
         .then(
-            the_verdict_is(Verdict.CONFIRMED)
+            all_of(
+                # A rule fires; a person is paged - one word for each.
+                the_verdict_is(Verdict.CONFIRMED),
+                _the_detail_mentions("the rule that fired stopped firing")
+            )
         )
 
 
@@ -3830,45 +4747,56 @@ def test_a_rule_still_firing_when_the_time_runs_out_refutes_the_action() -> None
                 clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.REFUTED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("the rule that fired was still firing"),
+            _the_detail_does_not_mention("did not recover"),
+            _the_reason_is("the rule that fired was still firing when the time it allows ran out")
+        ))
 
 
 @pytest.mark.unit
-def test_a_rule_that_was_normal_before_the_action_does_not_confirm_it() -> None:
+@pytest.mark.parametrize("is_normal", [False, True], ids=["firing", "quiet"])
+def test_a_rule_evaluated_only_over_minutes_before_the_action_reaches_no_verdict(
+        is_normal: bool) -> None:
     # An evaluation whose range began before the action says nothing about the
-    # action - the rule may have gone quiet in a lull the action had no part in.
+    # action. A quiet one may have gone quiet in a lull the action had no part
+    # in, and a firing one may be firing on minutes the action never touched. A
+    # wait that read nothing else measured nothing, and refuting on it put back
+    # a revert that had worked.
     Scenario() \
         .given(
-            the_rule_was_quiet_already := _a_rule_reading(_a_rule_standing(
-                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+            the_rule_judged_nothing_since := _a_rule_reading(_a_rule_standing(
+                is_normal=is_normal, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
             ))
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
-                the_rule_was_quiet_already,
+                the_rule_judged_nothing_since,
                 metrics=a_recovered_window(),
                 clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.REFUTED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions("no evaluation of the rule that fired")
+        ))
 
 
 @pytest.mark.unit
 def test_the_wait_is_read_off_the_rule() -> None:
     # The rule's range, plus one evaluation of its group, plus how long it keeps
-    # firing, plus the metrics source's lag: two minutes, one, thirty seconds and
-    # one minute, 270 seconds. Watched that long rather than for the configured
-    # wait - still firing at 200 seconds is looked at again, and refuted at 270.
+    # firing, plus the metrics source's lag - two minutes, one, thirty seconds and
+    # one minute - takes an action at 11:10:30 to 11:15:00, itself an evaluation,
+    # so the wait runs to the next one, 330 seconds. Watched that long rather than
+    # for the configured wait - still firing at 200 seconds is looked at again,
+    # and refuted at 330.
     Scenario() \
         .given(
             published := _a_page_listening(),
             the_rule_still_fires := _a_rule_reading(_a_rule_standing(
                 is_normal=False,
-                evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
+                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
                 range_seconds=120,
                 interval_seconds=60,
                 keep_firing_for_seconds=30
@@ -3878,15 +4806,70 @@ def test_the_wait_is_read_off_the_rule() -> None:
             lambda: _an_action_judged_by_the_rule(
                 the_rule_still_fires,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 200, 270),
+                clock=a_clock_reading_at(ACTION_TIME, 200, 330),
                 publisher=published.append,
                 reporting_lag_minutes=1
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
-            _the_wait_allowed(published, 270),
+            _the_wait_allowed(published, 330),
             _each_look_reported(published, False, False)
+        ))
+
+
+@pytest.mark.unit
+def test_the_wait_ends_at_the_rules_next_evaluation_after_it() -> None:
+    # The range and one evaluation take an action at 11:10:30 to 11:13:30, and the
+    # rule evaluates on whole minutes - so the wait runs to 11:14:00, 210 seconds.
+    # Still firing at 200 seconds is looked at again, and refuted at 210.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_still_fires := _a_rule_reading(_a_rule_standing(
+                is_normal=False,
+                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
+                range_seconds=120
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_still_fires,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 200, 210),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_allowed(published, 210)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_with_no_interval_is_waited_on_without_being_carried_to_an_evaluation() -> None:
+    # Nothing to carry the wait to, and no evaluation to add: the range alone, 120 seconds.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_still_fires := _a_rule_reading(_a_rule_standing(
+                is_normal=False,
+                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
+                range_seconds=120,
+                interval_seconds=0
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_still_fires,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 120),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_allowed(published, 120)
         ))
 
 
@@ -3933,7 +4916,10 @@ def test_a_rule_that_could_never_be_read_reaches_no_verdict() -> None:
             )
         ) \
         .then(
-            the_verdict_is(Verdict.ESCALATED)
+            all_of(
+                the_verdict_is(Verdict.ESCALATED),
+                _the_detail_mentions("the rule that fired could not be read")
+            )
         )
 
 
@@ -4062,6 +5048,39 @@ def test_a_rule_still_firing_is_read_again_until_it_stops() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("is_normal", [False, True], ids=["firing", "quiet"])
+def test_a_rule_evaluated_over_minutes_before_the_change_is_said_to_have_read_none_since(
+        is_normal: bool) -> None:
+    # A look a second after a revert said the service was "still at the
+    # incident's level", and write-ups read it as a verdict reached too soon.
+    # The rule's evaluation still spanned minutes from before the change, so it
+    # judged nothing the change did - firing or quiet.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_stops_firing := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=is_normal, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+                ),
+                _a_rule_standing(
+                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_stops_firing,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 60, 120),
+                publisher=published.append
+            )
+        ) \
+        .then(
+            _the_looks_saw_no_minute(published, True, False)
+        )
+
+
+@pytest.mark.unit
 def test_an_evaluation_whose_range_begins_as_the_change_arrived_confirms_it() -> None:
     # The boundary: a range that starts at the very instant the change was in
     # force covers no minute before it.
@@ -4080,6 +5099,43 @@ def test_an_evaluation_whose_range_begins_as_the_change_arrived_confirms_it() ->
                 the_rule_resolved,
                 metrics=a_still_failing_window(),
                 clock=a_clock_frozen_at(ACTION_TIME)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_change_arriving_as_a_minute_turns_is_watched_past_the_first_evaluation_of_it() -> None:
+    # The rule judges a change only by an evaluation whose whole range followed
+    # it, and it evaluates on its own interval - so a change arriving a tenth of
+    # a second after a minute turned is first judged a whole interval after its
+    # range has passed. A wait ending there left its looks a tenth of a second to
+    # read that evaluation, the one look left read the evaluation before, and a
+    # revert that had worked was put back.
+    just_after_a_minute = datetime(2026, 8, 20, 11, 10, 0, 100000, tzinfo=UTC)
+
+    Scenario() \
+        .given(
+            the_rule_judges_it_late := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=False,
+                    evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
+                    range_seconds=120
+                ),
+                _a_rule_standing(
+                    is_normal=True,
+                    evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
+                    range_seconds=120
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_judges_it_late,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(just_after_a_minute, 180.2, 200)
             )
         ) \
         .then(
@@ -4136,6 +5192,32 @@ def test_a_rule_read_firing_and_unreadable_at_its_deadline_refutes() -> None:
 
 
 @pytest.mark.unit
+def test_a_rule_unreadable_at_its_deadline_and_never_read_since_the_change_escalates() -> None:
+    # Unlike a rule read firing since the change: the last thing it said was
+    # about minutes from before it, so it never said the change had not helped.
+    Scenario() \
+        .given(
+            the_rule_goes_quiet_unjudged := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+                ),
+                McpToolError("the rule could not be read")
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_goes_quiet_unjudged,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 10, 3600)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions("no evaluation of the rule that fired")
+        ))
+
+
+@pytest.mark.unit
 def test_a_rule_that_cannot_be_read_is_said_to_have_gone_unanswered() -> None:
     Scenario() \
         .given(
@@ -4182,7 +5264,7 @@ def test_an_incident_withdrawn_while_its_rule_is_watched_is_withdrawn() -> None:
             )
         ) \
         .then(
-            the_verdict_is(Verdict.WITHDRAWN)
+            the_verdict_is(Verdict.STOPPED)
         )
 
 
@@ -4241,7 +5323,7 @@ def test_the_rules_deadline_is_read_off_its_first_reading() -> None:
             lambda: _an_action_judged_by_the_rule(
                 the_rule_widens,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 10, 130, 7200),
+                clock=a_clock_reading_at(ACTION_TIME, 10, 190, 7200),
                 publisher=published.append
             )
         ) \
@@ -4348,9 +5430,9 @@ def _the_rule_read_was_said_unanswered(
             if isinstance(event, RetrievalUnanswered)
         ]
 
-        if "the alert rule that paged" not in asked:
+        if "the alert rule that fired" not in asked:
             raise AssertionError(
-                f"Expected a read of the alert rule that paged to be said to have "
+                f"Expected a read of the alert rule that fired to be said to have "
                 f"gone unanswered, and the unanswered reads were {asked}."
             )
 

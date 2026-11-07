@@ -457,7 +457,7 @@ def test_a_service_at_fault_without_a_cause_is_rejected() -> None:
     # "I blame io-pricing, for nothing" is not a conclusion, and it is worse
     # than the same sentence about a flag: this field is what a restart is
     # addressed to, so an incoherent one reaches the write tier as a process to
-    # bring down rather than as a value to put back.
+    # bring down rather than as a value to revert.
     Scenario() \
         .given(
             dont_care_service := "io-pricing"

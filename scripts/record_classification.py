@@ -6,11 +6,15 @@ intent agent's double replays.
 For example `intent-resolve "rolled the flag back by hand, we're fine"`.
 
 With `--incident`, the message is a question and is answered too, from that
-incident's timeline as the record holds it: the intent agent's second call,
-stored as the recording's second answer, which is the pair a question's case
-seeds. Postgres has to be up and hold the incident - for free, a replayed walk
-held open: `nox -s "record(mode='both')" -- feature-flag-toggle --replay --hold`
-prints the incident it drove and keeps the stack up. The message has to be read
+incident's timeline as the record holds it once the message is in it: the
+intent agent's second call, stored as the recording's second answer, which is
+the pair a question's case seeds. The intent agent answers a message the record
+has already taken in, so its timeline ends with the person's own words; the
+message is added to the timeline here as it would be filed, and never written,
+so a held stack's own intent agent finds nothing new to understand. Postgres
+has to be up and hold the incident - for free, a replayed walk held open:
+`nox -s "record(mode='both')" -- feature-flag-toggle --replay --hold` prints
+the incident it drove and keeps the stack up. The message has to be read
 as a question, or nothing is kept - a reading that is not one is never
 answered, and a case replaying it would wait on an answer that never comes.
 
@@ -47,9 +51,10 @@ from agent_intent.answering import answer
 from agent_intent.classifying import classify
 from anthropic_double.recordings import RECORDINGS_DIR
 from anthropic_double.server import app as the_double
-from argus_core import DatabaseSettings, Settings, get_settings, open_pool
+from argus_core import DatabaseSettings, Settings, get_settings, open_pool, utc_now
+from argus_core.events import PersonWrote
 from argus_core.llm import build_llm_client
-from argus_core.models import Meaning, ModelPolicy
+from argus_core.models import Meaning, ModelPolicy, ReportChannel, a_chat_message
 from argus_incidents.repository import events
 from argus_narration import NarrationLine, build_narration
 
@@ -57,6 +62,11 @@ from argus_narration import NarrationLine, build_narration
 # the intent agent's are that stack's while it runs.
 _PORT: Final = 8099
 _BASE_URL: Final = f"http://localhost:{_PORT}"
+
+# Who wrote the question, and which message it was. Never said in the timeline
+# - a person's line names nobody and no message - so any will do.
+_THE_PERSON: Final = "U-recording"
+_THE_MESSAGE: Final = a_chat_message(ReportChannel.SLACK, "recording", "0")
 
 _A_MOMENT: Final = 0.05
 _LONG_ENOUGH_TO_COME_UP: Final = 10.0
@@ -77,7 +87,7 @@ def main() -> None:
 
     # Read before anything is recorded, so an incident the record does not hold
     # costs nothing and leaves nothing behind.
-    story = (_the_timeline_of(asked.incident, settings)
+    story = (_the_timeline_of(asked.incident, asked.message, settings)
              if asked.incident is not None else None)
 
     server = uvicorn.Server(uvicorn.Config(the_double, host="localhost", port=_PORT,
@@ -134,16 +144,21 @@ def _the_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _the_timeline_of(incident_id: str, settings: Settings) -> list[NarrationLine]:
-    """The incident's timeline, read as the intent agent reads it."""
+def _the_timeline_of(incident_id: str, message: str, settings: Settings) -> list[NarrationLine]:
+    """The incident's timeline, read as the intent agent reads it when it
+    answers: the record's events, then the message as it would be filed."""
     with open_pool(DatabaseSettings.of(settings)) as pool, pool.connection() as conn:
-        story = build_narration(events.get_by_incident(conn, incident_id))
+        recorded = events.get_by_incident(conn, incident_id)
 
-    if not story:
+    if not recorded:
         sys.exit(f"The record holds nothing for incident [{incident_id}], so there "
                  f"is no timeline to answer from.")
 
-    return story
+    return build_narration([*recorded, PersonWrote(incident_id=incident_id,
+                                                   message=_THE_MESSAGE,
+                                                   person_id=_THE_PERSON,
+                                                   text=message,
+                                                   at=utc_now())])
 
 
 def _the_double_holds() -> dict[str, Any]:

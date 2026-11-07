@@ -18,19 +18,21 @@
   <tbody>
   {% for line in story.narration %}
     <tr class="line" data-line="{{ line.kind }}">
-      <td class="when">{{ line.at | clock }}</td>
+      <td class="when">{{ line.at | time }}</td>
       <td class="who">{{ line.who }}</td>
       <td class="said">
         {# The marked word arrives as three plain strings rather than as
            markup, so nothing the model wrote can carry a tag into the page;
            the only markup is the page's own links, each to where a word the
-           line names opens - a revision, at its commit. A status wears the
-           same badge it wears in the header, so `resolved` is the same green
-           in both places. #}
+           line names opens - a revision, at its commit - and, in an answer
+           the model wrote in Markdown, the few tags `from_markdown` allows.
+           A status wears the same badge it wears in the header, so
+           `resolved` is the same green in both places. #}
         {% if line.emphasis %}
           {{ line.before_emphasis | references([], line.links) }}<!--
           -->{% if line.emphasis_class %}<span class="{{ line.emphasis_class }}">{{ line.emphasis }}</span>
              {% elif line.emphasis_href %}<a class="went" href="{{ line.emphasis_href }}" target="_blank" rel="noopener noreferrer">{{ line.emphasis }}</a>
+             {% elif line.emphasis_is_markdown %}<div class="answer">{{ line.emphasis | from_markdown }}</div>
              {% else %}<em>{{ line.emphasis | references([], line.links) }}</em>{% endif %}<!--
           -->{{ line.after_emphasis | references([], line.links) }}
         {% else %}
@@ -52,20 +54,27 @@
         {% if line.repeated > 1 %}
           <span class="repeated">&times;{{ line.repeated }}</span>
         {% endif %}
+        {# What a line says beside itself - Code-Fix's reading of the code,
+           where no pull request holds it - under the sentence, not in it, and
+           formatted as an answer is: it is Markdown, a pull request's body. #}
+        {% if line.aside %}
+          <div class="aside">{{ line.aside | from_markdown }}</div>
+        {% endif %}
 
-        {# The explanations, ranked, each with what it was formed from. The
-           findings sit under the claim they support, because a reader asking
-           "why does it think that" is looking at the claim when they ask. #}
+        {# The explanations, best first and each by its number, with what it
+           was formed from. The findings sit under the claim they support,
+           because a reader asking "why does it think that" is looking at the
+           claim when they ask. #}
         {% if line.candidates %}
         <ol class="candidates">
           {% for candidate in line.candidates %}
-          <li data-candidate="{{ candidate.rank }}">
-            <span class="claim">{{ candidate.summary }}</span>
+          <li data-candidate="{{ candidate.number }}" value="{{ candidate.number }}">
+            <span class="claim">{{ candidate.summary | references([], line.links) }}</span>
             {# The change it blamed, drawn the way the flag table draws one.
                Beside the claim rather than inside it: the model's sentence is
                the model's, and the states are what the page can strike out. #}
             {% if candidate.moved_to %}
-              <span class="moved"><s>{{ candidate.moved_from }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to }}</span></span>
+              <span class="moved"><s>{{ candidate.moved_from | references([], line.links) }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to | references([], line.links) }}</span></span>
             {% endif %}
             {% if candidate.confidence %}
               <span class="confidence">confidence {{ candidate.confidence }}</span>
@@ -78,12 +87,12 @@
             <ul class="findings">
               {% for finding in candidate.evidence %}
               <li>
-                {{ finding.text }}
+                {{ finding.text | references([], line.links) }}
                 {% if finding.links_to_minute %}
-                  <a class="jump" href="#minute-{{ finding.links_to_minute }}">the minute</a>
+                  <a class="jump" href="#minute-{{ finding.links_to_minute }}">{{ finding.minute_said }}</a>
                 {% endif %}
                 {% if finding.links_to_lines %}
-                  <a class="jump" href="#log-at-{{ finding.links_to_lines }}">its log lines</a>
+                  <a class="jump" href="#log-at-{{ finding.links_to_lines }}">log lines at {{ finding.minute_said }}</a>
                 {% endif %}
               </li>
               {% endfor %}

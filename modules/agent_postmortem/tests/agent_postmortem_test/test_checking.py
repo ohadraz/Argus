@@ -36,26 +36,36 @@ liked least, which is rarely the part that was wrong.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TypedDict, Unpack
 
 import pytest
-from agent_postmortem.checking import Given, faults_in
+from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
 from agent_postmortem.estimate import ErrorRates
 from agent_postmortem.figures import Figure, figures_of
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
+    ANSWERS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
+    HAD_IT_BEEN_OTHERWISE_FIELD,
     LESSONS_FIELD,
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     ROOT_CAUSE_FIELD,
+    STILL_AT_RISK_FIELD,
+    STOPS_THE_HARM_FIELD,
+    SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
+    SYMPTOM_WORDS_AT_MOST,
+    WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
+    SubmittedRuledOut,
     SubmittedStep,
 )
-from argus_core.models import ActionItemType, Lessons
+from argus_core.models import ActionItemType, CodeUse, Lessons, ToolCall, Turn
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (
@@ -64,7 +74,7 @@ from agent_postmortem_test.framework.builders import (
     an_evidence_bundle,
 )
 
-SOME_SUMMARY_WITHOUT_A_NUMBER = "checkout failed for several minutes, for most requests"
+SOME_CAUSE_WITHOUT_A_NUMBER = "checkout failed for several minutes, for most requests"
 
 DONT_CARE_PROSE = "dont care"
 
@@ -72,11 +82,63 @@ DONT_CARE_PROSE = "dont care"
 # item already on the record.
 SOME_GIVEN = Given(labels=frozenset({"E1", "E2"}), items_on_record=1)
 
+# What a model shown Code-Fix's reading and one file as it ran was given.
+SOME_GIVEN_WITH_A_FILE_AS_IT_RAN = SOME_GIVEN.model_copy(update={
+    "labels": SOME_GIVEN.labels | {"F1", "S1"},
+    "as_it_ran": {"S1": "deploy/scrape.yaml at 53f02e9"}})
+
+# What a model whose logs reach into a stretch the metrics did not watch was
+# given: it is asked whether they show the service serving as before.
+SOME_GIVEN_ASKING_HOW_IT_SERVED = SOME_GIVEN.model_copy(
+    update={"serving_as_before_asked": True})
+
+# What a model whose incident a change put back left harmed was given: it is
+# asked for the item that stops the harm.
+SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM = SOME_GIVEN.model_copy(
+    update={"stops_the_harm_asked": True})
+
+# And asked for the item to find out why the change put back did not help.
+SOME_GIVEN_ASKING_WHY_IT_DID_NOT_HELP = SOME_GIVEN.model_copy(
+    update={"why_it_did_not_help_asked": True})
+
+# What a model shown Code-Fix's reading and a deployment's diff was given.
+SOME_GIVEN_WITH_A_READING = SOME_GIVEN.model_copy(update={
+    "labels": SOME_GIVEN.labels | {"F1", "D1"}})
+
 # The figures an incident that recovered gives, which a working is worked out
 # from: it began at noon and recovered ten minutes later.
 SOME_FIGURES = figures_of(an_evidence_bundle(), a_measured_incident())
 
+# A figure a log group states whose written form is a range, beside an instant.
+SOME_RANGE_FIGURES = {**SOME_FIGURES,
+                      "Gbac1.1": Figure(given="21:41–22:01", written="21:41–22:01")}
+
+# The paging rule's series before the incident, written in with its unit.
+SOME_LEVEL_WITH_ITS_UNIT = {"series_before": Figure(given="215.13 ms", written="215 ms")}
+
 DONT_CARE_FIGURE = Figure(given=DONT_CARE_PROSE, written=DONT_CARE_PROSE)
+
+# What a model whose service logs a rate of one page was given: the figures of
+# the rate over all its requests, and the page's own figure.
+SOME_GIVEN_WITH_A_LOGGED_RATE = SOME_GIVEN.model_copy(update={
+    "rates_the_logs_name": frozenset({"account page error rate"}),
+    "figures": {name: DONT_CARE_FIGURE for name in ("errors_before", "Gbac1.5")}})
+
+# What a model shown a row of the walk, said by the Investigator Agent, was
+# given: the row, and who its lines are said by - beside a candidate and a log
+# group, whose first figures are no instant anything was done at.
+SOME_GIVEN_WITH_A_ROW = SOME_GIVEN.model_copy(update={
+    "figures": {"T13.1": Figure(given="2026-09-02T12:00:45Z", written="12:00:45 UTC"),
+                **{name: DONT_CARE_FIGURE for name in ("C1.1", "G7e5d.1")}},
+    "speakers": frozenset({"Investigator"}),
+    "timeline_rows": frozenset({"T13"})})
+
+
+def _timed(item: str, row: str | None) -> SubmittedPostmortem:
+    """An answer that passes every check but for one item of what went well,
+    timed by `row` - in the shape rows are asked for in."""
+    return _an_answer(lessons=Lessons(went_well=[item])).model_copy(
+        update={"went_well_timed_by": [row]})
 
 
 @pytest.mark.unit
@@ -114,14 +176,34 @@ def test_every_required_field_missing_is_named_and_not_just_the_first() -> None:
         .then(
             all_of(
                 _named(ROOT_CAUSE_FIELD),
-                _named(EXECUTIVE_SUMMARY_FIELD),
+                _named(CAUSE_IN_PLAIN_WORDS_FIELD),
+                _named(STILL_AT_RISK_FIELD),
                 _named(CAUSAL_CHAIN_FIELD),
                 _named(CONTRIBUTING_FACTORS_FIELD),
                 _named(ACTION_ITEMS_FIELD),
                 _named(LESSONS_FIELD),
                 _named(SYMPTOM_FIELD),
-                _found(7)
+                _found(8)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_the_model_was_not_asked_for_is_not_missing() -> None:
+    # Where the investigation named no cause the tool leaves the cause fields
+    # out and the document writes them itself: sent back for them, a model is
+    # asked for what it was never offered.
+    Scenario() \
+        .given(
+            an_answer_saying_nothing_of_the_cause := _an_answer(
+                root_cause=None, cause_in_plain_words=None)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_nothing_of_the_cause,
+                              given=SOME_GIVEN.model_copy(update={"cause_asked": False}))
+        ) \
+        .then(
+            _found(0)
         )
 
 
@@ -159,6 +241,336 @@ def test_a_field_the_tool_never_required_is_not_missed() -> None:
 
 
 @pytest.mark.unit
+def test_how_the_logs_show_the_service_left_out_where_it_was_asked_is_named() -> None:
+    # Asked only where a log line reaches into the stretch the metrics did not
+    # watch, and required there: the document's sentence on that stretch is
+    # written from it, and nothing else in the answer may say it.
+    Scenario() \
+        .given(
+            an_answer_not_saying := _an_answer()
+        ) \
+        .when(
+            lambda: faults_in(an_answer_not_saying, given=SOME_GIVEN_ASKING_HOW_IT_SERVED)
+        ) \
+        .then(
+            all_of(
+                _named(LOGS_SHOW_SERVING_AS_BEFORE_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_how_the_logs_show_the_service_said_where_it_was_asked_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_saying := _an_answer(logs_show_serving_as_before=False)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_HOW_IT_SERVED)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_the_service_s_error_rate_given_as_a_rate_its_logs_name_is_named() -> None:
+    # Labelled as the rate over all its requests, a write-up still said "the
+    # account page error rate should fall back towards its baseline of
+    # {errors_before}" - the page's own rate is the one its log line warns of,
+    # not that figure.
+    Scenario() \
+        .given(
+            an_answer_mislabelling := _an_answer(
+                stops_the_harm="Confirm the account page error rate falls back towards "
+                               "{errors_before}.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_mislabelling,
+                              given=SOME_GIVEN_WITH_A_LOGGED_RATE)
+        ) \
+        .then(
+            all_of(
+                _named("[{errors_before}] as the account page error rate"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_service_s_error_rate_said_beside_a_rate_its_logs_name_is_accepted() -> None:
+    # Each rate under its own name: the share of all requests, then the page's
+    # own rate by its log line's figure.
+    Scenario() \
+        .given(
+            an_answer_naming_each := _an_answer(
+                still_at_risk="The share of all requests failing rose from {errors_before}, and "
+                              "the account page error rate peaked at {Gbac1.5}.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_each, given=SOME_GIVEN_WITH_A_LOGGED_RATE)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("row", ["T99", "C1", "G7e5d"],
+                         ids=["a-row-nobody-showed", "a-candidate", "a-log-group"])
+def test_an_item_timed_by_a_row_that_is_not_the_timeline_s_is_named(row: str) -> None:
+    # The document times the item off the row's instant. A candidate's first
+    # figure is the instant it claims - timed by it, "The Investigator Agent
+    # formed C1" came out six minutes before the alert - and a log group's is a
+    # count; a time guessed for a row nobody showed would be one nobody measured.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("The Investigator Agent formed C1.", row),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            all_of(
+                _named(f"timed by [{row}], which is no row of the timeline"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("row", ["T13", None], ids=["timed-by-a-row", "timed-by-nothing"])
+def test_an_item_saying_a_span_of_its_own_is_named(row: str | None) -> None:
+    # The document says the span ahead of the item: one of the model's beside
+    # it says the time twice, and set by the model a span timed the wrong
+    # clause - "brought the service back from the incident's level {T20.1 -
+    # alert_raised} after the alert was raised". Beside no row it is the
+    # model's span back again.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("The Investigator Agent formed C1 {T13.1 - T13.1} in.",
+                                     row),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            all_of(
+                _named("says a span of its own"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_went_well_sent_as_sentences_is_held_to_none_of_it() -> None:
+    # The shape answers recorded before rows were asked for came in, a span of
+    # the model's own among them.
+    Scenario() \
+        .when(
+            lambda: faults_in(
+                _an_answer(lessons=Lessons(went_well=[
+                    "The Investigator Agent formed C1 {T13.1 - T13.1} in."])),
+                given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_an_item_timed_by_a_row_not_opening_with_who_did_it_is_named() -> None:
+    # It goes on after the span as a sentence, which "When the evidence could
+    # not support a cause, Argus escalated" does not.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("When the evidence could not support a cause, Argus "
+                                     "escalated.", "T13"),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            all_of(
+                _named("begin it with who did it"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("item", [
+    "The Investigator Agent formed C1.",
+    "Investigator Agent formed C1.",
+    "Argus formed C1.",
+    "A worker took the incident up.",
+    "Argus's read of the flag history found P2.",
+    "Argus, which held the incident, escalated it."
+], ids=["an-article", "a-speaker", "argus", "another-article", "a-possessive",
+        "a-name-and-a-comma"])
+def test_an_item_timed_by_a_row_opening_with_who_did_it_is_accepted(item: str) -> None:
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed(item, "T13"), given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_an_item_timed_by_nothing_is_held_to_no_opening() -> None:
+    # Said as written: no span goes ahead of it.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("When the evidence could not support a cause, Argus "
+                                     "escalated.", None),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_what_stops_the_harm_left_out_where_it_was_asked_is_named() -> None:
+    # Asked only where a change put back left the harm standing, and required
+    # there: an optional field is one a model leaves out whenever its prose
+    # reads well without it.
+    Scenario() \
+        .given(
+            an_answer_not_saying := _an_answer()
+        ) \
+        .when(
+            lambda: faults_in(an_answer_not_saying, given=SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM)
+        ) \
+        .then(
+            all_of(
+                _named(STOPS_THE_HARM_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_stops_the_harm_said_where_it_was_asked_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_saying := _an_answer(stops_the_harm=DONT_CARE_PROSE)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_why_it_did_not_help_left_out_where_it_was_asked_is_named() -> None:
+    # Required for the reason what stops the harm is: left to the action items,
+    # a write-up filed the revert that never reached the service under what went
+    # wrong and asked nobody to find out why.
+    Scenario() \
+        .given(
+            an_answer_not_saying := _an_answer()
+        ) \
+        .when(
+            lambda: faults_in(an_answer_not_saying, given=SOME_GIVEN_ASKING_WHY_IT_DID_NOT_HELP)
+        ) \
+        .then(
+            all_of(
+                _named(WHY_IT_DID_NOT_HELP_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_why_it_did_not_help_said_where_it_was_asked_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_saying := _an_answer(why_it_did_not_help=DONT_CARE_PROSE)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_WHY_IT_DID_NOT_HELP)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_said_to_rest_on_more_than_a_reading_nothing_read_bears_out_is_named() -> None:
+    # A step resting on a reading, beside nothing that shows the code - only the
+    # error it caused. Said to rest on more, the box would be ticked beside a
+    # mechanism nothing that was read shows.
+    Scenario() \
+        .given(
+            an_answer_saying_more := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["F1", "E1"])],
+                cause_rests_on_an_unrun_reading=False)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_more, given=SOME_GIVEN_WITH_A_READING)
+        ) \
+        .then(all_of(
+            _named(CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _found(1)
+        ))
+
+
+@pytest.mark.unit
+def test_a_cause_resting_on_a_reading_and_what_was_read_may_rest_on_more() -> None:
+    # A diff or a file as it ran shows the code the reading describes - the
+    # model's to weigh, and not a contradiction.
+    Scenario() \
+        .given(
+            an_answer_saying_more := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["F1", "D1"])],
+                cause_rests_on_an_unrun_reading=False)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_more, given=SOME_GIVEN_WITH_A_READING)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_said_to_rest_on_a_reading_the_chain_never_cites_is_named() -> None:
+    # The document's sentence names the readings the chain cites, so with none
+    # it would name nothing - and the box would be left for a reading nobody
+    # can open.
+    Scenario() \
+        .given(
+            an_answer_naming_no_reading := _an_answer(cause_rests_on_an_unrun_reading=True)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_no_reading, given=SOME_GIVEN_WITH_A_READING)
+        ) \
+        .then(all_of(
+            _named(CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _found(1)
+        ))
+
+
+@pytest.mark.unit
+def test_an_answer_from_before_the_question_is_not_asked_it() -> None:
+    # Recorded before the question existed, so asked for it again it would
+    # need a turn its recording does not hold - and its own root cause already
+    # says whether the cause is unverified.
+    Scenario() \
+        .given(
+            an_answer_from_before_the_question := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["F1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_from_before_the_question,
+                              given=SOME_GIVEN_WITH_A_READING)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_number_in_digits_is_named() -> None:
     # "The alert took 7 minutes" in a lesson is a precise-looking figure the
     # reader has no way to tell from a measured one.
@@ -187,7 +599,7 @@ def test_a_figure_argus_measured_is_still_not_said_in_digits() -> None:
     Scenario() \
         .given(
             an_answer_restating_the_peak := _an_answer(
-                executive_summary="errors peaked at 33.8% of requests")
+                cause_in_plain_words="errors peaked at 33.8% of requests")
         ) \
         .when(
             lambda: faults_in(an_answer_restating_the_peak, given=SOME_GIVEN)
@@ -207,7 +619,7 @@ def test_money_in_digits_is_named() -> None:
     Scenario() \
         .given(
             an_answer_costing_the_outage := _an_answer(
-                executive_summary="the outage cost $1,200,000")
+                cause_in_plain_words="the outage cost $1,200,000")
         ) \
         .when(
             lambda: faults_in(an_answer_costing_the_outage, given=SOME_GIVEN)
@@ -302,7 +714,7 @@ def test_every_number_in_digits_is_named_and_not_just_the_first() -> None:
     Scenario() \
         .given(
             an_answer_naming_two := _an_answer(
-                executive_summary="from 21:45 for 7 minutes")
+                cause_in_plain_words="from 21:45 for 7 minutes")
         ) \
         .when(
             lambda: faults_in(an_answer_naming_two, given=SOME_GIVEN)
@@ -331,7 +743,7 @@ def test_a_figure_spelled_out_in_words_is_named(spelled_out: str) -> None:
     Scenario() \
         .given(
             an_answer_spelling_a_figure_out := _an_answer(
-                executive_summary=f"the widest total was short by {spelled_out}")
+                cause_in_plain_words=f"the widest total was short by {spelled_out}")
         ) \
         .when(
             lambda: faults_in(an_answer_spelling_a_figure_out, given=SOME_GIVEN)
@@ -356,17 +768,23 @@ def test_a_figure_spelled_out_in_words_is_named(spelled_out: str) -> None:
     "halved",
     "twice",
     "a third",
-    "two thirds"
+    "two thirds",
+    "a minute",
+    "an hour",
+    "a day",
+    "a minute and a half"
 ])
 def test_a_figure_said_in_one_word_is_named(said: str) -> None:
     # "About twenty minutes" for an incident six minutes long was accepted
     # while "about 20 minutes" was refused: the rule judged the spelling, not
     # the claim. One word measuring something is a figure as much as a run of
     # them, and a figure the incident gave, or a working of two, says it truly.
+    # "A" is one of those words before a unit: "about a minute" was written for
+    # ninety-one seconds.
     Scenario() \
         .given(
             an_answer_saying_a_figure_in_a_word := _an_answer(
-                executive_summary=f"after the deploy it was {said}")
+                cause_in_plain_words=f"after the deploy it was {said}")
         ) \
         .when(
             lambda: faults_in(an_answer_saying_a_figure_in_a_word, given=SOME_GIVEN)
@@ -386,7 +804,7 @@ def test_a_figure_spelled_out_with_what_it_measures_is_named_once() -> None:
     Scenario() \
         .given(
             an_answer_spelling_out_a_span := _an_answer(
-                executive_summary="it ran for twenty-four hours")
+                cause_in_plain_words="it ran for twenty-four hours")
         ) \
         .when(
             lambda: faults_in(an_answer_spelling_out_a_span, given=SOME_GIVEN)
@@ -406,7 +824,9 @@ def test_a_figure_spelled_out_with_what_it_measures_is_named_once() -> None:
     "most requests",
     "a few days",
     "one-minute buckets",
-    "the one that failed"
+    "the one that failed",
+    "a second candidate",
+    "no purchases in a month"
 ])
 def test_a_size_with_no_figure_in_it_is_accepted(said: str) -> None:
     # A count of things, a size said without a number, and a number that
@@ -415,7 +835,7 @@ def test_a_size_with_no_figure_in_it_is_accepted(said: str) -> None:
     Scenario() \
         .given(
             an_answer_sizing_without_a_figure := _an_answer(
-                executive_summary=f"after the deploy it was {said}")
+                cause_in_plain_words=f"after the deploy it was {said}")
         ) \
         .when(
             lambda: faults_in(an_answer_sizing_without_a_figure, given=SOME_GIVEN)
@@ -431,7 +851,7 @@ def test_a_figure_named_as_the_incident_gives_it_is_accepted() -> None:
     Scenario() \
         .given(
             an_answer_naming_its_figures := _an_answer(
-                executive_summary="short by {A3} for {duration}")
+                cause_in_plain_words="short by {A3} for {duration}")
         ) \
         .when(
             lambda: faults_in(an_answer_naming_its_figures,
@@ -448,7 +868,7 @@ def test_a_figure_named_that_the_incident_never_gave_is_named() -> None:
     # a number nobody measured, said as nothing at all.
     Scenario() \
         .given(
-            an_answer_naming_a_ghost_figure := _an_answer(executive_summary="short by {A9}")
+            an_answer_naming_a_ghost_figure := _an_answer(cause_in_plain_words="short by {A9}")
         ) \
         .when(
             lambda: faults_in(an_answer_naming_a_ghost_figure,
@@ -463,13 +883,144 @@ def test_a_figure_named_that_the_incident_never_gave_is_named() -> None:
 
 
 @pytest.mark.unit
+def test_braces_the_evidence_quotes_are_accepted_as_its_text() -> None:
+    # '{amount_cents}' in a candidate's own words is a format string, not a
+    # figure's name: quoted back it is the evidence, with nothing to write in.
+    Scenario() \
+        .given(
+            an_answer_quoting_the_evidence := _an_answer(
+                cause_in_plain_words="it writes '{amount_cents}/{items_counted}'")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_quoting_the_evidence,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "quoted": frozenset({"amount_cents", "items_counted"})}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("before", ["between", "from", "Between"])
+def test_a_range_figure_after_a_word_that_opens_a_range_is_named(before: str) -> None:
+    # A range is written in whole, so "between {G}" reads "between 21:41–22:01".
+    # The figure says its own range.
+    Scenario() \
+        .given(
+            an_answer_opening_a_range_twice := _an_answer(
+                cause_in_plain_words=f"errors held {before} {{Gbac1.1}}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_opening_a_range_twice,
+                              given=_given_figures("Gbac1.1", figures=SOME_RANGE_FIGURES))
+        ) \
+        .then(
+            all_of(
+                _named("[{Gbac1.1}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("before", ["at", "by", "since", "until", "till", "through", "to",
+                                    "before", "after", "past", "around", "about", "near",
+                                    "At"])
+def test_a_range_figure_after_a_word_that_places_a_moment_is_named(before: str) -> None:
+    # "This error first appears at {G}" read "first appears at 14:46–14:53": a
+    # span where the sentence wanted its first minute. And "logged as on
+    # through {G}" read "through 14:46–14:53": a span where it wanted its last.
+    Scenario() \
+        .given(
+            an_answer_placing_a_range := _an_answer(
+                cause_in_plain_words=f"errors held {before} {{Gbac1.1}}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_placing_a_range,
+                              given=_given_figures("Gbac1.1", figures=SOME_RANGE_FIGURES))
+        ) \
+        .then(
+            all_of(
+                _named("[{Gbac1.1}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_minutes", ["23:40", "23:40,23:42–23:43"],
+                         ids=["one-minute", "several"])
+def test_a_set_of_minutes_after_a_word_that_places_a_moment_is_named(some_minutes: str) -> None:
+    # A set says its own minutes, however many it holds: "the flag read on at
+    # {G}" read "at 23:40, 23:42–23:43". Known by what it is, not by a dash: a
+    # set of one minute has none, and a replay that logged one minute fewer
+    # turned the moment a recorded answer cited into something else.
+    Scenario() \
+        .given(
+            an_answer_placing_a_set := _an_answer(
+                cause_in_plain_words="the flag read on at {Gce95.9}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_placing_a_set,
+                              given=_given_figures("Gce95.9", figures={
+                                  **SOME_FIGURES,
+                                  "Gce95.9": Figure(given=some_minutes, written=some_minutes,
+                                                    a_set_of_minutes=True)}))
+        ) \
+        .then(
+            all_of(
+                _named("[{Gce95.9}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_set_of_minutes_said_in_is_accepted() -> None:
+    # The way the prose says a set: the minutes it was logged in.
+    Scenario() \
+        .given(
+            an_answer := _an_answer(cause_in_plain_words="the flag read on in {Gce95.9}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_figures("Gce95.9", figures={
+                **SOME_FIGURES,
+                "Gce95.9": Figure(given="23:40,23:42–23:43", written="23:40 and 23:42–23:43 UTC",
+                                  a_set_of_minutes=True)}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("prose", "name"), [
+    ("errors held over {Gbac1.1}", "Gbac1.1"),
+    ("errors held from {began}", "began")
+], ids=["another-word-before-a-range", "a-word-opening-a-range-before-an-instant"])
+def test_a_range_said_with_a_word_that_does_not_open_one_or_an_instant_after_one_is_accepted(
+        prose: str, name: str) -> None:
+    Scenario() \
+        .given(
+            an_answer := _an_answer(cause_in_plain_words=prose)
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_figures(name, figures=SOME_RANGE_FIGURES))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_working_the_figures_answer_is_accepted() -> None:
     # The way the prose states a figure the incident never measured as one: by
     # naming what to work out, which code works out from what was measured.
     Scenario() \
         .given(
             an_answer_working_out_a_span := _an_answer(
-                executive_summary="it was broken for {back_to_normal - began}")
+                cause_in_plain_words="it was broken for {back_to_normal - began}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_out_a_span,
@@ -492,7 +1043,7 @@ def test_a_working_between_two_instants_the_evidence_states_is_accepted() -> Non
     Scenario() \
         .given(
             an_answer_working_from_the_narration := _an_answer(
-                executive_summary="mitigation began {T21.1 - T18.1} in")
+                cause_in_plain_words="mitigation began {T21.1 - T18.1} in")
         ) \
         .when(
             lambda: faults_in(an_answer_working_from_the_narration,
@@ -506,19 +1057,19 @@ def test_a_working_between_two_instants_the_evidence_states_is_accepted() -> Non
 @pytest.mark.unit
 def test_a_working_that_makes_no_sense_is_named() -> None:
     # Two instants have a span between them and no sum. Left in, it would reach
-    # the page in braces - so it is put back to the model instead.
+    # the page in braces - so it is sent back to the model instead.
     Scenario() \
         .given(
             an_answer_adding_two_instants := _an_answer(
-                executive_summary="it ended at {began + closed}")
+                cause_in_plain_words="it ended at {began + argus_stopped}")
         ) \
         .when(
             lambda: faults_in(an_answer_adding_two_instants,
-                              given=_given_figures("began", "closed"))
+                              given=_given_figures("began", "argus_stopped"))
         ) \
         .then(
             all_of(
-                _named("[{began + closed}]"),
+                _named("[{began + argus_stopped}]"),
                 _named("works out to nothing"),
                 _named("an instant minus an instant"),
                 _found(1)
@@ -538,7 +1089,7 @@ def test_a_working_of_figures_nobody_knows_the_kind_of_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_the_alerts_figures := _an_answer(
-                executive_summary="the totals fell by {A1 - A2}")
+                cause_in_plain_words="the totals fell by {A1 - A2}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_the_alerts_figures,
@@ -560,7 +1111,7 @@ def test_a_working_from_a_figure_the_incident_never_gave_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_from_a_ghost := _an_answer(
-                executive_summary="it was broken for {back_to_normal - began}")
+                cause_in_plain_words="it was broken for {back_to_normal - began}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_from_a_ghost,
@@ -581,7 +1132,7 @@ def test_a_working_that_comes_out_below_nothing_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_backwards := _an_answer(
-                executive_summary="it was broken for {began - back_to_normal}")
+                cause_in_plain_words="it was broken for {began - back_to_normal}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_backwards,
@@ -593,6 +1144,76 @@ def test_a_working_that_comes_out_below_nothing_is_named() -> None:
                 _named("comes out below nothing"),
                 _found(1)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_working_from_a_level_that_is_no_number_is_named() -> None:
+    # Prometheus answers +Inf for a ratio over nothing but its numerator, and
+    # the series averaged over such a minute is no number to work from.
+    some_levels = {
+        "series_while_broken": Figure(given="+Inf ms", written="+Inf ms"),
+        "series_before": Figure(given="215.13 ms", written="215 ms")
+    }
+
+    Scenario() \
+        .given(
+            an_answer_working_from_no_number := _an_answer(
+                cause_in_plain_words="it rose by {series_while_broken - series_before}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_working_from_no_number,
+                              given=_given_figures("series_while_broken", "series_before",
+                                                   figures=some_levels))
+        ) \
+        .then(
+            all_of(
+                _named("[{series_while_broken - series_before}]"),
+                _named("{series_while_broken} is no number"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_unit_misreading_a_figure_s_scale_is_named() -> None:
+    # Written in, "{series_before} seconds" on a figure of 215 ms reads "215 ms
+    # seconds", and only the model knows which it meant.
+    Scenario() \
+        .given(
+            an_answer_misreading_the_scale := _an_answer(
+                cause_in_plain_words="the slowest took {series_before} seconds")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_misreading_the_scale,
+                              given=_given_figures("series_before",
+                                                   figures=SOME_LEVEL_WITH_ITS_UNIT))
+        ) \
+        .then(
+            all_of(
+                _named("[{series_before} seconds]"),
+                _named("ms"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_s_own_unit_said_again_is_accepted() -> None:
+    # A fair reading of a figure shown with its unit outside its name, and the
+    # document writes the unit once - sending it back would cost a write-up.
+    Scenario() \
+        .given(
+            an_answer_saying_the_unit_again := _an_answer(
+                cause_in_plain_words="the slowest took {series_before} ms")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_the_unit_again,
+                              given=_given_figures("series_before",
+                                                   figures=SOME_LEVEL_WITH_ITS_UNIT))
+        ) \
+        .then(
+            _found_nothing_wrong()
         )
 
 
@@ -609,7 +1230,7 @@ def test_a_working_that_divides_by_nothing_is_named() -> None:
     Scenario() \
         .given(
             an_answer_dividing_by_nothing := _an_answer(
-                executive_summary="errors were {errors_at_worst / errors_before} as common")
+                cause_in_plain_words="errors were {errors_at_worst / errors_before} as common")
         ) \
         .when(
             lambda: faults_in(an_answer_dividing_by_nothing,
@@ -695,13 +1316,113 @@ def test_a_revision_the_incident_never_read_is_named() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("item", [
+    "The Investigator tied the errors to the flag change and ruled out deploys and the other "
+    "flag change, forming its candidate {T13.1 - alert_raised} after the alert was raised.",
+    "The Investigator tied the onset to the monthly-spend-feature flag change. It set aside "
+    "the other flag change because that change came after the onset.",
+    "The Investigator picked monthly-spend-feature over an-unrelated-feature, the other flag "
+    "switched on around the same time, by matching the flag's evaluations and the first "
+    "division errors to its toggle.",
+    "The Investigator tied the onset to the monthly-spend-feature flag change. It set aside "
+    "[P2] because that change came after the onset.",
+    "The Investigator picked monthly-spend-feature over an-unrelated-feature, by matching the "
+    "flag's evaluations and the first division errors to its toggle."
+], ids=["ruled-out-the-other-flag", "set-aside-a-sentence-later", "picked-over-it-by-name",
+        "set-aside-by-its-label", "picked-over-it-by-its-name-alone"])
+def test_the_investigator_credited_with_a_flag_it_never_read_is_named(item: str) -> None:
+    # Three write-ups said so of a flag only Argus's own read of the flag history
+    # found - the Investigator's read of the changes never returned it - as "the
+    # other flag change", by the flag's name, and a sentence after the one naming
+    # the Investigator. The last two say it by the label alone and by the name
+    # alone, which is what holds each of those to the check.
+    Scenario() \
+        .given(
+            an_answer_crediting_the_investigator := _an_answer(lessons=Lessons(went_well=[item]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_crediting_the_investigator,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "read_by_the_walk_alone": {"P2": "an-unrelated-feature"}}))
+        ) \
+        .then(
+            _named("names the Investigator beside [P2]")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("item", [
+    "The investigation tied the errors to the flag through log lines showing flag evaluations "
+    "moving from off to on in the same minute the errors began. An unrelated flag switched on "
+    "shortly before the alert was not mistaken for the cause.",
+    "The flag change to an-unrelated-feature. It came after the errors had already started. "
+    "Turning monthly-spend-feature off brought the service back while an-unrelated-feature was "
+    "still on."
+], ids=["the-investigation", "no-investigator"])
+def test_a_flag_only_argus_read_said_without_crediting_the_investigator_is_accepted(
+        item: str) -> None:
+    # "The investigation" reads fairly as the whole response, which did read the
+    # flag; and the flag ruled out with nobody credited is what every write-up
+    # of the case did.
+    Scenario() \
+        .given(
+            an_answer_crediting_nobody := _an_answer(lessons=Lessons(went_well=[item]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_crediting_nobody,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "read_by_the_walk_alone": {"P2": "an-unrelated-feature"}}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_named_inside_a_longer_name_is_not_the_flag_only_argus_read() -> None:
+    # A flag's hyphens make a word boundary no help: matched as text, a flag
+    # only Argus read named checkout would be named by every checkout-v2.
+    Scenario() \
+        .given(
+            an_answer_naming_a_longer_flag := _an_answer(lessons=Lessons(went_well=[
+                "The Investigator tied the errors to checkout-v2."]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_a_longer_flag,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "read_by_the_walk_alone": {"P2": "checkout"}}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_the_investigator_beside_another_flag_is_accepted_where_it_read_every_flag() -> None:
+    # Where Argus read no flag the Investigator did not, a flag set aside by the
+    # Investigator is one it did set aside.
+    Scenario() \
+        .given(
+            an_answer_crediting_the_investigator := _an_answer(lessons=Lessons(went_well=[
+                "The Investigator tied the onset to the monthly-spend-feature flag change. It "
+                "set aside the other flag change because that change came after the onset."]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_crediting_the_investigator, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_figure_as_long_as_a_revision_is_still_named() -> None:
     # Only hex with a letter in it reads as a name. A figure of the same length
     # is still a figure.
     Scenario() \
         .given(
             an_answer_with_a_long_figure := _an_answer(
-                executive_summary="the shop took 12345678 cents")
+                cause_in_plain_words="the shop took 12345678 cents")
         ) \
         .when(
             lambda: faults_in(an_answer_with_a_long_figure, given=SOME_GIVEN)
@@ -747,7 +1468,7 @@ def test_digits_shorter_than_a_revision_s_short_form_are_a_figure_whatever_they_
     Scenario() \
         .given(
             an_answer_with_a_small_figure := _an_answer(
-                executive_summary="checkout failed for 3 hours")
+                cause_in_plain_words="checkout failed for 3 hours")
         ) \
         .when(
             lambda: faults_in(an_answer_with_a_small_figure,
@@ -856,19 +1577,19 @@ def test_a_name_joined_by_a_slash_or_a_dash_is_still_a_name() -> None:
 
 
 @pytest.mark.unit
-def test_a_summary_the_model_never_wrote_is_missing_rather_than_numbered() -> None:
-    # An absent summary has no numbers in it, and the fault it earns is the one
+def test_a_cause_the_model_never_wrote_is_missing_rather_than_numbered() -> None:
+    # An absent cause has no numbers in it, and the fault it earns is the one
     # about the field.
     Scenario() \
         .given(
-            an_answer_with_no_summary := _an_answer(executive_summary=None)
+            an_answer_with_no_cause := _an_answer(cause_in_plain_words=None)
         ) \
         .when(
-            lambda: faults_in(an_answer_with_no_summary, given=SOME_GIVEN)
+            lambda: faults_in(an_answer_with_no_cause, given=SOME_GIVEN)
         ) \
         .then(
             all_of(
-                _named(EXECUTIVE_SUMMARY_FIELD),
+                _named(CAUSE_IN_PLAIN_WORDS_FIELD),
                 _found(1)
             )
         )
@@ -961,6 +1682,67 @@ def test_a_step_citing_a_label_never_given_is_named() -> None:
 
 
 @pytest.mark.unit
+def test_a_step_citing_code_fix_s_reading_and_no_file_as_it_ran_is_named() -> None:
+    # Six of six write-ups called the scrape config "Code-Fix's reading,
+    # nothing ran" while the file as it ran sat beneath that reading. Which file
+    # a step's claim is about cannot be told, so any S row will do - and the
+    # message names them all.
+    Scenario() \
+        .given(
+            an_answer_resting_on_the_reading := _an_answer(causal_chain=[
+                SubmittedStep(step="the scrape still selects the old name", cites=["E1", "F1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_resting_on_the_reading,
+                              given=SOME_GIVEN_WITH_A_FILE_AS_IT_RAN)
+        ) \
+        .then(
+            all_of(
+                _named("[F1]"),
+                _named("[S1] deploy/scrape.yaml at 53f02e9"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_step_citing_code_fix_s_reading_beside_a_file_as_it_ran_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_citing_what_ran := _an_answer(causal_chain=[
+                SubmittedStep(step="the scrape still selects the old name",
+                              cites=["E1", "F1", "S1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_citing_what_ran, given=SOME_GIVEN_WITH_A_FILE_AS_IT_RAN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_step_citing_code_fix_s_reading_with_no_file_as_it_ran_given_is_accepted() -> None:
+    # The reading is then all there is, and saying so is the honest answer.
+    Scenario() \
+        .given(
+            an_answer_resting_on_the_reading := _an_answer(causal_chain=[
+                SubmittedStep(step="the scrape still selects the old name", cites=["E1", "F1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_resting_on_the_reading,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "labels": SOME_GIVEN.labels | {"F1"}}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_step_citing_a_candidate_cause_is_named() -> None:
     # A candidate is the Investigator's guess, written before anything was
     # tried. A step resting on one rests on a hypothesis rather than on what
@@ -985,13 +1767,88 @@ def test_a_step_citing_a_candidate_cause_is_named() -> None:
 
 
 @pytest.mark.unit
+def test_what_a_step_ruled_out_citing_a_label_never_given_is_named() -> None:
+    # Held to what a step is held to: a ruling citing nothing that exists only
+    # looks checked.
+    Scenario() \
+        .given(
+            an_answer_ruling_out_on_a_ghost := _an_answer(causal_chain=[
+                SubmittedStep(step="the divisor was zero", cites=["E1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=["E40"])])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_ruling_out_on_a_ghost, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[E40]"),
+                _named("ruled out"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_citing_nothing_is_named() -> None:
+    # Asked to cite what ruled it out, and held to it as a step is: a ruling
+    # resting on nothing is an assertion.
+    Scenario() \
+        .given(
+            an_answer_ruling_out_on_nothing := _an_answer(causal_chain=[
+                SubmittedStep(step="the divisor was zero", cites=["E1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=[])])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_ruling_out_on_nothing, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[the earlier deploy]"),
+                _named("cite what ruled it out"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_citing_a_candidate_is_named_as_that_entry() -> None:
+    # Told to "leave the step out", a model could drop a step of the chain
+    # rather than the entry that cited the guess.
+    Scenario() \
+        .given(
+            an_answer_ruling_out_on_a_guess := _an_answer(causal_chain=[
+                SubmittedStep(step="the divisor was zero", cites=["E1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=["C1"])])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_ruling_out_on_a_guess,
+                              given=Given(labels=frozenset({"E1", "C1"}),
+                                          hypotheses=frozenset({"C1"})))
+        ) \
+        .then(
+            all_of(
+                _named("[C1]"),
+                _named("leave that entry out"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_contributing_factor_nothing_answers_is_named() -> None:
     # A factor with no action item is a condition the document noticed and
     # left standing - the thing an analysis without actions is.
     Scenario() \
         .given(
             an_answer_with_an_unanswered_factor := _an_answer(contributing_factors=[
-                SubmittedFactor(factor="the canary started large", addressed_by=[])
+                SubmittedFactor(label="CF-1", factor="the canary started large",
+                                had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=[])
             ])
         ) \
         .when(
@@ -1006,11 +1863,61 @@ def test_a_contributing_factor_nothing_answers_is_named() -> None:
 
 
 @pytest.mark.unit
+def test_a_factor_not_saying_what_it_would_have_changed_is_named() -> None:
+    # A factor that only says the root cause again cannot say what it would
+    # have changed with the root cause still true - and one left unsaid is the
+    # question skipped.
+    Scenario() \
+        .given(
+            an_answer_with_an_unweighed_factor := _an_answer(contributing_factors=[
+                SubmittedFactor(label="CF-1", factor="the canary started large",
+                                addressed_by=["AI-1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_an_unweighed_factor, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("the canary started large"),
+                _named(HAD_IT_BEEN_OTHERWISE_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("blank", ["", "   "], ids=["empty", "spaces"])
+def test_a_factor_answering_what_it_would_have_changed_with_nothing_is_named(
+        blank: str) -> None:
+    # A strict tool guarantees the field arrives, as a string - not that it
+    # says anything. Blank is the question skipped as surely as absent is.
+    Scenario() \
+        .given(
+            an_answer_with_a_blank_otherwise := _an_answer(contributing_factors=[
+                SubmittedFactor(label="CF-1", factor="the canary started large",
+                                had_it_been_otherwise=blank, addressed_by=["AI-1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_blank_otherwise, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("the canary started large"),
+                _named(HAD_IT_BEEN_OTHERWISE_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_factor_naming_an_item_that_does_not_exist_is_named() -> None:
     Scenario() \
         .given(
             an_answer_naming_a_ghost_item := _an_answer(contributing_factors=[
-                SubmittedFactor(factor="no test covered an empty month",
+                SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                had_it_been_otherwise=DONT_CARE_PROSE,
                                 addressed_by=["AI-9"])
             ])
         ) \
@@ -1026,17 +1933,20 @@ def test_a_factor_naming_an_item_that_does_not_exist_is_named() -> None:
 
 
 @pytest.mark.unit
-def test_a_factor_may_name_an_item_on_the_record_or_one_the_answer_proposes() -> None:
-    # One item on the record, so the answer's first proposal is AI-2.
+def test_a_factor_may_be_answered_by_an_item_on_the_record_and_by_one_the_answer_proposes(
+) -> None:
+    # The record's item by its number, in the factor; the answer's own by the
+    # factor's label, in the item - each link written after what it names.
     Scenario() \
         .given(
             an_answer_naming_both := _an_answer(
                 contributing_factors=[
-                    SubmittedFactor(factor="no test covered an empty month",
-                                    addressed_by=["AI-1", "AI-2"])
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE,
+                                    addressed_by=["AI-1"])
                 ],
                 action_items=[SubmittedItem(item="add a test for an empty month",
-                                            type=ActionItemType.PREVENT)])
+                                            type=ActionItemType.PREVENT, answers=["CF-1"])])
         ) \
         .when(
             lambda: faults_in(an_answer_naming_both, given=SOME_GIVEN)
@@ -1046,13 +1956,811 @@ def test_a_factor_may_name_an_item_on_the_record_or_one_the_answer_proposes() ->
         )
 
 
-def _an_answer(**overrides: Any) -> SubmittedPostmortem:
+@pytest.mark.unit
+def test_a_factor_answered_only_by_an_item_the_answer_proposes_is_accepted() -> None:
+    # None of the record's items answers it, so its own list is empty - an
+    # answer, not a fault.
+    Scenario() \
+        .given(
+            an_answer_answering_by_a_proposal := _an_answer(
+                contributing_factors=[
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=[])
+                ],
+                action_items=[SubmittedItem(item="add a test for an empty month",
+                                            type=ActionItemType.PREVENT, answers=["CF-1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_answering_by_a_proposal, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_naming_an_item_the_answer_proposes_is_named() -> None:
+    # One item on the record, so AI-2 is the answer's own first proposal -
+    # a number it had to work out, which is how a write-up came to cite each
+    # of its items one off. The proposal names the factor instead.
+    Scenario() \
+        .given(
+            an_answer_numbering_its_own_item := _an_answer(
+                contributing_factors=[
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE,
+                                    addressed_by=["AI-2"])
+                ],
+                action_items=[SubmittedItem(item="add a test for an empty month",
+                                            type=ActionItemType.PREVENT, answers=["CF-1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_numbering_its_own_item, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[AI-2]"),
+                _named(ANSWERS_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("second_label", ["CF-3", None], ids=["skipped", "missing"])
+def test_a_factor_labelled_out_of_order_is_named(second_label: str | None) -> None:
+    # The labels run CF-1, CF-2 and so on, as the factors are given: a label
+    # that is not where its place says is one an item could name wrongly.
+    Scenario() \
+        .given(
+            an_answer_mislabelling_a_factor := _an_answer(contributing_factors=[
+                SubmittedFactor(label="CF-1", factor="the canary started large",
+                                had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=["AI-1"]),
+                SubmittedFactor(label=second_label, factor="no test covered an empty month",
+                                had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=["AI-1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_mislabelling_a_factor, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("no test covered an empty month"),
+                _named("CF-2"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_item_answering_a_label_no_factor_has_is_named() -> None:
+    Scenario() \
+        .given(
+            an_answer_answering_a_ghost := _an_answer(
+                contributing_factors=[
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE,
+                                    addressed_by=["AI-1"])
+                ],
+                action_items=[SubmittedItem(item="add a test for an empty month",
+                                            type=ActionItemType.PREVENT, answers=["CF-9"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_answering_a_ghost, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[CF-9]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_s_label_written_in_the_prose_is_named() -> None:
+    # The reader never sees a factor's label: written into a sentence, it is a
+    # name that leads nowhere.
+    Scenario() \
+        .given(
+            an_answer_citing_a_factor_in_prose := _an_answer(
+                root_cause="The canary started large, as CF-2 says.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_citing_a_factor_in_prose, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[CF-2]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_symptom_of_more_than_one_sentence_is_named() -> None:
+    # The symptom is the document's title. Asked for in a few words, a write-up
+    # gave two sentences, and the title ran to fifteen words.
+    some_symptom_in_two_sentences = ("No shopper-facing failure was seen. "
+                                     "The shop's metrics stopped being collected.")
+
+    Scenario() \
+        .given(
+            an_answer_with_a_symptom_in_two := _an_answer(
+                symptom=some_symptom_in_two_sentences)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_symptom_in_two, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(some_symptom_in_two_sentences),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_symptom_over_the_words_it_was_told_is_named() -> None:
+    # Asked for a few words, a title ran to twenty - the longest of every
+    # write-up recorded. Counted as a reader counts words, on the spaces, so
+    # a hyphenated name is one.
+    some_symptom_one_word_too_long = " ".join(["shop-totals"] * (SYMPTOM_WORDS_AT_MOST + 1))
+
+    Scenario() \
+        .given(
+            an_answer_with_a_long_symptom := _an_answer(symptom=some_symptom_one_word_too_long)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_long_symptom, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(f"runs to {SYMPTOM_WORDS_AT_MOST + 1} words"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_symptom_of_the_words_it_was_told_is_not_sent_back() -> None:
+    some_symptom_at_the_limit = " ".join(["shop-totals"] * SYMPTOM_WORDS_AT_MOST)
+
+    Scenario() \
+        .given(
+            an_answer_with_a_symptom_at_the_limit := _an_answer(
+                symptom=some_symptom_at_the_limit)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_symptom_at_the_limit, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD])
+def test_a_summary_sentence_of_more_than_one_is_named(field: str) -> None:
+    # Each is one sentence of the summary code writes around it; two, and the
+    # model is writing the summary again, beside the record's own account.
+    some_two_sentences = "The rename reached one file. The other still names the old port."
+
+    Scenario() \
+        .given(
+            an_answer_in_two_sentences := _an_answer().model_copy(
+                update={field: some_two_sentences})
+        ) \
+        .when(
+            lambda: faults_in(an_answer_in_two_sentences, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(field),
+                _named(some_two_sentences),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_nothing_still_at_risk_is_an_answer() -> None:
+    # Empty, not missing: an incident whose fault is gone leaves nothing at risk.
+    Scenario() \
+        .given(
+            an_answer_with_nothing_at_risk := _an_answer(still_at_risk="")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_nothing_at_risk, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_symptom_of_one_sentence_is_accepted() -> None:
+    # Ended with a full stop or not: a sentence's own stop is not a second one.
+    Scenario() \
+        .given(
+            an_answer_with_a_symptom_in_one := _an_answer(
+                symptom="Far more purchases than usual were held for review.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_symptom_in_one, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("missing_check", [
+    "Nothing checks that the two names agree.",
+    "Nothing seen checks that the two names agree.",
+    "The record shows no check that an old reader survives new entries."
+], ids=["nothing-checks", "nothing-seen-checks", "no-check"])
+def test_a_root_cause_saying_a_check_is_missing_is_named(missing_check: str) -> None:
+    # A missing check is a contributing factor. Told so in the root cause's
+    # own description, three write-ups said one there anyway, in the words of
+    # the reading of the code they cited. Where the missing check is itself
+    # the mechanism - a read path that does not check what it loaded - moving
+    # it out would empty the root cause, so the fault says what to say instead.
+    Scenario() \
+        .given(
+            an_answer_blaming_a_missing_check := _an_answer(root_cause=missing_check)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_blaming_a_missing_check, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(missing_check),
+                _named(CONTRIBUTING_FACTORS_FIELD),
+                _named("say what the code does rather than what it lacks"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_missing_check_is_named_by_its_sentence_and_the_rest_is_kept() -> None:
+    # Handed the whole root cause back, a model moved the missing check out by
+    # deleting the sentence it was in - and with it that the two files name
+    # the port separately, which was the mechanism. Quoting the one sentence
+    # says which words are to move, and that the rest of it stays.
+    the_mechanism = "The scrape config still names the old port, so it finds no target."
+    the_missing_check = ("The two files name the port separately and no check was seen "
+                         "that they agree.")
+
+    Scenario() \
+        .given(
+            an_answer_blaming_a_missing_check_in_its_second_sentence := _an_answer(
+                root_cause=f"{the_mechanism} {the_missing_check}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_blaming_a_missing_check_in_its_second_sentence,
+                              given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(f"[{the_missing_check}]"),
+                _named("keep the rest of the sentence"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_naming_the_change_that_set_it_off_is_named() -> None:
+    # The document states the trigger in a section of its own. A root cause
+    # naming the deploy's revision says it again: what it owes is why that
+    # change broke the service.
+    the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+
+    Scenario() \
+        .given(
+            an_answer_naming_the_trigger := _an_answer(
+                root_cause=f"Revision {the_trigger[:7]} renamed the port, so nothing scraped it.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_the_trigger,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "revisions": frozenset({the_trigger}),
+                                  "trigger_revision": the_trigger}))
+        ) \
+        .then(
+            all_of(
+                _named(the_trigger[:7]),
+                _named("say why that change broke the service"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_naming_another_revision_is_accepted() -> None:
+    # An earlier revision the mechanism turns on is not the trigger said again.
+    the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+    some_other_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+
+    Scenario() \
+        .given(
+            an_answer_naming_another_revision := _an_answer(
+                root_cause=f"The reader {some_other_revision[:7]} left in place cannot parse it.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_another_revision,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "revisions": frozenset({the_trigger, some_other_revision}),
+                                  "trigger_revision": the_trigger}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("role", [
+    "as the month's figure",
+    "rather than adding the purchases up",
+    "instead of adding the purchases up",
+    "and trust it",
+    "and rely on it",
+    "and treat it as the month's",
+    "as the month's figure as the record shows"
+], ids=["as-the", "rather-than", "instead-of", "trust", "rely-on", "treat", "as-then-shows"])
+def test_a_sentence_saying_one_role_of_lines_whose_rows_differ_is_named(role: str) -> None:
+    # Write-ups said the statement, the summary and the reconciliation all read
+    # the stored month "as the month's figure", though the reconciliation's own
+    # row sets it against the purchases added up again.
+    lumped = f"The monthly statement, the spend summary and the reconciliation read it {role}."
+
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named(ROOT_CAUSE_FIELD),
+                _named(f"[{lumped}]"),
+                _named("[U3]"),
+                _named("say of each only what its own row says"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
+                                   CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
+                                   HAD_IT_BEEN_OTHERWISE_FIELD])
+def test_a_role_said_of_lines_whose_rows_differ_is_named_in_every_field_of_prose(
+        field: str) -> None:
+    lumped = "The statement, the summary and the reconciliation read it as the month's figure."
+    answers = {
+        CAUSE_IN_PLAIN_WORDS_FIELD: _an_answer(cause_in_plain_words=lumped),
+        STILL_AT_RISK_FIELD: _an_answer(still_at_risk=lumped),
+        CAUSAL_CHAIN_FIELD: _an_answer(causal_chain=[SubmittedStep(step=lumped, cites=["E1"])]),
+        CONTRIBUTING_FACTORS_FIELD: _an_answer(contributing_factors=[
+            SubmittedFactor(label="CF-1", factor=lumped, had_it_been_otherwise=DONT_CARE_PROSE,
+                            addressed_by=["AI-1"])]),
+        HAD_IT_BEEN_OTHERWISE_FIELD: _an_answer(contributing_factors=[
+            SubmittedFactor(label="CF-1", factor=DONT_CARE_PROSE, had_it_been_otherwise=lumped,
+                            addressed_by=["AI-1"])])
+    }
+
+    Scenario() \
+        .when(
+            lambda: faults_in(answers[field], given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named(field),
+                _named(f"[{lumped}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lumped", [
+    "src/shop/monthly_statement.py and src/shop/spend_reconciliation.py read it as the month's.",
+    "Spend_summary and spend_reconciliation read it as the month's.",
+    "render_statement and reconcile read it as the month's."
+], ids=["by-path", "by-stem", "by-function"])
+def test_a_line_is_named_by_its_file_or_the_function_it_sits_in(lumped: str) -> None:
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named("[U3]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_sentence_naming_lines_whose_rows_differ_without_saying_a_role_is_accepted() -> None:
+    # "Still read" is true of every one of them: the reconciliation reads the
+    # stored figure too, to set it against the purchases.
+    Scenario() \
+        .given(
+            an_answer_naming_them := _an_answer(
+                root_cause="The monthly statement, the spend summary and the reconciliation "
+                           "all still read the stored field.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_role_said_of_lines_whose_rows_agree_is_accepted() -> None:
+    # The statement and the summary do both take the stored figure's value.
+    Scenario() \
+        .given(
+            an_answer_naming_two_readers := _an_answer(
+                root_cause="The monthly statement and the spend summary read it as the "
+                           "month's figure.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_two_readers, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_role_said_where_no_lines_outside_the_patch_were_shown_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(
+                root_cause="The monthly statement, the spend summary and the reconciliation "
+                           "read it as the month's figure.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("contrast", [
+    "and the reconciliation still compares it with the purchases",
+    "and the reconciliation sets it against the purchases",
+    "while the reconciliation compared it with the purchases"
+], ids=["its-own-verb", "against", "its-own-verb-in-the-past"])
+def test_a_sentence_saying_what_the_line_set_against_a_call_does_is_accepted(
+        contrast: str) -> None:
+    # A true contrast: each line is said as its row says it, and the role is
+    # said of the field. The refusal asks for exactly this sentence.
+    Scenario() \
+        .given(
+            an_answer_telling_them_apart := _an_answer(
+                root_cause=f"The monthly statement and the spend summary still read it, "
+                           f"{contrast}, so the field was still relied on.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_telling_them_apart, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "As a result, the monthly statement, the spend summary and the reconciliation read it.",
+    "The monthly statement, the spend summary and the reconciliation read it, as its "
+    "docstring says.",
+    "Readers such as the monthly statement and the reconciliation read it.",
+    "The monthly statement as well as the reconciliation read it."
+], ids=["as-a-result", "as-it-says", "such-as", "as-well-as"])
+def test_an_as_that_says_no_role_is_accepted(sentence: str) -> None:
+    Scenario() \
+        .given(
+            an_answer := _an_answer(root_cause=sentence)
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lumped", [
+    "Monthly statements, spend summaries and the reconciliation read it as the month's figure.",
+    "U1, U2 and U3 read it as the month's figure.",
+    "The monthly statement, the month comparison, the spend summary and the reconciliation "
+    "read it as the month's figure."
+], ids=["plurals", "labels", "beside-a-noun-of-its-verb"])
+def test_a_line_is_named_in_the_plural_or_by_its_label(lumped: str) -> None:
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named("[U3]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_sentence_saying_the_checking_line_adds_the_purchases_up_is_accepted() -> None:
+    # Adding the purchases up is what the reconciliation does: said beside a
+    # reader, it tells the two apart rather than lumping them.
+    Scenario() \
+        .given(
+            an_answer := _an_answer(
+                root_cause="Each purchase raised the sum the reconciliation adds up while the "
+                           "stored total the monthly statement shows stayed where it was.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_derivation_said_before_the_lines_are_named_is_accepted() -> None:
+    # The change meant the month to be derived; that the readers still read
+    # the stored field is true of every one of them.
+    Scenario() \
+        .given(
+            an_answer := _an_answer(
+                root_cause="The month was to be derived from the purchases, but the monthly "
+                           "statement, the spend summary and the reconciliation still read it.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lumped", [
+    "Until the statement, the summary and the reconciliation derive the month themselves, the "
+    "field must stay.",
+    "The change would have been held until the statement, spend-summary and reconciliation "
+    "code derived the month total themselves.",
+    "The reconciliation and the statement both add the purchases up."
+], ids=["derive", "derived-with-a-hyphened-stem", "add-up"])
+def test_a_list_of_both_kinds_said_to_work_the_figure_out_is_named(lumped: str) -> None:
+    # The reconciliation adds the purchases up already: that a list holding it
+    # should derive the month says of it what its row does not.
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named("[U3]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Each purchase raised the sum the reconciliation adds up while the stored total the "
+    "monthly statement shows stayed where it was.",
+    "The monthly statement and the spend summary should derive the month themselves, while "
+    "the reconciliation already does.",
+    "The statement reads it and the reconciliation adds the purchases up.",
+    "The reconciliation, unlike the statement and the summary, adds the purchases up.",
+    "The premise was that the month would be derived from purchase history, but the stored "
+    "field is still read by the monthly statement, spend summary and reconciliation code.",
+    "The monthly statement, the spend summary and the reconciliation still read the stored "
+    "field, and the totals no longer add up to the purchases.",
+    "The reconciliation adds the purchases up again and compares the sum with the stored "
+    "field, which the statement and the summary read."
+], ids=["adds-up-beside-a-reader", "a-list-of-readers", "each-its-own-verb", "unlike",
+        "derived-before-the-list", "add-up-to", "its-own-verb-too"])
+def test_a_derivation_said_of_no_list_of_both_kinds_is_accepted(sentence: str) -> None:
+    Scenario() \
+        .given(
+            an_answer := _an_answer(root_cause=sentence)
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+def _given_lines_of_two_kinds() -> Given:
+    """`SOME_GIVEN`, with lines outside Code-Fix's patch of both kinds: two
+    taking the stored figure's value, and one setting it against what a
+    function of its own file returns."""
+    return SOME_GIVEN.model_copy(update={"uses": {
+        "U1": CodeUse(name="month", path="src/shop/monthly_statement.py", line=12,
+                      function="render_statement", does="reads it: total = account.month"),
+        "U2": CodeUse(name="month", path="src/shop/spend_summary.py", line=8,
+                      function="average", does="divides with it: account.month // count"),
+        "U3": CodeUse(name="month", path="src/shop/spend_reconciliation.py", line=20,
+                      function="reconcile",
+                      does="compares it with bought(account), where bought(account) returns "
+                           "sum(account.purchases)",
+                      set_against_a_call=True)
+    }})
+
+
+@pytest.mark.unit
+def test_a_step_of_the_cause_saying_a_check_is_missing_is_named() -> None:
+    # The chain's last step said "nothing seen checks that the two names
+    # agree", though the chain is told the safeguard is a factor and no step.
+    missing_check = "The rename shipped alone, and nothing seen checks that the names agree."
+
+    Scenario() \
+        .given(
+            an_answer_with_a_step_blaming_a_missing_check := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["E1"]),
+                              SubmittedStep(step=missing_check, cites=["E2"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_step_blaming_a_missing_check, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(missing_check),
+                _named(CONTRIBUTING_FACTORS_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("limit_of_the_evidence", [
+    "No test or reproduction was run, so the chain stops here.",
+    "The record does not show why the change was made, or why no test caught it.",
+    "The scrape config is Code-Fix's reading, which nothing verified."
+], ids=["no-test-was-run", "why-no-test-caught-it", "nothing-verified"])
+def test_a_step_of_the_cause_saying_what_the_evidence_does_not_reach_is_accepted(
+        limit_of_the_evidence: str) -> None:
+    # Where the evidence stops is no safeguard missing. The first two are steps
+    # of recorded write-ups, and the third is the hedge an F-only step is asked
+    # for: a check the rule refused in any of them would send back an answer
+    # that said what it was told to.
+    Scenario() \
+        .given(
+            an_answer_with_a_step_at_the_evidence_s_limit := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["E1"]),
+                              SubmittedStep(step=limit_of_the_evidence, cites=["E2"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_step_at_the_evidence_s_limit, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_saying_a_check_is_missing_is_accepted() -> None:
+    # Where the missing check belongs.
+    Scenario() \
+        .given(
+            an_answer_with_a_factor_naming_a_missing_check := _an_answer(
+                contributing_factors=[SubmittedFactor(
+                    label="CF-1",
+                    factor="Nothing checks that the two names agree.",
+                    had_it_been_otherwise=DONT_CARE_PROSE,
+                    addressed_by=["AI-1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_factor_naming_a_missing_check, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_turn_submitting_twice_is_named() -> None:
+    # Two calls do not say which is the answer. In the turn that showed it the
+    # real one came first and a placeholder second, but a model revising its
+    # answer puts the real one second - so keeping either is a guess.
+    Scenario() \
+        .given(
+            a_turn_submitting_twice := _a_turn_calling(SUBMIT_TOOL_NAME, SUBMIT_TOOL_NAME)
+        ) \
+        .when(
+            lambda: faults_in_the_turn(a_turn_submitting_twice)
+        ) \
+        .then(
+            all_of(
+                _found(1),
+                _named(f"{SUBMIT_TOOL_NAME} 2 times")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_turn_submitting_once_has_nothing_wrong_with_it() -> None:
+    Scenario() \
+        .given(
+            a_turn_submitting_once := _a_turn_calling(SUBMIT_TOOL_NAME)
+        ) \
+        .when(
+            lambda: faults_in_the_turn(a_turn_submitting_once)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+def _a_turn_calling(*tools: str) -> Turn:
+    """A turn calling each of these tools once, in order, with no arguments."""
+    return Turn(text="",
+                tool_calls=[ToolCall(id=f"call_{position}", name=tool, arguments={})
+                            for position, tool in enumerate(tools, start=1)],
+                input_tokens=0,
+                output_tokens=0)
+
+
+class _WhatAnAnswerHolds(TypedDict, total=False):
+    """Every field of a submitted answer, each typed as the model types it.
+
+    Typed rather than `Any`, so mypy checks every name and value a case passes
+    against this list, and this list against the model's own constructor: a
+    field renamed in the model fails the typecheck here rather than being
+    dropped while the case goes on asserting against the default.
+    """
+
+    root_cause: str | None
+    cause_in_plain_words: str | None
+    still_at_risk: str | None
+    symptom: str | None
+    assumptions: list[str]
+    lead_effects: dict[str, str]
+    causal_chain: list[SubmittedStep] | None
+    contributing_factors: list[SubmittedFactor] | None
+    action_items: list[SubmittedItem] | None
+    lessons: Lessons | None
+    reaches_a_cause: bool
+    logs_show_serving_as_before: bool | None
+    cause_rests_on_an_unrun_reading: bool | None
+    stops_the_harm: str | None
+    why_it_did_not_help: str | None
+
+
+def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:
     """An answer that passes every check against `SOME_GIVEN`, but for what a
     test overrides: a chain of one step citing the first label, no factors, no
     proposals, and three empty lessons."""
-    complete: dict[str, Any] = {
+    complete: _WhatAnAnswerHolds = {
         "root_cause": DONT_CARE_PROSE,
-        "executive_summary": SOME_SUMMARY_WITHOUT_A_NUMBER,
+        "cause_in_plain_words": SOME_CAUSE_WITHOUT_A_NUMBER,
+        "still_at_risk": "",
         "symptom": DONT_CARE_PROSE,
         "causal_chain": [SubmittedStep(step=DONT_CARE_PROSE, cites=["E1"])],
         "contributing_factors": [],
@@ -1060,7 +2768,7 @@ def _an_answer(**overrides: Any) -> SubmittedPostmortem:
         "lessons": Lessons()
     }
 
-    return SubmittedPostmortem(**{**complete, **overrides})
+    return SubmittedPostmortem(**(complete | overrides))
 
 
 def _given_figures(*names: str, figures: Mapping[str, Figure] = SOME_FIGURES) -> Given:

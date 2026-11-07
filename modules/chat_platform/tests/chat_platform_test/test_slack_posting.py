@@ -67,6 +67,51 @@ def test_a_link_goes_on_a_line_of_its_own_under_the_sentence() -> None:
 
 
 @pytest.mark.unit
+def test_an_aside_is_a_paragraph_of_its_own_between_the_sentence_and_its_link() -> None:
+    # In the text rather than in a block of its own: a section block holds
+    # 3,000 characters, and what Code-Fix says of the code runs longer
+    # (docs.slack.dev, "Section block"). Above the link, which reads as where
+    # to go once the line is done with.
+    some_url = "http://argus.example/incidents/some-incident"
+    some_label = "The incident in Argus"
+    some_line = Line(who=SOME_AGENT, text="Read the code and found no code-level fix to make",
+                     aside="scrape.yaml would have to name http-metrics",
+                     link=Link(url=some_url, label=some_label))
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: Read the code and found no code-level fix to make"
+                       f"\n\nscrape.yaml would have to name http-metrics"
+                       f"\n<{some_url}|{some_label}>"))
+
+
+@pytest.mark.unit
+def test_an_aside_is_said_as_text() -> None:
+    # A model's words, like the line's own: & < > are Slack's markup.
+    some_line = Line(who=SOME_AGENT, text="Read the code and found no code-level fix to make",
+                     aside="error rate > 5% & <rising>")
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: Read the code and found no code-level fix to make"
+                       f"\n\nerror rate &gt; 5% &amp; &lt;rising&gt;"))
+
+
+@pytest.mark.unit
+def test_an_aside_written_in_markdown_is_said_in_slack_s_own_markup() -> None:
+    # What Code-Fix says of the code is Markdown, being a pull request's body,
+    # and Slack's bold is one star and its italic an underscore (docs.slack.dev,
+    # "Formatting text for app surfaces").
+    some_line = Line(who=SOME_AGENT, text="Read the code and found no code-level fix to make",
+                     aside="**Not caused here.**\n- Reverted *the* flag & <waited>")
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: Read the code and found no code-level fix to make"
+                       f"\n\n*Not caused here.*\n- Reverted _the_ flag &amp; &lt;waited&gt;"))
+
+
+@pytest.mark.unit
 def test_a_word_the_line_leads_somewhere_is_linked_where_it_is_said() -> None:
     # A revision's link belongs to the word naming it, not to the line.
     some_line = Line(who=SOME_AGENT, text="Rolled io-shop back off revision 26f1d7e",
@@ -103,6 +148,19 @@ def test_a_linked_word_inside_another_is_not_linked() -> None:
 
 
 @pytest.mark.unit
+def test_a_linked_word_inside_code_is_not_linked() -> None:
+    # Slack draws nothing inside code but the code (docs.slack.dev, "Formatting
+    # text for app surfaces"), so a link written there is printed as its
+    # markup. The same word outside the code still opens.
+    some_line = Line(who=SOME_AGENT, text="`git revert 26f1d7e` undoes 26f1d7e",
+                     links={"26f1d7e": SOME_COMMIT})
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: `git revert 26f1d7e` undoes <{SOME_COMMIT}|26f1d7e>"))
+
+
+@pytest.mark.unit
 def test_what_slack_reads_as_markup_is_said_as_text() -> None:
     # Slack reads &, < and > as its own markup; a model's "error rate > 5%" is
     # neither a tag nor the start of a link (docs.slack.dev, "Formatting text
@@ -115,6 +173,22 @@ def test_what_slack_reads_as_markup_is_said_as_text() -> None:
         .when(lambda: as_slack_says_it(some_line)) \
         .then(_it_says(f"{SOME_AGENT}: <{SOME_COMMIT}|26f1d7e>: "
                        f"error rate &gt; 5% &amp; &lt;rising&gt;"))
+
+
+@pytest.mark.unit
+def test_an_emphasis_written_in_markdown_is_said_in_slack_s_own_markup() -> None:
+    # Slack's bold is one star and its italic an underscore (docs.slack.dev,
+    # "Formatting text for app surfaces"), so Markdown's two and one are
+    # rewritten - and the whole is not set apart, being a whole answer rather
+    # than a word.
+    some_answer = "**Investigation (14:15)**\n- Reverted *the* flag & <waited>"
+    some_line = Line(who=SOME_AGENT, text=some_answer, emphasis=some_answer,
+                     emphasis_is_markdown=True)
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: *Investigation (14:15)*\n"
+                       f"- Reverted _the_ flag &amp; &lt;waited&gt;"))
 
 
 @pytest.mark.unit

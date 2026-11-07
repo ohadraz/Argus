@@ -26,72 +26,127 @@ only shape left, and the one this file exists to keep distinct from the other.
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Any
 
 import pytest
-from agent_postmortem import DeploymentChangesRecord
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
+from agent_postmortem import (
+    DeploymentChangesRecord,
+    EngagementAnswer,
+    IncidentEvidence,
+    NotPaged,
+)
+from agent_postmortem.estimate import (
+    DemandLevels,
+    ErrorRates,
+    LatencyLevels,
+    LoadLevels,
+    RuleSeriesLevels,
+    Unmeasured,
+)
 from agent_postmortem.figures import (
+    ACCOUNTED_FOR_FIGURE,
+    AFTER_THE_WAIT_FIGURE,
+    ALERT_RAISED_FIGURE,
+    ALERTED_AFTER_THE_ONSET_FIGURE,
+    ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
+    BEYOND_ACCOUNTED_FOR_FIGURE,
+    CUSTOMER_LOSS_FIGURE,
+    DETECTION_GAP_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     HELD_FIGURE,
+    LOG_READING_ENDED_FIGURE,
+    LOGS_REACH_UNTIL_FIGURE,
+    METRICS_RESUMED_AT_FIGURE,
+    RULE_EVALUATED_EVERY_FIGURE,
+    RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
+    SCRAPING_ALLOWANCE_FIGURE,
     Figure,
     figures_of,
     named,
+    names_in,
     the_finding_named,
+    with_figures_written,
 )
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     ADDRESSED_BY_FIELD,
+    ANSWERS_FIELD,
     ASSUMPTIONS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
     CITES_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     EFFECT_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
     FACTOR_FIELD,
     GOT_LUCKY_FIELD,
+    HAD_IT_BEEN_OTHERWISE_FIELD,
     ITEM_FIELD,
     ITEM_TYPE_FIELD,
+    LABEL_FIELD,
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
     LESSONS_FIELD,
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     REACHES_A_CAUSE_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
+    RULED_OUT_FIELD,
     STEP_FIELD,
+    STILL_AT_RISK_FIELD,
+    STOPS_THE_HARM_FIELD,
     SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
+    SYMPTOM_WORDS_AT_MOST,
+    TIMED_BY_FIELD,
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
+    WHAT_FIELD,
+    WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
+    SubmittedRuledOut,
     SubmittedStep,
     figures_shown,
     opening_ask,
     opening_ask_again,
     rejecting,
     submit_postmortem_for,
+    the_cause_measured_labelled,
     the_changes_labelled,
+    the_deployment_changes_labelled,
     the_evidence_labelled,
+    the_files_as_they_ran_labelled,
 )
-from argus_core import to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.models import (
     ActionItemType,
+    ActionProgress,
     Ask,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedChange,
     CitedEvidence,
+    CodeUse,
+    DeploymentComparison,
+    FileAsItRan,
+    FirstTold,
     Lessons,
+    LogsInTheGap,
     OpenedPullRequest,
+    ReportChannel,
+    RevisionSource,
     Standing,
     ToolCall,
     ToolDefinition,
@@ -112,6 +167,7 @@ from agent_postmortem_test.framework.builders import (
     a_candidate,
     a_lead,
     a_measured_incident,
+    a_resolution,
     a_submission_of,
     a_timeline_entry,
     an_action,
@@ -161,13 +217,16 @@ A_RULE_FIRING_AT_ONCE = "fires as soon as its condition holds"
 A_WAIT_NOBODY_COULD_READ = "waits before it fires could not be read"
 
 # A clock time carrying a fraction of a second, in either separator ISO allows.
+# A revision a file was read again at, as the brief names it: by its short form.
+SOME_DEPLOYED_REVISION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
+
 A_TIME_FINER_THAN_THE_SECOND = re.compile(r"\d{2}:\d{2}:\d{2}[.,]\d")
 
 # Every field the tool offers on an incident nobody wrote about.
-EVERY_FIELD_ASKED = (ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, ASSUMPTIONS_FIELD,
-                     CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
+EVERY_FIELD_ASKED = (ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
+                     ASSUMPTIONS_FIELD, CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
                      ACTION_ITEMS_FIELD, LESSONS_FIELD, SYMPTOM_FIELD,
-                     REACHES_A_CAUSE_FIELD)
+                     REACHES_A_CAUSE_FIELD, CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
 
 # Error rates in each relation to their baseline that the prompt tells apart.
 ERRORS_THAT_STAYED_FLAT = ErrorRates(baseline=0.02, while_broken=0.02, at_its_worst=0.03,
@@ -180,6 +239,19 @@ ERRORS_THAT_ROSE = ErrorRates(baseline=0.02, while_broken=0.30, at_its_worst=0.3
 # A series that moved, for the cases about how it is told rather than what it did.
 SOME_RULE_SERIES = RuleSeriesLevels(baseline=0.95, while_broken=0.4,
                                     at_its_worst=0.38, worse_when="below")
+
+# How long the slowest request in twenty took, far past anything the calm
+# reached: the latency of a service a rule watching its memory paged about.
+A_LATENCY_THAT_DEPARTED = LatencyLevels(quantile="p95", baseline=215, while_broken=576,
+                                        at_its_worst=1449, departed=True)
+# And one that went no slower than the calm went on its own.
+A_LATENCY_THAT_HELD = LatencyLevels(quantile="p50", baseline=45, while_broken=46,
+                                    at_its_worst=46, departed=False)
+
+# What the model is told the latency it is handed is, and how the harm it is
+# asked to report points at it.
+REQUESTS_TOOK_LONGER = "Requests took longer"
+HOW_MUCH_LONGER_REQUESTS_TOOK = "how much longer requests took"
 
 A_MINUTE_BEFORE_THE_ONSET = to_iso(ONSET - timedelta(minutes=1))
 
@@ -263,7 +335,7 @@ def test_what_the_alert_said_is_evidence_under_a_label_of_its_own() -> None:
                 update={"alert_finding": SOME_FINDING})
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("AL1", SOME_FINDING), ("T1", "a line of the narration")])
@@ -316,12 +388,13 @@ def test_each_kind_of_evidence_is_labelled_on_its_own_in_the_order_it_is_shown()
                                            actions=[an_action("an action")])
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("T1", "a line of the narration"),
                                 ("P1", "a change"),
-                                (grouped(["a log line"])[0].label, "a log line"),
+                                (grouped(["a log line"], None, ONSET.date())[0].label,
+                                 "a log line"),
                                 ("C1", "a candidate"),
                                 ("M1", "an action")])
         )
@@ -395,12 +468,56 @@ def test_a_line_outside_the_walk_is_shown_under_a_label_of_its_own() -> None:
                 actions=[])
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("T1", "a line of the walk"),
                                 ("XW1", "a line outside it"),
                                 ("T2", "another line of the walk")])
+        )
+
+
+@pytest.mark.unit
+def test_a_time_alone_is_read_on_its_line_s_day_only_in_a_line_the_walk_said() -> None:
+    # A line the walk said is Argus's, and says a time alone only on its own
+    # day. A message written outside the walk is in its writer's words, and
+    # Argus knows neither the day nor the zone of a time said in one.
+    day_after_the_onset = ONSET + timedelta(days=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("anchored on 07:44:29", at=day_after_the_onset),
+                          a_timeline_entry("back by 07:44:29", at=day_after_the_onset,
+                                           outside_the_walk=True)])
+        ) \
+        .when(
+            lambda: {name: figure
+                     for name, figure in figures_shown(evidence, a_measured_incident()).items()
+                     if name in ("T1.2", "XW1.2")}
+        ) \
+        .then(
+            the_answer_was({"T1.2": Figure(given="07:44:29", written="Sep 03, 07:44:29 UTC"),
+                            "XW1.2": Figure(given="07:44:29", written="07:44:29")})
+        )
+
+
+@pytest.mark.unit
+def test_a_log_group_s_minute_off_the_day_it_began_is_written_in_with_its_day() -> None:
+    # The minute is Argus's, read off the line's stamp in UTC: written in bare,
+    # a minute of the next day read as one of the onset's.
+    some_line = f"{to_iso(ONSET + timedelta(days=1))} ERROR checkout failed"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line])
+        ) \
+        .when(
+            lambda: figures_shown(evidence, a_measured_incident())[
+                f"{grouped([some_line], None, ONSET.date())[0].label}.3"]
+        ) \
+        .then(
+            the_answer_was(Figure(given="12:00", written="Sep 03, 12:00 UTC"))
         )
 
 
@@ -416,7 +533,7 @@ def test_the_model_is_shown_each_piece_of_evidence_under_its_label() -> None:
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(
-            _says(f"[{grouped([some_log_line])[0].label}] {some_log_line}")
+            _says(f"[{grouped([some_log_line], None, ONSET.date())[0].label}] {some_log_line}")
         )
 
 
@@ -479,6 +596,92 @@ def test_a_change_nobody_is_named_for_is_said_to_be_unnamed() -> None:
 
 
 @pytest.mark.unit
+def test_a_change_only_argus_read_is_told_as_not_the_investigator_s() -> None:
+    # Listed among the investigation's own reads with nothing to tell them
+    # apart, a flag only Argus's own read of the flag history found was
+    # credited to the Investigator - as ruled out, set aside, or picked over.
+    the_flag_both_read = _a_change(reference="monthly-spend-feature",
+                                   occurred_at="2026-09-02T11:59:00Z")
+    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature",
+                                         occurred_at="2026-09-02T12:04:00Z")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[the_flag_both_read, the_flag_only_argus_read]
+            ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
+                                 "deploys_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[P2]", "an-unrelated-feature",
+                              "found only by Argus's read of the flag provider's history"),
+            _says_once("found only by Argus's read of the flag provider's history"),
+            # Who found it, and no more. Told also that the Investigator's read
+            # did not return it - a read that ended at the onset by design - a
+            # write-up repeated that as the Investigator's failing, and the
+            # check refusing the Investigator named beside such a change
+            # refused it.
+            _does_not_say("did not return it")
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_only_argus_read_made_after_the_investigation_s_reads_ended_is_told_so() -> None:
+    # Told only that Argus alone found it, a write-up read the contrast as the
+    # changes feed failing to return a flag made five minutes after the read
+    # of it ended, and asked for the feed to be fixed.
+    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature",
+                                         occurred_at="2026-09-02T12:04:00Z")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[the_flag_only_argus_read]
+            ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
+                                 "change_reading_ended": parse_iso("2026-09-02T11:59:00Z"),
+                                 "deploys_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("[P1]", "an-unrelated-feature",
+                              "found only by Argus's read of the flag provider's history: "
+                              "it came after 2026-09-02T11:59:00Z",
+                              "where the investigation's reads of the changes ended")
+        )
+
+
+@pytest.mark.unit
+def test_a_change_only_argus_read_made_by_the_end_of_the_investigation_s_reads_is_told_no_reason(
+) -> None:
+    # Whether a read should have returned it is not something the record
+    # settles, so nothing is said of why.
+    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature",
+                                         occurred_at="2026-09-02T12:04:00Z")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[the_flag_only_argus_read]
+            ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
+                                 "change_reading_ended": parse_iso("2026-09-02T12:30:00Z"),
+                                 "deploys_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[P1]", "an-unrelated-feature",
+                              "found only by Argus's read of the flag provider's history"),
+            _does_not_say("it came after")
+        ))
+
+
+@pytest.mark.unit
 def test_the_model_is_shown_what_each_deployment_it_looked_into_changed() -> None:
     # What tells a broken configuration from bad code is inside the diff, and a
     # write-up never shown it hedges a cause the investigation read off the
@@ -504,6 +707,31 @@ def test_the_model_is_shown_what_each_deployment_it_looked_into_changed() -> Non
 
 
 @pytest.mark.unit
+def test_a_deployment_whose_diff_lists_every_file_leaves_the_rest_as_they_were() -> None:
+    # The write-up called the scrape side Code-Fix's unverified reading three
+    # times, though D1 listed every file the deploy changed and the scrape
+    # configuration was not among them: under the revision before, the scrape
+    # collected, so it selected what it always had. Said where the diff lists
+    # every file, and only there - one cut short leaves the rest unknown.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(deployment_changes=[
+                DeploymentChangesRecord(revision="7c3ca00", said=["some line"],
+                                        lists_every_file=True),
+                DeploymentChangesRecord(revision="1a2b3c4", said=["another line"],
+                                        lists_every_file=False)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("A file [D1] does not list is as it was at the revision [D1] compares "
+                  "against."),
+            _does_not_say("A file [D2] does not list")
+        ))
+
+
+@pytest.mark.unit
 def test_an_incident_that_looked_into_no_deployment_is_shown_no_heading_for_one() -> None:
     # A heading over nothing tells the model there is something it has failed
     # to see.
@@ -517,6 +745,82 @@ def test_an_incident_that_looked_into_no_deployment_is_shown_no_heading_for_one(
         .then(
             _does_not_say("deployment it looked into")
         )
+
+
+@pytest.mark.unit
+def test_an_incident_argus_took_no_action_in_is_said_to_have_none() -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see. And that nothing was done is itself what happened - left out, it
+    # would be left to be guessed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Actions it took:\n  - none")
+        )
+
+@pytest.mark.unit
+def test_no_change_listed_is_said_as_what_came_of_reading_each_kind() -> None:
+    # "None" under the changes reads as asked and nothing there, and a model
+    # told that writes "no change preceded the onset" of an incident whose
+    # deploy history nobody asked. Said in the page's words, since two
+    # spellings of one fact read as two facts.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(changes=[]).model_copy(update={
+                "deploys_reading": ChannelReading.NOT_ASKED,
+                "flags_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Changes to production it read:\n"
+                  "  - Deploys not read; flags read, none came back.")
+        )
+
+
+@pytest.mark.unit
+def test_a_kind_of_change_with_no_row_is_said_beneath_the_rows_there_are() -> None:
+    # A flag row alone says nothing of the deploys, and a model told only the
+    # toggle writes that no deploy preceded the onset - of an incident whose
+    # deploy history nobody asked. The last line under the changes says so,
+    # in the page's words.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(changes=[_a_change()]).model_copy(update={
+                "deploys_reading": ChannelReading.NOT_ASKED,
+                "flags_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("  - Deploys not read.\n"
+                  "\n"
+                  "Log lines it read, one per message:")
+        )
+
+
+@pytest.mark.unit
+def test_no_log_line_listed_is_said_as_what_came_of_reading_the_logs() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[]).model_copy(update={
+                "logs_reading": ChannelReading.UNANSWERED})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Log lines it read, one per message:\n"
+                  "  - Asked for; no answer came back.")
+        )
+
 
 
 @pytest.mark.unit
@@ -534,7 +838,7 @@ def test_what_each_deployment_changed_is_evidence_a_step_of_the_cause_may_cite()
                                             said=["a third line"])])
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("D1", "another line"), ("D2", "a third line")])
@@ -542,21 +846,741 @@ def test_what_each_deployment_changed_is_evidence_a_step_of_the_cause_may_cite()
 
 
 @pytest.mark.unit
-def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothing_ran() -> None:
+@pytest.mark.parametrize(("comparison", "said"), [
+    (DeploymentComparison.NOTHING_BEFORE_IT,
+     "4c810f2 is the earliest deployment of io-shop the deployment history holds, so there "
+     "was nothing before it to compare it against, and what it changed was not read."),
+    (DeploymentComparison.NOT_DEPLOYED,
+     "The deployment history holds no deployment of io-shop at revision 4c810f2, so nothing "
+     "was compared.")
+], ids=["nothing-before-it", "not-deployed"])
+def test_a_deployment_with_no_comparison_behind_it_is_said_in_the_write_up_s_own_words(
+        comparison: DeploymentComparison, said: str) -> None:
+    # The read tier's answer is the Investigator's: bracketed for a model, and
+    # with advice to one - "what it shipped can [be read], by reading the
+    # repository at that revision" - which write-ups proposed as an item in 3
+    # of 5. Only a comparison is a diff; the row of anything else says what
+    # the history held.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(deployment_changes=[
+                DeploymentChangesRecord(revision="4c810f2", said=["dont care"],
+                                        comparison=comparison, service="io-shop")])
+        ) \
+        .when(
+            lambda: the_deployment_changes_labelled(evidence)
+        ) \
+        .then(
+            the_answer_was([CitedEvidence(label="D1", text=said)]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("pull_request", "heading"), [
+    (OpenedPullRequest(number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                       branch="argus/fix-abc"),
+     "What Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its "
+     "test or its fix, and what it claims is not what happened unless a row of the record "
+     "shows it:"),
+    (None,
+     "What Code-Fix read in the source, in Code-Fix's words - nothing ran to check it, and "
+     "what it claims is not what happened unless a row of the record shows it:")
+], ids=["proposed", "nothing-proposed"])
+def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothing_ran(
+        pull_request: OpenedPullRequest | None, heading: str) -> None:
     # The mechanism, as Code-Fix read it off the code - and said to be a
     # reading, since nothing ran it: a cause resting on it rests on that.
+    # Nothing ran the test or the fix either, and an explanation that said its
+    # test fails was repeated as fact - so the heading says so of both, where
+    # there are both. And whose words they are: its "samples stop while the
+    # shop keeps serving" came back as the chain's own claim. "Proposed" only
+    # where something was: said of a fix nobody opened, it was false.
     some_reading = "v2's vocabulary is lowercase, and the categoriser does not lowercase"
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(fix_explanation=some_reading)
+            evidence := an_evidence_bundle(fix_explanation=some_reading,
+                                           pull_request=pull_request)
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
             _says_on_one_line("[F1]", some_reading),
-            _says("nothing ran it")
+            _says(heading)
+        ))
+
+
+@pytest.mark.unit
+def test_what_code_fix_read_is_asked_to_be_said_no_wider_than_it_read_it() -> None:
+    # Two ways a write-up said Code-Fix's reading more absolutely than it was
+    # given: "nothing in main does that" became "nothing in the running code
+    # works it out", and "by default it only reports" became "report-only".
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care")
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Say what the files Code-Fix read do, with the conditions it gives - a "
+                  "default as a default, never as all it does - and no wider: 'nothing in the "
+                  "files it read', never 'nothing in the code'.")
+        )
+
+
+@pytest.mark.unit
+def test_the_candidates_are_shown_as_the_investigator_s_words_and_never_to_be_cited() -> None:
+    # "The shop itself kept serving normally" was a candidate's, written before
+    # anything was tried, and came back in the root cause as what happened. And
+    # a header saying "cite them" had a step cite one, which the check refuses -
+    # a refused answer bought for every write-up that took the header at its word.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[a_candidate("dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Candidates it considered, in the Investigator's words - name them by "
+                  "their labels, but cite none; what they claim is not what happened unless a "
+                  "row of the record shows it:")
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_code_fix_names_is_tied_to_the_diff_that_shows_it() -> None:
+    # Code-Fix read main, and said the deployed revision was one it had not
+    # read. A write-up then asked somebody to check which key that revision
+    # uses, though D1 - its own diff - shows it: the model had the reading and
+    # the diff, and nothing between them said they were about one revision.
+    some_revision = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation=f"Revision {some_revision[:7]} is not in main's history and I "
+                                f"have not read it.",
+                deployment_changes=[DeploymentChangesRecord(revision=some_revision,
+                                                            said=["+ portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("[F1] names revision", some_revision[:7], "[D1]",
+                              "say what it shows rather than ask for it to be checked")
+        )
+
+
+@pytest.mark.unit
+def test_a_reading_naming_no_revision_a_diff_was_read_for_is_tied_to_none() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation="The scrape config selects the port by its old name.",
+                deployment_changes=[DeploymentChangesRecord(
+                    revision="53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901",
+                    said=["+ portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("[F1] names revision")
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_code_fix_names_whose_read_compared_nothing_is_tied_to_no_diff() -> None:
+    # "[D1] is that revision's own diff" said of a deployment nothing was
+    # compared for would ask the model to say what a diff shows that nobody
+    # read.
+    some_revision = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation=f"Revision {some_revision[:7]} is not in main's history and I "
+                                f"have not read it.",
+                deployment_changes=[DeploymentChangesRecord(
+                    revision=some_revision, said=["dont care"],
+                    comparison=DeploymentComparison.NOTHING_BEFORE_IT, service="io-shop")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("[F1] names revision")
+        )
+
+
+@pytest.mark.unit
+def test_a_reading_of_a_branch_that_does_not_hold_what_ran_says_what_merging_it_changes() -> None:
+    # Production ran a revision deployed from a branch never merged into the one
+    # Code-Fix read. The write-up's thinking saw it and its answer dropped it:
+    # nothing it was shown said what follows - that merged, the fix changes what
+    # runs only once a deploy carries it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main", "fix_holds_what_ran": False})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("[F1] was written against main, which does not contain the revision "
+                  "running when the alert fired: merged, its fix changes what runs only "
+                  "once a deploy carries it.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("holds_what_ran", [True, None], ids=["holds-it", "not-established"])
+def test_a_reading_whose_branch_holds_what_ran_or_is_not_known_to_says_nothing(
+        holds_what_ran: bool | None) -> None:
+    # The ordinary case says nothing, and so does one nobody established: the
+    # note would be a claim the record does not make.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main", "fix_holds_what_ran": holds_what_ran})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("does not contain the revision running")
+        )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_is_evidence_listed_directly_beneath_what_code_fix_read() -> None:
+    # Six of six write-ups called the scrape config "Code-Fix's reading,
+    # nothing ran" - right about where the text came from, since nothing in the
+    # record held the file as it ran. Beneath F, where the model reaches for it
+    # when it reasons about the file, and named by its path and the revision.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], candidates=[], actions=[],
+                fix_explanation="some account of the code").model_copy(
+                update={"files_as_they_ran": [FileAsItRan(
+                    path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                    as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
+        ) \
+        .then(
+            _labelled_in_order([("F1", "some account of the code"),
+                                ("S1", "deploy/scrape.yaml at 53f02e9")])
+        )
+
+
+@pytest.mark.unit
+def test_the_files_as_they_ran_are_labelled_in_the_order_of_their_paths() -> None:
+    # Labelled in the order Code-Fix's reading named them, a reworded reading
+    # swapped S1 and S2 under a write-up citing each for the other's claim. A
+    # file's path holds whatever the reading says.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], candidates=[], actions=[],
+                fix_explanation="some account of the code").model_copy(
+                update={"files_as_they_ran": [
+                    FileAsItRan(path="deploy/values-production.yaml",
+                                revision=SOME_DEPLOYED_REVISION, as_read=False,
+                                content="portName: http-metrics\n"),
+                    FileAsItRan(path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                                as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
+        ) \
+        .then(
+            _labelled_in_order([("F1", "some account of the code"),
+                                ("S1", "deploy/scrape.yaml at 53f02e9"),
+                                ("S2", "deploy/values-production.yaml at 53f02e9")])
+        )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_opens_at_its_path_where_the_deploy_that_ran_it_can_be_opened() -> None:
+    # The document names the file and leaves its text to the model's brief, so
+    # a reader who wants the text needs somewhere to open it - at the revision
+    # that ran, not on a branch that has moved on since.
+    some_files_address = f"https://github.invalid/acme/shop/blob/{SOME_DEPLOYED_REVISION}"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"changes": [_a_deploy_of(SOME_DEPLOYED_REVISION, some_files_address)],
+                        "files_as_they_ran": [FileAsItRan(
+                            path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                            as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: [cited.address for cited in the_files_as_they_ran_labelled(evidence)]
+        ) \
+        .then(
+            the_answer_was([f"{some_files_address}/deploy/scrape.yaml"])
+        )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_whose_deploy_cannot_be_opened_opens_nowhere() -> None:
+    # A deploy read before its files' address was carried, like one from a host
+    # whose pages Argus does not know: an address made up for it would lead
+    # nowhere.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"changes": [_a_deploy_of(SOME_DEPLOYED_REVISION, files_address=None)],
+                        "files_as_they_ran": [FileAsItRan(
+                            path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                            as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: [cited.address for cited in the_files_as_they_ran_labelled(evidence)]
+        ) \
+        .then(
+            the_answer_was([None])
+        )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_is_shown_whole_under_a_heading_saying_what_it_is() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"files_as_they_ran": [FileAsItRan(
+                    path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                    as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("What ran, read at the revision running when the alert fired:"),
+            _says_on_one_line("[S1]", "deploy/scrape.yaml at 53f02e9"),
+            _says("port: metrics")
+        ))
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_that_is_what_code_fix_read_is_said_beneath_it_and_not_shown() -> None:
+    # Nothing to show: what Code-Fix read is what ran, and saying so settles
+    # the reading as well as the file would. Said as the files it names, not
+    # ones it read: it is told every file its reading names, and one it saw
+    # only three search lines of was said to have been read.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "files_as_they_ran": [FileAsItRan(
+                            path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                            as_read=True, content=None)]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("[F1] names deploy/scrape.yaml on main as it was at 53f02e9, which ran. "
+                  "What [F1] says of that file holds for what ran; what it says of the "
+                  "rest of main does not."),
+            _does_not_say("What ran, read at the revision")
+        ))
+
+
+@pytest.mark.unit
+def test_what_code_fix_says_of_files_that_ran_is_said_to_hold_for_those_files_alone() -> None:
+    # Told only that the reading stood for what ran, a write-up carried
+    # Code-Fix's "nothing in main does that" - said of the whole branch - over
+    # to the running revision: "nothing in the running code works it out".
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "files_as_they_ran": [
+                            FileAsItRan(path="src/io_shop/spend_summary.py",
+                                        revision=SOME_DEPLOYED_REVISION, as_read=True,
+                                        content=None),
+                            FileAsItRan(path="src/io_shop/accounts.py",
+                                        revision=SOME_DEPLOYED_REVISION, as_read=True,
+                                        content=None)]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("What [F1] says of those files holds for what ran; what it says of the "
+                  "rest of main does not.")
+        )
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_are_evidence_listed_beneath_what_code_fix_read() -> None:
+    # A write-up wrote "nothing derived the month from history" from a reading
+    # that listed the one reader adding it up to check it among those trusting
+    # it. What each of those lines does is read off the code, and beneath F the
+    # model has it where it reasons about the reading.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], candidates=[], actions=[],
+                fix_explanation="some account of the code").model_copy(
+                update={"uses_outside": [
+                    CodeUse(name="total_this_month_cents", path="src/io_shop/spend_summary.py",
+                            line=47, function="average_spend_per_item_this_month",
+                            does="divides with it: account.total_this_month_cents // count"),
+                    CodeUse(name="total_this_month_cents",
+                            path="src/io_shop/spend_reconciliation.py", line=109,
+                            function="reconcile_monthly_totals",
+                            does="compares it with _bought_this_month(account)")]})
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
+        ) \
+        .then(
+            _labelled_in_order([
+                ("F1", "some account of the code"),
+                ("U1", "total_this_month_cents at src/io_shop/spend_summary.py:47, in "
+                       "average_spend_per_item_this_month: divides with it"),
+                ("U2", "total_this_month_cents at src/io_shop/spend_reconciliation.py:109, in "
+                       "reconcile_monthly_totals: compares it with _bought_this_month(account)")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_stand_where_code_fix_says_otherwise_of_them() -> None:
+    # The reading is Code-Fix's words and the rows are the code's: where the two
+    # disagree about one of those lines, the write-up is told which stands.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"uses_outside": [
+                    CodeUse(name="total_this_month_cents",
+                            path="src/io_shop/spend_reconciliation.py", line=109,
+                            function="reconcile_monthly_totals",
+                            does="compares it with _bought_this_month(account)")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("How the code outside Code-Fix's patch uses what it changes, read off the "
+                  "code by Argus:"),
+            _says("Where [F1] says otherwise of these lines, they stand.")
+        ))
+
+
+@pytest.mark.unit
+def test_a_corruption_s_write_up_is_told_rewriting_what_was_written_is_left_to_a_person() -> None:
+    # A write-up listed under what went wrong that only Code-Fix's repair
+    # script, which nothing had run, mends the totals already written short. A
+    # person running it is the design, and what is left short is still at risk.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation="dont care",
+                candidates=[a_candidate("dont care", failure_mode="silent-data-corruption")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Rewriting what the incident wrote wrong is left to a person by design: say "
+                  "it in still_at_risk and the action items, never under went_wrong.")
+        )
+
+
+@pytest.mark.unit
+def test_a_write_up_led_by_another_mode_is_not_told_of_rewriting_what_was_written() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation="dont care",
+                candidates=[a_candidate("dont care", failure_mode="feature-flag-toggle"),
+                            a_candidate("dont care", failure_mode="silent-data-corruption")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("Rewriting what the incident wrote wrong")
+        )
+
+
+@pytest.mark.unit
+def test_a_confirmed_demand_saturation_is_measured_in_rows_of_its_own() -> None:
+    # The load and the CPU it asked for, which nothing else the write-up is
+    # handed carries: a write-up told the volume only in the candidate's words,
+    # which it may not cite, rested the root cause on Code-Fix's reading of a
+    # slow default - the one deeper row it could cite. Measured by Argus, under
+    # labels, so a step of the cause can rest on them.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=LoadLevels(before=0.25, while_broken=0.8, at_its_highest=1.0)))
+        ) \
+        .when(
+            lambda: the_cause_measured_labelled(evidence, measured)
+        ) \
+        .then(
+            the_answer_was([
+                CitedEvidence(label="R1",
+                              text="Requests: 1200/min before it began, 4200/min on average "
+                                   "while it was broken, 5400/min at its highest."),
+                CitedEvidence(label="R2",
+                              text="CPU in use, as a share of the service's CPU limit: 25.0% "
+                                   "before it began, 80.0% on average while it was broken, "
+                                   "100.0% at its highest.")
+            ])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("working", "said"), [
+    ("{R1.3 / R1.1}", "4.5 times"),
+    ("{R1.3 - R1.1}", "4200/min"),
+    ("{R2.3 - R2.1}", "75.0 percentage points")
+], ids=["load-ratio", "load-difference", "cpu-difference"])
+def test_a_confirmed_demand_saturation_s_rows_are_worked_with_as_what_they_measure(
+        working: str, said: str) -> None:
+    # Taken as any evidence's, the rows' figures had no kind: the model's
+    # "{R1.3 / R1.1}" - how many times the load rose - was refused, and the
+    # root cause said "far above its usual level" instead.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=LoadLevels(before=0.25, while_broken=0.8, at_its_highest=1.0)))
+        ) \
+        .when(
+            lambda: figures_shown(evidence, measured)
+        ) \
+        .then(
+            _writes_in(SubmittedPostmortem(root_cause=f"It rose {working}."),
+                       SubmittedPostmortem(root_cause=f"It rose {said}."))
+        )
+
+
+@pytest.mark.unit
+def test_a_confirmed_demand_saturation_s_rows_sit_after_the_actions_and_before_the_reading(
+) -> None:
+    # Beside what Argus did about it, and before Code-Fix's reading, whose
+    # weight the line beneath the rows sets.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], fix_explanation="some account of the code",
+                candidates=[a_candidate("some candidate", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")],
+                actions=[an_action("some action", verdict="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=None))
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence, measured)
+        ) \
+        .then(
+            _labelled_in_order([
+                ("C1", "some candidate"),
+                ("M1", "some action"),
+                ("R1", "Requests:"),
+                ("F1", "some account of the code")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_a_confirmed_demand_saturation_is_told_the_load_against_its_cpu_is_the_root_cause(
+) -> None:
+    # Two answers to why the load used up the CPU - capacity sized for less, and
+    # the cost of each request - and a write-up told to follow the one leading
+    # to the fault followed Code-Fix's reading, which calls itself the fault.
+    # What changed was the load: the record confirmed it, and adding capacity
+    # ended it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=None))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("What the metrics show of the confirmed cause [C1], measured by Argus:"),
+            _says("The record confirmed [C1]: the load outgrew the CPU the service had, and "
+                  "adding capacity ended it. What changed before it began was the load, not "
+                  "the service, so the load against that CPU is the root cause; a reading that "
+                  "would make requests cheaper is at most a contributing factor.")
+        ))
+
+
+@pytest.mark.unit
+def test_a_demand_saturation_confirmed_after_another_cause_is_named_by_its_own_label() -> None:
+    # The confirmed one, wherever the investigation ranked it: a flapping
+    # autoscaler's walk refutes its own cause first and confirms the load second.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="autoscaling-pathology",
+                                        tested=True, result="refuted"),
+                            a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=None))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("What the metrics show of the confirmed cause [C2], measured by Argus:"),
+            _says("The record confirmed [C2]: the load outgrew the CPU the service had")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("failure_mode", "result", "demand"), [
+    ("feature-flag-toggle", "confirmed",
+     DemandLevels(requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                  cpu_share=None)),
+    ("demand-saturation", None,
+     DemandLevels(requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                  cpu_share=None)),
+    ("demand-saturation", "confirmed", None)
+], ids=["another-mode-confirmed", "never-confirmed", "no-load-measured"])
+def test_the_load_is_measured_only_for_a_confirmed_demand_saturation_it_was_read_for(
+        failure_mode: str, result: str | None, demand: DemandLevels | None) -> None:
+    # Elsewhere the load is no cause anything confirmed, and its rows would be
+    # evidence for a claim nobody made - and a write-up that read no load has
+    # none to show.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode=failure_mode,
+                                        tested=result is not None, result=result)]),
+            measured := a_measured_incident(demand=demand)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _does_not_say("What the metrics show of the confirmed cause"),
+            _does_not_say("the load against that CPU is the root cause")
+        ))
+
+
+@pytest.mark.unit
+def test_a_corruption_s_write_up_is_told_of_rewriting_where_code_fix_read_nothing() -> None:
+    # An incident with no reading of the code can list the same thing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="silent-data-corruption")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Rewriting what the incident wrote wrong is left to a person by design")
+        )
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_are_said_to_be_read_on_the_branch_code_fix_read() -> None:
+    # They were read on main, and a write-up applied them to what ran.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "uses_outside": [CodeUse(name="total_this_month_cents",
+                                                 path="src/io_shop/spend_reconciliation.py",
+                                                 line=109, function=None, does="returns it")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("How the code outside Code-Fix's patch uses what it changes, read on main "
+                  "by Argus:")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("ran_as_read", "said"), [
+    ((True, True),
+     "src/io_shop/spend_reconciliation.py and src/io_shop/spend_summary.py are on main as "
+     "they were at 53f02e9, which ran: what these lines say of them holds for what ran."),
+    ((True, False),
+     "src/io_shop/spend_reconciliation.py is on main as it was at 53f02e9, which ran: what "
+     "these lines say of it holds for what ran; what they say of src/io_shop/spend_summary.py "
+     "is not known to."),
+    ((False, False),
+     "These lines were read on main, not at 53f02e9, which ran: what they say is not known "
+     "to hold for what ran.")
+], ids=["all-as-they-ran", "some", "none"])
+def test_what_the_uses_outside_the_patch_say_holds_for_what_ran_where_their_files_did(
+        ran_as_read: tuple[bool, bool], said: str) -> None:
+    # True of the revision that ran only where a file ran as main holds it. A
+    # write-up applied these lines to what ran, true that once because nothing
+    # else had changed. A file is named once however many of its lines are rows.
+    reconciliation, summary = "src/io_shop/spend_reconciliation.py", "src/io_shop/spend_summary.py"
+    uses = [CodeUse(name="total_this_month_cents", path=path, line=line, function=None,
+                    does="returns it", revision=SOME_DEPLOYED_REVISION, as_read=as_read)
+            for path, line, as_read in ((reconciliation, 9, ran_as_read[0]),
+                                        (reconciliation, 12, ran_as_read[0]),
+                                        (summary, 47, ran_as_read[1]))]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main", "uses_outside": uses})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says(said)
+        )
+
+
+@pytest.mark.unit
+def test_uses_outside_the_patch_compared_with_no_revision_say_nothing_of_what_ran() -> None:
+    # No revision known to have run is nothing to hold for, as with what
+    # Code-Fix read.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "uses_outside": [CodeUse(name="total_this_month_cents",
+                                                 path="src/io_shop/spend_reconciliation.py",
+                                                 line=109, function=None, does="returns it")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _does_not_say("what these lines say"),
+            _does_not_say("These lines were read on")
         ))
 
 
@@ -582,7 +1606,7 @@ def test_what_code_fix_read_in_the_source_is_evidence_a_step_of_the_cause_may_ci
                                            fix_explanation="some account of the code")
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("F1", "some account of the code")])
@@ -624,9 +1648,15 @@ def test_a_line_that_formed_candidates_names_them_by_their_labels() -> None:
 @pytest.mark.unit
 def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> None:
     # One cause shown twice reads as two. Shown once, under both labels, with
-    # each one's failure mode where they read the move differently - the only
-    # thing the second said - and the confidence said as the first's, since
-    # after two labelled modes a bare one reads as both.
+    # each candidate in its own words, mode and confidence - the lead's alone
+    # read as the row's - and the verdict said as the tested one's on the line
+    # of the one that was not, as the page says it.
+    #
+    # Read as different kinds of failure, they are not one cause counted
+    # twice, and the heading says so. Told only that they blamed the same move,
+    # a write-up said the Investigator "gave the same flag change as two
+    # separate candidates", of two readings the rest of it rested on telling
+    # apart - one is why the totals already written needed repairing.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -642,17 +1672,23 @@ def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> 
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
-            _says_on_one_line("[C1, also C2] the model was upgraded [output-quality-degradation "
-                              "(C1); config-induced-failure (C2), confidence",
-                              "(C1), confirmed]"),
-            _does_not_say("an alternative reading")
+            _says_on_one_line("[C1, also C2] Candidates blaming the same move of "
+                              "categoriser.model, each reading it as a different kind of "
+                              "failure - different accounts of what it did, not one cause "
+                              "counted twice - each in its own words:"),
+            _says_on_one_line("C1: the model was upgraded [output-quality-degradation, "
+                              "confidence 0.8", ", confirmed]"),
+            _says_on_one_line("C2: an alternative reading [config-induced-failure, "
+                              "confidence 0.3", ", confirmed, as tested for C1]")
         ))
 
 
 @pytest.mark.unit
-def test_candidates_reading_the_same_move_alike_are_shown_with_one_failure_mode() -> None:
-    # Where both read the move as the same failure, one name says it, and the
-    # confidence beside it is the line's own.
+def test_candidates_reading_the_same_move_alike_are_still_each_shown() -> None:
+    # Agreeing on the failure is not saying the same thing: each is said in its
+    # own words and confidence, and the lead's verdict credited to the test
+    # that reached it when that test was another's. Nor are they different
+    # accounts, so the heading does not say they are.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -661,14 +1697,68 @@ def test_candidates_reading_the_same_move_alike_are_shown_with_one_failure_mode(
                             failure_mode="output-quality-degradation"),
                 a_candidate("an alternative reading", subject="categoriser.model",
                             from_state="v1", to_state="v2", confidence=0.3,
-                            failure_mode="output-quality-degradation")])
+                            failure_mode="output-quality-degradation",
+                            tested=True, result=Verdict.CONFIRMED)])
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
-            _says("[C1, also C2] the model was upgraded [output-quality-degradation, confidence"),
-            _does_not_say("(C1)")
+            _says_on_one_line("[C1, also C2] Candidates blaming the same move of "
+                              "categoriser.model, each in its own words:"),
+            _says_on_one_line("C1: the model was upgraded [output-quality-degradation, "
+                              "confidence 0.8", ", confirmed, as tested for C2]"),
+            _says_on_one_line("C2: an alternative reading [output-quality-degradation, "
+                              "confidence 0.3", ", confirmed]")
+        ))
+
+
+@pytest.mark.unit
+def test_candidates_some_reading_one_move_alike_are_not_said_to_all_differ() -> None:
+    # Three on one move, two of them alike: "each reading it as a different
+    # kind of failure" is false of the two, and "not one cause counted twice"
+    # of them is what the heading would be denying for no reason. So the
+    # heading says they differ only where every one does.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.6,
+                            failure_mode="output-quality-degradation"),
+                a_candidate("an alternative reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.3,
+                            failure_mode="config-induced-failure"),
+                a_candidate("a third reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.1,
+                            failure_mode="output-quality-degradation")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("Candidates blaming the same move of categoriser.model, "
+                              "each in its own words:")
+        )
+
+
+@pytest.mark.unit
+def test_candidates_of_one_cause_none_tested_are_each_said_never_tried() -> None:
+    # No test, so no test to credit: each line says what its row says.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", subject="categoriser.model",
+                            from_state="v1", to_state="v2"),
+                a_candidate("an alternative reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("C1: the model was upgraded [", "never tried]"),
+            _says_on_one_line("C2: an alternative reading [", "never tried]"),
+            _does_not_say("as tested for")
         ))
 
 
@@ -691,6 +1781,70 @@ def test_a_candidate_tried_without_a_verdict_is_said_to_have_none() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_naming_no_cause_is_said_with_only_what_became_of_it() -> None:
+    # It has no failure mode and no confidence, and said as "None" they read as
+    # values the Investigator gave it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("nothing in the record points at a cause",
+                            confidence=None).model_copy(update={"failure_mode": None})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("[C1] nothing in the record points at a cause [never tried]"),
+            _does_not_say("[None"),
+            _does_not_say("confidence None")
+        ))
+
+
+@pytest.mark.unit
+def test_an_investigation_that_named_no_cause_is_told_the_document_says_so_itself() -> None:
+    # The tool leaves the cause fields out, and the other fields' descriptions
+    # still speak of the root cause: a model not told who writes it is left to
+    # guess.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("no cause determined for HighErrorRate on io-shop",
+                            confidence=None).model_copy(update={"failure_mode": None})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("No candidate names a cause", "you are not asked for either")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("evidence", [
+    pytest.param(an_evidence_bundle(candidates=[
+        a_candidate("no cause determined", confidence=None).model_copy(
+            update={"failure_mode": None}),
+        a_candidate("the flag was switched on")]),
+        id="one names a cause"),
+    pytest.param(an_evidence_bundle(disproven=True, candidates=[
+        a_candidate("the alarm was disproven", confidence=None).model_copy(
+            update={"failure_mode": None})]),
+        id="disproven")
+])
+def test_an_investigation_that_named_a_cause_or_disproved_the_alarm_is_never_told_none_was(
+        evidence: IncidentEvidence) -> None:
+    # Where one candidate names a cause the model is asked for it, and a
+    # disproven alarm's cause sentence says why it was false.
+    Scenario() \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("No candidate names a cause")
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_the_action_items_the_record_already_holds() -> None:
     # Numbered before it is asked, so a contributing factor can name one and its
     # own proposals follow on rather than repeat them.
@@ -707,6 +1861,275 @@ def test_the_model_is_told_the_action_items_the_record_already_holds() -> None:
         ) \
         .then(
             _says("AI-1", "Review and merge the proposed fix")
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_fix_not_kept_is_written_again_by_the_record_s_item() -> None:
+    # With no item for it, write-ups proposed the change outside the repository
+    # as an item of their own in four of four - half of what this item holds -
+    # and no check refuses an item repeating one the record holds.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"fix_needs_code_outside": True})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Code-Fix kept none of the fix it wrote: AI-1 is writing it again, both its "
+                  "change to the repository and the change outside it - propose neither again.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("branch", "said"), [
+    ("argus/fix-abc", "Code-Fix could not propose the fix it wrote: AI-1 is opening its pull "
+                      "request from argus/fix-abc - do not propose it again."),
+    (None, "Code-Fix could not put the fix it wrote on a branch: AI-1 is writing it again "
+           "- do not propose it again.")
+], ids=["left-on-a-branch", "on-no-branch"])
+def test_the_model_is_told_the_fix_not_proposed_is_proposed_by_the_record_s_item(
+        branch: str | None, said: str) -> None:
+    # As with a fix not kept: no check refuses an item repeating one the
+    # record holds, so the model is told the record's item has it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"fix_unproposed": True, "fix_branch_written": branch})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says(said)
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_record_holds_nothing_of_the_pull_request_after_it_opened() -> None:
+    # Told only "Review and merge the proposed fix", one write-up said the fix
+    # "passed through review" and another that a gap "stayed open until a human
+    # reviewed the PR" - neither in the record. Argus never reads the pull
+    # request after opening it, so it cannot say it is unreviewed either: what it
+    # knows is what it did, and that nothing after is recorded. Told that, a
+    # write-up's summary told its reader so too, which the document already
+    # says beside the pull request.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                pull_request=OpenedPullRequest(
+                    number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                    branch="argus/fix-abc"))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("PR #7 is a draft Argus opened for a person to review and merge. "
+                  "The record holds nothing about it after that: do not say it was "
+                  "reviewed, approved or merged, or that it was not - nor that the "
+                  "record holds nothing, which the document says itself.")
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_nothing_ran_the_fix_it_proposed() -> None:
+    # Told the pull request was a draft for a person to review, a write-up
+    # praised it for correcting the scrape config - a fix nothing ran.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                pull_request=OpenedPullRequest(
+                    number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                    branch="argus/fix-abc"))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Nothing ran its test or its fix: say what it proposes, not that "
+                  "it corrects anything.")
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_which_change_the_document_states_set_it_off() -> None:
+    # Told only that "the document states the trigger itself", write-ups still
+    # opened the root cause with the change: nothing they were shown said which
+    # change the document names, so the sentence pointed at nothing. Named, and
+    # nothing more: a root cause that names the change on its way to the
+    # mechanism is right, and "do not open with it" contradicted the brief.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at="2026-09-02T11:59:52Z",
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _says_on_one_line("already states what set it off", "[P1]"),
+                _does_not_say("Do not open")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_change_inside_the_onset_s_minute_is_told_the_onset_is_dated_to_that_minute() -> None:
+    # The onset is dated to the minute it fell in. A flag switched on a few
+    # seconds into a minute breaks that minute, so the brief said the change
+    # came after the onset it caused - told the onset as an instant, a model
+    # reads a cause dated after its effect.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at="2026-09-02T12:00:05Z",
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("(the onset, dated to its minute: a change came during that minute)")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("occurred_at", ["2026-09-02T11:59:52Z", "2026-09-02T12:00:00Z",
+                                         "2026-09-02T12:01:00Z"],
+                         ids=["before-the-onset", "at-the-onset", "the-minute-after"])
+def test_a_change_outside_the_onset_s_minute_leaves_the_onset_told_as_it_was(
+        occurred_at: str) -> None:
+    # Before the onset or at it, the change already reads as before what it
+    # caused; a minute later, it is outside the minute the onset is dated to.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at=occurred_at,
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("dated to its minute")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_trigger_is_told_nothing_of_one() -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[], changes=[])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("already states what set it off")
+        )
+
+
+@pytest.mark.unit
+def test_a_trigger_nothing_tested_is_named_as_suspected() -> None:
+    # The document's Trigger section says "Suspected, not confirmed" of the
+    # change an untested leading candidate blamed. Named bare in the brief, it
+    # is a trigger the model is told the document states as fact.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state="off", to_state="on")],
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at="2026-09-02T11:59:52Z",
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("already states what set it off", "[P1]",
+                              "suspected, not confirmed")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_names_the_trigger_s_own_change_where_another_shares_its_instant() -> None:
+    # The decoy's row is listed first. Matched by instant, the brief told the
+    # model the document's trigger was the decoy - in the one case built to
+    # test that confusion.
+    the_instant = "2026-09-02T11:59:52Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE, occurred_at=the_instant,
+                                     reference="some-decoy-flag", summary="dont care"),
+                         ChangeEvent(kind=ChangeKind.FLAG_TOGGLE, occurred_at=the_instant,
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("already states what set it off", "the change [P2]")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("from_state", "to_state", "named"), [
+    ("off", "on", "checkout-v2 went from off to on"),
+    (None, "on", "checkout-v2 went from unknown to on"),
+    ("off", None, "checkout-v2 went from off to unknown")
+], ids=["both-ends", "to-state-only", "from-state-only"])
+def test_a_trigger_no_change_read_dates_is_named_by_its_move_as_the_trigger_section_says_it(
+        from_state: str | None, to_state: str | None, named: str) -> None:
+    # The change feed read nothing, and the Trigger section still says what
+    # moved, an end nobody recorded as unknown. Said nothing of, the model is
+    # not told the document states it; said otherwise, the two name one change
+    # two ways.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state=from_state, to_state=to_state,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("already states what set it off", named)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_that_opened_no_pull_request_is_told_nothing_of_one() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(pull_request=None)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("The record holds nothing about it after that")
         )
 
 
@@ -763,6 +2186,66 @@ def test_a_span_is_told_in_days_hours_and_minutes(span: timedelta, in_words: str
 
 
 @pytest.mark.unit
+def test_how_long_argus_held_the_incident_is_said_as_nothing_but_that() -> None:
+    # Not as the end of the response - a walk that recommends or mitigates
+    # goes on to Code-Fix after it - nor as an ending, since an escalated
+    # incident has not ended, nor as its last change of status, since a person
+    # can resolve it after.
+    Scenario() \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"{{{ARGUS_STOPPED_FIGURE}}}. That is not how long the fault lasted"),
+            _does_not_say("how long the response took"),
+            _does_not_say("the incident's ending"),
+            _does_not_say("status last changed")
+        ))
+
+
+@pytest.mark.unit
+def test_how_long_argus_held_a_disproven_alarm_is_not_set_against_a_fault() -> None:
+    # There was no fault to have lasted.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(onset_at=None))
+        ) \
+        .then(all_of(
+            _says(f"{{{ARGUS_STOPPED_FIGURE}}}. That is not how long Argus went on working"),
+            _does_not_say("how long the fault lasted")
+        ))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_is_told_as_not_broken_and_as_nothing_it_cost() -> None:
+    # Told the service was broken from the alert for at least the seconds Argus
+    # held it, with its error rate unmeasured, a model was told of a fault the
+    # window had just ruled out. Every figure of what a fault cost goes with it,
+    # measured or not: there was no fault to cost.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True),
+            measured := a_measured_incident(onset_at=None, back_to_normal_at=None,
+                                            rule_series=SOME_RULE_SERIES)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("Not broken: the alarm was disproven - no minute of the window Argus read "
+                  "departed from the service's baseline, so there is no onset, duration or "
+                  "impact to report."),
+            _does_not_say("Broken from"),
+            _does_not_say("Error rate:"),
+            _does_not_say("paging rule"),
+            _does_not_say("Customer loss:")
+        ))
+
+
+@pytest.mark.unit
 def test_the_model_is_told_how_long_the_paging_rule_waits_before_it_fires() -> None:
     # Part of the time from the onset to the alert. Not told it, a write-up
     # called the rule's own wait slow detection.
@@ -780,6 +2263,62 @@ def test_the_model_is_told_how_long_the_paging_rule_waits_before_it_fires() -> N
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("waits", "said"), [
+    (timedelta(minutes=5), f"waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding "
+                           f"before it fires. Its condition looks back over 1 minute "
+                           f"{{{RULE_LOOKS_BACK_FIGURE}}}."),
+    (timedelta(0), f"fires as soon as its condition holds. Its condition looks back over "
+                   f"1 minute {{{RULE_LOOKS_BACK_FIGURE}}}.")
+], ids=["waits", "fires-at-once"])
+def test_a_disproven_alarm_s_rule_is_told_as_the_rule_s_and_not_against_an_onset(
+        waits: timedelta, said: str) -> None:
+    # There was no onset, and told to count the wait and the look-back into the
+    # time from it to the alert, a model was pointed at a span that never was.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True),
+            measured := a_measured_incident(onset_at=None, rule_waits=waits,
+                                            rule_looks_back=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(said),
+            _does_not_say("detection slow")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("waits", "said"), [
+    (timedelta(minutes=5), f"waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding "
+                           f"before it fires. Its condition looks back over 1 minute "
+                           f"{{{RULE_LOOKS_BACK_FIGURE}}}."),
+    (timedelta(0), f"fires as soon as its condition holds. Its condition looks back over "
+                   f"1 minute {{{RULE_LOOKS_BACK_FIGURE}}}.")
+], ids=["waits", "fires-at-once"])
+def test_an_undated_alarm_s_rule_is_told_as_the_rule_s_and_not_against_an_onset(
+        waits: timedelta, said: str) -> None:
+    # Not disproven, and nothing dated it: a window with no minutes in it,
+    # broken from the alert as a lower bound. No onset was measured here either,
+    # and the brief that said so two lines below told the model to count the
+    # wait and the look-back into the time from it to the alert.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=False),
+            measured := a_measured_incident(onset_at=None, rule_waits=waits,
+                                            rule_looks_back=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(said),
+            _does_not_say("detection slow")
+        ))
+
+
+@pytest.mark.unit
 def test_a_rule_that_waits_for_nothing_is_told_as_firing_at_once() -> None:
     Scenario() \
         .given(
@@ -791,6 +2330,81 @@ def test_a_rule_that_waits_for_nothing_is_told_as_firing_at_once() -> None:
         .then(
             _says(A_RULE_FIRING_AT_ONCE)
         )
+
+
+@pytest.mark.unit
+def test_a_rule_that_waits_for_nothing_is_told_how_long_after_the_onset_its_alert_came(
+) -> None:
+    # Told only that the rule fires as soon as its condition holds, a write-up
+    # left 5m 53s from the onset to the alert unweighed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=5, seconds=53)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta())
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line(A_RULE_FIRING_AT_ONCE, "The alert came",
+                              f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}} after the onset")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("rule_waits", [timedelta(), timedelta(minutes=5)],
+                         ids=["waits-for-nothing", "waits"])
+def test_the_model_is_told_how_far_back_the_rule_s_condition_looks(
+        rule_waits: timedelta) -> None:
+    # Part of the time from the onset to the alert can be the condition's own
+    # window filling - "5m with no sample" holds only once five minutes have
+    # passed with none. Told only that it may be, a write-up was left to find
+    # how much in the alert's words and subtract it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(rule_waits=rule_waits,
+                                            rule_looks_back=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says_on_one_line("Its condition looks back over", f"{{{RULE_LOOKS_BACK_FIGURE}}}",
+                              "up to that much of the time from the onset to the alert")
+        )
+
+
+@pytest.mark.unit
+def test_a_condition_looking_back_over_nothing_is_told_no_window() -> None:
+    Scenario() \
+        .given(
+            measured := a_measured_incident(rule_waits=timedelta(), rule_looks_back=timedelta())
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _does_not_say("looks back over")
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_under_a_minute_after_the_onset_of_a_rule_that_waits_for_nothing_names_no_lag(
+) -> None:
+    # A measured onset is a whole minute, so seconds after it are inside what
+    # it can tell. Named, they read as a lag.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(seconds=40)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta())
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("The alert came as soon as its condition held"),
+            _does_not_say(f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}}")
+        ))
 
 
 @pytest.mark.unit
@@ -809,6 +2423,295 @@ def test_a_rule_whose_wait_could_not_be_read_is_told_so() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_told_how_long_the_alert_came_after_its_rule_s_wait() -> None:
+    # Told to count the wait before calling detection slow, a write-up counted
+    # it and called detection slow anyway: what was left after the wait was
+    # never shown.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says(f"The alert came 1 minute 30 seconds {{{AFTER_THE_WAIT_FIGURE}}} after that "
+                  f"wait ended.")
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_under_a_minute_after_its_rule_s_wait_is_told_as_coming_when_it_allowed() -> None:
+    # A measured onset is a whole minute, so seconds after the wait are inside
+    # what it can tell. Named, they read as a lag.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=5, seconds=16)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("The alert came as soon as that wait allowed"),
+            _does_not_say(f"{{{AFTER_THE_WAIT_FIGURE}}}")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("held", "said"), [
+    (True, ", so the condition held before the measured onset"),
+    (False, ", though not every minute of that wait before the measured onset met it"),
+    (None, "")
+], ids=["held", "did-not-hold", "unread"])
+def test_an_alert_sooner_than_its_rule_s_wait_is_told_as_the_page_says_it(
+        held: bool | None, said: str) -> None:
+    # Told it came "as soon as that wait ended", the model would read an alert
+    # sooner than the wait as one on time - when the condition held before the
+    # measured onset, which the page says beside the gap.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=4, seconds=51)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_held_before_the_onset=held)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says(f"The time from the onset to the alert is shorter than the 5 minutes "
+                  f"{{{RULE_WAITS_FIGURE}}} its rule's condition must hold before it fires"
+                  f"{said}.")
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_dated_before_the_onset_is_told_as_the_page_says_it() -> None:
+    # A gap below nothing is no time "shorter than" the wait - it is an alert
+    # before the measured onset, which is what the page says beside it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET - timedelta(seconds=40)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("The alert came before the measured onset."),
+            _does_not_say("shorter than")
+        ))
+
+
+@pytest.mark.unit
+def test_where_the_page_weighs_detection_the_brief_says_the_page_s_own_lesson() -> None:
+    # Counted from the onset, "after that wait ended" named a lag the page
+    # counts as the rule's own time: 2 minutes 2 seconds against the page's
+    # "within 7 minutes 30 seconds" from where the series passed its line. One
+    # working for both, and the look-back not counted twice.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=7, seconds=2)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET + timedelta(minutes=1),
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert rule waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition "
+                  f"holding before it fires. The alert came 6 minutes 2 seconds "
+                  f"{{{DETECTION_GAP_FIGURE}}} after its series passed its line, within the "
+                  f"7 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} accounted for by its rule "
+                  f"waiting 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding, its "
+                  f"evaluation at intervals of 1 minute {{{RULE_EVALUATED_EVERY_FIGURE}}}, an "
+                  f"unmeasured allowance of 30 seconds {{{SCRAPING_ALLOWANCE_FIGURE}}} for "
+                  f"scraping and storing its samples and the whole minute its series is read "
+                  f"in."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("count it"),
+            _does_not_say("looks back over")
+        ))
+
+
+@pytest.mark.unit
+def test_a_lesson_from_the_onset_says_how_much_later_than_what_was_accounted_for() -> None:
+    # No line read: weighed from the onset, look-back and all - the page's
+    # sentence, which says the rest is not known.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert came 10 minutes 30 seconds {{{BEYOND_ACCOUNTED_FOR_FIGURE}}} "
+                  f"later than the 9 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} accounted "
+                  f"for by its rule waiting 5 minutes {{{RULE_WAITS_FIGURE}}} with its "
+                  f"condition holding, its condition looking back over 2 minutes "
+                  f"{{{RULE_LOOKS_BACK_FIGURE}}}, its evaluation at intervals of 1 minute "
+                  f"{{{RULE_EVALUATED_EVERY_FIGURE}}}, an unmeasured allowance of 30 seconds "
+                  f"{{{SCRAPING_ALLOWANCE_FIGURE}}} for scraping and storing its samples and "
+                  f"the whole minute the onset is measured to. The record does not show what "
+                  f"took the rest."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("window filling"),
+            _does_not_say("count it")
+        ))
+
+
+@pytest.mark.unit
+def test_a_series_past_its_line_at_the_onset_is_weighed_from_it_with_no_look_back() -> None:
+    # Past it in the onset's own minute: from the onset, but the series is the
+    # rule's own query, so the look-back is in its readings - named, it would
+    # be counted twice.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=7)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET, rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert came within the 7 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} "
+                  f"accounted for by its rule waiting 5 minutes {{{RULE_WAITS_FIGURE}}} with "
+                  f"its condition holding, its evaluation at intervals of 1 minute "
+                  f"{{{RULE_EVALUATED_EVERY_FIGURE}}}, an unmeasured allowance of 30 seconds "
+                  f"{{{SCRAPING_ALLOWANCE_FIGURE}}} for scraping and storing its samples and "
+                  f"the whole minute the onset is measured to."),
+            _does_not_say("looks back over"),
+            _does_not_say("looking back over")
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_that_waits_for_nothing_says_the_page_s_lesson_where_it_weighs_detection(
+) -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=2)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(0),
+                                            rule_looks_back=timedelta(0),
+                                            rule_evaluated_every=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert rule fires as soon as its condition holds. The alert came "
+                  f"within the 2 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} accounted for "
+                  f"by its evaluation at intervals of 1 minute "
+                  f"{{{RULE_EVALUATED_EVERY_FIGURE}}}, an unmeasured allowance of 30 seconds "
+                  f"{{{SCRAPING_ALLOWANCE_FIGURE}}} for scraping and storing its samples and "
+                  f"the whole minute the onset is measured to."),
+            _does_not_say(f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}}")
+        ))
+
+
+@pytest.mark.unit
+def test_a_series_never_past_its_line_before_the_alert_names_no_lag_after_the_wait() -> None:
+    # Counted from the onset instead, the fault's own growth reads as slow
+    # detection.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=None, rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("Its series was past its line in no minute read before the alert, so when "
+                  "its rule could first fire is not known."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("as soon as that wait allowed")
+        ))
+
+
+@pytest.mark.unit
+def test_a_series_first_past_its_line_less_than_the_wait_before_the_alert_names_no_lag(
+) -> None:
+    # The minute readings can lag the rule's own evaluation, so the rule held
+    # before the first minute read past the line - and counted from the onset,
+    # what is left after the wait is the fault's growth again.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET + timedelta(minutes=3),
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("Its series was first read past its line less than its rule's wait before "
+                  "the alert, so when its rule could first fire is not known."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("as soon as that wait allowed")
+        ))
+
+
+@pytest.mark.unit
+def test_an_alert_sooner_than_the_wait_after_the_onset_is_still_shorter_than_the_wait(
+) -> None:
+    # True from either start, so said as it always was - not as a series read
+    # past its line too late.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=4, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET + timedelta(minutes=1),
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The time from the onset to the alert is shorter than the 5 minutes "
+                  f"{{{RULE_WAITS_FIGURE}}} its rule's condition must hold before it fires"),
+            _does_not_say("first read past its line")
+        ))
+
+
+@pytest.mark.unit
+def test_with_no_onset_measured_nothing_is_told_of_the_alert_against_its_wait() -> None:
+    # The gap is from the onset; without one there is nothing to weigh.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=None, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _does_not_say("after that wait ended"),
+            _does_not_say("as soon as that wait allowed"),
+            _does_not_say("The time from the onset to the alert")
+        ))
+
+
+@pytest.mark.unit
 def test_an_incident_no_rule_paged_for_is_told_nothing_of_a_wait() -> None:
     Scenario() \
         .given(
@@ -822,6 +2725,110 @@ def test_an_incident_no_rule_paged_for_is_told_nothing_of_a_wait() -> None:
                 _does_not_say(A_RULE_S_WAIT),
                 _does_not_say(A_RULE_FIRING_AT_ONCE)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_is_told_as_firing_never_as_paging() -> None:
+    # "Paged" is what happens to a person. A brief that said "the paging rule"
+    # had a write-up say "the alert paged" in its chain and "nobody was paged"
+    # in its assumptions, of the same incident - one word, two meanings.
+    Scenario() \
+        .given(
+            an_incident_a_waiting_rule_fired_for := a_measured_incident(
+                rule_waits=timedelta(minutes=5), rule_series=SOME_RULE_SERIES)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_a_waiting_rule_fired_for)
+        ) \
+        .then(
+            all_of(
+                _says("The alert rule waits", "which its alert rule evaluates"),
+                _does_not_say("paging"),
+                _does_not_say("that paged")
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("engaged", "told"), [
+    (NotPaged(), "Nobody was paged: no on-call incident was linked to this one."),
+    (EngagementAnswer(minutes=0, responders=0),
+     "Somebody was paged: an on-call incident was linked to this one."),
+    (None, "Whether anybody was paged could not be read.")
+], ids=["nobody-paged", "somebody-paged", "unread"])
+def test_the_model_is_told_whether_anybody_was_paged(
+        engaged: EngagementAnswer | NotPaged | None, told: str) -> None:
+    # Never told, a model fills the gap from habit: an alert pages somebody.
+    # The document's assumptions then said nobody was, of an incident whose
+    # chain said the alert paged. Told the fact, it has nothing to fill - and
+    # told that a rule fires and a person is paged, one word for each.
+    Scenario() \
+        .given(
+            some_incident := a_measured_incident().model_copy(update={"engaged": engaged})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), some_incident)
+        ) \
+        .then(
+            _says(told, "An alert rule fires; a person is paged.")
+        )
+
+
+@pytest.mark.unit
+def test_a_post_where_nobody_was_paged_is_told_with_the_one_claim_it_refutes_refused() -> None:
+    # Told only that nobody was paged, a write-up said no person was told at all,
+    # of an incident Argus had announced in its thread. Told to say nothing of
+    # who was told, the next dropped that nobody was paged as well - so the one
+    # claim is refused by name, and the finding kept open beside it.
+    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": some_post}),
+            some_incident := a_measured_incident().model_copy(update={"engaged": NotPaged()})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, some_incident)
+        ) \
+        .then(
+            _says("Nobody was paged: no on-call incident was linked to this one. An alert rule "
+                  "fires; a person is paged. Argus first posted about the incident in Slack at "
+                  f"{to_iso(some_post.at)} {{first_told}}, and the document says so already: "
+                  "leave that post out, and do not say that no person was told. That nobody was "
+                  "paged is a finding of its own.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("engaged", [EngagementAnswer(minutes=0, responders=0), None],
+                         ids=["somebody-paged", "unread"])
+def test_a_post_is_not_told_where_nobody_is_known_unpaged(
+        engaged: EngagementAnswer | None) -> None:
+    # The claim it refutes is made only of an incident nobody was paged for.
+    dont_care_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": dont_care_post}),
+            some_incident := a_measured_incident().model_copy(update={"engaged": engaged})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, some_incident)
+        ) \
+        .then(
+            _does_not_say("first posted")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_for_without_saying_a_metric_paged() -> None:
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_avoids("paged")
         )
 
 
@@ -878,6 +2885,24 @@ def test_the_model_is_told_how_far_the_errors_rose() -> None:
 
 
 @pytest.mark.unit
+def test_the_error_rate_is_said_to_be_over_all_the_service_s_requests() -> None:
+    # Labelled only "Error rate", beside logs warning of the account page's own
+    # rate, 6 of 13 write-ups called this figure the account page's. It is every
+    # request the service answered.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_rose := a_measured_incident(error_rates=ERRORS_THAT_ROSE)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_rose)
+        ) \
+        .then(all_of(
+            _says("The service's error rate over all its requests, before it began: "),
+            _says("The same rate while it was broken: ")
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("error_rates", [ERRORS_THAT_STAYED_FLAT, ERRORS_THAT_FELL],
                          ids=["flat", "fell"])
 def test_a_rise_at_or_below_nothing_is_told_as_none(error_rates: ErrorRates) -> None:
@@ -915,6 +2940,48 @@ def test_a_rise_within_the_rate_s_own_variation_is_told_as_none_beyond_it() -> N
         .then(all_of(
             _says(THE_RISE_WITHIN_ITS_VARIATION),
             _says(A_PEAK_WITHIN_ITS_VARIATION)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rise_within_two_of_the_rate_s_own_steps_is_told_as_none_beyond_its_variation() -> None:
+    # Said as that rather than as stretches averaging as high on their own,
+    # which a stretch lifted past the calm's ceiling by one minute's step did not.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_moved_a_step := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.011, while_broken=0.016, at_its_worst=0.025,
+                                       usual_ceiling=0.015, usual_worst=0.025,
+                                       within_its_own_noise=True))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_moved_a_step)
+        ) \
+        .then(all_of(
+            _says(f"{THE_RISE_WITHIN_ITS_VARIATION} - no more than two of the steps the rate "
+                  f"moves in."),
+            _does_not_say("averaged as high on their own")
+        ))
+
+
+@pytest.mark.unit
+def test_a_rise_within_its_steps_and_no_higher_than_the_calm_s_stretches_is_told_as_those() -> None:
+    # The steps floor only a rise that passed the calm's ceiling: one at or
+    # under it already averaged as high on its own, and is told that.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_stayed_in_their_calm := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.010, while_broken=0.014, at_its_worst=0.020,
+                                       usual_ceiling=0.015, usual_worst=0.025,
+                                       within_its_own_noise=True))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_stayed_in_their_calm)
+        ) \
+        .then(all_of(
+            _says(f"{THE_RISE_WITHIN_ITS_VARIATION} - stretches as long before it began averaged "
+                  f"as high on their own."),
+            _does_not_say("two of the steps the rate moves in")
         ))
 
 
@@ -966,11 +3033,16 @@ def test_the_model_is_told_the_levels_as_well_as_the_rise() -> None:
 
 
 @pytest.mark.unit
-def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() -> None:
+def test_a_rise_nobody_could_measure_is_said_to_be_unmeasured_rather_than_flat() -> None:
     # The prompt has to say which of the two happened. An incident whose
     # metrics could not be read, described to the model as one where nothing
     # rose, gets prose explaining why a service that was fine had an outage -
     # and the prose will be fluent, because it always is.
+    #
+    # And said as the metrics' gap rather than the record's. Told the error rate
+    # was not known, a model that had cited the shop's own warned rate from its
+    # logs wrote that no error rate existed, and asked for the logs it had
+    # already read to be reviewed.
     Scenario() \
         .given(
             an_incident_whose_metrics_could_not_be_read := a_measured_incident(
@@ -980,9 +3052,9 @@ def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() ->
             lambda: opening_ask(an_evidence_bundle(),
                                 an_incident_whose_metrics_could_not_be_read)
         ) \
-        .then(
-            _says("not known")
-        )
+        .then(all_of(
+            _says("Error rate: not measured by the metrics"),
+            _does_not_say("not known")))
 
 
 @pytest.mark.unit
@@ -1011,6 +3083,82 @@ def test_an_error_rate_nobody_could_measure_is_told_with_the_reason(why: Unmeasu
 
 
 @pytest.mark.unit
+def test_an_incident_none_of_whose_metrics_could_be_read_is_told_its_unread_deploys_are_by_design(
+) -> None:
+    # Where no minute of the metrics came back and the alert gave no time
+    # either, there is nothing to look back from, so the walk read no deploys or
+    # logs and escalated. Never told it, a write-up listed the reads it never
+    # made as what went wrong - which the document already says.
+    #
+    # Not told to leave them unsaid: a step of the chain says what it could not
+    # rule out, and these are why.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(escalated=True),
+            an_incident_whose_metrics_could_not_be_read := a_measured_incident(
+                error_rates=None, onset_at=None).model_copy(
+                    update={"error_rates_unmeasured": Unmeasured.NOTHING_READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, an_incident_whose_metrics_could_not_be_read)
+        ) \
+        .then(all_of(
+            _says("no time from the alert, there was nothing to look back from"),
+            _says("do not list it as something that went wrong"),
+            _says("belongs in the action items"),
+            _does_not_say("do not say it again")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("why", "onset_at", "anchored_at", "escalated", "deploys", "logs"), [
+    pytest.param(Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET, None, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="metrics read, none before the onset"),
+    pytest.param(Unmeasured.NO_MINUTE_WHILE_BROKEN, None, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="metrics read, none while broken"),
+    pytest.param(Unmeasured.NOTHING_READ, ONSET, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="an onset the alert dated"),
+    pytest.param(Unmeasured.NOTHING_READ, None, ONSET, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="anchored on the alarm's minute"),
+    pytest.param(Unmeasured.NOTHING_READ, None, None, True,
+                 ChannelReading.READ, ChannelReading.NOT_ASKED,
+                 id="deploys read"),
+    pytest.param(Unmeasured.NOTHING_READ, None, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.READ,
+                 id="logs read"),
+    pytest.param(Unmeasured.NOTHING_READ, None, None, False,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="ended other than escalated")
+])
+def test_an_incident_that_line_is_false_of_is_never_told_there_was_nothing_to_look_back_from(
+        why: Unmeasured, onset_at: datetime | None, anchored_at: datetime | None,
+        escalated: bool, deploys: ChannelReading, logs: ChannelReading) -> None:
+    # The line says four things - no minute of metrics, nothing else to date or
+    # anchor the walk, no deploys or logs read, and an escalation - and of an
+    # incident where any one is untrue, it is false. A walk anchored on the
+    # alarm's minute that ran out before reading anything had a minute to read
+    # from.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(escalated=escalated).model_copy(
+                update={"deploys_reading": deploys, "logs_reading": logs,
+                        "anchored_at": anchored_at}),
+            measured := a_measured_incident(error_rates=None, onset_at=onset_at).model_copy(
+                update={"error_rates_unmeasured": why})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _does_not_say("nothing to look back from")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("why", [Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET,
                                  Unmeasured.NO_MINUTE_WHILE_BROKEN])
 def test_metrics_that_were_read_are_never_said_to_be_unreadable(why: Unmeasured) -> None:
@@ -1027,6 +3175,202 @@ def test_metrics_that_were_read_are_never_said_to_be_unreadable(why: Unmeasured)
         ) \
         .then(
             _does_not_say(WHAT_AN_UNREAD_METRIC_IS_CALLED)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("why", list(Unmeasured))
+def test_no_reason_an_error_rate_went_unmeasured_says_it_is_not_known(why: Unmeasured) -> None:
+    # Over every reason there is, so a reason added later cannot bring the
+    # phrase back: what is missing is the metrics' figure, and the record may
+    # hold the service's own word on its rate elsewhere.
+    Scenario() \
+        .given(
+            an_incident_measured_without_error_rates := a_measured_incident(
+                error_rates=None).model_copy(update={"error_rates_unmeasured": why})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_measured_without_error_rates)
+        ) \
+        .then(
+            _does_not_say("not known")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_nobody_could_see_is_not_said_to_have_been_broken() -> None:
+    # The line before this one says the metrics did not cover the stretch, not one
+    # the service is known to have spent in trouble. A reason naming its minutes
+    # as the ones "while the service was broken" contradicts that, and hands the
+    # model an outage the evidence does not show.
+    Scenario() \
+        .given(
+            an_incident_nobody_could_see := a_measured_incident(
+                error_rates=None, back_to_normal_at=None, metrics_stopped_at=ONSET
+            ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
+        ) \
+        .then(all_of(
+            _says("none were collected after the metrics stopped"),
+            _does_not_say("none from while the service was broken")))
+
+
+@pytest.mark.unit
+def test_metrics_that_resumed_in_the_minute_argus_acted_in_are_said_to_have_resumed_then() -> None:
+    # Told the metrics "had still not resumed" by the close, a model was told of
+    # minutes they did cover, and the stretch they missed ran to the close. Dated
+    # to the action and said so, since the walk's own look dates the rows back by
+    # their minute: two instants for one return, unless each is named.
+    the_action = ONSET + timedelta(minutes=5, seconds=52)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)]),
+            measured := a_measured_incident(back_to_normal_at=the_action,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=the_action)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says_on_one_line("No metrics were collected from", "until they resumed at",
+                              f"{{{METRICS_RESUMED_AT_FIGURE}}}",
+                              "(in the minute Argus acted in, so dated to its action)",
+                              "showing the service back to normal",
+                              f"{{{DURATION_FIGURE}}} the metrics did not cover"),
+            _does_not_say("had still not resumed")))
+
+
+@pytest.mark.unit
+def test_metrics_that_resumed_without_the_service_back_to_normal_are_said_so() -> None:
+    # The stretch they missed still ends where they resumed, but the rows they
+    # resumed with did not show the service back - which the brief says rather
+    # than leave the end of the stretch to read as the end of the incident.
+    the_action = ONSET + timedelta(minutes=5, seconds=52)
+    some_later_minute = ONSET + timedelta(minutes=8)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)]),
+            measured := a_measured_incident(back_to_normal_at=None,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_later_minute)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says_on_one_line("until they resumed at", "not showing the service back to normal"),
+            _does_not_say("so dated to its action")))
+
+
+@pytest.mark.unit
+def test_an_error_rate_the_metrics_missed_until_they_resumed_is_said_so() -> None:
+    # "None were collected after the metrics stopped" says no minute came back
+    # at all, of a read holding the minutes they resumed with.
+    some_resumption = ONSET + timedelta(minutes=5)
+
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                error_rates=None, back_to_normal_at=some_resumption, metrics_stopped_at=ONSET,
+                metrics_resumed_at=some_resumption
+            ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(all_of(
+            _says("none were collected from when the metrics stopped until they resumed"),
+            _does_not_say("none were collected after the metrics stopped")))
+
+
+@pytest.mark.unit
+def test_a_log_line_logged_once_the_metrics_resumed_is_not_named_as_reaching_into_the_gap() -> None:
+    # The service measured again is no account of the stretch it was not.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=3))} WARN io-shop: some warning"
+    some_line_after = f"{to_iso(ONSET + timedelta(minutes=8))} ERROR io-shop: some failure"
+    some_resumption = ONSET + timedelta(minutes=5)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside, some_line_after]),
+            measured := a_measured_incident(back_to_normal_at=some_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_resumption)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says(f": [{grouped([some_line_inside], None, ONSET.date())[0].label}]. They are "
+                  f"the service's own account")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("back_to_normal_at", "said"), [
+    (RECOVERED_AT, "Customer loss:"),
+    (None, "Customer loss: at least")
+], ids=["measured", "a-lower-bound"])
+def test_the_model_is_told_the_customer_loss_and_how_it_was_measured(
+        back_to_normal_at: datetime | None, said: str) -> None:
+    # Argus's one direct measure of who the incident affected. Never told it,
+    # a write-up over a loss of nothing said the shop only "appears to have
+    # kept serving". With how it is measured, so it is weighed as a shortfall
+    # in takings and not as a count of shoppers - and as a floor where the
+    # service was not seen back to normal, as the page says it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(loss=Decimal("1297.31"),
+                                            back_to_normal_at=back_to_normal_at)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says_on_one_line(said, f"{{{CUSTOMER_LOSS_FIGURE}}}",
+                              "fell short of the same hours whole weeks earlier")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("back_to_normal_at", "said"), [
+    (RECOVERED_AT, "Customer loss: none - "),
+    (None, "Customer loss: none so far - ")
+], ids=["measured", "a-lower-bound"])
+def test_a_customer_loss_of_nothing_is_told_as_none(
+        back_to_normal_at: datetime | None, said: str) -> None:
+    # In words, as the page says it: "0.00 USD" reads as a figure nobody filled
+    # in. "So far" where the takings were counted with the service not seen back
+    # to normal.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(loss=Decimal(0),
+                                            back_to_normal_at=back_to_normal_at)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says_on_one_line(said, "no more than those hours vary on their own")
+        )
+
+
+@pytest.mark.unit
+def test_a_customer_loss_nobody_estimated_is_told_as_not_estimated() -> None:
+    Scenario() \
+        .given(
+            measured := a_measured_incident(baseline_revenue=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says("Customer loss: not estimated")
         )
 
 
@@ -1098,6 +3442,51 @@ def test_the_rules_series_is_named_by_the_alerts_own_words_where_it_sent_any() -
 
 
 @pytest.mark.unit
+def test_the_rules_series_is_named_by_its_query_as_written() -> None:
+    # The alert's words are the rule's condition - its threshold and its wait -
+    # and a series named by them is named by when it pages. The query is what
+    # the series is, said as written: its numbers are none of the incident's,
+    # and tagged as figures they would be offered as some. Said in words in the
+    # document, since a reader does not read PromQL.
+    some_query = 'max(http_request_duration_seconds{quantile="0.99"}) * 1000'
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(
+                update={"alert_finding": "p99 latency above threshold for 5m"})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(rule_series=SOME_RULE_SERIES)
+                                .model_copy(update={"rule_series_query": some_query}))
+        ) \
+        .then(
+            _says_on_one_line(f"The series behind the alert, `{some_query}`",
+                              'its alert said "p99 latency above threshold for 5m {A1}"',
+                              f"{SOME_RULE_SERIES.baseline:g}",
+                              "in words, not by its query")
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_series_whose_query_is_unknown_is_told_by_what_its_alert_said() -> None:
+    # No query to name it by, and the alert's words still its condition: said
+    # as the alert's, and nothing asked of a query the model was never shown.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(
+                update={"alert_finding": "p99 latency above threshold for 5m"})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(rule_series=SOME_RULE_SERIES))
+        ) \
+        .then(all_of(
+            _says_on_one_line('The series behind the alert - its alert said "p99 latency',
+                              f"{SOME_RULE_SERIES.baseline:g}"),
+            _does_not_say("by its query")
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("error_rates", [ERRORS_THAT_STAYED_FLAT, ERRORS_THAT_FELL, None],
                          ids=["flat", "fell", "not known"])
 def test_where_no_rise_in_errors_was_measured_the_rules_series_is_the_harm(
@@ -1138,11 +3527,129 @@ def test_where_the_errors_rose_they_are_left_to_say_what_the_harm_was() -> None:
 
 
 @pytest.mark.unit
-def test_where_the_errors_rose_the_model_is_still_asked_what_the_series_meant_for_users() -> None:
-    # The rule that pages on the error rate: its series rose with the failed
-    # requests, and those stay the harm. What the rise meant for the people
-    # using the service is still the write-up's to say - asked only where
-    # nothing failed, it was never asked of the incident most rules page on.
+def test_where_nothing_failed_and_the_rule_watched_no_latency_the_slower_requests_are_told(
+) -> None:
+    # The rule watched the shop's memory, every request succeeded, and requests
+    # took six times as long - which no line of the brief said, so a write-up
+    # told only the memory and the failed requests headlined that nobody using
+    # the shop saw anything wrong. The latency that departed is what they saw.
+    Scenario() \
+        .given(
+            an_incident_that_only_slowed := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=SOME_RULE_SERIES,
+                latency=[A_LATENCY_THAT_DEPARTED, A_LATENCY_THAT_HELD])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_that_only_slowed)
+        ) \
+        .then(all_of(
+            _says_on_one_line(REQUESTS_TOOK_LONGER, "p95",
+                              "{latency_p95_before}", "{latency_p95_while_broken}",
+                              "{latency_p95_at_worst}"),
+            _says_on_one_line(THE_SERIES_AS_THE_HARM, HOW_MUCH_LONGER_REQUESTS_TOOK),
+            _does_not_say("{latency_p50_before}")
+        ))
+
+
+@pytest.mark.unit
+def test_where_nothing_failed_and_no_series_of_the_rule_was_read_the_slower_requests_are_told(
+) -> None:
+    # A rule whose own series nobody could read says nothing of the people using
+    # the service, so its brief holds less than one whose series was read - and
+    # a write-up from it can say nobody saw anything wrong just as well.
+    Scenario() \
+        .given(
+            an_incident_that_only_slowed := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=None,
+                latency=[A_LATENCY_THAT_DEPARTED])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_that_only_slowed)
+        ) \
+        .then(all_of(
+            _says_on_one_line(REQUESTS_TOOK_LONGER, "p95", "{latency_p95_at_worst}"),
+            _says_on_one_line(THE_SERIES_AS_THE_HARM, HOW_MUCH_LONGER_REQUESTS_TOOK)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_paging_on_a_latency_is_not_told_the_latency_again() -> None:
+    # Its series is how long requests took, said already at its own levels -
+    # and told the latency beside it, the model is told one figure twice.
+    Scenario() \
+        .given(
+            an_incident_paged_on_a_latency := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=SOME_RULE_SERIES,
+                rule_series_is_a_latency=True, latency=[A_LATENCY_THAT_DEPARTED])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_a_latency)
+        ) \
+        .then(
+            _does_not_say(REQUESTS_TOOK_LONGER)
+        )
+
+
+@pytest.mark.unit
+def test_where_the_errors_rose_the_latency_is_not_told() -> None:
+    # Failed requests are the harm wherever they rose, and the brief points the
+    # model at them rather than at a second measure of it.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_rose := a_measured_incident(
+                error_rates=ERRORS_THAT_ROSE, rule_series=SOME_RULE_SERIES,
+                latency=[A_LATENCY_THAT_DEPARTED])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_rose)
+        ) \
+        .then(
+            _does_not_say(REQUESTS_TOOK_LONGER)
+        )
+
+
+@pytest.mark.unit
+def test_latency_that_did_not_depart_is_not_told() -> None:
+    # Told a latency no slower than the calm went on its own, a model is handed
+    # a slowdown nobody measured - and the brief of an incident whose requests
+    # took no longer says nothing of them, as it always did.
+    Scenario() \
+        .given(
+            an_incident_whose_requests_took_no_longer := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=SOME_RULE_SERIES,
+                latency=[A_LATENCY_THAT_HELD])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_requests_took_no_longer)
+        ) \
+        .then(
+            _does_not_say(REQUESTS_TOOK_LONGER)
+        )
+
+
+@pytest.mark.unit
+def test_where_the_errors_rose_another_series_is_still_asked_what_it_meant_for_users() -> None:
+    # A rule watching something besides the failed requests - a latency, a
+    # share filed with confidence - says something of its own about the people
+    # using the service, and the failed requests rising does not say it for it.
+    Scenario() \
+        .given(
+            an_incident_paged_on_another_series := a_measured_incident(
+                error_rates=ERRORS_THAT_ROSE, rule_series=SOME_RULE_SERIES)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_another_series)
+        ) \
+        .then(
+            _says(WHAT_IT_MEANT_FOR_USERS)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_paging_on_the_error_rate_is_not_asked_what_its_series_meant_for_users() -> None:
+    # Its series is the failed requests, so what their rise meant for the
+    # people using the service is the symptom the write-up has already said -
+    # and asked it again, about 8 write-ups in 28 said the symptom twice.
     the_error_rate_as_the_rules_series = RuleSeriesLevels(
         baseline=ERRORS_THAT_ROSE.baseline, while_broken=ERRORS_THAT_ROSE.while_broken,
         at_its_worst=ERRORS_THAT_ROSE.at_its_worst, worse_when="above")
@@ -1150,13 +3657,14 @@ def test_where_the_errors_rose_the_model_is_still_asked_what_the_series_meant_fo
     Scenario() \
         .given(
             an_incident_paged_on_its_error_rate := a_measured_incident(
-                error_rates=ERRORS_THAT_ROSE, rule_series=the_error_rate_as_the_rules_series)
+                error_rates=ERRORS_THAT_ROSE, rule_series=the_error_rate_as_the_rules_series,
+                rule_series_is_the_error_rate=True)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_its_error_rate)
         ) \
         .then(
-            _says(WHAT_IT_MEANT_FOR_USERS)
+            _does_not_say(WHAT_IT_MEANT_FOR_USERS)
         )
 
 
@@ -1189,6 +3697,39 @@ def test_a_rules_series_that_did_not_get_worse_is_not_reported_as_the_harm(
 
 
 @pytest.mark.unit
+def test_a_rules_series_in_no_unit_anybody_named_is_said_to_be_so() -> None:
+    # Left unsaid, a model writes a bare number beside an alert in percent - or
+    # supplies a unit nothing measured. Told, it says the levels as numbers.
+    Scenario() \
+        .given(
+            an_incident_whose_series_names_no_unit := a_measured_incident(
+                rule_series=SOME_RULE_SERIES, rule_series_unit=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_series_names_no_unit)
+        ) \
+        .then(
+            _says("does not say what unit its series is in")
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_series_in_a_named_unit_is_not_said_to_be_in_none() -> None:
+    Scenario() \
+        .given(
+            an_incident_whose_series_is_in_milliseconds := a_measured_incident(
+                rule_series=SOME_RULE_SERIES, rule_series_unit="ms")
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(),
+                                an_incident_whose_series_is_in_milliseconds)
+        ) \
+        .then(
+            _does_not_say("does not say what unit its series is in")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_with_no_rules_series_is_told_nothing_of_one() -> None:
     # Not a line saying the series sat at nothing: an incident paged by a rule
     # watching no series of its own has none to report.
@@ -1218,9 +3759,226 @@ def test_an_incident_never_back_to_normal_is_given_as_a_lower_bound_to_its_close
             lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
         ) \
         .then(all_of(
-            _says("not back to normal by", "when the incident was closed"),
-            _says("at least")
+            _says("not back to normal by",
+                  f"{{{ARGUS_STOPPED_FIGURE}}}, so it was broken for at least"),
+            _says("at least"),
+            _does_not_say("when the incident was closed")
         ))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_are_still_missing_is_not_said_to_have_closed() -> None:
+    # Where Argus stopped is not where the incident did. An escalated incident
+    # whose blind stretch was still running was told to the model as "still
+    # unobserved when the incident closed", and the write-up said the incident
+    # had closed - over a period nobody could see that had not ended.
+    Scenario() \
+        .given(
+            an_incident_nobody_could_see := a_measured_incident(
+                back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
+        ) \
+        .then(all_of(
+            _says("the metrics had still not resumed by", f"{{{ARGUS_STOPPED_FIGURE}}}. That is"),
+            _does_not_say("when the incident closed")
+        ))
+
+
+@pytest.mark.unit
+def test_an_action_with_a_way_back_is_told_it_can_be_put_back() -> None:
+    # The document's Resolution says it of every action, and the brief said
+    # nothing. Left to guess, a model called a restart reversible under what went
+    # well, a section away from a row calling it irreversible - and both were
+    # the wrong word: those two name the autonomy tier, which a restart is on
+    # the safe side of. What the record holds is whether there is anything to
+    # put back.
+    some_action = "restart-service on io-shop"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action(some_action)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"{some_action} (can be put back)"),
+            _does_not_say("irreversible")))
+
+
+@pytest.mark.unit
+def test_an_action_with_no_way_back_is_told_so_once_by_its_standing() -> None:
+    # Its standing is "nothing to put back" whenever it has no way back, so the
+    # same words in brackets beside the action said it twice on one line.
+    some_action = "restart-service on io-shop"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(some_action, standing="nothing to put back",
+                          has_a_way_back=False)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"{some_action} - "),
+            _does_not_say("(nothing to put back)"),
+            _does_not_say("irreversible")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("progress", "came_to"),
+                         [(ActionProgress.PERFORMED, "not judged"),
+                          (ActionProgress.NOT_PERFORMED, "not taken")],
+                         ids=["stopped-while-watched", "stopped-before-the-write"])
+def test_an_action_a_person_s_ending_stopped_is_told_in_the_page_s_words(
+        progress: ActionProgress, came_to: str) -> None:
+    # The Resolution says "not judged", or "not taken" where nothing was done;
+    # the brief said the raw "stopped", and the write-up was written from
+    # different words than the page it sits on.
+    some_action = "dont care"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(some_action, verdict=Verdict.STOPPED,
+                          standing="dont care standing").model_copy(
+                    update={"progress": progress})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"- {came_to}, dont care standing"),
+            _does_not_say("- stopped,")))
+
+
+@pytest.mark.unit
+def test_an_action_never_performed_is_listed_apart_from_the_actions_taken() -> None:
+    # "Actions it took:" heading a line that says "Did not" is the brief saying
+    # both. Listed under its own heading, under the label the page gives it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.PLATFORM_UNREACHABLE,
+                          standing="nothing was changed",
+                          has_a_way_back=False).model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED}),
+                an_action("Reverted the feature flag some-flag", verdict=Verdict.CONFIRMED)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("Actions it took:\n  - [M2] Reverted the feature flag some-flag"),
+            _says("Actions it reached for and did not take:\n  - [M1] Did not roll back the "
+                  "deployment of io-shop - platform-unreachable, nothing was changed")))
+
+
+@pytest.mark.unit
+def test_an_action_says_the_candidate_it_was_for() -> None:
+    # Under the label the candidate's row goes by. Nothing else in the brief
+    # says it: the move to mitigating names no candidate, and a write-up left
+    # to guess credited a rollback refused for the third candidate to the
+    # leading one - and said the third was never acted on.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.ESCALATED,
+                          standing="nothing was changed",
+                          has_a_way_back=False).model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED, "candidate": 3})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("  - [M1] Did not roll back the deployment of io-shop for [C3] - escalated, "
+                  "nothing was changed"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_an_action_nobody_can_account_for_is_listed_apart_from_both(
+        progress: ActionProgress) -> None:
+    # A claim nobody answered under "Actions it took:" is the brief saying it
+    # was done, and under "did not take" that it was not. Nobody knows either.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Reverted the feature flag some-flag", verdict=Verdict.CONFIRMED),
+                an_action("Reverting other-flag",
+                          standing="not known whether it was made").model_copy(
+                    update={"progress": progress})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("Actions it took:\n  - [M1] Reverted the feature flag some-flag"),
+            _says("Actions it reached for that nobody can say were taken:\n"
+                  "  - [M2] Reverting other-flag (can be put back) - no verdict recorded, "
+                  "not known whether it was made"),
+            _does_not_say("did not take")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_an_incident_whose_only_action_nobody_can_account_for_is_not_said_to_have_taken_none(
+        progress: ActionProgress) -> None:
+    # "Actions it took: - none" above it says nothing was done, which nobody
+    # knows. The heading goes rather than say it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Reverting other-flag").model_copy(update={"progress": progress})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _does_not_say("Actions it took:"),
+            _says("Actions it reached for that nobody can say were taken:\n"
+                  "  - [M1] Reverting other-flag")))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_every_action_was_not_performed_took_none() -> None:
+    # Where every action ended before its write, "none" is true and is said.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop").model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Actions it took:\n  - none")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_every_action_was_performed_has_no_list_of_actions_not_taken() -> None:
+    # A heading with nothing under it reads as a section the model must fill.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _does_not_say("did not take"),
+            _does_not_say("nobody can say")))
 
 
 @pytest.mark.unit
@@ -1242,11 +4000,73 @@ def test_an_incident_back_to_normal_is_given_as_back_to_normal_rather_than_recov
 
 
 @pytest.mark.unit
+def test_an_end_a_person_reported_is_given_as_their_report_under_its_line() -> None:
+    # Told the end only as back to normal, a model credits it to the metrics.
+    # Told nothing of how to take a report, one called it unverified and asked
+    # for reports like it to be checked. And with the report in before Argus had
+    # judged its own action, one said it was marked resolved before that action
+    # could be checked - a stop the walk makes by design.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("dont care"),
+                          a_timeline_entry("dont care either", outside_the_walk=True)],
+                resolution=a_resolution(RECOVERED_AT, line=1)),
+            measured := a_measured_incident(back_to_normal_at=RECOVERED_AT,
+                                            reported_by="Some Person")
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("when Some Person reported it resolved [XW1] - their report is the end, as "
+                  "given. A report is not a hypothesis: do not test it against the rest of the "
+                  "record, and do not propose checking reports like it. Argus stopping at the "
+                  "report before it judged an action is the design: do not say it went "
+                  "wrong."),
+            _does_not_say("back to normal")
+        ))
+
+
+@pytest.mark.unit
+def test_where_a_person_wrote_the_brief_says_a_message_never_stops_a_running_step() -> None:
+    # Not told how a message is taken in, write-ups read the steps after a
+    # person's report as Argus pressing on regardless of it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(people_wrote=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("\nA person's message never stops a step already running: between steps, "
+                  "Argus starts no new one while a message waits to be answered.\n")
+        )
+
+
+@pytest.mark.unit
+def test_where_nobody_wrote_the_brief_says_nothing_of_messages() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(people_wrote=False)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("A person's message never stops")
+        )
+
+
+@pytest.mark.unit
 def test_a_service_back_before_the_action_credited_with_it_is_given_as_back_before_it() -> None:
     # Back a whole minute before the action said to have brought it back, the
     # service was not brought back by that action. Ending the incident at the
     # action would hide that, and saying nothing leaves the model to credit it.
-    the_action = "revert-feature-flag on monthly-spend-feature"
+    # The action as the narration words it - the opening of a sentence - said
+    # with Argus as its subject.
+    the_action = "Reverted the feature flag monthly-spend-feature"
 
     Scenario() \
         .given(
@@ -1257,7 +4077,8 @@ def test_a_service_back_before_the_action_credited_with_it_is_given_as_back_befo
         .when(
             lambda: opening_ask(evidence, measured)
         ) \
-        .then(_says(f"when {the_action} was taken", "not because of it"))
+        .then(_says("when Argus reverted the feature flag monthly-spend-feature",
+                    "not because of it"))
 
 
 @pytest.mark.unit
@@ -1275,25 +4096,25 @@ def test_a_service_back_after_the_action_credited_with_it_is_not_given_as_back_b
 
 
 @pytest.mark.unit
-def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserved() -> None:
+def test_an_incident_whose_metrics_stopped_at_its_onset_is_written_up_as_a_metrics_gap() -> None:
     # The lower bound above is true and not enough. Where the rows stop at the
     # onset, the stretch it bounds is not one the service spent in trouble - it is
-    # one nobody could see at all - and a write-up that said only "had not
+    # one the metrics did not cover at all - and a write-up that said only "had not
     # recovered" would describe a broken shop that was never broken, and report
     # the short window before the onset as though it were the incident.
     Scenario() \
         .given(
             an_incident_nobody_could_see := a_measured_incident(
-                back_to_normal_at=None, unobserved_from=ONSET)
+                back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
         ) \
-        .then(_says("still unobserved", to_iso(ONSET)))
+        .then(_says("had still not resumed", to_iso(ONSET)))
 
 
 @pytest.mark.unit
-def test_an_incident_its_metrics_covered_says_nothing_of_being_unobserved() -> None:
+def test_an_incident_its_metrics_covered_says_nothing_of_a_metrics_gap() -> None:
     Scenario() \
         .given(
             an_incident_still_broken := a_measured_incident(back_to_normal_at=None)
@@ -1302,6 +4123,425 @@ def test_an_incident_its_metrics_covered_says_nothing_of_being_unobserved() -> N
             lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
         ) \
         .then(_does_not_say("unobserved"))
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_names_the_log_lines_read_that_reach_into_it() -> None:
+    # The metrics stopping is not nobody seeing. Told the stretch was one
+    # "nobody could see", and the service "unobserved", a model holding the
+    # shop's own warned rate through it wrote that the record could not say how
+    # the shop was doing. Told only which lines reached in, one wrote that
+    # nothing was known after the onset - so how far they reach is said too.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside]),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says_on_one_line("reach into it until", f"{{{LOGS_REACH_UNTIL_FIGURE}}}",
+                              f"[{grouped([some_line_inside], None, ONSET.date())[0].label}]"),
+            _does_not_say("nobody could see"),
+            _does_not_say("unobserved")))
+
+
+@pytest.mark.unit
+def test_a_message_logged_both_sides_of_where_the_metrics_stopped_is_shown_in_two() -> None:
+    # What the shop logged inside the stretch, apart from what it logged before
+    # it - the comparison a write-up of a blind stretch has to make, and could
+    # not while the two were summed.
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=5))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
+                              "before the metrics stopped", "After they stopped")
+        )
+
+
+@pytest.mark.unit
+def test_every_figure_a_brief_with_a_split_log_names_is_one_the_answer_may_name() -> None:
+    # The brief and the check each read the evidence, and one that split a log
+    # where the other summed it would name figures the check refuses - so an
+    # answer citing what the shop logged inside the stretch would be sent back.
+    some_rate = "WARN io-shop: account page error rate at {}% over the last minute"
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=6))} {some_rate.format('1.00')}",
+                  f"{to_iso(ONSET - timedelta(minutes=5))} {some_rate.format('2.00')}",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} {some_rate.format('0.50')}"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: (opening_ask(evidence, measured), figures_shown(evidence, measured))
+        ) \
+        .then(
+            _names_only_figures_it_may_name()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_minutes_acted_at", [[3], [3, 8]],
+                         ids=["one-action", "the-first-of-two"])
+def test_a_message_logged_after_argus_first_acted_is_shown_with_the_minutes_it_was_after_it(
+        some_minutes_acted_at: list[int]) -> None:
+    # What the service logged after Argus changed it - the comparison that says
+    # whether the change reached it. Said only as one span, a write-up read a
+    # flag's "on" lines as running on through the switch-off.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action(f"some action {minute}",
+                                   taken_at=ONSET + timedelta(minutes=minute))
+                         for minute in some_minutes_acted_at])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
+                              "After Argus first acted, logged in")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.NOT_PERFORMED,
+                                      ActionProgress.CLAIMED,
+                                      ActionProgress.UNKNOWN])
+def test_an_action_nobody_can_say_was_performed_lists_no_minutes_after_it(
+        progress: ActionProgress) -> None:
+    # "After Argus first acted, logged in" of a change never made, or one nobody
+    # can say was, says it was made.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action("some action", taken_at=ONSET + timedelta(minutes=3),
+                                   progress=progress)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("Argus first acted")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.NOT_PERFORMED,
+                                      ActionProgress.CLAIMED,
+                                      ActionProgress.UNKNOWN])
+def test_the_minutes_after_the_act_are_counted_from_the_first_action_performed(
+        progress: ActionProgress) -> None:
+    # A rollback refused, then a revert made: the minute of the refusal is no
+    # act, and the minutes after it would list one logged before anything was
+    # changed.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=minute))} WARN io-shop: some warning"
+                  for minute in (1, 3, 5)]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action("some attempt", taken_at=ONSET + timedelta(minutes=2),
+                                   progress=progress),
+                         an_action("some action", taken_at=ONSET + timedelta(minutes=4))])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
+                              f"After Argus first acted, logged in "
+                              f"{ONSET + timedelta(minutes=5):%H:%M}")
+        )
+
+
+@pytest.mark.unit
+def test_every_figure_a_brief_listing_minutes_after_the_act_names_may_be_named() -> None:
+    # As with the split where the metrics stopped: a brief and a check that
+    # read the minutes after the act differently would name figures the check
+    # refuses.
+    some_rate = "WARN io-shop: account page error rate at {}% over the last minute"
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} {some_rate.format('1.00')}",
+                  f"{to_iso(ONSET + timedelta(minutes=2))} {some_rate.format('2.00')}",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} {some_rate.format('0.50')}",
+                  f"{to_iso(ONSET + timedelta(minutes=7))} {some_rate.format('0.25')}"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action("some action", taken_at=ONSET + timedelta(minutes=3))]),
+            measured := a_measured_incident()
+        ) \
+        .when(
+            lambda: (opening_ask(evidence, measured), figures_shown(evidence, measured))
+        ) \
+        .then(
+            _names_only_figures_it_may_name()
+        )
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_leaves_each_rate_shown_to_say_what_it_covers() -> None:
+    # The metrics' own line already says they measured nothing after they
+    # stopped. Said of every rate shown below, it was false of the shop's own
+    # logged rate - which covered the stretch - and a model told it wrote that
+    # nothing said how the shop was doing.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _does_not_say("cover none of it")
+        )
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_no_log_line_reaches_into_is_said_to_have_none() -> None:
+    # Said rather than left out, since a list that is absent reads the same as
+    # one nobody looked for.
+    some_line_before = f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_before]),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says("No log line read reaches into it")
+        )
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_of_a_walk_that_read_no_logs_is_said_to_have_read_none() -> None:
+    # Told that no line read reaches into the stretch, a model is told logs were
+    # looked at and said nothing of it - which a walk that read none never did.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[]),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("No logs were read"),
+            _does_not_say("reaches into it")))
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_of_a_walk_whose_log_read_came_back_empty_is_said_to_have_read(
+) -> None:
+    # A read with no lines is a finding about the service, not a read nobody
+    # made: where the metrics stopped, the service gone quiet in its logs too.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[],
+                                           log_reading_ended=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("No log line read reaches into it", "The logs were read up to"),
+            _does_not_say("No logs were read")))
+
+
+@pytest.mark.unit
+def test_the_log_lines_reaching_into_a_metrics_gap_are_the_service_s_account_of_it(
+) -> None:
+    # Told which lines reach in and how far, a model still wrote that the shop's
+    # health could not be seen for the whole stretch - and in the next sentence
+    # quoted what those lines said of it. What they report there is what is
+    # known of the service, measured by the service rather than the metrics.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside]),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("reach into it until", "the service's own account of that stretch")
+        )
+
+
+@pytest.mark.unit
+def test_the_error_rate_line_names_the_log_rows_whose_figures_reach_into_the_stretch() -> None:
+    # Told the logs reaching into the stretch were the service's own account,
+    # a write-up still said no error rate existed for it - beside a row whose
+    # figures inside the stretch were the shop's own logged rate. Named, and
+    # not called a rate: code knows which rows carry figures there, not what
+    # those figures measure. And what they show is left to the field that
+    # says it: told here to say it, beside a gap paragraph telling it to say
+    # it nowhere else, the brief asked both ways.
+    some_lines_inside = [
+        f"{to_iso(ONSET + timedelta(minutes=minute))} WARN io-shop: account page error rate "
+        f"{rate}"
+        for minute, rate in ((2, "0.50"), (4, "1.00"), (6, "2.00"))
+    ]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines_inside),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("Error rate: not measured by the metrics", "[G",
+                              "do not say nothing was measured",
+                              LOGS_SHOW_SERVING_AS_BEFORE_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_the_service_is_said_to_be_seen_through_the_log_lines_reaching_into_a_metrics_gap(
+) -> None:
+    # Told the lines are the service's own account of the stretch, a write-up
+    # still said the shop kept serving "while it went unobserved", citing those
+    # very lines. Seen up to where they reach, and no further: where they end
+    # before the reading did, the service may have stopped with its metrics.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside]),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("reach into it until",
+                              "up to then the service was seen through them")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("log_lines", "pointed_to"), [
+    ([f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"], True),
+    ([f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"], False)
+], ids=["a-line-reaches-in", "no-line-reaches-in"])
+def test_an_error_rate_the_metrics_did_not_measure_over_a_gap_points_to_the_logs_in_it(
+        log_lines: list[str], pointed_to: bool) -> None:
+    # "Not measured by the metrics" alone, and a model wrote that the error rate
+    # over the gap could not be measured - of a gap the shop's own logged rate
+    # covered. Pointed to only where a line does reach in.
+    a_metrics_gap = a_measured_incident(
+        error_rates=None, back_to_normal_at=None, metrics_stopped_at=ONSET
+    ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=log_lines)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_metrics_gap)
+        ) \
+        .then(
+            _says_on_one_line("Error rate: not measured by the metrics",
+                              "the log lines that reach into that stretch")
+            if pointed_to else
+            _does_not_say("the log lines that reach into that stretch")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("read_past_the_alert", "said"), [
+    (timedelta(0), "when the alert was raised - nothing after that was read"),
+    (timedelta(minutes=2), " - nothing after that was read")
+], ids=["at-the-alert", "past-the-alert"])
+def test_a_metrics_gap_says_where_the_reading_of_the_logs_ended(
+        read_past_the_alert: timedelta, said: str) -> None:
+    # The lines read reached 20:45, and the write-up said the shop's health was
+    # not known after that point - as though the shop went quiet, where the
+    # reading had ended there, at the alert.
+    some_evidence = an_evidence_bundle(
+        log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"])
+
+    Scenario() \
+        .given(
+            evidence := some_evidence.model_copy(
+                update={"log_reading_ended": some_evidence.alerted_at + read_past_the_alert}),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("The logs were read up to", f"{{{LOG_READING_ENDED_FIGURE}}}", said)
+        )
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_read_past_the_alert_is_not_said_to_end_at_it() -> None:
+    some_evidence = an_evidence_bundle(
+        log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"])
+
+    Scenario() \
+        .given(
+            evidence := some_evidence.model_copy(
+                update={"log_reading_ended": some_evidence.alerted_at + timedelta(minutes=2)}),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _does_not_say("when the alert was raised")
+        )
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_with_no_reading_recorded_says_nothing_of_where_one_ended(
+) -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _does_not_say("were read up to")
+        )
 
 
 @pytest.mark.unit
@@ -1381,13 +4621,16 @@ def test_the_model_is_told_to_name_a_figure_rather_than_write_one() -> None:
 def test_the_model_is_told_to_name_a_working_rather_than_do_one() -> None:
     # A figure the incident never measured as one - how long until it
     # recovered, how many times worse it got - is named as what to work out,
-    # and code works it out from the figures as shown.
+    # and code works it out from the figures as shown. A row's instant among
+    # them: shown only Argus's own figures worked, no recorded walk worked a
+    # span out of a timeline row.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.description
         ) \
         .then(
             _the_description_mentions(f"{{{BACK_TO_NORMAL_FIGURE} - {BEGAN_FIGURE}}}",
+                                      f"{{T3.1 - {ALERT_RAISED_FIGURE}}}",
                                       f"{{{ERRORS_AT_WORST_FIGURE} / {ERRORS_BEFORE_FIGURE}}}")
         )
 
@@ -1412,17 +4655,42 @@ def test_the_model_is_told_a_size_it_says_has_no_number_in_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_name_with_a_digit_in_it_is_never_said_to_be_cited() -> None:
+    # "A label you cite (T2, G3fa2, C1, AI-1)" called a candidate citable, beside
+    # a brief telling the model to cite none - and the check refuses a step that
+    # cites one. The sentence is there to say a name is written as given, which
+    # needs no word about citing.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.description
+        ) \
+        .then(
+            all_of(
+                _the_description_mentions("a label (T2, G3fa2, C1, AI-1)"),
+                _the_description_avoids("you cite")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_every_sentence_the_answer_would_publish_is_read() -> None:
     # The check reads only what this yields. A field left out is prose whose
     # figures nothing refuses and whose names nothing writes in.
     some_answer = SubmittedPostmortem(
         root_cause="the root cause",
-        executive_summary="the summary",
+        cause_in_plain_words="the cause in plain words",
+        still_at_risk="what is still at risk",
         symptom="the symptom",
+        stops_the_harm="what stops the harm",
+        why_it_did_not_help="why it did not help",
         assumptions=["an assumption"],
         lead_effects={"L1": "a lead's effect"},
-        causal_chain=[SubmittedStep(step="a step", cites=["T1"])],
-        contributing_factors=[SubmittedFactor(factor="a factor", addressed_by=["AI-1"])],
+        causal_chain=[SubmittedStep(step="a step", cites=["T1"],
+                                    ruled_out=[SubmittedRuledOut(what="what it ruled out",
+                                                                 cites=["T2"])])],
+        contributing_factors=[SubmittedFactor(factor="a factor",
+                                              had_it_been_otherwise="had it been otherwise",
+                                              addressed_by=["AI-1"])],
         action_items=[SubmittedItem(item="an item", type=ActionItemType.PREVENT)],
         lessons=Lessons(went_well=["went well"], went_wrong=["went wrong"],
                         got_lucky=["got lucky"]))
@@ -1432,10 +4700,142 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
             lambda: list(some_answer.sentences())
         ) \
         .then(
-            the_answer_was(["the root cause", "the summary", "the symptom", "an assumption",
-                            "a lead's effect", "a step", "a factor", "an item", "went well",
-                            "went wrong", "got lucky"])
+            the_answer_was(["the root cause", "the cause in plain words",
+                            "what is still at risk", "the symptom", "what stops the harm",
+                            "why it did not help", "an assumption", "a lead's effect",
+                            "a step", "what it ruled out", "a factor",
+                            "had it been otherwise", "an item", "went well", "went wrong",
+                            "got lucky"])
         )
+
+
+@pytest.mark.unit
+def test_every_sentence_the_answer_would_publish_is_read_with_a_place_of_its_own() -> None:
+    # A fault keyed by its check alone is one the model is never told of again
+    # once it moves into another item: told of it in one item, a rewrite saying
+    # it in another would count as already told. So every sentence comes with a
+    # place of its own, which is what a fault found in it is keyed by.
+    some_answer = SubmittedPostmortem(
+        root_cause="the root cause",
+        cause_in_plain_words="the cause in plain words",
+        still_at_risk="what is still at risk",
+        symptom="the symptom",
+        stops_the_harm="what stops the harm",
+        why_it_did_not_help="why it did not help",
+        assumptions=["an assumption"],
+        lead_effects={"L1": "a lead's effect"},
+        causal_chain=[SubmittedStep(step="a step", cites=["T1"],
+                                    ruled_out=[SubmittedRuledOut(what="what it ruled out",
+                                                                 cites=["T2"])])],
+        contributing_factors=[SubmittedFactor(factor="a factor",
+                                              had_it_been_otherwise="had it been otherwise",
+                                              addressed_by=["AI-1"])],
+        action_items=[SubmittedItem(item="an item", type=ActionItemType.PREVENT)],
+        lessons=Lessons(went_well=["went well"], went_wrong=["went wrong"],
+                        got_lucky=["got lucky"]))
+
+    Scenario() \
+        .when(
+            lambda: list(some_answer.placed_sentences())
+        ) \
+        .then(all_of(
+            _read_in_the_order_sentences_reads(some_answer),
+            _each_in_a_place_of_its_own()
+        ))
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_is_rewritten_as_every_other_sentence_is() -> None:
+    # Read by the same fields `sentences` reads: a figure named in what was
+    # ruled out is written in like one named anywhere else.
+    some_answer = SubmittedPostmortem(
+        causal_chain=[SubmittedStep(step="a step", cites=["T1"],
+                                    ruled_out=[SubmittedRuledOut(what="what it ruled out",
+                                                                 cites=["T2"])])])
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper).causal_chain
+        ) \
+        .then(
+            the_answer_was([SubmittedStep(step="A STEP", cites=["T1"],
+                                          ruled_out=[SubmittedRuledOut(
+                                              what="WHAT IT RULED OUT", cites=["T2"])])])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_factor_would_have_changed_is_rewritten_as_every_other_sentence_is() -> None:
+    # Read by the same fields `sentences` reads: a figure named in what a
+    # factor would have changed is written in like one named anywhere else.
+    some_answer = SubmittedPostmortem(
+        contributing_factors=[SubmittedFactor(label="CF-1", factor="a factor",
+                                              had_it_been_otherwise="had it been otherwise",
+                                              addressed_by=["AI-1"])])
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper).contributing_factors
+        ) \
+        .then(
+            the_answer_was([SubmittedFactor(label="CF-1", factor="A FACTOR",
+                                            had_it_been_otherwise="HAD IT BEEN OTHERWISE",
+                                            addressed_by=["AI-1"])])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_put_back_asks_for_is_rewritten_as_every_other_sentence_is() -> None:
+    # Read by the same fields `sentences` reads: a figure named in what stops
+    # the harm, or in why the change put back did not help, is written in like
+    # one named anywhere else - and the item that stops it names one.
+    some_answer = SubmittedPostmortem(stops_the_harm="what stops the harm",
+                                      why_it_did_not_help="why it did not help")
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(stops_the_harm="WHAT STOPS THE HARM",
+                                               why_it_did_not_help="WHY IT DID NOT HELP"))
+        )
+
+
+@pytest.mark.unit
+def test_the_factors_an_item_answers_survive_the_rewrite() -> None:
+    # Labels, not prose: rewriting the item's words leaves what it answers.
+    some_answer = SubmittedPostmortem(
+        action_items=[SubmittedItem(item="an item", type=ActionItemType.PREVENT,
+                                    answers=["CF-1"])])
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper).action_items
+        ) \
+        .then(
+            the_answer_was([SubmittedItem(item="AN ITEM", type=ActionItemType.PREVENT,
+                                          answers=["CF-1"])])
+        )
+
+
+@pytest.mark.unit
+def test_each_factor_is_asked_what_it_would_have_changed_with_the_root_cause_still_true(
+) -> None:
+    # Told in the list's description that a factor is not the root cause again
+    # in other words, five write-ups' first factor said their root cause again.
+    # Asked of each factor, what it would have changed with the root cause
+    # still true is a question a restatement cannot answer without saying so.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]
+        ) \
+        .then(all_of(
+            _requires_of_each_item(HAD_IT_BEEN_OTHERWISE_FIELD),
+            lambda factors: _the_description_mentions(
+                f"with what {ROOT_CAUSE_FIELD} says still true")(
+                factors["items"]["properties"][HAD_IT_BEEN_OTHERWISE_FIELD]["description"])
+        ))
 
 
 @pytest.mark.unit
@@ -1473,6 +4873,45 @@ def test_the_cause_is_asked_for_as_the_five_whys_from_the_symptom() -> None:
 
 
 @pytest.mark.unit
+def test_each_why_is_asked_to_answer_the_step_directly_before_it() -> None:
+    # One write-up's first why was its symptom in more detail. Another's
+    # incident needed two things at once - a dependency slowing and nothing
+    # limiting the wait - and its third why answered the first, braiding both
+    # into one line. Told which to follow - the one that reaches what set the
+    # incident off, where the chain has to arrive - the other is named where
+    # they meet.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("not the symptom again", "directly before",
+                                      "what set it off")
+        )
+
+
+@pytest.mark.unit
+def test_each_step_is_asked_to_cite_what_another_section_says_rather_than_say_it_again() -> None:
+    # A write-up's first step gave the impact's figures again, its first why
+    # told the rollback the resolution already holds, and its last why nearly
+    # copied the root cause - the mechanism said three times on one page.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Where the record holds them",
+                                      "cites the row that shows one of those and does not say "
+                                      "it again", "no figure the impact gives",
+                                      "no action Argus took, nor its verdict, in the step "
+                                      "naming the change",
+                                      "where the chain says why the change broke the service, "
+                                      "its last step says that in one sentence, its mechanism "
+                                      "left to the root cause")
+        )
+
+
+@pytest.mark.unit
 def test_the_cause_is_asked_to_say_what_else_the_record_ruled_out() -> None:
     # A write-up once said, unasked, that the earlier deploy came hours before
     # the onset and no flag had changed, so neither explained it. Asked for
@@ -1485,6 +4924,44 @@ def test_the_cause_is_asked_to_say_what_else_the_record_ruled_out() -> None:
         ) \
         .then(
             _the_description_mentions("ruled out")
+        )
+
+
+@pytest.mark.unit
+def test_an_earlier_change_is_asked_to_be_ruled_out_by_the_service_healthy_with_it() -> None:
+    # A write-up ruled the earlier deploy out because it "went out well before
+    # the onset" - but a change can take hours to show. What rules it out is
+    # the service measured healthy with it in place: in metrics read before the
+    # onset, or after a confirmed action that left it there. Where the record
+    # shows neither, it stands.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("never by how long before",
+                                      "a confirmed action that left it", "not ruled out")
+        )
+
+
+@pytest.mark.unit
+def test_an_earlier_change_is_ruled_out_by_an_alert_dating_the_harm_at_or_after_a_later_one(
+) -> None:
+    # The alert dated the oldest wrong total to after the later deploy, so the
+    # totals reconciled the whole time the earlier one ran alone - yet told
+    # only metrics or a confirmed action rule a change out, the write-up said
+    # the earlier deploy was not ruled out because no metrics were read. Told
+    # "after", write-ups of an absence alert dating its first missing sample to
+    # the later deploy's own instant called that instant after it: at is said
+    # as at, and rules the earlier change out as surely.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("an alert that dates the first harm itself at or after "
+                                      "a later change", "where the two instants are the same",
+                                      "none of these")
         )
 
 
@@ -1506,6 +4983,918 @@ def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: st
             _the_description_mentions(what_an_unseen_check_is_written_as),
             _the_description_avoids("missing safeguard")
         ))
+
+
+@pytest.mark.unit
+def test_what_went_well_is_asked_for_its_rows_and_no_span_of_its_own() -> None:
+    # Shown how to set a span beside what it times and how not to, a write-up
+    # still set the confirmation's span after "brought the service back", so it
+    # read as a three-minute recovery from a service back in one - two of nine
+    # write-ups of the incident. So the model names the row and the document
+    # says the span, ahead of the item: one thing to a timed item, since one
+    # time is said for the whole of it - and only to a timed one, since an
+    # untimed item split is noise - and no span in words either, since a
+    # write-up praised Argus for acting "within seconds" when it took 41.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("Only what went well; empty where nothing did",
+                                      "A timed item says one thing, done at its row",
+                                      "Say no span of time, in figures or in words",
+                                      f"name the row in {TIMED_BY_FIELD} instead",
+                                      "begin an item timed so with who did it"),
+            _the_description_avoids(f"{{T20.1 - {ALERT_RAISED_FIGURE}}}")
+        ))
+
+
+@pytest.mark.unit
+def test_the_row_a_moment_happened_on_is_asked_for_only_where_its_time_matters() -> None:
+    # Whether when a moment came is part of why it went well is the model's
+    # judgement, so the row is left out where it is not.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"][WENT_WELL_FIELD]
+        ) \
+        .then(all_of(
+            _each_item_requires_only(ITEM_FIELD),
+            _the_row_is_described_as("The T or XW row the item happened on",
+                                     "Left out where its time is not the point")
+        ))
+
+
+@pytest.mark.unit
+def test_what_went_well_is_read_with_the_row_each_item_happened_on() -> None:
+    # In step, off the one list: an item naming no row is timed by nothing, as
+    # is one naming it in blanks.
+    Scenario() \
+        .when(
+            lambda: SubmittedPostmortem.model_validate({LESSONS_FIELD: {WENT_WELL_FIELD: [
+                {ITEM_FIELD: "THE FIRST", TIMED_BY_FIELD: "T13"},
+                {ITEM_FIELD: "THE SECOND"},
+                {ITEM_FIELD: "THE THIRD", TIMED_BY_FIELD: "  "}]}})
+        ) \
+        .then(all_of(
+            _what_went_well_reads(["THE FIRST", "THE SECOND", "THE THIRD"]),
+            _timed_by(["T13", None, None])
+        ))
+
+
+@pytest.mark.unit
+def test_what_went_well_sent_as_sentences_is_read_as_the_shape_before_rows() -> None:
+    # The shape every answer recorded before the rows were asked for came in,
+    # which a replay of one still sends - and which `checking` holds to none
+    # of what it asks of the new one.
+    Scenario() \
+        .when(
+            lambda: SubmittedPostmortem.model_validate({LESSONS_FIELD: {WENT_WELL_FIELD: [
+                "THE FIRST", "THE SECOND"]}})
+        ) \
+        .then(all_of(
+            _what_went_well_reads(["THE FIRST", "THE SECOND"]),
+            _timed_by(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_reason_is_asked_to_be_set_beside_the_action_it_belongs_to() -> None:
+    # A write-up praised Argus as having "declined to roll back a change that
+    # was made on purpose to test the leading candidate, rather than undoing a
+    # deliberate platform-wide rename": the purpose of the rollback set beside
+    # the rename, so the rename read as made to test the candidate, and the
+    # refusal's reason said a second time.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("beside the action it belongs to", "say it once")
+        )
+
+
+@pytest.mark.unit
+def test_what_went_well_names_what_code_fix_proposed_without_saying_what_it_does() -> None:
+    # Squeezed into a line about how quickly a fix was proposed, a repair
+    # script that reports by default and writes with --apply became "a
+    # report-only repair script" - in write-ups whose own action items said to
+    # run it with --apply. The items and Code-Fix's reading say what it does.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Name what Code-Fix proposed without saying what it "
+                                      "does: the action items and Code-Fix's own reading "
+                                      "say that, with its conditions.")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_says_the_document_says_how_the_service_did_where_a_log_line_reaches_in(
+) -> None:
+    # Given the bound as a figure, steps carried it and root causes and lessons
+    # still said the shop "kept serving" without it, two to four of five. Told
+    # the document says it itself, from an answer of the model's, none did.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              metrics_stopped_at=ONSET))
+        ) \
+        .then(
+            _says_on_one_line("How the service did over that stretch is said by the document "
+                              "itself, from your answer to logs_show_serving_as_before: say "
+                              "nothing of it anywhere else.")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_says_to_cite_the_log_lines_reaching_in_for_nobody_seeing_anything_wrong(
+) -> None:
+    # Told to say nothing of how the service did anywhere but the answer, a
+    # chain's first step still said what the lines show, four of five: what
+    # shows nobody using it saw anything wrong is those lines, and every step
+    # cites its evidence. Told to cite them for it without saying what they
+    # show, none did.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              metrics_stopped_at=ONSET))
+        ) \
+        .then(
+            _says_on_one_line("say nothing of it anywhere else.",
+                              "Where the chain's first step says nobody using the service saw "
+                              "anything wrong, cite those log lines for it without saying what "
+                              "they show.")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_never_names_an_answer_an_incident_whose_logs_reach_nowhere_is_not_asked(
+) -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET - timedelta(minutes=4))} WARN io-shop: dont care"])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              metrics_stopped_at=ONSET))
+        ) \
+        .then(
+            _does_not_say("logs_show_serving_as_before")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("log_lines", [
+    [f"{to_iso(ONSET - timedelta(minutes=4))} WARN io-shop: dont care"],
+    []
+], ids=["none-reaching-in", "none-read"])
+def test_the_brief_says_nothing_is_known_of_the_service_where_no_log_line_reaches_in(
+        log_lines: list[str]) -> None:
+    # The document says how the service did there only from lines that reach
+    # in. With none, a model told nothing of that stretch is free to say the
+    # shop kept serving - unbounded, which is what the bound was there to stop.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=log_lines, log_reading_ended=None)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              metrics_stopped_at=ONSET))
+        ) \
+        .then(
+            _says_on_one_line("Nothing is known of how the service did over that stretch: "
+                              "say nothing of it.")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_never_says_nothing_is_known_where_a_log_line_reaches_in() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              metrics_stopped_at=ONSET))
+        ) \
+        .then(
+            _does_not_say("Nothing is known of how the service did")
+        )
+
+
+@pytest.mark.unit
+def test_what_the_response_did_is_asked_for_under_what_went_wrong_rather_than_as_a_factor() -> None:
+    # Asked for conditions that had to hold, a write-up listed automatic sync
+    # left off by the rollback and "Argus could not act" as factors - things the
+    # response did, after the incident began. Told where they go instead, a
+    # failure to act is still said rather than dropped or bent into a condition.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("before the incident began", "left behind",
+                                      WENT_WRONG_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_is_asked_to_credit_an_alert_with_what_its_rule_watches_alone() -> None:
+    # A write-up's factor said a scrape's empty target list "was found only
+    # when the absence alert fired": the alert found the readings missing, and
+    # nothing read the target list.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("An alert finds what its rule watches, not the "
+                                      "cause behind it")
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_is_asked_for_as_what_would_have_helped_with_the_root_cause_still_true() -> None:
+    # Told only that a factor "did not cause it alone", a write-up gave the
+    # root cause - no limit on the wait for an optional dependency - again as
+    # its first factor. Tested against the root cause as written, rather than
+    # against "the cause" - which the brief also uses of the trigger - a
+    # restatement contradicts itself.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("root cause again", ROOT_CAUSE_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_a_change_the_response_left_on_purpose_is_asked_for_as_not_having_gone_wrong() -> None:
+    # Automatic sync left off so the rollback holds is said by the resolution
+    # and undone by an item the record already holds. Listed under what went
+    # wrong as well, one fact was spelled four times - and called a failure
+    # when it went as designed.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("on purpose", "did not go wrong")
+        )
+
+
+@pytest.mark.unit
+def test_the_lessons_are_told_how_soon_the_alert_came_is_already_weighed() -> None:
+    # Asked to weigh it, three write-ups of one incident in a row weighed
+    # nothing, and one counted a wait its rule did not have. Every part of it is
+    # measured, so code writes that lesson (`detection_lesson`) and the model is
+    # told so - in the description over all three lists, since none of them is
+    # the place for it again.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("How soon the alert came is weighed by the document "
+                                      "already")
+        )
+
+
+@pytest.mark.unit
+def test_luck_is_asked_for_as_what_the_record_shows_went_the_fortunate_way() -> None:
+    # Told only "a risk that went unnoticed this time", and that any list may
+    # be empty, two write-ups filled the list anyway: with what kind of fault
+    # it was, which the impact says, and with a limit of the evidence, which
+    # is an assumption. Said in the list itself, with where each goes instead.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [GOT_LUCKY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("by chance", "Empty where", "what kind of fault",
+                                      ASSUMPTIONS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_luck_is_asked_not_to_say_how_the_service_did_where_its_metrics_did_not_reach() -> None:
+    # Told to say how the service did over the stretch nobody watched only
+    # where the document says it, a write-up's luck said it anyway: "Had it
+    # actually broken during that time, nothing would have shown it".
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [GOT_LUCKY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Not how the service did over a stretch its metrics did "
+                                      "not cover, nor what a failure there would have done")
+        )
+
+
+@pytest.mark.unit
+def test_luck_is_asked_for_as_how_it_kept_the_harm_down_never_what_would_have_happened() -> None:
+    # Asked for luck that "would have made it worse had it not", a write-up
+    # answered with what would have happened without the person who rolled the
+    # flag back - leaving out Argus, which formed the cause five seconds after
+    # the report. Five of the case's twenty-one write-ups said it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [GOT_LUCKY_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("how it kept the harm down",
+                                      "never what would have happened otherwise"),
+            _the_description_avoids("would have made it worse")
+        ))
+
+
+@pytest.mark.unit
+def test_a_draft_fix_left_for_a_person_is_asked_for_as_having_gone_as_designed() -> None:
+    # A write-up listed under what went wrong that the proposed fix was "only a
+    # draft and nothing ran its test or change". A person reviewing and
+    # merging it is the design, and the record's own item says so.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("a draft fix to review and merge", "went as designed")
+        )
+
+
+@pytest.mark.unit
+def test_a_limit_of_the_record_is_asked_for_as_an_assumption_rather_than_as_gone_wrong() -> None:
+    # A write-up's first item under what went wrong was that a stretch was
+    # unmeasured - a limit of the evidence, not something the response did.
+    # Told so of luck already; not of this list, where it landed instead.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("a limit of what the record shows", ASSUMPTIONS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_what_went_wrong_names_the_limits_of_the_record_it_is_not_for() -> None:
+    # Told a limit of what the record shows belongs among the assumptions, a
+    # write-up still listed under what went wrong that logs were not read and
+    # that the metrics stopped short of the onset - limits it did not take for
+    # limits until they were named.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("logs nobody read", "metrics that stop short of the onset",
+                                      "the document says what was read")
+        )
+
+
+@pytest.mark.unit
+def test_what_went_wrong_is_asked_not_to_say_the_root_cause_or_a_factor_again() -> None:
+    # A write-up's first item under what went wrong was the rename shipping
+    # without the scrape config - the root cause, and its first factor, a third
+    # time.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("root cause or a contributing factor again")
+        )
+
+
+@pytest.mark.unit
+def test_what_went_wrong_is_asked_not_to_say_what_code_fix_read_again() -> None:
+    # A write-up listed under what went wrong that Code-Fix read main rather
+    # than the revision that ran - which its summary, its last why and Code-Fix's
+    # own reading said already, beside a root cause marked unverified.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Code-Fix read another revision than the one that ran",
+                                      "nothing ran its reading",
+                                      "where the record holds them, the document says the "
+                                      "first in its summary and the second beside the root "
+                                      "cause")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [SYMPTOM_FIELD, CAUSAL_CHAIN_FIELD])
+def test_a_symptom_nobody_using_the_service_saw_is_asked_for_as_that(field: str) -> None:
+    # Asked what someone using the service saw, and forbidden the metric the
+    # alert fired on, a write-up of an incident nobody using the shop saw
+    # anything of wrote the metric anyway - "Shop metrics stopped arriving" -
+    # in the title, and as the chain's first step.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[field]["description"]
+        ) \
+        .then(
+            _the_description_mentions("nobody using the service saw anything")
+        )
+
+
+@pytest.mark.unit
+def test_a_safeguard_that_did_not_stop_it_is_asked_for_as_a_factor_rather_than_a_step() -> None:
+    # Told to name it "at the step where they meet", a write-up gave it a why
+    # of its own - "Why nothing stopped it" - beside the factor that already
+    # said it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("never a step of its own", CONTRIBUTING_FACTORS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_what_was_ruled_out_is_asked_for_in_its_step_s_own_list_rather_than_as_one() -> None:
+    # Told twice in words to say it "at the step that ties the incident to the
+    # change", write-ups listed what they ruled out as a why of its own, which
+    # the page labelled "why 4". A list on every step, which the model fills on
+    # the one it chooses, leaves the chain no reason to.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]
+        ) \
+        .then(all_of(
+            _requires_of_each_item(RULED_OUT_FIELD),
+            lambda chain: _the_description_mentions(RULED_OUT_FIELD, "never as a step")(
+                chain["description"])
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_is_asked_to_be_dated_by_its_own_row_rather_than_by_its_effect() -> None:
+    # A write-up dated the rollout by the instant the metrics stopped, so "the
+    # same minute the metrics stop" proved the cause by its own effect.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("never by an effect it had")
+        )
+
+
+@pytest.mark.unit
+def test_a_symptom_nobody_saw_is_given_no_example_of_an_unwatched_service() -> None:
+    # Shown "Nothing users saw; the service could not be watched", every
+    # write-up reads one incident's answer - and that one was false of it: the
+    # shop's logs and takings saw the stretch, and only its metrics stopped.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_avoids("could not be watched")
+        )
+
+
+@pytest.mark.unit
+def test_a_state_a_row_read_is_asked_for_as_of_that_read() -> None:
+    # A write-up said all the replicas were on the deployed revision from the
+    # minute it was deployed, on a read made minutes later that said only that
+    # they ran it then.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("as of the row that read it", "its first figure")
+        )
+
+
+@pytest.mark.unit
+def test_the_branch_that_did_not_set_it_off_is_asked_for_as_a_factor_not_a_step() -> None:
+    # Told to name the other branch "at the step where they meet", a write-up
+    # named the missing check in its last step - which the root cause is - and
+    # then the root cause carried the factor that said it again.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions(f"the other is one of the {CONTRIBUTING_FACTORS_FIELD}"),
+            _the_description_avoids("where they meet")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [CAUSAL_CHAIN_FIELD, ROOT_CAUSE_FIELD])
+def test_the_chain_and_the_root_cause_are_not_asked_how_to_word_a_safeguard(field: str) -> None:
+    # Neither names one: the other branch is a contributing factor. Told how to
+    # word a safeguard there anyway, a field that should carry none is asked
+    # for one.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[field]["description"]
+        ) \
+        .then(
+            _the_description_avoids("no check was seen")
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_is_asked_to_carry_no_contributing_factor() -> None:
+    # A write-up's root cause ended on the missing check, and its first factor
+    # said the same check again. Told any check or safeguard is a factor, an
+    # incident whose fault is itself a missing protection - a wait with no
+    # limit - would have its mechanism moved out of its root cause. The
+    # boundary is the factors' own test: what would have stopped it with the
+    # mechanism unchanged.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(f"Not one of the {CONTRIBUTING_FACTORS_FIELD}",
+                                      "a missing protection or not",
+                                      "would have stopped it with this mechanism unchanged")
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_is_asked_to_leave_out_what_the_document_states_itself() -> None:
+    # Told only that the document states the trigger, write-ups' root causes
+    # said again what confirmed it, what resolved the incident, and what was
+    # ruled out - each a section of the document already.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Not the trigger, how it was confirmed, what resolved "
+                                      "it or what was ruled out")
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_is_told_what_the_service_did_over_the_gap_is_not_the_mechanism() -> None:
+    # Four of five root causes said the shop "kept serving" unbounded, with the
+    # bound a figure away; told the stretch is the first step's to say, two;
+    # told the document says it itself, from an answer of its own, none.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(
+                "What the service did over the stretch the metrics did not watch is not the "
+                "mechanism: the document says it itself.")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_item_is_asked_for_as_one_thing_to_do() -> None:
+    # One item asked for the draft's test to be updated to the deployed key and
+    # for the scrape change to land on the branch the revision was deployed
+    # from: two things to do, for whoever takes either, under one number. Said
+    # once, where "one thing a person could take on" already asked for it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("one thing a person could take on: two things to do "
+                                      "are two items"),
+            _the_description_avoids("Each item is one thing to do")
+        ))
+
+
+@pytest.mark.unit
+def test_each_factor_is_asked_for_under_a_label_of_its_own() -> None:
+    # What an item that answers it names it by. Never in the prose: the reader
+    # never sees a factor's label, and one written there leads nowhere.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD][
+                "items"]["properties"][LABEL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("CF-1 for the first factor, CF-2 for the next, and so on",
+                                      "never in your prose")
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_is_asked_to_name_only_the_record_s_own_items() -> None:
+    # The record's items are numbered before the model is asked, and the brief
+    # gives each its number; the model's own are not. Asked to cite those too,
+    # by numbers it had to work out, a write-up cited each one off. Empty is
+    # said to be an answer, or the number comes back out of habit.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD][
+                "items"]["properties"][ADDRESSED_BY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("The record's own action items that answer it",
+                                      "Empty where none of them does",
+                                      "Never an item you propose")
+        )
+
+
+@pytest.mark.unit
+def test_the_item_merging_the_fix_is_not_asked_to_answer_a_check_missing_before_the_change(
+) -> None:
+    # A factor framed as this incident's missing test was answered by the
+    # record's item merging Code-Fix's pull request alone, in 3 of 9 write-ups
+    # of one incident - and the item putting a check in place before every
+    # change like it, which every other write-up proposed, was gone.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD][
+                "items"]["properties"][ADDRESSED_BY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(
+                "The record's item that merges this incident's fix answers the fault its "
+                "own tests cover, never a check missing before the change went out: answer "
+                "that with an item that puts the check in place for every change like it."
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_proposed_item_is_asked_for_the_factors_it_answers() -> None:
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD][
+                "items"]["properties"][ANSWERS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("The labels of the contributing factors it answers")
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_s_label_and_an_item_s_answers_are_both_required() -> None:
+    Scenario() \
+        .when(
+            lambda: [field in SUBMIT_POSTMORTEM.properties[listed]["items"]["required"]
+                     for listed, field in [(CONTRIBUTING_FACTORS_FIELD, LABEL_FIELD),
+                                           (ACTION_ITEMS_FIELD, ANSWERS_FIELD)]]
+        ) \
+        .then(
+            the_answer_was([True, True])
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_is_asked_to_be_answered_by_an_item_of_the_record_s_or_one_proposed() -> None:
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("named in its addressed_by",
+                                      "or one you propose, whose answers name it")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_says_which_way_each_link_runs() -> None:
+    # Told the model's own items are "numbered after these", a write-up cited
+    # them by numbers it worked out, each one off.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("In a contributing factor's addressed_by, name the record's own action "
+                  "items that answer it, by their number",
+                  "an item you propose names the factors it answers in its answers, by their "
+                  "labels"),
+            _does_not_say("numbered after these")
+        ))
+
+
+@pytest.mark.unit
+def test_the_label_given_as_an_example_is_one_the_record_numbers() -> None:
+    # The example was AI-3 - with two items on the record, the model's own
+    # first proposal, which it is now told never to name by number.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.description
+        ) \
+        .then(all_of(
+            _the_description_mentions("(T2, G3fa2, C1, AI-1)"),
+            _the_description_avoids("AI-3")
+        ))
+
+
+@pytest.mark.unit
+def test_what_an_f_row_says_to_check_is_answered_from_a_diff_that_shows_it() -> None:
+    # An F row said to check which key the deployed revision used before
+    # merging; the deployed diff showed it, and a write-up passed the check on
+    # as an item rather than saying what followed from the answer. Called an F
+    # row as the tool calls it everywhere else.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("an F row says to check", "what the D row shows"),
+            _the_description_avoids("finding")
+        ))
+
+
+@pytest.mark.unit
+def test_the_cause_in_plain_words_is_asked_for_in_one_sentence_of_what_the_record_says() -> None:
+    # The one sentence of the summary code cannot write. Asked for the whole
+    # summary, write-ups left out how long, told the reader what the brief told
+    # them, and called a deploy "routine", which nothing in the record said -
+    # so it is told what the document says itself, and to say none of it. And
+    # asked for what caused the incident, not why it broke: where only the
+    # metrics stopped, the service is not known to have broken at all.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSE_IN_PLAIN_WORDS_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("What caused the incident", "one sentence",
+                                      "does not work on the service",
+                                      "the document says itself", "only what the record says"),
+            _the_description_avoids("broke")
+        ))
+
+
+@pytest.mark.unit
+def test_the_cause_in_plain_words_says_what_rests_on_an_unrun_reading_as_likely() -> None:
+    # Told only to say what the record says, a write-up that knew who was hit
+    # from a reading of the code alone carried the reading into the sentence:
+    # "a reading of the code that nothing has tested says this happens for...".
+    # The summary's reader needs who, said as likely, not where it came from.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSE_IN_PLAIN_WORDS_FIELD]["description"]
+        ) \
+        .then(_the_description_mentions("a reading nothing ran", "as likely",
+                                        "without mentioning the reading"))
+
+
+@pytest.mark.unit
+def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
+    # Nothing at risk is an answer; and what Argus left to a person - a draft
+    # fix, automatic sync left off, a recommended action - the summary says
+    # itself, and said here as well it is said twice. So is whether the
+    # service or its metrics were back, and why: asked for "the fault still in
+    # place", a write-up said again what the summary had just said. As of the
+    # end of the time Argus held it, not now: nobody read the service again, and a fault "still in
+    # place now" says the draft that would remove it was not merged.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[STILL_AT_RISK_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("one sentence", "Empty where", "left to a person",
+                                      "automatic sync left off", "could yet do",
+                                      "Not whether the service or its metrics were back",
+                                      "at the end of the time Argus held the incident",
+                                      "only what the record says"),
+            _the_description_avoids(" now")
+        ))
+
+
+@pytest.mark.unit
+def test_what_is_still_at_risk_is_asked_not_to_say_how_the_fault_works_again() -> None:
+    # A write-up's sentence on what was still at risk ended on why - "because
+    # the shop's code still passes titles to the model without lowercasing
+    # them" - which the cause sentence in the same summary had just said. The
+    # summary always says the cause, or that none was found, wherever in it
+    # that falls.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[STILL_AT_RISK_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("never why it would: no \"because\"",
+                                      "The summary says the cause, or that none was found")
+        )
+
+
+@pytest.mark.unit
+def test_what_went_wrong_no_longer_asks_for_detection_to_be_weighed() -> None:
+    # The lesson code writes says it; asked here as well, a write-up would say
+    # it a second time, in words that need not agree.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_avoids("detection")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_for_in_one_sentence() -> None:
+    # The symptom is the document's title. A write-up of an incident nobody
+    # using the service saw gave two sentences - that, then what was seen
+    # instead - as the clause asking for both read.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("one sentence")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_for_as_short_as_it_can_be_and_told_its_limit() -> None:
+    # Asked for "a few words", a title ran to twenty, half of it how the fault
+    # was found. Told the limit the check holds it to, it is never sent back
+    # for one it was not shown.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("as short as it can be",
+                                      f"never over {SYMPTOM_WORDS_AT_MOST} words",
+                                      "not how it was found")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_to_end_on_what_went_wrong() -> None:
+    # The title adds " while <the change>" after the symptom, and it binds to
+    # whatever the symptom ends on: "..., while requests kept succeeding while
+    # categoriser.model was v2" read as though they succeeded only while it was.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("after your sentence and a 'while', so end on what went "
+                                      "wrong, with no clause after it")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_item_is_asked_not_to_check_what_the_evidence_already_shows() -> None:
+    # A write-up asked somebody to check which key layout the deployed revision
+    # used - which the deployed diff it was shown already said.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("already shows", "a diff")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_item_is_asked_not_to_check_code_fix_s_reading_beside_its_fix() -> None:
+    # A write-up proposed running the draft's test against the revision that
+    # ran - what its review checklist already said would confirm the cause,
+    # under the record's own item for the fix.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Where Code-Fix proposed a fix, propose no item to run or "
+                                      "check its reading", "the review checklist says what "
+                                      "would confirm it")
+        )
 
 
 @pytest.mark.unit
@@ -1613,6 +6002,29 @@ def test_an_incident_nobody_wrote_about_is_asked_for_what_it_always_was() -> Non
 
 
 @pytest.mark.unit
+def test_an_incident_whose_investigation_named_no_cause_is_not_asked_what_the_cause_was(
+) -> None:
+    # The document says the cause was not determined itself. Asked for it
+    # anyway, a write-up filled the root cause with what was checked - a flag
+    # provider's hour said as though it covered more.
+    the_cause_fields = (ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, REACHES_A_CAUSE_FIELD,
+                        CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
+
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], cause_asked=False)
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*(field for field in EVERY_FIELD_ASKED
+                                 if field not in the_cause_fields)),
+                _requires(*(field for field in REQUIRED_FIELDS
+                            if field not in the_cause_fields))
+            )
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> None:
     # Required rather than offered: the document owes the person who wrote an
     # answer, and an optional field is one a model leaves out whenever its
@@ -1627,6 +6039,98 @@ def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> Non
                 _requires(*REQUIRED_FIELDS, LEAD_EFFECTS_FIELD),
                 _accepts_no_number()
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_logs_reach_where_the_metrics_stopped_is_asked_how_they_show_it(
+) -> None:
+    # Required where it is offered, as a lead is: the document's sentence on
+    # that stretch is written from it, and an optional field is one a model
+    # leaves out whenever its prose reads well without it.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=ONSET, read_until=None,
+                read_until_the_alert=False))
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*EVERY_FIELD_ASKED, LOGS_SHOW_SERVING_AS_BEFORE_FIELD),
+                _requires(*REQUIRED_FIELDS, LOGS_SHOW_SERVING_AS_BEFORE_FIELD)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_harm_and_why(
+) -> None:
+    # Required where it is offered: left to the action items, the item that
+    # stops the harm until the fault is fixed was left out of one write-up in
+    # four, while the same write-up's still_at_risk said the harm went on. And
+    # the item to find out why the change did not help was left out of one in
+    # six, filed under what went wrong instead.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], harm_left_standing=True)
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*EVERY_FIELD_ASKED, STOPS_THE_HARM_FIELD,
+                               WHY_IT_DID_NOT_HELP_FIELD),
+                _requires(*REQUIRED_FIELDS, STOPS_THE_HARM_FIELD, WHY_IT_DID_NOT_HELP_FIELD)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_why_the_change_did_not_help_is_asked_to_leave_the_document_s_own_check_out() -> None:
+    # The document lists its own item after this one, that the Mitigation Agent
+    # confirm a change reached the service before judging it; a write-up not
+    # told so would list it a second time.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], harm_left_standing=True)
+            .properties[WHY_IT_DID_NOT_HELP_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("The document already lists",
+                                      "leave that out of your items")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_logs_reach_nowhere_the_metrics_stopped_is_not_asked_how_they_show_it(
+) -> None:
+    # Nothing reaches in for an answer to be a reading of.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], LogsInTheGap(
+                read=True, labels=[], reach_until=None, read_until=None,
+                read_until_the_alert=False))
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*EVERY_FIELD_ASKED),
+                _requires(*REQUIRED_FIELDS)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_how_the_logs_show_the_service_is_asked_knowing_the_document_says_it_itself() -> None:
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=ONSET, read_until=None,
+                read_until_the_alert=False)
+            ).properties[LOGS_SHOW_SERVING_AS_BEFORE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(
+                "Whether the log lines that reach into the stretch the metrics did not watch "
+                "show the service serving as it had before the metrics stopped. The document "
+                "writes that sentence itself, bounded to when the logs were read.")
         )
 
 
@@ -1694,6 +6198,60 @@ def test_the_cause_is_read_as_steps_each_citing_its_evidence() -> None:
 
 
 @pytest.mark.unit
+def test_what_a_step_ruled_out_is_read_with_what_it_cites() -> None:
+    Scenario() \
+        .given(
+            a_submission_ruling_something_out := {
+                CAUSAL_CHAIN_FIELD: [
+                    {STEP_FIELD: "the deploy renamed the port", CITES_FIELD: ["D1"],
+                     RULED_OUT_FIELD: [{WHAT_FIELD: "the earlier deploy, healthy since",
+                                        CITES_FIELD: ["T5"]}]}
+                ]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_ruling_something_out).causal_chain
+        ) \
+        .then(
+            the_answer_was([SubmittedStep(
+                step="the deploy renamed the port", cites=["D1"],
+                ruled_out=[SubmittedRuledOut(what="the earlier deploy, healthy since",
+                                             cites=["T5"])])])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_not_in_its_declared_shape_costs_only_itself() -> None:
+    # As a step does: one with no words is dropped, one citing in the wrong
+    # shape is kept citing nothing, and a list that is not one rules out
+    # nothing - the step itself stands either way.
+    Scenario() \
+        .given(
+            a_submission_ruling_out_badly := {
+                CAUSAL_CHAIN_FIELD: [
+                    {STEP_FIELD: "the deploy renamed the port", CITES_FIELD: ["D1"],
+                     RULED_OUT_FIELD: [{WHAT_FIELD: "the earlier deploy", CITES_FIELD: "T5"},
+                                       {CITES_FIELD: ["T5"]},
+                                       "not a ruling"]},
+                    {STEP_FIELD: "the scrape lost its target", CITES_FIELD: ["F1"],
+                     RULED_OUT_FIELD: "not a list"}
+                ]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(a_submission_ruling_out_badly).causal_chain
+        ) \
+        .then(
+            the_answer_was([
+                SubmittedStep(step="the deploy renamed the port", cites=["D1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=[])]),
+                SubmittedStep(step="the scrape lost its target", cites=["F1"])])
+        )
+
+
+@pytest.mark.unit
 def test_a_chain_step_not_in_its_declared_shape_costs_only_itself() -> None:
     # A step with no words is no step; one citing in the wrong shape still
     # said something, and is read as citing nothing - which the check then
@@ -1718,13 +6276,16 @@ def test_a_chain_step_not_in_its_declared_shape_costs_only_itself() -> None:
 
 
 @pytest.mark.unit
-def test_a_contributing_factor_is_read_with_the_items_that_answer_it() -> None:
+def test_a_contributing_factor_is_read_with_its_label_and_the_record_s_items_that_answer_it(
+) -> None:
     Scenario() \
         .given(
             a_submission_with_a_factor := {
                 CONTRIBUTING_FACTORS_FIELD: [
-                    {FACTOR_FIELD: "the canary started at 40%",
-                     ADDRESSED_BY_FIELD: ["AI-2", "AI-4"]}
+                    {LABEL_FIELD: "CF-1",
+                     FACTOR_FIELD: "the canary started at 40%",
+                     HAD_IT_BEEN_OTHERWISE_FIELD: "a smaller canary would have failed fewer",
+                     ADDRESSED_BY_FIELD: ["AI-2"]}
                 ]
             }
         ) \
@@ -1733,8 +6294,11 @@ def test_a_contributing_factor_is_read_with_the_items_that_answer_it() -> None:
                 a_submission_with_a_factor).contributing_factors
         ) \
         .then(
-            the_answer_was([SubmittedFactor(factor="the canary started at 40%",
-                                            addressed_by=["AI-2", "AI-4"])])
+            the_answer_was([SubmittedFactor(
+                label="CF-1",
+                factor="the canary started at 40%",
+                had_it_been_otherwise="a smaller canary would have failed fewer",
+                addressed_by=["AI-2"])])
         )
 
 
@@ -1758,6 +6322,32 @@ def test_a_proposed_item_of_a_kind_nobody_declared_costs_only_itself() -> None:
         .then(
             the_answer_was([SubmittedItem(item="add a test for an empty month",
                                           type=ActionItemType.PREVENT)])
+        )
+
+
+@pytest.mark.unit
+def test_a_proposed_item_is_read_with_the_factors_it_answers() -> None:
+    # The item names the factors, by the labels they were written under, rather
+    # than a factor naming the item: told to cite items it had not yet written,
+    # by numbers it had to work out, a write-up cited each one number off.
+    Scenario() \
+        .given(
+            a_submission_proposing_one := {
+                ACTION_ITEMS_FIELD: [
+                    {ITEM_FIELD: "add a test for an empty month",
+                     ITEM_TYPE_FIELD: "prevent",
+                     ANSWERS_FIELD: ["CF-1", "CF-3"]}
+                ]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_proposing_one).action_items
+        ) \
+        .then(
+            the_answer_was([SubmittedItem(item="add a test for an empty month",
+                                          type=ActionItemType.PREVENT,
+                                          answers=["CF-1", "CF-3"])])
         )
 
 
@@ -1867,19 +6457,19 @@ def test_a_field_that_did_not_arrive_as_prose_costs_only_itself() -> None:
 
     Scenario() \
         .given(
-            a_submission_whose_summary_is_not_prose := {
+            a_submission_whose_cause_is_not_prose := {
                 ROOT_CAUSE_FIELD: some_root_cause,
-                EXECUTIVE_SUMMARY_FIELD: {"nested": "in the wrong shape"}
+                CAUSE_IN_PLAIN_WORDS_FIELD: {"nested": "in the wrong shape"}
             }
         ) \
         .when(
             lambda: SubmittedPostmortem.model_validate(
-                a_submission_whose_summary_is_not_prose)
+                a_submission_whose_cause_is_not_prose)
         ) \
         .then(
             all_of(
                 _answered(ROOT_CAUSE_FIELD, some_root_cause),
-                _left_unanswered(EXECUTIVE_SUMMARY_FIELD)
+                _left_unanswered(CAUSE_IN_PLAIN_WORDS_FIELD)
             )
         )
 
@@ -1968,7 +6558,8 @@ def test_a_submission_carrying_nothing_usable_is_empty_rather_than_refused() -> 
         .then(
             all_of(
                 _left_unanswered(ROOT_CAUSE_FIELD),
-                _left_unanswered(EXECUTIVE_SUMMARY_FIELD),
+                _left_unanswered(CAUSE_IN_PLAIN_WORDS_FIELD),
+                _left_unanswered(STILL_AT_RISK_FIELD),
                 _left_unanswered(CAUSAL_CHAIN_FIELD),
                 _left_unanswered(CONTRIBUTING_FACTORS_FIELD),
                 _left_unanswered(ACTION_ITEMS_FIELD),
@@ -2046,6 +6637,146 @@ def test_an_answer_that_never_said_whether_its_chain_reaches_a_cause_reads_as_no
         .then(
             the_answer_was(False)
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("answered", "read_as"), [
+    (True, True),
+    (False, False),
+    ("yes", None),
+    (1, None),
+    (None, None)
+], ids=["yes", "no", "a word", "a number", "null"])
+def test_only_a_plain_yes_or_no_reads_as_how_the_logs_show_the_service(
+        answered: object, read_as: bool | None) -> None:
+    # Anything else is unanswered, and asked for again where it was asked -
+    # never a guess the document then says, and never the whole answer refused.
+    Scenario() \
+        .given(
+            a_submission := {LOGS_SHOW_SERVING_AS_BEFORE_FIELD: answered}
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(a_submission).logs_show_serving_as_before
+        ) \
+        .then(
+            the_answer_was(read_as)
+        )
+
+
+@pytest.mark.unit
+def test_whether_the_cause_rests_on_an_unrun_reading_is_asked_knowing_the_document_says_it(
+) -> None:
+    # Told to say so once in the root cause, eight write-ups called the cause
+    # unverified there while the review ticked it as complete. Answered as a
+    # yes or no, the document says it and sets the box from the same answer.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD][
+                "description"]
+        ) \
+        .then(
+            _the_description_mentions("F row", "nothing ran", "no S or D row",
+                                      "the document says itself", "say neither in root_cause")
+        )
+
+
+@pytest.mark.unit
+def test_whether_the_cause_rests_on_an_unrun_reading_is_asked_right_after_whether_it_has_one(
+) -> None:
+    # The two answers are about the same chain, and were measured asked in
+    # this order.
+    Scenario() \
+        .when(
+            lambda: list(SUBMIT_POSTMORTEM.properties)
+        ) \
+        .then(
+            _comes_right_after(REACHES_A_CAUSE_FIELD, CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_leaves_whether_it_was_verified_to_the_document() -> None:
+    # Said by the document from the answer, so a root cause that says it too
+    # says it twice - or contradicts the box beside it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("the document says itself",
+                                      CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _the_description_avoids("say so once")
+        ))
+
+
+@pytest.mark.unit
+def test_whether_a_chain_reaches_a_cause_leaves_unverified_to_the_other_answer() -> None:
+    # It counted an F-only step only where the chain called it unverified -
+    # words the root cause no longer writes, so the step would stop counting.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[REACHES_A_CAUSE_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions(CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _the_description_avoids("counts only where it says the reading is unverified")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("answered", "read_as"), [
+    (True, True),
+    (False, False),
+    ("yes", None),
+    (1, None),
+    (None, None)
+], ids=["yes", "no", "a word", "a number", "null"])
+def test_only_a_plain_yes_or_no_reads_as_whether_the_cause_rests_on_an_unrun_reading(
+        answered: object, read_as: bool | None) -> None:
+    # Anything else is unanswered - never a guess the document then says.
+    Scenario() \
+        .given(
+            a_submission := {CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD: answered}
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission).cause_rests_on_an_unrun_reading
+        ) \
+        .then(
+            the_answer_was(read_as)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_from_before_the_question_leaves_whether_it_rests_on_a_reading_unanswered(
+) -> None:
+    # Every answer recorded before the question existed carries no such field,
+    # and its root cause already says whether the cause is unverified.
+    Scenario() \
+        .given(
+            an_answer_from_before_the_question := an_answer_without(
+                CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                an_answer_from_before_the_question).cause_rests_on_an_unrun_reading
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+def _comes_right_after(earlier: str, later: str) -> Assertion[list[str]]:
+    def assertion(fields: list[str]) -> bool:
+        if later not in fields or earlier not in fields \
+                or fields.index(later) != fields.index(earlier) + 1:
+            raise AssertionError(
+                f"Expected [{later}] right after [{earlier}], got the fields in the "
+                f"order {fields}.")
+
+        return True
+
+    return assertion
 
 
 def _a_change(reference: str = "dont care",
@@ -2152,6 +6883,34 @@ def _says(*expected: str) -> Assertion[Transcript]:
     return assertion
 
 
+def _read_in_the_order_sentences_reads(
+        answer: SubmittedPostmortem) -> Assertion[list[tuple[str, str]]]:
+    """The same sentences `sentences` yields, in its order."""
+    def assertion(placed: list[tuple[str, str]]) -> bool:
+        read = [prose for _, prose in placed]
+
+        if read != list(answer.sentences()):
+            raise AssertionError(
+                f"Expected the sentences {list(answer.sentences())}, each with its place, "
+                f"got {read}.")
+
+        return True
+
+    return assertion
+
+
+def _each_in_a_place_of_its_own() -> Assertion[list[tuple[str, str]]]:
+    def assertion(placed: list[tuple[str, str]]) -> bool:
+        places = [place for place, _ in placed]
+
+        if len(set(places)) != len(places):
+            raise AssertionError(f"Expected every sentence in a place of its own, got {places}.")
+
+        return True
+
+    return assertion
+
+
 def _says_on_one_line(*expected: str) -> Assertion[Transcript]:
     """Every part of one fact, together on a line of what the model was told.
 
@@ -2211,6 +6970,21 @@ def _names_no_figure_starting(prefix: str) -> Assertion[dict[str, Figure]]:
     return assertion
 
 
+def _writes_in(answer: SubmittedPostmortem,
+               expected: SubmittedPostmortem) -> Assertion[dict[str, Figure]]:
+    def assertion(figures: dict[str, Figure]) -> bool:
+        written = with_figures_written(answer, figures)
+
+        if written != expected:
+            raise AssertionError(
+                f"Expected {answer.root_cause!r} written in as {expected.root_cause!r}, "
+                f"got {written.root_cause!r}.")
+
+        return True
+
+    return assertion
+
+
 def _tells_no_instant_finer_than_the_second() -> Assertion[Transcript]:
     def assertion(transcript: Transcript) -> bool:
         said = _what_was_said(transcript)
@@ -2234,6 +7008,63 @@ def _the_description_mentions(*expected: str) -> Assertion[str]:
             raise AssertionError(
                 f"Expected the description to mention {missing}, and it does not: "
                 f"[{description}].")
+
+        return True
+
+    return assertion
+
+
+def _each_item_requires_only(*fields: str) -> Assertion[dict[str, Any]]:
+    def assertion(listed: dict[str, Any]) -> bool:
+        required = listed["items"]["required"]
+
+        if sorted(required) != sorted(fields):
+            raise AssertionError(
+                f"Expected each item to require only {list(fields)}, it requires {required}.")
+
+        return True
+
+    return assertion
+
+
+def _the_row_is_described_as(*expected: str) -> Assertion[dict[str, Any]]:
+    def assertion(listed: dict[str, Any]) -> bool:
+        return _the_description_mentions(*expected)(
+            listed["items"]["properties"][TIMED_BY_FIELD]["description"])
+
+    return assertion
+
+
+def _what_went_well_reads(expected: list[str]) -> Assertion[SubmittedPostmortem]:
+    def assertion(answer: SubmittedPostmortem) -> bool:
+        read = answer.lessons.went_well if answer.lessons is not None else None
+
+        if read != expected:
+            raise AssertionError(f"Expected what went well to read {expected}, it reads {read}.")
+
+        return True
+
+    return assertion
+
+
+def _timed_by(expected: list[str | None] | None) -> Assertion[SubmittedPostmortem]:
+    def assertion(answer: SubmittedPostmortem) -> bool:
+        if answer.went_well_timed_by != expected:
+            raise AssertionError(f"Expected what went well to be timed by {expected}, it is "
+                                 f"timed by {answer.went_well_timed_by}.")
+
+        return True
+
+    return assertion
+
+
+def _requires_of_each_item(field: str) -> Assertion[dict[str, Any]]:
+    def assertion(listed: dict[str, Any]) -> bool:
+        required = listed["items"]["required"]
+
+        if field not in required:
+            raise AssertionError(
+                f"Expected each item to require [{field}], it requires {required}.")
 
         return True
 
@@ -2371,6 +7202,21 @@ def _accepts_no_number() -> Assertion[ToolDefinition]:
     return assertion
 
 
+def _names_only_figures_it_may_name() -> Assertion[tuple[Transcript, dict[str, Figure]]]:
+    def assertion(asked: tuple[Transcript, dict[str, Figure]]) -> bool:
+        transcript, may_name = asked
+        refused = sorted(set(names_in(_what_was_said(transcript))) - set(may_name))
+
+        if refused:
+            raise AssertionError(
+                f"Expected every figure the brief names to be one an answer may name, "
+                f"and it names {refused}, which the check refuses.")
+
+        return True
+
+    return assertion
+
+
 def _what_was_said(transcript: Transcript) -> str:
     said: list[str] = []
 
@@ -2381,3 +7227,17 @@ def _what_was_said(transcript: Transcript) -> str:
             said.extend(result.content for result in entry.results)
 
     return "\n".join(said)
+
+
+def _a_deploy_of(revision: str, files_address: str | None) -> ChangeEvent:
+    """A deploy of `revision`, whose files open at `files_address` - nowhere,
+    where it is `None`."""
+    return ChangeEvent(kind=ChangeKind.DEPLOY,
+                       occurred_at="2026-09-02T11:58:00Z",
+                       reference=revision,
+                       summary="dont care",
+                       revision_source=RevisionSource(
+                           repository="acme/shop",
+                           repository_address="https://github.invalid/acme/shop",
+                           revision_address=f"https://github.invalid/acme/shop/commit/{revision}",
+                           files_address=files_address))

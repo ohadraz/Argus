@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Final
 
 import psycopg
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 # nothing required of the INSERT - so the two lists, kept by hand, were free to
 # disagree with each other and with the document they carry.
 _DOCUMENT_FIELDS: Final = tuple(PostmortemDocument.model_fields)
-_WRITTEN: Final = ("incident_id", *_DOCUMENT_FIELDS)
+_WRITTEN: Final = ("incident_id", "created_at", *_DOCUMENT_FIELDS)
 _READ: Final = tuple(Postmortem.model_fields)
 
 _INSERT: Final = (
@@ -50,9 +51,11 @@ def _written(document: PostmortemDocument, field: str) -> object:
     return value
 
 
-def record(
-    conn: psycopg.Connection, incident_id: str, document: PostmortemDocument
-) -> None:
+def record(conn: psycopg.Connection,
+           incident_id: str,
+           document: PostmortemDocument,
+           *,
+           at: datetime) -> None:
     """Writes the document the agent produced.
 
     Takes the document rather than a mapping of its fields, and names no columns
@@ -62,11 +65,14 @@ def record(
     What remains is a field with no column, and that fails on the next write -
     the INSERT names something postgres does not have. Before, it failed
     nowhere: the field was simply never persisted.
+
+    `at` is the moment of the event that says the document was written, so the
+    page's author line and the account's line are one instant on one clock.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             _INSERT,
-            (incident_id, *(_written(document, field) for field in _DOCUMENT_FIELDS))
+            (incident_id, at, *(_written(document, field) for field in _DOCUMENT_FIELDS))
         )
     conn.commit()
 

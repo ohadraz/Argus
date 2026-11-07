@@ -2,124 +2,41 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I need to be careful about which claims come from the actual log versus the candidate's framing\u2014the record shows heap memory rising, but latency degradation is an inference the candidate made rather than something directly observed, so I should state the symptom precisely without overclaiming.\n\nFor the trigger, I'm noting zero production changes and zero flag changes, pointing to the root cause being an unbounded module-level dictionary, though the static-reading source for that is marked unverified\u2014the restart confirming memory reset supports the leak mechanism even if the specific attribution isn't fully confirmed. I'll reference the specific figures by name rather than writing them out directly: the before/while/worst series values, heap readings against the limit, and the timestamp when it began.\n\nFor the chain, I'm linking the heap warnings and alert to the memory climb, citing growth from the onset point under flat traffic conditions while avoiding citing the candidate directly. I'll note the ruled-out trigger changes, distinguish the baseline ClientDisconnected noise as predating the incident, attribute the growth to the unevicted dictionary per the unverified reading, and confirm the restart cleared things consistent with in-process state.\n\nNow I'm shaping contributing factors around the lack of bounds on in-process caches and delayed detection, then drafting new action items for a memory growth alert, soak testing, and heap profile verification before merge.\n\nI should also flag assumptions clearly\u2014leak mechanism is inferred from static analysis, latency impact wasn't measured, and replica counts aren't confirmed\u2014while keeping the executive summary free of specific numbers, using placeholders like duration instead.\n\n",
+      "signature": "CAQS/goKEAgTGAI4AUIIdGhpbmtpbmcSDMkWO0p3PEOIl77JABoM5BhjZORFIXAvqLGKIjDIB6p1bIYXX5Hm5gW7Ye50XfLfmP7CkISnY5nNunZyPZuQc29Naqtki+8bCg86S2Yqmwo6yUyOBb7cx7RCpGWGBaNLeQHR6TIezQFCMRt8AiLVVPKoxNfsp8BOge67QWdbniksRdkpGdaJuUkBBR83NK6C9pNRMv449lnueUE4YSCDH5rTA0jLtZj9NDtbGSIH2Ufd0k/2fLl0N0XGPVLAF+wSY1PL7YuT8jQTTHlwDbR7rVaGX9OELYq9daRuv1ezMfZdTc9Gv9OTsGZCnMceEOPFbrRaW6CAb1cFkwoFeK9N9E3FH+uoB/hTjCk4LQ5pPEwuxzr5ML+gVmAYC5Ev7Fig32vDO0adhq2pLinaXSQwhn7UqMU2IW6kV227bBfDodWCDhSgysNeRC7tgWvPDyhgzKp0y7OR+uG2KMuAW2aJm4uG+bxnpahyJnjl1uLR0+fmksnmKR1Kx8r5n7yYBH03Hds5F91SDxDMDI/F3dYZXBiIN4dJVY4aA3J7/NGMW7c21uM7KzjUl0npQF7KkPQk8ztjEFF2+JsNogGY4IKm+Po6WWxgtmEL22i9tIunuLNHVoLN3WEu8webo/TRhuEFvjKIVEjX/zRHqSEgsjcn86blX0wi2aT5ZkAiXd1Fvf5AzFsKZiLfHJxeLLjKiC6X/f9/Mu+fsIx1gVRLbU1I7VyAkT9fjZhBxJRzf2pyogJ6kPwsdxG8oV2qhHCH2jVNfbudoPe3X0wnySu65JesMZvu+QOa/UXa/aTj5EhvZy4zk1yjxkPzZ7IWi1DGDibdHChlckreQ9RxcWUouGTdJAUj+5MoXu2BVDPnWuz/hV3mx8U5yC17RY9BGIDuH79n+lqriPqAR3phztlQlZcVQ8w1YxIy9ibz1g4EJVMPLp1ePYPnLzVrAB4jkT5IXT1/h5JJC2Ma0/kgCCpQ/zdUV9wn7b1YnnxwhPrSgf1k46c754rxISUu45GpYdum/kjYA6vzTZBG5CyOKmp6JtOb6ovspUJoiNGuLdM3TsCRryelDPzOavfZYLfZZHX8bdMpDylnZmfkxGdgZFdvrgRoBasK95mopzWxtmXLTn/ybJ3mkuZfv2+LThO2xAS7ZzTZmgQq7MATkuVDuypo/umMPlvuaRkkyXcMoxsla8Bq17NmKWsQAoeG/hCVdtdz9CiznESE+D+OQNAbFRV12El9ACWXIdpZKlEYavLVHS+Mi4+VzJItz+SUEDNJJQ/+jlV5J+xKyY6v7ehz3PE+PNKPaLtZ4M+7rhiv9Tul74/9YgVnzoMDWWh+ETkzxa3CZVhKzAVtP1Otqz4kIL2un7zHfNCkQ4qjCxU9cmn2e43oU5YMHlF7eK4DiUtqllcz9ckqgP0JJ/naGI33JDU9irKFANuIsQAwCNdVwn6kKcH0IhsVYuBcJgkZbzUc/7Twz7pxUaQt3GSJmBWEn87FfP7g+MpWN1HSkUV/2M3mx0kfUZFMe3xhTs1F5wxAYBTgBvsqitcsNqhxps4bLAenxH1Wa7k14jKAPaU6HlVSMn6XFjb66LEaYRrH6Zakd0f82DTgku4bJpH1MFVo3UBGXUxnoyZWvj1Sy9jPlRJq5ZSigVnOJHva+OcvcUMQVCnAXgFeu372ArYsQl4/HWxXE9HIXFui20TAX20gp0ZaP+BrD9lUXBpqnr3fHOJ2wrIv2Vi4yQLdwEGJaRKAE6uIZHiDOS1n/+p4bnaM2Viv1QxK/z81sTd22+DeaMDNBUXyq0zAd30Kicy2hGKosWaYDGtJSfuF6qhbyjpHXN2xdZ816Zc7+JTggV8kF2UKPxgB",
+      "thinking": "I'm going to bound the store with LRU eviction, using an OrderedDict with a cap of around 100,000 entries, since the failure strings may be longer than simple shopper IDs. I also want a test that records past capacity and checks that the count stays bounded, the most recent entries are kept, the oldest are evicted, and re-recording a shopper refreshes its recency. Then I'll look at the existing test that checks every new shopper gets added.\n\nI'm also checking whether reads should refresh recency too, which would mean moving an entry to the end whenever it's looked up. The existing test that checks every new shopper gets added should still pass with the bound in place, so I'll keep it and add the new ones alongside.\n\n",
+      "type": "thinking"
+    },
+    {
+      "signature": "CAQS6wgKEQgTGAI4AUIJbmFycmF0aW9uEgyINLbHDR2ejwDSxAwaDJ5R96DBY5BA6oZtryIw3hU9stz2j84V/9LTt8mMf2wd8PAK8vvidvKcH81Q2IzR1H+djgxDIKcKK9Dl83YzKocIn2LJ6Z+UeTVo/SbTfNs9gY+VlhvxpURL9T43GhDhgvHjqLrDqqmywL0ZcqYXkX9t3qf8HRcB5QOBhec3cJURHSA6zWkIs83a9K72+JK74bjNvd6W6dSv0UILlVud6Oq5f8EKvphEq/qBb8SRLLwpegfifIASpE48yhC1Ito7Wz6kZzjk3Kfd/cwojr5dOA+PA+XHsZUoaCUEacJh/jV9lyM/JrXfC1g1gmt6FIgxTlz4r7XHfkJ88EnfP2TbNLlIl2xgcebzq2Kl6U3wwn6TzA9XEhQ9M71mc5+DbrheUAMlowRQxTCpTKCA4MnVc06yAa8Fk6fOMWHjwtEj+s9LmEZcgwAmdu/5hhfHIQM7mPVn8c4CYNqAXXyZHYHgi88EUJifR+0OUDxiTZ12QlQpbMHuFlEmwvegNuxrTmZHpSlOdaI+po2Fbs792Tu9S25re2B/H+/rWj9ZIkhQBNkgpI1q5byHoCjanYa5hAF7BqTmRxQLhnb9dFkQmXAB0S3ELpF4r1vtAYyJdnLbYqNVsk1fHyIQBLq6q11ieBbzNqv/OlNqrE7Jipg6iZD3k/HQlAuZUX0MwcYoepRzDSnlitEZ3PMsMO6X7k3B1nxDL31fLM8dFXxd3ExM/i/2RKYm5hhiPVGxxptRPLuFIQwDUilp1uPuAYnUlUb2jfKMUX0bfbUKbxZrC6iB1qx/wbRCNx8GTXuzq8m8UbqVGPXfw8G9j4KhxMgU46jd6UXxKVPKsq1B3ImDhhRUvhgiuuRvKhq2Tto5OSow36ihKOWCr/C+gpCcxSwkDCTRytSU3k4caCyw5xjY04Q8q8J5Xv9qoZf5f3JqzXqh96YmWkdzDL2Q/cLicjduPoYmxO9qdMmucaoQ37hqiV66efMM6ETj/riBOSg8amSt7yJg1UdhathOoMZL6yrlu2WJxMmnngxnH64o5awhklDa9HL92xUBQjZv7ER6tVQRD1yxbfVEI7B4gyyJrSYwvNRC+V9Y8Hsk5JzLBv0qD773ShNNuv5Rq45BKYZcakoRxYOM6lXMMK983YbzXiYBJqlzzqFH5ArEC6oeMnXZLUJxFWjUvxsBZl7Z9jXVW792a/fmGsExLc8RjaEO+sHKaG1Q59k5kCn+2BDM9DrV/cplqqsePynjCx8vEHMk6TxR6gY7olrxzp3Xvx1Kv2HY+25kDkD8FnWRHdspiRNKy1gXKrSdyz8PUxfI4B08BJig4Ry+nHIz4pkJqrAL/iVFfQKY8cOXKmXSvAZo0P/vFeub67RyllbsfcOpaamwGjFyynhjSyeYADJU0zMLD1HKCjAGkd5HAGPL04aF83Zyp9jUz8SUyOodXsqLMbjjWOkQjHlH0JCvPe3K6SEP/kUYAQ==",
+      "thinking": "The module-level `_LAST_SEEN` dict in `visits.py` grows with every shopper who loads a page and is never trimmed, so I'm adding least-recently-used eviction while keeping its interface unchanged.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01LHZTpKCKnJGyGkYFbm4PwD",
+      "id": "toolu_01VMv1NZkmiARppMRj2GPdRk",
       "input": {
-        "action_items": [
+        "explanation": "The fault: `src/io_shop/visits.py` keeps `_LAST_SEEN`, a module-level dict keyed by shopper id. `serve_account_page` in `src/io_shop/account_page.py` calls `record_visit` on every render, both on success and in its exception handler. The only thing that removes entries is `forget_every_visit()`. So the dict grows by one entry for each new shopper and is only emptied on a restart. Its own docstring says it \"holds whichever of them have been by\", out of a few million shoppers. That matches memory rising steadily without more traffic, with no deploy and no restart. The investigation didn't name the allocation; this is the only unbounded process-level store I found that the request path writes to.\n\nThe fix: `_LAST_SEEN` is now an `OrderedDict` used as a least-recently-used cache, capped at `MOST_SHOPPERS_REMEMBERED` (100,000) entries. `record_visit` moves the shopper to the newest end and, if the store is over the cap, drops the oldest entries. `what_they_saw_last_time` also marks a found shopper as recently used. If a shopper has been evicted, the lookup returns `None`, which callers already handle for a first-time visitor. So the cost of eviction is an empty panel while the figure loads, the same as for a new shopper. The function names and signatures are unchanged, so `account_page.py` and the existing tests need no changes.\n\nTests added to `tests/io_shop/test_visits.py`:\n- Recording more shoppers than the cap leaves exactly the cap. The current code would hold all of them, so this test is written to fail against it.\n- The oldest shopper is the one evicted, and the newest are kept.\n- A shopper who visits again, or whose last figure is read, is kept over one who hasn't been seen since.",
+        "files": [
           {
-            "item": "Add an alert on sustained heap growth, such as a rising trend in heap against the container limit, so a slow climb pages well before it nears the limit.",
-            "type": "detect"
+            "content": "\"\"\"Who has looked at their account page, and what they were shown.\n\nThe shop keeps this so the page can greet a returning shopper with the figure\nthey saw last time instead of an empty panel while the real one loads. It is\nwritten on every render and read on the next visit, which is why it lives in\nthe process rather than in a store: a round trip to the database would cost\nmore than the panel is worth.\n\nOne entry per shopper, the newest render winning. Io has a few million\nregistered shoppers, so this cannot hold every one who has been by: it holds\nthe most recently seen `MOST_SHOPPERS_REMEMBERED` of them and forgets the\nleast recently seen beyond that. A forgotten shopper is greeted exactly like a\nnew one - with the empty panel - which is the whole cost of forgetting.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom collections import OrderedDict\nfrom typing import Final\n\n# How many shoppers one process remembers at most. Bounded because the store is\n# written on every render and the set of shoppers is the internet's size, not\n# the process's.\nMOST_SHOPPERS_REMEMBERED: Final = 100_000\n\n_LAST_SEEN: OrderedDict[str, str] = OrderedDict()\n\n\ndef record_visit(shopper_id: str, shown: str) -> None:\n    \"\"\"Notes what this shopper was last shown, forgetting the least recently\n    seen shopper if that takes the store past its bound.\"\"\"\n    _LAST_SEEN[shopper_id] = shown\n    _LAST_SEEN.move_to_end(shopper_id)\n\n    while len(_LAST_SEEN) > MOST_SHOPPERS_REMEMBERED:\n        _LAST_SEEN.popitem(last=False)\n\n\ndef what_they_saw_last_time(shopper_id: str) -> str | None:\n    \"\"\"What this shopper was shown on their previous visit, if they have been\n    here before and are still remembered.\"\"\"\n    shown = _LAST_SEEN.get(shopper_id)\n\n    if shown is not None:\n        _LAST_SEEN.move_to_end(shopper_id)\n\n    return shown\n\n\ndef how_many_shoppers_are_remembered() -> int:\n    \"\"\"How many shoppers this process is holding a visit for.\"\"\"\n    return len(_LAST_SEEN)\n\n\ndef forget_every_visit() -> None:\n    \"\"\"Drops the lot.\n\n    What a new process starts with anyway - the shop's own reset, for a\n    deployment that wants one without waiting for a restart.\n    \"\"\"\n    _LAST_SEEN.clear()\n",
+            "path": "src/io_shop/visits.py"
           },
           {
-            "item": "Add a soak or load test that records many distinct shoppers and asserts that process memory and the size of in-process stores stay bounded. Run it before release.",
-            "type": "prevent"
-          },
-          {
-            "item": "Capture a heap profile or object-count snapshot from a replica during a climb, to confirm that the last-seen shopper store is what holds the memory. Do this before or alongside merging the fix, and check that memory stays flat after it ships.",
-            "type": "process"
+            "content": "from __future__ import annotations\n\nimport pytest\n\nfrom io_shop.account_page import serve_account_page\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.payment_provider import AskTheProvider, ProviderAnswer, StoredCard\nfrom io_shop.pricing_service import AskThePricingService, PricingAnswer\nfrom io_shop.visits import (\n    MOST_SHOPPERS_REMEMBERED,\n    forget_every_visit,\n    how_many_shoppers_are_remembered,\n    record_visit,\n    what_they_saw_last_time,\n)\n\n\"\"\"What the account page keeps about the shoppers who have been by.\n\nThe store itself is small and does what it says. What these pin down is the\npart that matters to an incident: it grows with every new shopper up to a\nbound and no further, forgetting the least recently seen beyond it - and that a\nnew process starts empty.\n\"\"\"\n\n\n@pytest.fixture(autouse=True)\ndef a_shop_that_has_just_started() -> None:\n    \"\"\"Every case begins with an empty store.\n\n    The store is module state, so without this each test would inherit\n    whatever the last one left - which is the bug under discussion, and a poor\n    thing to also have in the tests about it.\n    \"\"\"\n    forget_every_visit()\n\n\ndef a_provider_holding_a_card() -> AskTheProvider:\n    \"\"\"The provider answering, which is what it does in every case here - these\n    are about what the page remembers, not about who it asks.\"\"\"\n    return lambda dont_care_shopper: ProviderAnswer(\n        status=200, card=StoredCard(brand=\"visa\", last_four=\"4242\")\n    )\n\n\ndef a_prompt_pricing_service() -> AskThePricingService:\n    \"\"\"The pricing service answering promptly, for the same reason the provider\n    above answers at all: these cases are about what the page remembers.\"\"\"\n    return lambda dont_care_shopper: PricingAnswer(total_cents=8400, took_ms=12)\n\n\ndef an_account(shopper_id: str, *prices: int) -> Account:\n    return Account(\n        shopper_id=shopper_id,\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef test_a_shopper_who_has_been_here_before_is_remembered() -> None:\n    record_visit(\"shopper-1\", \"2000\")\n\n    assert what_they_saw_last_time(\"shopper-1\") == \"2000\"\n\n\ndef test_a_shopper_who_has_never_been_here_is_not() -> None:\n    assert what_they_saw_last_time(\"shopper-nobody\") is None\n\n\ndef test_the_newest_visit_is_the_one_kept() -> None:\n    record_visit(\"shopper-1\", \"2000\")\n    record_visit(\"shopper-1\", \"3000\")\n\n    assert what_they_saw_last_time(\"shopper-1\") == \"3000\"\n\n\ndef test_every_new_shopper_adds_to_what_the_process_is_holding() -> None:\n    for shopper in range(50):\n        record_visit(f\"shopper-{shopper}\", \"2000\")\n\n    assert how_many_shoppers_are_remembered() == 50\n\n\ndef test_a_shopper_coming_back_adds_nothing() -> None:\n    for _ in range(50):\n        record_visit(\"shopper-1\", \"2000\")\n\n    assert how_many_shoppers_are_remembered() == 1\n\n\ndef test_what_the_process_holds_stops_at_its_bound() -> None:\n    # The leak, closed: however many different shoppers come by, the process\n    # holds no more than the bound.\n    for shopper in range(MOST_SHOPPERS_REMEMBERED + 500):\n        record_visit(f\"shopper-{shopper}\", \"2000\")\n\n    assert how_many_shoppers_are_remembered() == MOST_SHOPPERS_REMEMBERED\n\n\ndef test_the_least_recently_seen_shopper_is_the_one_forgotten() -> None:\n    for shopper in range(MOST_SHOPPERS_REMEMBERED + 1):\n        record_visit(f\"shopper-{shopper}\", \"2000\")\n\n    assert what_they_saw_last_time(\"shopper-0\") is None\n    assert what_they_saw_last_time(\"shopper-1\") == \"2000\"\n    assert what_they_saw_last_time(f\"shopper-{MOST_SHOPPERS_REMEMBERED}\") == \"2000\"\n\n\ndef test_a_shopper_seen_again_is_kept_over_one_who_was_not() -> None:\n    for shopper in range(MOST_SHOPPERS_REMEMBERED):\n        record_visit(f\"shopper-{shopper}\", \"2000\")\n\n    record_visit(\"shopper-0\", \"2500\")\n    assert what_they_saw_last_time(\"shopper-1\") == \"2000\"\n    record_visit(\"shopper-new\", \"2000\")\n    record_visit(\"shopper-newer\", \"2000\")\n\n    assert what_they_saw_last_time(\"shopper-0\") == \"2500\"\n    assert what_they_saw_last_time(\"shopper-1\") == \"2000\"\n    assert what_they_saw_last_time(\"shopper-2\") is None\n    assert what_they_saw_last_time(\"shopper-3\") is None\n    assert how_many_shoppers_are_remembered() == MOST_SHOPPERS_REMEMBERED\n\n\ndef test_serving_a_page_records_the_visit() -> None:\n    serve_account_page(an_account(\"shopper-1\", 1000, 3000),\n                       use_monthly_summary=False,\n                       ask_the_provider=a_provider_holding_a_card(),\n                       ask_the_pricing_service=a_prompt_pricing_service())\n\n    assert what_they_saw_last_time(\"shopper-1\") == \"2000\"\n\n\ndef test_a_page_that_failed_is_a_visit_too() -> None:\n    serve_account_page(an_account(\"shopper-1\"),\n                       use_monthly_summary=False,\n                       ask_the_provider=a_provider_holding_a_card(),\n                       ask_the_pricing_service=a_prompt_pricing_service())\n\n    remembered = what_they_saw_last_time(\"shopper-1\")\n\n    assert remembered is not None\n    assert remembered.startswith(\"ZeroDivisionError\")\n\n\ndef test_serving_pages_to_many_shoppers_holds_one_entry_each() -> None:\n    for shopper in range(20):\n        serve_account_page(\n            an_account(f\"shopper-{shopper}\", 1000, 3000),\n            use_monthly_summary=False,\n            ask_the_provider=a_provider_holding_a_card(),\n            ask_the_pricing_service=a_prompt_pricing_service()\n        )\n\n    assert how_many_shoppers_are_remembered() == 20\n\n\ndef test_a_restarted_shop_is_holding_nothing() -> None:\n    for shopper in range(20):\n        record_visit(f\"shopper-{shopper}\", \"2000\")\n\n    forget_every_visit()\n\n    assert how_many_shoppers_are_remembered() == 0\n",
+            "path": "tests/io_shop/test_visits.py"
           }
         ],
-        "causal_chain": [
-          {
-            "cites": [
-              "A1",
-              "G9c6f",
-              "Gbac1"
-            ],
-            "step": "Memory use of io-shop climbed against its container limit and paged. The series averaged {series_while_broken} over the incident and reached {series_at_worst} at its worst, against {series_before} before. The heap warnings showed it rising from {G9c6f.5} to {G9c6f.6} against a {G9c6f.1} limit. Failed requests did not measurably rise: {errors_while_broken} while broken against {errors_before} before, peaking at {errors_at_worst}, which is within normal variation. The harm was memory pressure on the service that renders account pages, not a measured rise in failures."
-          },
-          {
-            "cites": [
-              "G9c6f",
-              "T6"
-            ],
-            "step": "The io-shop process heap grew steadily from the onset and was not released. The warnings for heap size appear in every minute from the first through the last, with the highest value at the end."
-          },
-          {
-            "cites": [
-              "T9",
-              "T14",
-              "G46bc",
-              "Gbac1"
-            ],
-            "step": "Nothing external set it off. No production change was read in the 24 hours before the onset, and the flag provider showed no recent flag changes. The ClientDisconnected errors and the account-page error-rate warnings began before the onset and match their usual levels, so they are baseline noise and not the cause."
-          },
-          {
-            "cites": [
-              "F1",
-              "F1.1",
-              "F1.2"
-            ],
-            "step": "The likely reason the heap is never released is an unbounded in-process store. By Code-Fix's static reading, `_LAST_SEEN` gains an entry for every shopper rendered and has no eviction except a full reset. This reading was not run or verified, so it is unconfirmed. If correct, a steady stream of new shoppers would grow memory even with flat traffic, matching the climb Code-Fix put at about {F1.1} to {F1.2}."
-          },
-          {
-            "cites": [
-              "M1",
-              "T19",
-              "T20"
-            ],
-            "step": "Restarting io-shop cleared the condition and the paging rule stopped firing. That fits state held inside the process, but it only resets the climb. The record does not show which data structure held the memory, so the chain stops here."
-          }
-        ],
-        "contributing_factors": [
-          {
-            "addressed_by": [
-              "AI-2"
-            ],
-            "factor": "The restart only resets the climb. Until the bounded-store fix is merged and deployed, memory will climb again after any restart."
-          },
-          {
-            "addressed_by": [
-              "AI-3"
-            ],
-            "factor": "The page came only after the rule's wait of {rule_waits} with the condition holding. Heap warnings were already being logged earlier, but no alert on the heap's growth trend was seen, so a steady climb was caught only when it was far along."
-          },
-          {
-            "addressed_by": [
-              "AI-4"
-            ],
-            "factor": "No test or pre-release check was seen that exercises many distinct shoppers and watches memory stay bounded, so an unbounded in-process store could ship without being noticed."
-          },
-          {
-            "addressed_by": [
-              "AI-5"
-            ],
-            "factor": "The leak mechanism rests on a static code reading that nothing ran. The record has no heap profile showing what held the memory."
-          }
-        ],
-        "executive_summary": "For {duration}, starting at {began}, the memory use of the shop service climbed steadily toward its container limit. Failed requests stayed within their normal range, so the measured harm was the memory climb. Left alone, it would have put account pages at risk of slowing or failing. Argus found no deploy or flag change that could explain it, and it restarted the service. Memory returned to normal and the alert stopped firing. A code reading suggests an in-process store of shoppers that grows without limit. A draft fix has been proposed and is awaiting review. Until it ships, the climb is expected to return after any restart.",
-        "lessons": {
-          "got_lucky": [
-            "Failed requests stayed within normal variation, so shoppers were not measurably affected before the restart. A longer climb could have reached the memory limit."
-          ],
-          "went_well": [
-            "Argus read metrics, changes, logs and flag history, ruled out a deploy or flag trigger, and restarted the service. The restart was confirmed within about a minute and a half of the incident being held.",
-            "Code-Fix proposed a bounded, least-recently-used fix with tests, ready for review."
-          ],
-          "went_wrong": [
-            "The restart treats only the symptom. The climb will return until the fix ships.",
-            "The leak mechanism is unverified. It rests on a code reading and no heap profile was seen.",
-            "Latency degradation is not shown in the measured record, so its impact on shoppers was not measured."
-          ]
-        },
-        "reaches_a_cause": true,
-        "root_cause": "Memory in the running io-shop process grew without being released from about the onset. Code-Fix's reading of the source, which nothing ran and which is unverified, points to a module-level dictionary of last-seen shoppers, `io_shop.visits._LAST_SEEN`. It gains an entry for every new shopper and has no eviction short of a full reset, so the heap fills steadily under flat traffic. The record shows only that memory climbed and that a restart cleared it. It does not show which structure held the memory.",
-        "symptom": "Shop service memory climbed toward its limit, putting account pages at risk"
+        "summary": "Bound the in-process visit store (visits.py) with LRU eviction so it can't grow with every distinct shopper"
       },
-      "name": "submit_postmortem",
+      "name": "submit_fix",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cg9xKfBwVHKQjiu3hdwQc",
-  "model": "claude-sonnet-5-5",
+  "id": "msg_011CgkTYQ7wjGNzepqrQQBgM",
+  "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -128,15 +45,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3436
+      "ephemeral_5m_input_tokens": 4201
     },
-    "cache_creation_input_tokens": 3436,
-    "cache_read_input_tokens": 2531,
+    "cache_creation_input_tokens": 4201,
+    "cache_read_input_tokens": 8138,
     "inference_geo": "global",
-    "input_tokens": 4,
-    "output_tokens": 3422,
+    "input_tokens": 2,
+    "output_tokens": 4933,
     "output_tokens_details": {
-      "thinking_tokens": 1398
+      "thinking_tokens": 460
     },
     "service_tier": "standard",
     "speed": "standard"

@@ -271,21 +271,22 @@ as one whose source was unavailable.
 - **THEN** its loss estimate is the figure computed from a window with no
   departure, and is not omitted
 
-### Requirement: An incident closed without its sight restored says so
+### Requirement: An incident closed with its metrics still missing says so
 
 The document SHALL say, where the metrics carry no minute at or after the
-incident's onset when the postmortem is written, that the incident closed with
-the service still unobserved, from which minute, and that the error rates cover
-none of the minutes after it. The money is measured by the party that took it
-and is unaffected. It SHALL NOT present the collected window
-as the incident's duration.
+incident's onset when the postmortem is written, that the metrics stop at the
+onset and had not resumed by the close, from which minute, and that the duration
+is how long they had been missing by then - not a stretch the service is known
+to have spent broken, since its logs and its takings may cover it. The money is
+measured by the party that took it and is unaffected. It SHALL NOT present the
+collected window as the incident's duration.
 
-#### Scenario: A still-blind incident is written up as still blind
+#### Scenario: An incident whose metrics never resumed is written up as such
 - **GIVEN** an incident whose metrics stop at the onset and have not resumed when
   it ends
 - **WHEN** the postmortem is written
-- **THEN** it states that the service was still unobserved at close and names the
-  minute the sight was lost
+- **THEN** it states that the metrics had not resumed by the close and names the
+  minute they stopped
 
 #### Scenario: A restored incident carries no such statement
 - **GIVEN** an incident whose metrics resumed before it ended

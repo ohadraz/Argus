@@ -139,9 +139,13 @@ def _one_explanation() -> dict[str, Any]:
             "summary": {
                 "type": _STRING_TYPE,
                 "description": (
-                    "One or two sentences: what happened and, if known, why. Not "
-                    "what to do about it: the action is chosen from the failure "
-                    "mode, and the fix by an agent that reads the code."
+                    "One or two sentences: what happened and, if known, why. Never "
+                    "what to do about it - no fix, revert, rollback or next step - "
+                    "and not as the way an alternative differs: tell an alternative "
+                    "apart by what happened. The action is chosen from the failure "
+                    "mode, and the fix by an agent that reads the code. A moment it "
+                    "names is written in full, date and time, as the evidence's `at` "
+                    "gives it - 2026-08-30T12:30:00Z - never a time of day alone."
                 )
             },
             "failure_mode": {
@@ -184,10 +188,14 @@ def _one_explanation() -> dict[str, Any]:
             "subject": {
                 "type": [_STRING_TYPE, _NULL_TYPE],
                 "description": (
-                    "The specific thing the cause names - for a feature-flag toggle, "
-                    "the flag's own name, copied verbatim from the evidence. Null "
-                    "when the cause names nothing specific, and null when you named "
-                    "no cause at all."
+                    "The specific thing the cause names, as one name with no spaces: "
+                    "a feature flag, a revision or a service copied verbatim from the "
+                    "evidence, a file by its path in the repository, or a key nested "
+                    "in a configuration file by its full dotted path, `section.key`. "
+                    "An explanation that reads a change another explanation blames "
+                    "another way gives that change the same subject, from_state and "
+                    "to_state as the other, word for word. Null only when the cause "
+                    "names nothing specific at all, and null when you named no cause."
                 )
             },
             "from_state": _a_state(

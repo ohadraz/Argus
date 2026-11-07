@@ -53,8 +53,8 @@ STANDING_BRIEF: Final = "\n\n".join([
     f"cause, no jumps - and cites its evidence from the record, never a "
     f"candidate: a candidate is a hypothesis, and the chain says what happened. "
     f"Five is a guide, not a quota: "
-    f"stop where the evidence stops. The {ROOT_CAUSE_FIELD} field is the last "
-    f"step of the chain.",
+    f"stop where the evidence stops. The {ROOT_CAUSE_FIELD} field says the "
+    f"mechanism: the step of the chain that says why the change broke the service.",
 
     "A why the record cannot answer - a missing test, a missing safeguard, an "
     "alert that came late - is a contributing factor rather than a step, and "
@@ -70,5 +70,7 @@ STANDING_BRIEF: Final = "\n\n".join([
 
 def postmortem_policy(model: str, effort: Effort) -> ModelPolicy:
     """The postmortem's model at the deployment's choice of model and effort,
-    asked under the agent's own brief."""
-    return ModelPolicy(model=model, effort=effort, brief=STANDING_BRIEF)
+    asked under the agent's own brief, for one tool call per turn - its one
+    tool ends the conversation, so a second call is never more work."""
+    return ModelPolicy(model=model, effort=effort, brief=STANDING_BRIEF,
+                       one_tool_call_per_turn=True)

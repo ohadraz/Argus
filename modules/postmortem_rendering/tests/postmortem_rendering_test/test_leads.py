@@ -47,6 +47,29 @@ def test_a_weighed_lead_says_what_was_written_by_whom_when_its_standing_and_its_
 
 
 @pytest.mark.unit
+def test_code_a_leads_weighing_quotes_is_set_as_code() -> None:
+    # The weighing is the Investigator's words, and Markdown like the rest of
+    # them. What the person wrote is quoted as they wrote it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(leads=[PostmortemLead(
+                label="L1", person_id="dont care", person_name="dont care",
+                text="dont care", written_at=SOME_MOMENT,
+                weighing=Weighing(standing=Standing.SUPPORTED,
+                                  reason="the `kuki` flag history agrees"),
+                effect=None)])
+        ) \
+        .when(
+            lambda: the_leads(some_postmortem)[0].weighing
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="supported", role=Role.STATUS),
+                                      Run(text=": the "),
+                                      Run(text="kuki", role=Role.CODE),
+                                      Run(text=" flag history agrees")))))
+
+
+@pytest.mark.unit
 def test_each_lead_goes_by_the_label_the_prose_cites_it_by() -> None:
     # As it was written, never counted again here: the document numbered the
     # leads where the prompt did.

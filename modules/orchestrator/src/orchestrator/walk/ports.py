@@ -12,17 +12,18 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from agent_mitigation import Action, Outcome, Verdict
+from agent_mitigation import Action, ChangeMade, Outcome, Verdict
 from argus_core.budget import StillWanted
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models import (
+    ActionProgress,
     ActionType,
     Alert,
     Attempt,
     ChangeEvent,
     EstablishedOnset,
     Findings,
-    FlagChange,
+    FlagHistory,
     Hypothesis,
     IncidentStatus,
     Leads,
@@ -33,7 +34,9 @@ from argus_core.models import (
     TakenAction,
     ThreadMessage,
     UndoDescriptor,
+    Undone,
     UnreadVerdict,
+    WhatArgusDid,
 )
 
 # `records_nothing` is aliased because `events` and `replay` each call their
@@ -60,7 +63,8 @@ class Investigate(Protocol):
         recorder: Recorder = records_nothing,
         still_wanted: StillWanted = ...,
         leads: Leads = ...,
-        established_onset: EstablishedOnset | None = None
+        established_onset: EstablishedOnset | None = None,
+        earlier_candidates: int = 0
     ) -> Findings: ...
 
 
@@ -116,7 +120,7 @@ class FetchFlagChanges(Protocol):
     on the parameter after those two, which is the clock.
     """
 
-    def __call__(self, *, onset: datetime | None) -> list[FlagChange]: ...
+    def __call__(self, *, onset: datetime | None) -> FlagHistory: ...
 
 
 class FetchDeployments(Protocol):
@@ -158,7 +162,7 @@ class TakeAction(Protocol):
     # The action is positional, so any callable naming it whatever it likes is
     # one. The rest are keyword-only and defaulted: the incident and the
     # publisher are what the action narrates itself against, and `still_wanted`
-    # is how the wait for the service to answer hears that somebody stopped the
+    # is how the verification wait hears that somebody stopped the
     # walk. A caller with none of the three takes the same action, tells nobody,
     # and is stopped by nothing.
     #
@@ -185,6 +189,10 @@ class TakeAction(Protocol):
     # judgement it has without a rule - the levels, the readings returning, or
     # the action's own receipt - which is what a finding and an alert naming no
     # rule get.
+    #
+    # `change_made` is told the moment the change is made, before the wait,
+    # with what would put it back - the walk binds the row it claimed into it,
+    # so a worker that dies during the wait leaves the change on record.
     def __call__(
         self,
         action: Action,
@@ -195,7 +203,8 @@ class TakeAction(Protocol):
         publisher: Publisher = nobody,
         onset: datetime | None = None,
         incident_began: str | None = None,
-        rule: str | None = None
+        rule: str | None = None,
+        change_made: ChangeMade = ...
     ) -> Outcome: ...
 
 
@@ -222,7 +231,11 @@ class RecordAction(Protocol):
         # were taken and what each attempt was worth, reading the kind above
         # and the subject here as one identity - and neither can recover it
         # from anywhere else.
-        subject: str | None
+        subject: str | None,
+        # When the claim is written, on the walk's clock rather than the
+        # database's - the one a replay's simulated clock moves. Not when the
+        # action was taken: that is its announcement's.
+        at: datetime
     ) -> bool: ...
 
 
@@ -232,6 +245,11 @@ class CompleteAction(Protocol):
     `narrating` for the reason `TransitionIncident` has one: the verdict and
     the line reporting it are one fact, and two writes of one fact can end up
     disagreeing about it.
+
+    `left_behind_known` is whether the descriptor is the whole of what the
+    attempt left behind, and has no default for the reason `Outcome`'s has
+    none. `undone` is what the attempt's own putting back did, `None` where it
+    attempted none.
     """
 
     def __call__(
@@ -240,7 +258,29 @@ class CompleteAction(Protocol):
         hypothesis_id: str,
         outcome: Verdict,
         undo_descriptor: UndoDescriptor | None,
-        narrating: IncidentEvent
+        narrating: IncidentEvent,
+        performed: bool = True,
+        *,
+        left_behind_known: bool,
+        undone: Undone | None = None
+    ) -> None: ...
+
+
+class AdvanceAction(Protocol):
+    """Moves a claimed action on to what has since been learnt about it.
+
+    Two moments write it: the change being made, before the wait, with what
+    would put it back; and a resumed walk's answer about a dead worker's claim.
+    Only a claim moves - a completed row, or one nobody can account for, is
+    left saying what it says.
+    """
+
+    def __call__(
+        self,
+        incident_id: str,
+        hypothesis_id: str,
+        to: ActionProgress,
+        undo_descriptor: UndoDescriptor | None
     ) -> None: ...
 
 
@@ -301,10 +341,15 @@ class ClaimedAction(BaseModel):
     downstream that reads a verdict; read as absent, it sends this walk to ask
     the provider whether a change it already has a verdict for ever landed.
     Carried as itself, the node stops on it and says what it could not read.
+
+    `progress` is how far the attempt got, which is what a claim with no
+    outcome is decided on: a change already told as made needs no provider to
+    say so, and one nobody could account for stays that way.
     """
 
     outcome: Verdict | UnreadVerdict | None
     claimed_at: datetime
+    progress: ActionProgress = ActionProgress.CLAIMED
 
 
 class ActionAlreadyTaken(Protocol):
@@ -364,6 +409,10 @@ class ProposeFix(Protocol):
     No pull request is an answer - looked for, not found - and the node reports
     it as one. That is the difference between an incident a human is told
     nothing could be done about and an incident nobody looked at.
+
+    `done` is what Argus did about the incident, each action with its verdict
+    and whether its change still stands - the later word on what the leads
+    were weighed as.
     """
 
     def __call__(self,
@@ -371,7 +420,9 @@ class ProposeFix(Protocol):
                  incident_id: str, /,
                  *,
                  still_wanted: StillWanted = ...,
-                 leads: Leads = ...) -> ProposedFix: ...
+                 leads: Leads = ...,
+                 done: Sequence[WhatArgusDid] = ...,
+                 deployed: str | None = ...) -> ProposedFix: ...
 
 
 class WritePostmortem(Protocol):
@@ -396,6 +447,19 @@ class ActionsTaken(Protocol):
     def __call__(self, incident_id: str, /) -> list[TakenAction]: ...
 
 
+class WhatArgusDidIn(Protocol):
+    """Every action an incident judged, in the order taken, with its verdict
+    and whether its change still stands.
+
+    Read back rather than carried in the graph's state, for `ActionsTaken`'s
+    reason and one more: whether a change was put back is on the row, and
+    nowhere in the state.
+    """
+
+    # Positional-only: the incident is the whole question.
+    def __call__(self, incident_id: str, /) -> list[WhatArgusDid]: ...
+
+
 class RecallSimilar(Protocol):
     """Past incidents that looked like this one, most alike first.
 
@@ -410,12 +474,12 @@ class RecallSimilar(Protocol):
 
 
 class RememberIncident(Protocol):
-    """Keeps what this incident tried, where a later one will look for it.
+    """Files what this incident tried, for the store a later one will search.
 
     Takes the finished record rather than the incident, because what a record
-    says is `incident_memory`'s to decide and where it goes is a deployment's:
-    a walk with no store configured supplies something that keeps nothing, and
-    the node above cannot tell the difference.
+    says is `incident_memory`'s to decide and where it is filed is a
+    deployment's. Filed whether or not this deployment searches memory: what is
+    switched off is the store, never the filing.
     """
 
     def __call__(self, record: RememberedIncident, /) -> None: ...

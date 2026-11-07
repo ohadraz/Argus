@@ -39,9 +39,9 @@ class Hypothesis(BaseModel):
 
     `faulting_service` is the service the fault is *in*, and it exists because
     that is not always the service the alert was about. It is deliberately not
-    `subject`: a subject is a description and this is an address, which is the
-    difference between something a reader parses and something a platform call
-    is sent to.
+    `subject`: a subject is never an address and this is one, which is the
+    difference between something a reader parses or the record is compared
+    against and something a platform call is sent to.
 
     `from_state` and `to_state` are what the subject moved between - `off` and
     `on` for a flag, two versions for a deployment. Strings for the same reason
@@ -71,6 +71,15 @@ class Hypothesis(BaseModel):
     # not survive being written down. Defaults to 1: an investigation that named
     # one explanation named the best one.
     rank: int = 1
+    # Which candidate of the incident this is, counted across every round in
+    # the order the Investigator formed them: the earlier rounds' count, and
+    # then this round's rank. Given once, where it is formed, because the chat
+    # says it at that moment and nothing said there can be renumbered. The walk
+    # page reads it; the write-up's labels count the candidates in its order,
+    # which comes to the same number, and stay a count so that a label is
+    # unique for a citation however the numbers ran. Defaults to 1 for the
+    # reason `rank` does.
+    number: int = 1
     # The service the fault is in, where that is not the service the alert
     # named. An address rather than a description, and a field of its own for
     # exactly that reason: `subject` is what the cause *names*, in the model's
@@ -135,7 +144,7 @@ class Hypothesis(BaseModel):
 
         The same incoherence `_a_subject_is_something_a_cause_names` refuses,
         and the worst of the three to let past. A subject reaches Mitigation as
-        a value to put back; this reaches it as a process to bring down, and an
+        a value to revert; this reaches it as a process to bring down, and an
         undetermined verdict that still named a service would have Argus restart
         something on no diagnosis at all.
 

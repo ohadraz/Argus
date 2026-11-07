@@ -6,23 +6,35 @@ Each case is one postmortem and what a card, the finding or the note says.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from argus_core.models import (
     AlarmClaim,
     Alert,
+    CitedEvidence,
+    Detection,
     ErrorRateLevels,
     Impact,
     ImpactExtent,
+    LatencyHarm,
+    LogsInTheGap,
+    RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
     WorseWhen,
 )
-from argus_testkit import Assertion, Scenario, the_answer_was
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_rendering.impact import Card, the_impact
+from postmortem_rendering.lines import Line, Role
 
 from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
+
+SOME_MINUTE = datetime(2026, 10, 21, 19, 12, tzinfo=UTC)
+
+# An incident no onset was measured for, as Detection records it: every
+# stretch it reports runs from the alert.
+NO_ONSET = Detection(alerted_at=SOME_MINUTE, rule="dont care", onset_at=None, gap=None)
 
 
 @pytest.mark.unit
@@ -49,7 +61,8 @@ def test_a_measured_incident_shows_its_four_figures_each_beside_what_it_is() -> 
 @pytest.mark.unit
 def test_nothing_measured_says_so_on_every_card() -> None:
     # Absence is said, never shown as a zero: a reader must not have to guess
-    # whether nothing was lost or nothing was known.
+    # whether nothing was lost or nothing was known. The rate and the count as
+    # what the metrics did not measure: the service's own logs may well have.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(impact=None, customer_loss_estimate=None)
@@ -58,7 +71,8 @@ def test_nothing_measured_says_so_on_every_card() -> None:
             lambda: the_impact(some_postmortem, an_alert()).cards
         ) \
         .then(
-            _the_values_are("not measured", "not measured", "not counted", "not estimated"))
+            _the_values_are("not measured", "not measured by the metrics",
+                            "not counted by the metrics", "not estimated"))
 
 
 @pytest.mark.unit
@@ -75,21 +89,29 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
             lambda: the_impact(some_postmortem, an_alert()).cards
         ) \
         .then(
-            _the_values_are("at least 40m 0s", "not measured", "not counted",
-                            "at least 500.00 USD"))
+            _the_values_are("at least 40m 0s", "not measured by the metrics",
+                            "not counted by the metrics", "at least 500.00 USD"))
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("extent", "expected"), [
     (ImpactExtent.MEASURED, Card(value="40m 0s", label="onset until back to normal")),
+    (ImpactExtent.REPORTED, Card(value="40m 0s", label="onset until reported resolved")),
     (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
                                  label="since onset, still not back to normal")),
-    (ImpactExtent.UNOBSERVED, Card(value="at least 40m 0s", label="since onset, unobserved"))],
-    ids=["measured", "at-least", "unobserved"])
+    (ImpactExtent.METRICS_MISSING, Card(value="at least 40m 0s",
+                                        label="since onset, metrics missing")),
+    (ImpactExtent.METRICS_RESUMED, Card(value="40m 0s",
+                                        label="onset until the metrics resumed")),
+    (ImpactExtent.DISPROVEN, Card(value="none", label="the alarm was disproven"))],
+    ids=["measured", "reported", "at-least", "metrics-missing", "metrics-resumed", "disproven"])
 def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -> None:
     # Labelled "until back to normal", a duration that never got back names an
     # end the incident never had - and a blind spell still going when the
-    # incident closed is no more over than a failure still going.
+    # incident closed is no more over than a failure still going. A blind
+    # spell that ended where the metrics resumed is over, and no floor. An end
+    # a person reported is theirs: back to normal is the metrics showing it.
+    # And of a disproven alarm there was no stretch to end.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -104,12 +126,167 @@ def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("extent", "expected"), [
+    (ImpactExtent.MEASURED, Card(value="40m 0s", label="the alert until back to normal")),
+    (ImpactExtent.REPORTED, Card(value="40m 0s", label="the alert until reported resolved")),
+    (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
+                                 label="since the alert, still not back to normal")),
+    (ImpactExtent.METRICS_MISSING, Card(value="at least 40m 0s",
+                                        label="since the alert, metrics missing")),
+    (ImpactExtent.METRICS_RESUMED, Card(value="40m 0s",
+                                        label="the alert until the metrics resumed"))],
+    ids=["measured", "reported", "at-least", "metrics-missing", "metrics-resumed"])
+def test_the_duration_of_an_incident_no_onset_was_measured_for_runs_from_the_alert(
+        extent: ImpactExtent, expected: Card) -> None:
+    # Measured from the alert, and "since onset" beside the head's "onset
+    # unknown" names a start nobody saw.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=NO_ONSET,
+                impact=Impact(duration=timedelta(minutes=40), extent=extent,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards[0]
+        ) \
+        .then(
+            the_answer_was(expected))
+
+
+@pytest.mark.unit
+def test_levels_of_an_incident_no_onset_was_measured_for_are_compared_with_before_the_alert(
+) -> None:
+    # The calm a level is set against is the hour before the alert where no
+    # onset was measured, on both cards that compare levels.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=NO_ONSET,
+                impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.02, requests_failed=72,
+                              error_rates=ErrorRateLevels(before=0.0104, while_broken=0.0093,
+                                                          rose=False),
+                              rule_series_harm=RuleSeriesHarm(before=0.8994, while_broken=0.45943,
+                                                              at_its_worst=0.39071,
+                                                              worse_when="below")))
+        ) \
+        .when(
+            lambda: [card.label for card in the_impact(some_postmortem, an_alert()).cards[1:3]]
+        ) \
+        .then(
+            the_answer_was(["error rate, before the alert and while broken on average",
+                            "what the alert watches, before the alert and while broken on "
+                            "average"]))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_stopped_with_no_onset_says_they_stop_at_the_alert() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=NO_ONSET,
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
+        ) \
+        .then(
+            the_answer_was("The metrics stop at the alert, so the duration is how long they had "
+                           "been missing by the close - not a stretch the service is known to "
+                           "have spent broken."))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_shows_there_was_none_and_the_minutes_its_claim_was_judged_on() -> None:
+    # No failure rate, count or loss: of an incident that never happened they
+    # read as figures nobody measured. In their place, what the rule's series
+    # read over the minutes the alarm claimed its condition held in, beside its
+    # line - the grounds of the disproof, which a reader otherwise takes on
+    # trust - said as the series' card of harm says a level.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(0), extent=ImpactExtent.DISPROVEN,
+                              peak_error_rate=None,
+                              before_the_alert=RuleSeriesBeforeTheAlert(
+                                  lowest=0.0, highest=0.015, first_minute=SOME_MINUTE,
+                                  last_minute=SOME_MINUTE + timedelta(minutes=6), line=0.1,
+                                  unit="percentunit", is_the_error_rate=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards
+        ) \
+        .then(
+            the_answer_was((Card(value="none", label="the alarm was disproven"),
+                            Card(value="0.0% to 1.5%",
+                                 label="what the alert watches, 19:12 to 19:18",
+                                 note="the rule's line is 10%"))))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_whose_rules_series_went_unread_says_only_that_there_was_none(
+) -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(0), extent=ImpactExtent.DISPROVEN,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards
+        ) \
+        .then(
+            the_answer_was((Card(value="none", label="the alarm was disproven"),)))
+
+
+@pytest.mark.unit
+def test_a_loss_counted_to_a_persons_report_is_no_lower_bound() -> None:
+    # Their report is the end (spec §16), and the takings were counted to it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.REPORTED,
+                              peak_error_rate=None),
+                customer_loss_estimate=Decimal("500"),
+                estimate_currency="usd")
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards[3]
+        ) \
+        .then(
+            the_answer_was(Card(value="500.00 USD", label="customer loss (estimated)",
+                                loss_is="measured")))
+
+
+@pytest.mark.unit
+def test_a_loss_counted_until_the_metrics_resumed_is_no_lower_bound() -> None:
+    # The stretch they were missing for ended, and the takings were counted
+    # over the whole of it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=6), extent=ImpactExtent.METRICS_RESUMED,
+                              peak_error_rate=None),
+                customer_loss_estimate=Decimal("500"),
+                estimate_currency="usd")
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards[3]
+        ) \
+        .then(
+            the_answer_was(Card(value="500.00 USD", label="customer loss (estimated)",
+                                loss_is="measured")))
+
+
+@pytest.mark.unit
 def test_a_lower_bound_on_the_loss_is_said_to_be_one() -> None:
     # For a destination that marks it: the page tags the card with which it is.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
-                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
                               peak_error_rate=None),
                 customer_loss_estimate=Decimal("500"),
                 estimate_currency="usd")
@@ -174,6 +351,28 @@ def test_what_the_alert_found_is_said_beside_the_cards() -> None:
 
 
 @pytest.mark.unit
+def test_what_the_alert_found_is_under_the_label_it_is_cited_by() -> None:
+    # Said here alone, so a citation of what the alert said leads here.
+    some_finding = "212 order totals disagree with their items"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=datetime(2026, 10, 11, 14, 5, tzinfo=UTC), rule="dont care",
+                onset_at=None, gap=None,
+                said=CitedEvidence(label="AL1", text=some_finding)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem,
+                               Alert(alert_name="dont care", service="dont care",
+                                     summary=some_finding,
+                                     claim=AlarmClaim.ITS_OWN_FINDING)).finding_label
+        ) \
+        .then(
+            the_answer_was("AL1"))
+
+
+@pytest.mark.unit
 def test_an_alert_that_found_nothing_in_words_adds_no_finding() -> None:
     Scenario() \
         .given(
@@ -209,15 +408,147 @@ def test_an_incident_whose_metrics_stopped_says_what_its_duration_measures() -> 
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
-                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
                               peak_error_rate=None))
         ) \
         .when(
-            lambda: the_impact(some_postmortem, an_alert()).unobserved
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
         ) \
         .then(
-            the_answer_was("Unobserved after a point - the metrics stopped, so the duration "
-                           "is how long nobody could see."))
+            the_answer_was("The metrics stop at the onset, so the duration is how long they had "
+                           "been missing by the close - not a stretch the service is known to "
+                           "have spent broken."))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_resumed_says_its_duration_is_how_long_they_were_missing(
+) -> None:
+    # Not "by the close": the stretch ended where they resumed, before it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=6), extent=ImpactExtent.METRICS_RESUMED,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
+        ) \
+        .then(
+            the_answer_was("The metrics stop at the onset, so the duration is how long they were "
+                           "missing, until they resumed - not a stretch the service is known to "
+                           "have spent broken."))
+
+
+@pytest.mark.unit
+def test_the_logs_reaching_into_the_stretch_the_metrics_missed_are_named_with_how_far() -> None:
+    # Impact said what the metrics did not measure and never that the shop's
+    # own logs measured it through the gap - the strongest evidence of how it
+    # was doing there, given in the cause and nowhere in Impact. How far, said
+    # once, and where the reading of them ended: where the lines stop is as
+    # often where the reading did.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_metrics_missing(LogsInTheGap(
+                read=True, labels=["G46bc", "Gbac1"], reach_until=SOME_MINUTE,
+                read_until=SOME_MINUTE + timedelta(seconds=55), read_until_the_alert=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(all_of(
+            _the_note_reads("The service's own logs reach into the stretch the metrics missed "
+                            "until Oct 21, 2026, 19:12 UTC: G46bc, Gbac1. They were read up to "
+                            "Oct 21, 2026, 19:12:55 UTC, when the alert was raised."),
+            _the_note_cites("G46bc", "Gbac1")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("serving_as_before", "said"), [
+    (True, "As far as they show, the service went on serving as it had before the metrics "
+           "stopped."),
+    (False, "They do not show the service serving as it had before the metrics stopped.")
+], ids=["serving-as-before", "not-as-before"])
+def test_whether_the_logs_show_the_service_serving_as_before_follows_how_far_they_reach(
+        serving_as_before: bool, said: str) -> None:
+    # Said by the document rather than by the model: told to bound the claim, a
+    # write-up bounded it in one sentence and said it unbounded in the next.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_metrics_missing(LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=SOME_MINUTE,
+                read_until=SOME_MINUTE + timedelta(seconds=55), read_until_the_alert=True,
+                serving_as_before=serving_as_before)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            _the_note_reads("The service's own logs reach into the stretch the metrics missed "
+                            "until Oct 21, 2026, 19:12 UTC: G46bc. They were read up to "
+                            f"Oct 21, 2026, 19:12:55 UTC, when the alert was raised. {said}")
+        )
+
+
+@pytest.mark.unit
+def test_logs_reaching_as_far_as_they_were_read_say_the_instant_once() -> None:
+    # Said twice - "until 08:28 UTC: G46bc. They were read up to 08:28 UTC." -
+    # one instant reads as two facts, as it did in the summary.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_metrics_missing(LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=SOME_MINUTE, read_until=SOME_MINUTE,
+                read_until_the_alert=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            _the_note_reads("The service's own logs reach into the stretch the metrics missed "
+                            "until Oct 21, 2026, 19:12 UTC: G46bc. They were read up to then, "
+                            "when the alert was raised.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("logs", "said"), [
+    (LogsInTheGap(read=True, labels=[], reach_until=None, read_until=SOME_MINUTE,
+                  read_until_the_alert=False),
+     "No log line read reaches into the stretch the metrics missed. The logs were read up to "
+     "Oct 21, 2026, 19:12 UTC."),
+    (LogsInTheGap(read=False, labels=[], reach_until=None, read_until=None,
+                  read_until_the_alert=False),
+     "No logs were read.")
+], ids=["none-reaching-in", "none-read"])
+def test_logs_that_show_nothing_of_the_stretch_the_metrics_missed_say_so(logs: LogsInTheGap,
+                                                                         said: str) -> None:
+    # Said rather than left out: a note silent on the logs reads the same as
+    # one whose logs nobody looked at.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_metrics_missing(logs))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            _the_note_reads(said)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_never_stopped_says_nothing_of_logs_in_a_gap() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=9), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            the_answer_was(None))
 
 
 @pytest.mark.unit
@@ -229,7 +560,7 @@ def test_a_measured_incident_carries_no_note_on_its_duration() -> None:
                               peak_error_rate=None))
         ) \
         .when(
-            lambda: the_impact(some_postmortem, an_alert()).unobserved
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
         ) \
         .then(
             the_answer_was(None))
@@ -277,6 +608,28 @@ def test_an_error_rate_that_did_not_rise_is_one_card_saying_so() -> None:
                                  label="error rate, before onset and while broken on average",
                                  note="no rise"),
                             Card(value="not estimated", label="customer loss (estimated)"))))
+
+
+@pytest.mark.unit
+def test_an_error_rate_nobody_could_say_rose_or_not_is_shown_at_its_peak_and_in_requests_failed(
+) -> None:
+    # "No rise" is a claim, and nothing measured it: the rate went above the
+    # calm by an amount nobody could hold to its own variation. The peak and
+    # the count are measured whatever that variation is.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=19), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.35, requests_failed=3480,
+                              error_rates=ErrorRateLevels(before=0.0105, while_broken=0.1832,
+                                                          rose=None)),
+                customer_loss_estimate=None)
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards
+        ) \
+        .then(
+            _the_values_are("19m 0s", "35.0%", "3,480", "not estimated"))
 
 
 @pytest.mark.unit
@@ -336,12 +689,159 @@ def test_a_series_card_names_the_line_its_rule_pages_past() -> None:
             the_answer_was("worst minute 0.391; the rule's line is 0.8"))
 
 
+@pytest.mark.unit
+def test_a_series_that_is_the_error_rate_leaves_its_worst_minute_to_the_peak_card() -> None:
+    # Its worst minute is the peak error rate, on the card beside it; said again
+    # in the note it is the one figure twice.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=8), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.38,
+                              rule_series_harm=RuleSeriesHarm(before=0.00992, while_broken=0.276,
+                                                              at_its_worst=0.38,
+                                                              worse_when="above", line=0.1,
+                                                              unit="percentunit",
+                                                              is_the_error_rate=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("HighErrorRate")).cards[3].note
+        ) \
+        .then(
+            the_answer_was("the rule's line is 10%"))
+
+
+@pytest.mark.unit
+def test_a_series_that_is_the_error_rate_is_said_on_its_card_as_the_error_rate_is() -> None:
+    # The card read 1.02% where the summary beside it read the same rate as
+    # 1.0%: one figure written two ways. Said as the error rate is said, the
+    # card and the summary agree.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=8), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.38,
+                              rule_series_harm=RuleSeriesHarm(before=0.00992, while_broken=0.276,
+                                                              at_its_worst=0.38,
+                                                              worse_when="above", line=0.1,
+                                                              unit="percentunit",
+                                                              is_the_error_rate=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("HighErrorRate")).cards[3].value
+        ) \
+        .then(
+            the_answer_was("1.0% to 27.6%"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("harm", "value", "note"), [
+    (RuleSeriesHarm(before=120.0, while_broken=640.0, at_its_worst=910.0,
+                    worse_when="above", line=600.0, unit="ms"),
+     "120 ms to 640 ms", "worst minute 910 ms; the rule's line is 600 ms"),
+    (RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
+                    worse_when="below", line=0.8, unit="percentunit"),
+     "89.9% to 45.9%", "worst minute 39.1%; the rule's line is 80%")
+], ids=["milliseconds", "a-share-of-one"])
+def test_a_series_card_says_its_levels_in_their_unit(harm: RuleSeriesHarm, value: str,
+                                                     note: str) -> None:
+    # Beside an alert saying "below 80%", a card reading 0.899 to 0.459 is a
+    # second scale - in its unit, the card and the alert read as one.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=None, rule_series_harm=harm))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("CategorisationConfidenceLow")).cards[3]
+        ) \
+        .then(
+            the_answer_was(Card(value=value,
+                                label="what the alert watches, before onset and while broken "
+                                      "on average",
+                                note=note)))
+
+
+@pytest.mark.unit
+def test_how_long_requests_took_is_a_card_per_quantile_before_what_the_alert_watches() -> None:
+    # What the people using the service felt, where nothing else on the page
+    # says it: a postmortem of a service whose requests took about six and a
+    # half times as long at worst gave only the memory its alert watched as the
+    # harm, which nobody using the service felt. Said as the series is -
+    # before, then while broken on average, the worst minute in the note - in
+    # milliseconds, and before the series: what was felt, then what paged.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.012,
+                              error_rates=ErrorRateLevels(before=0.011, while_broken=0.012,
+                                                          rose=False),
+                              latency_harm=[
+                                  LatencyHarm(quantile="p95", before=215.13, while_broken=586.4,
+                                              at_its_worst=1449.0),
+                                  LatencyHarm(quantile="p99", before=302.4, while_broken=949.6,
+                                              at_its_worst=2210.0)],
+                              rule_series_harm=RuleSeriesHarm(before=0.217, while_broken=0.6,
+                                                              at_its_worst=0.844,
+                                                              worse_when="above")))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("ContainerMemoryHigh")).cards[2:5]
+        ) \
+        .then(
+            the_answer_was((Card(value="215 ms to 586 ms",
+                                 label="p95 latency, before onset and while broken on average",
+                                 note="worst minute 1449 ms"),
+                            Card(value="302 ms to 950 ms",
+                                 label="p99 latency, before onset and while broken on average",
+                                 note="worst minute 2210 ms"),
+                            Card(value="0.217 to 0.6",
+                                 label="what the alert watches, before onset and while broken "
+                                       "on average",
+                                 note="worst minute 0.844"))))
+
+
 def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:
     def assertion(cards: tuple[Card, ...]) -> bool:
         values = tuple(card.value for card in cards)
 
         if values != expected:
             raise AssertionError(f"Expected the cards to read {expected}, got {values}.")
+
+        return True
+
+    return assertion
+
+
+def _metrics_missing(logs: LogsInTheGap) -> Impact:
+    """An incident whose metrics stopped at the onset, with these logs read."""
+    return Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
+                  peak_error_rate=None, logs_in_the_gap=logs)
+
+
+def _the_note_reads(expected: str) -> Assertion[Line | None]:
+    def assertion(note: Line | None) -> bool:
+        said = note.said if note is not None else None
+
+        if said != expected:
+            raise AssertionError(f"Expected the note on the logs to read [{expected}], "
+                                 f"got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_note_cites(*labels: str) -> Assertion[Line | None]:
+    def assertion(note: Line | None) -> bool:
+        cited = [run.address for run in note.runs
+                 if run.role is Role.CITATION] if note is not None else []
+
+        if cited != list(labels):
+            raise AssertionError(f"Expected the note to cite {list(labels)}, and it cited "
+                                 f"{cited}.")
 
         return True
 

@@ -90,7 +90,7 @@ def test_a_fixing_incident_is_still_going() -> None:
 
 @pytest.mark.unit
 def test_a_withdrawn_incident_has_nowhere_left_to_go() -> None:
-    # A human took the incident back. Argus stops, and unlike `fixing` there is
+    # A human withdrew the incident. Argus stops, and unlike `fixing` there is
     # nothing of Argus's still working on it.
     Scenario() \
         .given(
@@ -195,7 +195,7 @@ def test_a_person_may_report_the_incident_resolved(resolvable: IncidentStatus) -
     IncidentStatus.DISPROVEN
 ])
 def test_a_person_may_not_report_the_incident_resolved(unresolvable: IncidentStatus) -> None:
-    # Resolved already is; withdrawn was taken back, and resolving it would
+    # Resolved already is; withdrawn was handed to a person, and resolving it would
     # rewrite why it ended; disproven had no incident to resolve.
     Scenario() \
         .given(
@@ -218,7 +218,7 @@ def test_a_person_may_not_report_the_incident_resolved(unresolvable: IncidentSta
 ])
 def test_a_person_may_withdraw_an_incident_still_being_worked_on(
         withdrawable: IncidentStatus) -> None:
-    # Withdrawing is taking the work back, and there is work to take back
+    # Withdrawing is taking the work over, and there is work to take over
     # only until the incident ends - Code-Fix's `fixing` included.
     Scenario() \
         .given(

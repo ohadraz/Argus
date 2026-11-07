@@ -11,6 +11,7 @@ returns values; `reads` fetches the rows and the templates put tags around what
 comes back.
 """
 
+from argus_web.views.decorating import RowsHeld
 from argus_web.views.incidents import (
     Attempt,
     Candidate,
@@ -24,6 +25,7 @@ from argus_web.views.storytelling import (
     Story,
     build_live_incident,
     build_story,
+    the_rows_held,
 )
 
 __all__ = [
@@ -32,9 +34,11 @@ __all__ = [
     "IncidentDetail",
     "IncidentSummary",
     "LiveIncident",
+    "RowsHeld",
     "Story",
     "build_incident_detail",
     "build_incident_summary",
     "build_live_incident",
-    "build_story"
+    "build_story",
+    "the_rows_held"
 ]

@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSpAYKEAgTGAI4AUIIdGhpbmtpbmcSDNQ535B3/xhcK+FkOhoMIlg01EEiNLKqOWs0IjA9pxZwl9O/abAqSw/kicgIVCm0MGeV2luv9Ybz9ALI6JaZO57nZ63dVmEBGGL81PYqwQWIdSikCMIQd1TMneoCbgFJbGK+HLvXwU3Jviccv7EeLU96s0g6JhwHvWzkIpIaQCE3ptw6jm1TNne7C9oRYIBC1ZgYz+Fx8YlAhVIKonjzaA5if9Y3Pf73uIkZuSqAptHmI8SeXSpUdkfhxyp4D3BCyVPmdNnUNGW90PlMYjJAUrFzr2u4RlWQwLL/KceS5xCdKao+RzIIXXpJdUWEd1Sf/S0cuoNkAS/UDkBNSwFNiYiDAnwEfrI2LHup8afd4eV2dYmAjJro+RXNpgvGyaac18Qw2u/datdOh7+p2Z6AQneBveJl6+0UALRo+n2ymAvZ/XnaBKP4gw8JXwfz8owdREoe1qAVxPU5HQA+AkAUbnI/hKB5s7IxsEfVHl+k6wNNArvRoMMZEg6+q2rW7nSHLszyP0u8UV/sOjHPRnLcuPTrNYiVeIhf1xDjeisN40VOJEcuyxXj6Mlut8uXDAwu3k9f0qL2VkB6UD0ArMp7hcVj9Wtcu1w0jaA6FImY7WbVchjB0Gda4SXQ5eg5hoeli1z13CXG6/CCwxcfzwwmbofFn+Aht/iTo9rwtPfaEGgegvHTC+PJC4GuWTq5aebyXvOiKhMkIiO+kUS3v8a49zNIhmEVxikCTupVFfos5kBSBlbF/wnRt1AiZ1A20gcdEMNjuwiX+IkA6+Nrb16AGAI689WPQ/6vEL2g1mXk+QtowcL8oldtBLOdKoUNGHflYE4YY+8+b5l4Nr+V6UXYtzTlRvugAlmAUW4pLkbT03hNpA6diUvLLTFMfNX8P5gHLobZ+7O4C/geueATCaeJVywXJDpwv1lk/q2Jky8+sg2IP9AjT90P05+Tl7z4j3CBq0uqfsQF+xql1Vzyj7up2R6c01K6HafeOAaZwdNbQB+puT7daq55vPjP2aYmN1siZz1CVvB9ds74CadjrkTUHvsYAQ==",
+      "thinking": "Checking the causal chain: the admin turned on the flag, which routed requests down the division code path, triggering the ZeroDivisionError symptom. The ordering 1,2,3,4 already tracks correctly from root cause to observed effect.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01KGW4M9E6yyvGiXeBgnwYya",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgStRpCwEjfdvEcc5kkGe",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1320
+    },
+    "cache_creation_input_tokens": 1320,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 162,
+    "output_tokens_details": {
+      "thinking_tokens": 104
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

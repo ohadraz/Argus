@@ -28,7 +28,7 @@ from orchestrator.walk.routes import (
     INVESTIGATING_ROUTE,
     MITIGATING_ROUTE,
 )
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import IncidentState, another_round_is_bought
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,14 @@ def next_candidate_node(state: IncidentState,
     Three outcomes, in the order they are worth having. Another candidate above
     the mitigate threshold is tried, because the second explanation of a
     correlated change is usually still on the list. Failing that, another
-    investigation is bought - and what buys it is the refutation, not a wider
-    window: Argus changed production and the service did not answer, which is
-    evidence no amount of re-reading produces and which the model has never
-    seen. Gating that on leftover widening budget shut the door at exactly the
-    wrong moment, since a hard incident spends its whole schedule reaching a
-    confident first answer. Failing both, there are no moves left and a human is
-    needed.
+    investigation is bought - and what buys it is a refutation since the latest
+    round began, not a wider window: Argus changed production and the service
+    did not answer, which is evidence no amount of re-reading produces and which
+    the model has never seen. Gating that on leftover widening budget shut the
+    door at exactly the wrong moment, since a hard incident spends its whole
+    schedule reaching a confident first answer. A list spent with nothing
+    refuted buys nothing, because the next round would be handed what the last
+    one was. Failing both, there are no moves left and a human is needed.
 
     What was just tried is remembered on the way past. That record is the one
     thing a later round knows that the first could not, and it belongs here,
@@ -73,7 +74,8 @@ def next_candidate_node(state: IncidentState,
         what_each_would_do(
             state.candidates,
             the_circumstances(
-                state.alert, state.flag_changes, state.deployments, state.placement
+                state.alert, state.flag_changes, state.deployments, state.placement,
+                deployment_changes=state.deployment_changes, onset=state.onset
             )
         ),
         attempts,
@@ -101,8 +103,7 @@ def next_candidate_node(state: IncidentState,
             CandidateSelected(
                 incident_id=state.incident_id,
                 hypothesis_id=next_candidate.id,
-                summary=next_candidate.summary,
-                confidence=next_candidate.confidence
+                candidate_number=next_candidate.number
             ),
             publisher
         )
@@ -136,29 +137,61 @@ def next_candidate_node(state: IncidentState,
             )
         )
 
-    if state.rounds < max_rounds:
+    # Asked of the state as this node leaves it, the attempt just made
+    # included, which is what `status_after` will be asked of.
+    if another_round_is_bought(state.model_copy(update={"attempts": attempts}),
+                               max_rounds):
+        # Not "every explanation was refuted": a candidate the gate refused or
+        # the tier could not act on was never tested, and a line saying it was
+        # refuted puts a measurement in the record that never happened.
         return StateDelta(
             attempts=attempts,
             candidate_index=next_index,
             narration=Narration(
-                action="every explanation was refuted, investigating again"
+                action="no explanation left to try, investigating again"
             )
         )
 
     # No mitigation is left, and what remains is a permanent fix - which is
     # the one thing `fixing` means. Reported, not decided: the index past the end
-    # of the list and a spent round budget are what say so.
+    # of the list, and no round left to buy, are what say so.
     return StateDelta(
         attempts=attempts,
         candidate_index=next_index,
-        narration=Narration(
-            action="no explanation left to try",
-            detail=(
-                f"no explanation left to try - {len(attempts)} action(s) were "
-                f"taken and undone, and the evidence offers nothing further"
-            )
+        narration=nothing_left_to_try(attempts)
+    )
+
+
+def nothing_left_to_try(attempts: Sequence[Attempt]) -> Narration:
+    """What the walk says on its way to Code-Fix with its list spent.
+
+    Public because two nodes spend a list: this one, out of candidates, and
+    the investigation, whose round named only what the walk had already
+    tried. One sentence for both, so the two roads to the same move cannot
+    come to say it differently.
+
+    How many actions, and nothing about what became of them: a restart puts
+    nothing back and a change left as found was not put back, and where a
+    change was put back or left as found, its verdict's own line says so.
+    """
+    return Narration(
+        action="no explanation left to try",
+        detail=(
+            f"no explanation left to try - {_how_many_were_taken(len(attempts))}, "
+            f"and the evidence offers nothing further"
         )
     )
+
+
+def _how_many_were_taken(count: int) -> str:
+    """The count of actions the walk took, said as a count."""
+    if count == 0:
+        return "no action was taken"
+
+    if count == 1:
+        return "1 action was taken"
+
+    return f"{count} actions were taken"
 
 
 def _what_the_platforms_took_away(platforms: Sequence[Platform]) -> str:
@@ -183,8 +216,8 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     """The attempt this node is reacting to, if production was actually changed.
 
     An action the gate refused never ran, so there is nothing to remember and
-    nothing a later round could learn from it. Only a change that was made -
-    and undone - is evidence about the cause it was made on.
+    nothing a later round could learn from it. Only a change that was made is
+    evidence about the cause it was made on.
 
     A cleared action is the whole of that test, and it is the whole of it for
     every kind. It used to ask after the undo descriptor as well, which stopped
@@ -195,7 +228,7 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
 
     Dated by when the action was taken, not by when the walk moved on from it.
     A later round reads the attempt beside the flag provider's record of the
-    same change, and this node runs after the wait for the service to answer -
+    same change, and this node runs after the verification wait -
     dated here, the two disagreed by the length of that wait, and the round
     read two changes where there was one.
     """
@@ -208,7 +241,12 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
         Attempt(
             identity=the_identity_of(action),
             enabled=the_direction_of(action),
-            occurred_at=to_iso(state.acted_at)
+            occurred_at=to_iso(state.acted_at),
+            # Always a refutation's reason here: this node is reached after a
+            # refuted action, and an escalated one ends the walk before it.
+            # `None` only where the walk resumed from a claim, whose recorded
+            # outcome carries the verdict and not the reason.
+            refuted_because=state.action_because
         )
     ]
 

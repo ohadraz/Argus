@@ -7,8 +7,11 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
+    CodeOutsideThePatch,
+    DeploymentChanges,
     MetricBucket,
     PodPlacement,
+    RolloutAccount,
     RolloutProgress,
     ServiceDependency,
 )
@@ -24,14 +27,16 @@ _CHANGE_EVENTS: Final = TypeAdapter(list[ChangeEvent])
 _FLAG_NAMES: Final = TypeAdapter(list[str])
 _SERVICE_DEPENDENCIES: Final = TypeAdapter(list[ServiceDependency])
 _FILE_PATHS: Final = TypeAdapter(list[str])
-_WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
-_ROLLOUT_STATE: Final = TypeAdapter(list[str])
+_WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(DeploymentChanges)
+_ROLLOUT_STATE: Final = TypeAdapter(RolloutAccount)
 _ROLLOUT_PROGRESS: Final = TypeAdapter(RolloutProgress)
 _ALERT_RULE: Final = TypeAdapter(AlertRuleStanding)
 _PLACEMENTS: Final = TypeAdapter(list[PodPlacement])
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
+_CONTAINED: Final = TypeAdapter(bool)
+_CODE_OUTSIDE: Final = TypeAdapter(CodeOutsideThePatch)
 
 # Where the server's tools are served, under the address the endpoint names.
 # Here rather than at each call because it is the read tier's own spelling of
@@ -123,9 +128,10 @@ def get_change_events(service: str,
 def get_what_a_deployment_changed(service: str,
                                   revision: str,
                                   *,
-                                  client: McpClient) -> list[str]:
+                                  client: McpClient) -> DeploymentChanges:
     """Reads what one deployment of a service changed - the files that differ
-    from the revision deployed before it, and the change made to each.
+    from the revision deployed before it, and the change made to each - and
+    whether the answer names every one of them.
 
     The evidence that separates a bad deployment from a broken configuration, and
     the only evidence that does. Both arrive as a deployment and are put right the
@@ -154,7 +160,7 @@ def get_what_a_deployment_changed(service: str,
     )
 
 
-def get_rollout_state(service: str, *, client: McpClient) -> list[str]:
+def get_rollout_state(service: str, *, client: McpClient) -> RolloutAccount:
     """Reads whether the deployment a service is running has finished arriving.
 
     The evidence that separates a revision which is wrong from two revisions
@@ -171,7 +177,8 @@ def get_rollout_state(service: str, *, client: McpClient) -> list[str]:
     What comes back describes and does not judge. Every deployment is part way
     through for a minute or two, so the answer says what the platform reports and
     when the state began, and whether that is too long is the caller's to decide
-    against an onset this channel has never seen.
+    against an onset this channel has never seen. It is a value - the counts, and
+    the revision going out and the one before it - and saying it is the caller's.
 
     Raises rather than answering that the deployment converged when the platform
     could not be reached. That answer rules a mode out, so an outage read as
@@ -189,10 +196,8 @@ def get_rollout_progress(service: str, *, client: McpClient) -> RolloutProgress:
     rolled out, as counts.
 
     The same channel as `get_rollout_state` and the other half of its audience.
-    That one answers a model in sentences; this answers a caller in numbers, and
-    the two are kept apart so that neither has to be parsed to serve the other -
-    a caller hunting a replica count inside prose would make a vendor's phrasing
-    into a dependency, which is the mistake the typed clients exist to avoid.
+    That one names the revisions a reader weighs; this answers a caller in
+    numbers alone, and reads no history to do it.
 
     Who waits on it: an agent that has just changed something and may not measure
     anything until the change has arrived. A rollback is accepted long before it
@@ -243,6 +248,23 @@ def get_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
         "get_placements",
         _PLACEMENTS.validate_python,
         service=service
+    )
+
+
+def branch_contains_revision(branch: str, revision: str, *, client: McpClient) -> bool:
+    """Reads whether `revision` is in `branch`'s history.
+
+    What Code-Fix is told before it reads anything: the revision running when the
+    alert fired may have been deployed from a branch never merged into the
+    one it reads, and then the files it opens are not the files that ran.
+
+    Raises rather than answering that the branch does not contain it when the
+    repository could not be reached: told so, Code-Fix hedges every claim it
+    makes about the code, on a fact nobody established.
+    """
+    return client.call(
+        "branch_contains_revision", _CONTAINED.validate_python, branch=branch,
+        revision=revision
     )
 
 
@@ -358,6 +380,31 @@ def search_repository_by_meaning(description: str,
         "search_repository_by_meaning",
         _PASSAGES.validate_python,
         description=description,
+        ref=ref,
+    )
+
+
+def get_code_outside_the_patch(files: dict[str, str],
+                               ref: str,
+                               *,
+                               client: McpClient) -> CodeOutsideThePatch:
+    """Reads how the Target Service's own code at `ref` uses what a patch -
+    `files`, each path's whole new content - changes, line by line with what
+    each line does, and every function and class defined outside the patch's
+    files.
+
+    For Code-Fix rather than for its model: what each line outside a patch does
+    with what the patch changes is the syntax tree's to say, so a submission
+    speaking of several of those pieces at once is sent back with these rows.
+
+    Raises rather than answering that nothing uses what changed when the source
+    could not be read - the silent answer says the patch touches nothing anybody
+    reads.
+    """
+    return client.call(
+        "get_code_outside_the_patch",
+        _CODE_OUTSIDE.validate_python,
+        files=files,
         ref=ref,
     )
 

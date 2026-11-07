@@ -13,28 +13,38 @@ transition, and it fails alone.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import pytest
-from argus_core import connect_from_env
+from agent_postmortem import said_off_the_page
+from argus_core import connect_from_env, utc_now
 from argus_core.events import (
     IncidentEvent,
     LeadWeighed,
+    PostmortemWritten,
     Publisher,
     StatusChanged,
     VerdictReached,
 )
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
+    ActionIdentity,
+    ActionProgress,
     Actor,
     Alert,
     FlagUndo,
     IncidentStatus,
     Meaning,
+    PostmortemDocument,
     Standing,
     ThreadMessage,
+    UndoDescriptor,
+    Undone,
     Verdict,
     Weighing,
+    WhatArgusDid,
+    WhatWasTried,
 )
 from argus_incidents.publishing import events_into_connection
 from argus_incidents.repository import (
@@ -45,7 +55,10 @@ from argus_incidents.repository import (
     taken_actions,
 )
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from incident_memory.filing import get_undelivered
+from incident_memory.records import RememberedIncident
 from orchestrator.records import Records
+from orchestrator.walk.ports import ClaimedAction
 
 from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead
 
@@ -65,7 +78,7 @@ def test_a_transition_survives_a_narration_that_could_not_be_written(
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
 
@@ -87,6 +100,32 @@ def test_a_transition_survives_a_narration_that_could_not_be_written(
 
 
 @pytest.mark.component
+def test_a_transition_that_ends_an_incident_ends_it_at_the_moment_it_is_narrated(
+    a_clean_database: None
+) -> None:
+    # The summary said Argus stopped a second before the line saying it had:
+    # the row's end was the database's transaction start.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            narrating := _a_status_change_for(incident_id, IncidentStatus.ESCALATED)
+        ) \
+        .when(
+            lambda: records.transition(incident_id, IncidentStatus.ESCALATED,
+                                       narrating=narrating)
+        ) \
+        .then(
+            _the_incident_ended_at(incident_id, narrating.at)
+        )
+
+
+@pytest.mark.component
 def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
     a_clean_database: None
 ) -> None:
@@ -98,7 +137,7 @@ def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     seen_mid_write: list[IncidentStatus] = []
 
@@ -138,8 +177,8 @@ def test_a_withdrawn_incident_is_neither_moved_nor_said_to_have_moved(
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())
 
     records = Records(connect_from_env, publisher_for=events_into_connection)
 
@@ -173,7 +212,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
     dont_care_undo_descriptor = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
         taken_actions.claim(
@@ -181,7 +220,8 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
             incident_id,
             hypothesis_id=candidate.id,
             action_type=DONT_CARE_ACTION,
-            subject="dont-care-flag"
+            subject="dont-care-flag",
+            at=utc_now()
         )
 
     seen_mid_write: list[str | None] = []
@@ -203,6 +243,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
                 hypothesis_id=candidate.id,
                 outcome=some_outcome,
                 undo_descriptor=dont_care_undo_descriptor,
+                left_behind_known=True,
                 narrating=VerdictReached(
                     incident_id=incident_id,
                     hypothesis_id=candidate.id,
@@ -230,7 +271,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
     dont_care_undo_descriptor = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
         taken_actions.claim(
@@ -238,7 +279,8 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
             incident_id,
             hypothesis_id=candidate.id,
             action_type=DONT_CARE_ACTION,
-            subject="dont-care-flag"
+            subject="dont-care-flag",
+            at=utc_now()
         )
 
     records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
@@ -253,6 +295,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
                 hypothesis_id=candidate.id,
                 outcome=some_outcome,
                 undo_descriptor=dont_care_undo_descriptor,
+                left_behind_known=True,
                 narrating=VerdictReached(
                     incident_id=incident_id,
                     hypothesis_id=candidate.id,
@@ -267,6 +310,73 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
 
 
 @pytest.mark.component
+def test_a_change_made_is_on_the_claim_for_anybody_who_reads_it_next(
+    a_clean_database: None
+) -> None:
+    # Written before the wait so that a worker dying during it leaves the change
+    # on record - which is only so if it is committed by the time the wait
+    # begins, and so seen from another connection.
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    some_way_back = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                            action_type=DONT_CARE_ACTION, subject="monthly-spend-feature",
+                            at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            candidate.id
+        ) \
+        .when(
+            lambda: records.advance_action(incident_id, hypothesis_id=candidate.id,
+                                           to=ActionProgress.PERFORMED,
+                                           undo_descriptor=some_way_back)
+        ) \
+        .then(all_of(
+            _the_action_is_seen_as(incident_id, ActionProgress.PERFORMED, some_way_back),
+            _nothing_was_narrated(incident_id)
+        ))
+
+
+@pytest.mark.component
+def test_a_claim_found_by_a_resumed_walk_says_how_far_it_got(
+    a_clean_database: None
+) -> None:
+    # What the resumed walk decides on: a change already told as made needs
+    # nobody asked about it.
+    some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                            action_type=DONT_CARE_ACTION, subject="dont-care-flag",
+                            at=utc_now())
+        taken_actions.advance(conn, incident_id, hypothesis_id=candidate.id,
+                              to=ActionProgress.PERFORMED, undo_descriptor=None)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            candidate.id
+        ) \
+        .when(
+            lambda: records.claimed_action(incident_id, hypothesis_id=candidate.id)
+        ) \
+        .then(
+            _it_got_as_far_as(ActionProgress.PERFORMED)
+        )
+
+
+@pytest.mark.component
 def test_a_weighing_is_kept_on_the_lead_and_said(
     a_clean_database: None
 ) -> None:
@@ -277,7 +387,7 @@ def test_a_weighing_is_kept_on_the_lead_and_said(
     some_weighing = Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_written = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon")
     records = Records(connect_from_env, publisher_for=events_into_connection)
@@ -306,7 +416,7 @@ def test_a_weighing_survives_a_narration_that_could_not_be_written(
     some_weighing = Weighing(standing=Standing.REFUTED, reason="the database answered throughout")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_written = _a_lead_written_in(incident_id, "it is the database again")
     records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
@@ -333,7 +443,7 @@ def test_a_lead_nobody_weighed_is_refused_rather_than_said_to_be_weighed(
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_written = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon")
     records = Records(connect_from_env, publisher_for=events_into_connection)
@@ -361,8 +471,8 @@ def test_the_leads_read_are_what_people_told_this_incident(
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        another_incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        another_incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_here = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon",
                                      ts="1760000100.000200")
@@ -380,6 +490,220 @@ def test_the_leads_read_are_what_people_told_this_incident(
         .then(
             _the_leads_are([a_lead_here])
         )
+
+
+@pytest.mark.component
+def test_a_write_up_is_said_by_its_summary_as_it_reads_off_the_page_with_its_cause(
+    a_clean_database: None
+) -> None:
+    # Said in a channel, the summary's "(C1)" leads nowhere: there is no row
+    # there for it to name. The cause in plain words travels beside it, as the
+    # part of it a reader scanning a list of endings is looking for.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_cause = "A flag change turned off the fallback checkout relies on."
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_document := _a_document_saying(
+                some_cause,
+                f"{some_cause} Argus did not test the first candidate it formed (C1): it "
+                f"was held back.")
+        ) \
+        .when(
+            lambda: records.postmortem(incident_id, a_document)
+        ) \
+        .then(
+            _the_write_up_was_said(incident_id, some_cause,
+                                   said_off_the_page(a_document.executive_summary or ""))
+        )
+
+
+@pytest.mark.component
+def test_what_an_incident_tried_is_filed_for_the_store_to_be_given(
+    a_clean_database: None
+) -> None:
+    # The walk's one write to long-term memory, and a row rather than the store:
+    # a row is a write the fence can refuse for a run a newer claim holds, and
+    # the store is filled from the rows by a process of its own.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_record := _a_record_of(incident_id)
+        ) \
+        .when(
+            lambda: records.memory(a_record)
+        ) \
+        .then(
+            _it_waits_to_be_delivered(a_record)
+        )
+
+
+@pytest.mark.component
+def test_what_argus_did_is_each_judged_action_with_whether_its_change_still_stands(
+    a_clean_database: None
+) -> None:
+    # What Code-Fix is told an incident did. A revert said as refuted and no
+    # more reads as a flag still off, when Mitigation put it back on finding it
+    # did not help - so each action carries its standing, in the words the
+    # write-up says it in. In the order taken, whatever order the rows were
+    # written in. An action that reached no verdict says nothing about the
+    # cause, and is left out; another incident's is about a different fault.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 9, 27, 9, 25, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=some_moment)
+        another_incident_id = incidents.create(conn, some_alert, at=some_moment)
+
+    _a_revert_reaching(incident_id, "muki-flag", Verdict.CONFIRMED,
+                       at=some_moment + timedelta(minutes=8))
+    _a_revert_reaching(incident_id, "buki-flag", Verdict.ESCALATED,
+                       at=some_moment + timedelta(minutes=4))
+    _a_revert_reaching(incident_id, "kuki-flag", Verdict.REFUTED, at=some_moment,
+                       undone=Undone.RESTORED)
+    _a_revert_reaching(another_incident_id, "tuki-flag", Verdict.REFUTED,
+                       at=some_moment + timedelta(minutes=2), undone=Undone.RESTORED)
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: records.what_argus_did(incident_id)
+        ) \
+        .then(
+            _argus_did([
+                WhatArgusDid(identity=_the_revert_of("kuki-flag"),
+                             verdict=Verdict.REFUTED,
+                             standing="put back when it did not help"),
+                WhatArgusDid(identity=_the_revert_of("muki-flag"),
+                             verdict=Verdict.CONFIRMED,
+                             standing="still in place")
+            ])
+        )
+
+
+def _the_revert_of(flag: str) -> ActionIdentity:
+    return ActionIdentity(action_type=REVERT_FEATURE_FLAG, subject=flag)
+
+
+def _a_revert_reaching(incident_id: str,
+                       flag: str,
+                       verdict: Verdict,
+                       *,
+                       at: datetime,
+                       undone: Undone | None = None) -> None:
+    """A revert of `flag`, taken at `at` for a candidate of its own, and what it
+    came to."""
+    candidate = a_determined_hypothesis(incident_id)
+
+    with connect_from_env() as conn:
+        hypotheses.record(conn, candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                            action_type=REVERT_FEATURE_FLAG, subject=flag, at=at)
+        taken_actions.complete(conn, incident_id, hypothesis_id=candidate.id,
+                               outcome=verdict,
+                               undo_descriptor=FlagUndo(flag=flag, was_enabled=True),
+                               left_behind_known=True,
+                               undone=undone)
+
+
+def _argus_did(expected: list[WhatArgusDid]) -> Assertion[list[WhatArgusDid]]:
+    def assertion(done: list[WhatArgusDid]) -> bool:
+        if done != expected:
+            raise AssertionError(
+                f"Expected the record to say Argus did {expected}, and it said {done}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_record_of(incident_id: str) -> RememberedIncident:
+    """What an incident tried, as a finished walk composes it."""
+    dont_care_description = "checkout began failing after a flag was switched on"
+
+    return RememberedIncident(
+        incident_id=incident_id,
+        described_as=dont_care_description,
+        service="kuki-service",
+        alert_name="HighErrorRate",
+        tried=[
+            WhatWasTried(
+                identity=ActionIdentity(action_type=DONT_CARE_ACTION, subject="kuki-flag"),
+                verdict=Verdict.REFUTED
+            )
+        ]
+    )
+
+
+def _it_waits_to_be_delivered(record: RememberedIncident) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            waiting = [filed.record for filed in get_undelivered(conn, limit=10)]
+
+        if waiting != [record]:
+            raise AssertionError(
+                f"Expected [{record}] filed and waiting to be delivered, and the "
+                f"record holds {waiting}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_document_saying(cause: str, summary: str) -> PostmortemDocument:
+    """A write-up whose cause and summary are these, and nothing else of it
+    measured."""
+    dont_care_root_cause = "a flag toggle disabled the checkout fallback"
+
+    return PostmortemDocument(
+        root_cause=dont_care_root_cause,
+        cause_in_plain_words=cause,
+        executive_summary=summary,
+        customer_loss_estimate=None,
+        estimate_currency=None,
+        engineer_minutes=None,
+        responders=None,
+        tokens_spent=None,
+        assumptions=[]
+    )
+
+
+def _the_write_up_was_said(incident_id: str,
+                           cause: str,
+                           summary: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            narrated = events.get_by_incident(conn, incident_id)
+
+        said = [(event.cause_in_plain_words, event.executive_summary)
+                for event in narrated
+                if isinstance(event, PostmortemWritten)]
+
+        if said != [(cause, summary)]:
+            raise AssertionError(
+                f"Expected the stream to say the postmortem was written once, by the "
+                f"cause [{cause}] and the summary [{summary}], and it said {said}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_lead_written_in(incident_id: str,
@@ -422,6 +746,22 @@ def _the_incident_is(incident_id: str, status: IncidentStatus) -> Assertion[None
         if incident.status != status:
             raise AssertionError(
                 f"Expected the incident to be [{status}], got [{incident.status}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_ended_at(incident_id: str, moment: datetime) -> Assertion[bool]:
+    def assertion(_moved: bool) -> bool:
+        with connect_from_env() as conn:
+            incident = incidents.get(conn, incident_id)
+
+        ended_at = incident.ended_at if incident is not None else None
+        if ended_at != moment:
+            raise AssertionError(
+                f"Expected the incident to end at [{moment}], got [{ended_at}]."
             )
 
         return True
@@ -564,6 +904,36 @@ def _the_action_records_the_outcome(incident_id: str,
             raise AssertionError(
                 f"Expected the action to record [{outcome}], got [{taken.outcome}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_action_is_seen_as(incident_id: str,
+                          progress: ActionProgress,
+                          undo_descriptor: UndoDescriptor) -> Assertion[None]:
+    """The incident's one action as a connection of its own reads it."""
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            seen = [(taken.progress, taken.undo_descriptor)
+                    for taken in taken_actions.get_by_incident(conn, incident_id)]
+
+        if seen != [(progress, undo_descriptor)]:
+            raise AssertionError(f"Expected one action seen as [{progress}] carrying "
+                                 f"[{undo_descriptor}], got {seen}.")
+
+        return True
+
+    return assertion
+
+
+def _it_got_as_far_as(expected: ActionProgress) -> Assertion[ClaimedAction | None]:
+    def assertion(claimed: ClaimedAction | None) -> bool:
+        found = claimed.progress if claimed is not None else None
+        if found is not expected:
+            raise AssertionError(f"Expected the claim read back as [{expected}], "
+                                 f"got [{found}].")
 
         return True
 

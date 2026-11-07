@@ -142,7 +142,7 @@ def an_action_restarting(service: str) -> Action:
 
 
 def an_outcome_reaching(verdict: Verdict) -> Outcome:
-    return Outcome(verdict=verdict, detail="dont care")
+    return Outcome(verdict=verdict, detail="dont care", left_behind_known=True)
 
 
 def a_clock_frozen_at(moment: datetime) -> Callable[[], datetime]:
@@ -398,6 +398,20 @@ def nobody_wants_it_any_more() -> StillWanted:
 
     def still_wanted() -> bool:
         wanted = not asked
+        asked.append(wanted)
+        return wanted
+
+    return still_wanted
+
+
+def nobody_wants_it_after_the_first_look() -> StillWanted:
+    """A walk somebody stopped while its first look at the service was being
+    taken - wanted when its action was taken and when that look began, and
+    withdrawn from then on."""
+    asked: list[bool] = []
+
+    def still_wanted() -> bool:
+        wanted = len(asked) < 2
         asked.append(wanted)
         return wanted
 

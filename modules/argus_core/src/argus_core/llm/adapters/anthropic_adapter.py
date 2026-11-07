@@ -24,6 +24,7 @@ from anthropic.types import (
     OutputConfigParam,
     TextBlockParam,
     ThinkingConfigAdaptiveParam,
+    ToolChoiceAutoParam,
     ToolParam,
     ToolResultBlockParam,
     ToolUseBlockParam,
@@ -34,6 +35,8 @@ from argus_core.llm.client import (
     AnswerTruncated,
     ModelDidNotAnswer,
     ModelRefused,
+    ModelUnavailable,
+    RequestRejected,
     TurnPaused,
 )
 from argus_core.llm.escapes import with_escapes_resolved
@@ -83,6 +86,15 @@ MESSAGE_TYPE: Final = "message"
 END_TURN_STOP_REASON: Final = "end_turn"
 TOOL_USE_STOP_REASON: Final = "tool_use"
 
+AUTO_TOOL_CHOICE: Final = "auto"
+
+# What an agent held to one tool call per turn asks for. `auto` rather than a
+# forced choice, which the current models refuse outright; with parallel use
+# off it lets the model call one tool or none, never two.
+AT_MOST_ONE_TOOL_CALL: Final[ToolChoiceAutoParam] = ToolChoiceAutoParam(
+    type=AUTO_TOOL_CHOICE, disable_parallel_tool_use=True
+)
+
 # What separates two text blocks of one turn when they are joined. A newline
 # rather than a space: the blocks are paragraphs of one account, and running
 # them together would misrepresent where the model paused.
@@ -114,9 +126,10 @@ MAX_TOKENS: Final = DEFAULT_MAX_OUTPUT_TOKENS
 # investigation's own wall clock. The time bound is what answers to the human
 # waiting on the incident, and a call retrying with backoff for a minute has
 # spent a fifth of it before the model has said anything. Past two, a failure
-# reaching Argus is one it should act on rather than wait through: the walk
-# now unwinds what it changed and records why it stopped, which is a better
-# outcome than a longer silence.
+# reaching Argus is one it should act on rather than wait through: said as
+# `ModelUnavailable`, it is the caller's to decide about, and a walk that
+# cannot go on without the answer has its run requeued to be tried again
+# minutes later rather than held in a longer silence here.
 TRANSPORT_RETRIES = 2
 
 # What a turn offers the API to keep, so the next turn does not pay for it
@@ -172,6 +185,63 @@ _STOP_REASON_ERRORS: dict[str, type[ModelDidNotAnswer]] = {
     PAUSED_STOP_REASON: TurnPaused,
 }
 
+# The SDK's errors that mean the model could not be reached for now, raised
+# once its own retries are spent: 429, 529, any other 5xx, and a connection
+# that failed or timed out (`APITimeoutError` is one). Each is said as
+# `ModelUnavailable`; any other status - a 400 above all - is `RequestRejected`,
+# and so is the one 429 that is not for now, the account's spending cap.
+_UNAVAILABLE_FOR_NOW: Final = (anthropic.RateLimitError,
+                               anthropic.OverloadedError,
+                               anthropic.InternalServerError,
+                               anthropic.APIConnectionError)
+
+# The same, as the type an error names in its body - which is all there is to
+# go by for an error event inside a stream that has already answered 200: the
+# SDK raises it with the status the response had, as a plain `APIStatusError`.
+RATE_LIMIT_ERROR_TYPE: Final = "rate_limit_error"
+API_ERROR_TYPE: Final = "api_error"
+OVERLOADED_ERROR_TYPE: Final = "overloaded_error"
+TIMEOUT_ERROR_TYPE: Final = "timeout_error"
+_UNAVAILABLE_ERROR_TYPES: Final = frozenset({RATE_LIMIT_ERROR_TYPE, API_ERROR_TYPE,
+                                             OVERLOADED_ERROR_TYPE, TIMEOUT_ERROR_TYPE})
+
+# How a rate limit that is really the account's spending cap is told apart from
+# one that will lift in a moment (Anthropic's rate-limits page, "Reaching your
+# spend cap"): the code in the error's details. A cap answers the same until
+# somebody raises it, so it is never the model being unavailable for now.
+SPEND_CAP_ERROR_CODE: Final = "enforced_spend_limit_reached"
+
+
+def _is_the_spend_cap(failed: anthropic.APIStatusError) -> bool:
+    """Whether the error's details carry the spending cap's code."""
+    body = failed.body
+    error = body.get("error") if isinstance(body, dict) else None
+    details = error.get("details") if isinstance(error, dict) else None
+
+    return isinstance(details, dict) and details.get("error_code") == SPEND_CAP_ERROR_CODE
+
+
+def _in_the_apis_words(failed: anthropic.APIError) -> str:
+    """What the API said went wrong: the message in the error's body, where it
+    gave one, and the SDK's own words otherwise.
+
+    Not `str` of the error, which for a status is the SDK's display form - a
+    status code and the whole body as a Python dict - and that form reached
+    every line a step said why it stopped on, Slack and the postmortem among
+    them.
+    """
+    body = failed.body
+    error = body.get("error") if isinstance(body, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+
+    return message if isinstance(message, str) and message else failed.message
+
+
+def _rejected(failed: anthropic.APIStatusError) -> RequestRejected:
+    """A request the API would not take, said in its words. Without the status:
+    an error inside a stream arrives with the 200 the stream answered first."""
+    return RequestRejected(f"the model's API rejected the request: {_in_the_apis_words(failed)}")
+
 
 def to_messages(transcript: Transcript) -> list[MessageParam]:
     """Renders a conversation Argus is holding as the messages the API expects.
@@ -217,10 +287,12 @@ def to_turn(message: Message) -> Turn:
     Anthropic's guidance is to echo thinking blocks unchanged while a
     conversation continues on the same model, and `SUMMARISED_THINKING` means
     the blocks hold real reasoning text rather than empty shells - so something
-    is genuinely being dropped. Against that: on Sonnet 5 they are not
-    load-bearing, so dropping them is neither an error nor a repriced turn; the
-    benefit is below the investigator eval's resolution, where five of six cases
-    already sit at 50/50; and the cost is not linear, since every turn's
+    is genuinely being dropped. Against that: on Sonnet 5 they were not
+    load-bearing, so dropping them was neither an error nor a repriced turn -
+    and whether that holds on Sonnet 5.5 and Opus 5.5, which the agents now run
+    on, is unmeasured; nothing is replayed, so the history-editing check has
+    nothing to refuse. The benefit is below the investigator eval's resolution,
+    where five of six cases already sit at 50/50; and the cost is not linear, since every turn's
     reasoning would be resent by every turn after it - quadratic across a walk
     of up to twelve rounds per investigation. `measure_spend` can price that
     side exactly, which is the measurement to take when the eval grows a case
@@ -537,11 +609,24 @@ class AnthropicLLMClient:
         # two ways of asking cannot drift, which costs mypy the overload it
         # would otherwise resolve. What comes back is a `Message` either way -
         # that is the whole reason the rest of `converse` can be written once.
-        if room <= LARGEST_UNSTREAMED_ANSWER:
-            return cast(Message, self._client.messages.create(**asked))
+        try:
+            if room <= LARGEST_UNSTREAMED_ANSWER:
+                return cast(Message, self._client.messages.create(**asked))
 
-        with self._client.messages.stream(**asked) as streamed:
-            return cast(Message, streamed.get_final_message())
+            with self._client.messages.stream(**asked) as streamed:
+                return cast(Message, streamed.get_final_message())
+        except _UNAVAILABLE_FOR_NOW as unavailable:
+            if isinstance(unavailable, anthropic.APIStatusError) and _is_the_spend_cap(unavailable):
+                raise _rejected(unavailable) from unavailable
+
+            raise ModelUnavailable(f"the model could not be reached for now: "
+                                   f"{_in_the_apis_words(unavailable)}") from unavailable
+        except anthropic.APIStatusError as failed:
+            if failed.type not in _UNAVAILABLE_ERROR_TYPES or _is_the_spend_cap(failed):
+                raise _rejected(failed) from failed
+
+            raise ModelUnavailable(f"the model could not be reached for now: "
+                                   f"{_in_the_apis_words(failed)}") from failed
 
     def _request(self,
                  transcript: Transcript,
@@ -584,5 +669,11 @@ class AnthropicLLMClient:
 
         if self._policy.brief:
             asked["system"] = _the_standing_brief(self._policy.brief)
+
+        # Absent rather than set to the API's default for every other agent:
+        # the same meaning, but a different request, and every cached prefix
+        # and recording was made of the request as it was.
+        if self._policy.one_tool_call_per_turn:
+            asked["tool_choice"] = AT_MOST_ONE_TOOL_CALL
 
         return asked

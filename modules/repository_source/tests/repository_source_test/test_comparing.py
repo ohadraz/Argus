@@ -21,7 +21,7 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_testkit.assertions import Assertion, an_error_was_raised
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from repository_source import RepositoryUnreadable
 from repository_source.comparing import (
@@ -199,6 +199,72 @@ def test_the_comparison_asked_for_is_the_one_between_the_two_commits() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_two_commits_on_different_lines_name_what_either_side_changed() -> None:
+    # A comparison lists what the head changed since the two parted, and a
+    # force-push that dropped the base's side lists nothing of it - so the
+    # passages for what it dropped were left standing, and the index recorded
+    # itself current over them. Asked the other way round too, every path that
+    # can differ is named.
+    compared = two_comparisons(
+        {"status": "diverged", "files": [{"filename": SOME_FILE_ADDED, "status": "added"}]},
+        {"status": "diverged", "files": [{"filename": SOME_FILE_EDITED,
+                                          "status": "modified"}]})
+
+    Scenario() \
+        .when(
+            lambda: paths_changed_between(
+                AN_EARLIER_COMMIT,
+                THE_COMMIT_PUSHED,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(all_of(
+            _the_paths_changed_are([SOME_FILE_ADDED, SOME_FILE_EDITED]),
+            _the_request_ended_with(compared,
+                                    f"/compare/{THE_COMMIT_PUSHED}...{AN_EARLIER_COMMIT}")
+        ))
+
+
+@pytest.mark.unit
+def test_a_side_too_large_to_list_says_it_cannot_say() -> None:
+    # Either side cut off is a list that is not one.
+    compared = two_comparisons(
+        {"status": "behind", "files": []},
+        {"status": "ahead", "files": [
+            {"filename": A_NUMBERED_MODULE.format(number=number), "status": "modified"}
+            for number in range(MOST_FILES_A_COMPARISON_LISTS)
+        ]})
+
+    Scenario() \
+        .when(
+            lambda: paths_changed_between(
+                DONT_CARE_BASE,
+                DONT_CARE_HEAD,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(_nothing_can_be_said_about_what_changed())
+
+
+@pytest.mark.unit
+def test_a_push_ahead_of_the_last_one_is_one_comparison() -> None:
+    compared = a_comparison_of({"filename": SOME_FILE_EDITED, "status": "modified"})
+
+    Scenario() \
+        .when(
+            lambda: paths_changed_between(
+                DONT_CARE_BASE,
+                DONT_CARE_HEAD,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(_only_one_comparison_was_asked(compared))
+
+
 def _the_paths_changed_are(paths: list[str]) -> Assertion[list[str] | None]:
     """Which files a pass has to reconsider, and no others."""
     def assertion(changed: list[str] | None) -> bool:
@@ -238,12 +304,39 @@ def _the_request_ended_with(compared: Any, path: str) -> Assertion[Any]:
 
 
 def a_comparison_of(*files: dict[str, str]) -> Any:
-    """GitHub's answer for two commits, carrying the entries it lists."""
+    """GitHub's answer for two commits, the second ahead of the first, carrying
+    the entries it lists."""
     compared = create_autospec(httpx2.get)
     compared.return_value = httpx2.Response(
         status_code=200,
-        json={"files": list(files)},
+        json={"status": "ahead", "files": list(files)},
         request=httpx2.Request("GET", "http://github.invalid/")
     )
 
     return compared
+
+
+def two_comparisons(first: dict[str, Any], second: dict[str, Any]) -> Any:
+    """GitHub's answers for the comparison asked, then for the same two commits
+    the other way round."""
+    compared = create_autospec(httpx2.get)
+    compared.side_effect = [
+        httpx2.Response(status_code=200, json=answer,
+                        request=httpx2.Request("GET", "http://github.invalid/"))
+        for answer in (first, second)
+    ]
+
+    return compared
+
+
+def _only_one_comparison_was_asked(compared: Any) -> Assertion[Any]:
+    def assertion(dont_care_result: Any) -> bool:
+        if compared.call_count != 1:
+            raise AssertionError(
+                f"Expected one comparison, and {compared.call_count} were asked: "
+                f"{[made.args[0] for made in compared.call_args_list]}."
+            )
+
+        return True
+
+    return assertion

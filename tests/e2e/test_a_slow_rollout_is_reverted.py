@@ -55,7 +55,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import (
-    THE_DEMO_FLAG,
+    THE_TYPICAL_PURCHASE_FLAG,
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
@@ -90,7 +90,7 @@ A_CALM_ERROR_RATE = 0.05
 
 
 @pytest.mark.e2e
-def test_a_rollout_slow_for_a_few_percent_is_ended_by_putting_the_flag_back() -> None:
+def test_a_rollout_slow_for_a_few_percent_is_ended_by_reverting_the_flag() -> None:
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,
@@ -111,7 +111,7 @@ def test_a_rollout_slow_for_a_few_percent_is_ended_by_putting_the_flag_back() ->
                 all_of(
                     cause_identified_as(FailureMode.FEATURE_FLAG_TOGGLE),
                     argus_ended_with_status(IncidentStatus.MITIGATED),
-                    the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
+                    the_flag_provider_reports(THE_TYPICAL_PURCHASE_FLAG, enabled=False),
                     _only_the_tail_ever_moved(),
                     _no_request_ever_failed(),
                     the_service_returned_to_baseline()

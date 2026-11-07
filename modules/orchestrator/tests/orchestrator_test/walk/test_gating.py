@@ -38,6 +38,7 @@ from argus_core.models import (
     Attempt,
     DiscardCacheEntries,
     FailureMode,
+    FlagChange,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
@@ -46,11 +47,12 @@ from argus_core.models import (
     RestartService,
     RevertFeatureFlag,
     ServiceDependency,
+    why_it_was_refused,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
-from orchestrator.walk.gating import route_after_gate, tier_gate_node, what_the_row_says
+from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.routes import (
     FIXING_ROUTE,
     MITIGATING_ROUTE,
@@ -62,7 +64,7 @@ from orchestrator_test.framework.assertions import the_route_is
 from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     a_random_id,
-    an_incident_state,
+    an_undetermined_hypothesis,
 )
 
 DONT_CARE_FLAG = "dont-care-flag"
@@ -187,9 +189,10 @@ def test_a_candidate_the_gate_refused_is_recorded_as_never_having_been_tried(
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_not_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
-        .then(_the_candidate_was_recorded_as_untried(some_candidate,
-                                                     "Argus may take unasked",
-                                                     record_outcome))
+        .then(_the_candidate_was_recorded_as_untried(
+            some_candidate,
+            why_it_was_refused(Refusal.NOT_A_GENERIC_MITIGATION),
+            record_outcome))
 
 
 @pytest.mark.unit
@@ -248,8 +251,9 @@ def test_an_incident_whose_mode_nothing_answers_stops_trying_candidates() -> Non
     # may make, and a proposal is the only thing anybody gets.
     Scenario() \
         .given(
-            an_incident_nothing_answers := _a_mitigating_incident()
-            .model_copy(update={"nothing_answers_the_mode": True})
+            an_incident_nothing_answers := _a_mitigating_incident(
+                whose_mode_has_no_mitigation=True
+            )
         ) \
         .when(lambda: route_after_gate(an_incident_nothing_answers)) \
         .then(the_route_is(FIXING_ROUTE))
@@ -338,7 +342,7 @@ def test_restarting_one_service_does_not_spend_another_services_allowance(
 def test_a_mitigation_of_another_kind_on_the_same_subject_does_not_spend_it(
     record_outcome: MagicMock
 ) -> None:
-    # A flag put back and a service restarted are different experiments that
+    # A flag reverted and a service restarted are different experiments that
     # happen to name the same thing. Counted together, a flag that had already
     # been tried would refuse the first restart the incident ever asked for.
     some_leaking_service = "kuki-service"
@@ -382,25 +386,35 @@ def test_a_candidate_refused_for_having_been_tried_enough_says_so_in_its_row(
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=1)) \
-        .then(_the_candidate_was_recorded_as_untried(some_candidate,
-                                                     "as often as the incident allows",
-                                                     record_outcome))
+        .then(_the_candidate_was_recorded_as_untried(
+            some_candidate,
+            why_it_was_refused(Refusal.ALREADY_TRIED_ENOUGH),
+            record_outcome))
 
 
 @pytest.mark.unit
-def test_a_mode_nothing_answers_is_refused_in_its_own_words(
+@pytest.mark.parametrize(("mode", "refusal"), [
+    (FailureMode.UPSTREAM_DEPENDENCY_FAILURE, Refusal.SOMEBODY_ELSES_SERVICE),
+    (FailureMode.MONITORING_CONFIGURATION_DRIFT, Refusal.WOULD_UNDO_A_MEANT_CHANGE)
+], ids=["upstream", "drift"])
+def test_a_mode_argus_takes_nothing_for_is_refused_for_its_own_reason(
+    mode: FailureMode,
+    refusal: Refusal,
     record_outcome: MagicMock
 ) -> None:
     # Two silences reach this node, and a reader has to be able to tell them
-    # apart. This one is a decision: the cause is known, and no mitigation Argus
-    # may take reaches it - somebody outside this system has to act. The other
-    # is a gap: the mitigation exists and could not identify what to act on.
+    # apart. This one is a decision: the cause is known, and Argus takes no
+    # mitigation for it - somebody outside this system has to act. The other is
+    # a gap: the mitigation exists and could not identify what to act on. And
+    # the decision has two reasons, which a reader acts on differently: the
+    # fault is somebody else's to put right, or the one action that reaches it
+    # would undo work that was meant.
     published: list[IncidentEvent] = []
 
     Scenario() \
         .given(
             a_gated_incident := _a_mitigating_incident(
-                about=_a_cause_with_no_mitigation()
+                about=_a_cause_with_no_mitigation(mode)
             )
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
@@ -410,12 +424,17 @@ def test_a_mode_nothing_answers_is_refused_in_its_own_words(
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
-                     _the_refusal_was_published(Refusal.NOTHING_ANSWERS_THIS_MODE,
-                                                published)))
+                     _the_refusal_was_published(refusal, published)))
 
 
 @pytest.mark.unit
-def test_a_mode_nothing_answers_ends_the_mitigation_phase(
+@pytest.mark.parametrize(("mode", "refusal"), [
+    (FailureMode.UPSTREAM_DEPENDENCY_FAILURE, Refusal.SOMEBODY_ELSES_SERVICE),
+    (FailureMode.MONITORING_CONFIGURATION_DRIFT, Refusal.WOULD_UNDO_A_MEANT_CHANGE)
+], ids=["upstream", "drift"])
+def test_a_mode_argus_takes_nothing_for_ends_the_mitigation_phase(
+    mode: FailureMode,
+    refusal: Refusal,
     record_outcome: MagicMock
 ) -> None:
     # The refusal above, and what follows from it. A candidate is the likeliest
@@ -427,33 +446,34 @@ def test_a_mode_nothing_answers_ends_the_mitigation_phase(
     #
     # Recorded on the incident rather than read back off the refusal, because the
     # status is derived from the incident and never from what was published; and
-    # narrated, because it moves the incident.
+    # narrated, because it moves the incident - without the refusal's reason,
+    # which the refusal's own line gives one line above.
     Scenario() \
         .given(
             a_gated_incident := _a_mitigating_incident(
-                about=_a_cause_with_no_mitigation()
+                about=_a_cause_with_no_mitigation(mode)
             )
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
-        .then(all_of(_it_was_recorded_that_nothing_answers_the_mode(),
-                     _the_end_of_mitigation_was_narrated()))
+        .then(all_of(_it_was_recorded_that_the_mode_has_no_mitigation(),
+                     _the_end_of_mitigation_was_narrated(refusal)))
 
 
 @pytest.mark.unit
 def test_a_cause_nobody_could_act_on_is_still_refused_as_unproposed(
     record_outcome: MagicMock
 ) -> None:
-    # The other silence, kept as it was. A flag toggle is answered by a revert,
-    # so an incident that reached the gate without one had a mitigation and no
-    # subject to point it at - which is the evidence being thin rather than
-    # Argus having nothing to offer.
+    # The evidence's silence. A flag toggle is answered by a revert, so an
+    # incident that reached the gate without one, its flag record read, had a
+    # mitigation and no subject to point it at - which is the evidence being
+    # thin rather than Argus having nothing to offer.
     published: list[IncidentEvent] = []
 
     Scenario() \
-        .given(a_gated_incident := _a_mitigating_incident()) \
+        .given(a_gated_incident := _a_mitigating_incident(whose_flag_record_reads=[])) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
@@ -463,14 +483,53 @@ def test_a_cause_nobody_could_act_on_is_still_refused_as_unproposed(
 
 
 @pytest.mark.unit
-def test_the_candidate_row_says_nothing_answers_this_kind_of_failure(
+def test_a_candidate_naming_a_flag_the_provider_never_recorded_is_left_to_a_person(
+    record_outcome: MagicMock
+) -> None:
+    # The provider was read and holds no change to the flag the candidate
+    # blames, so nothing says which way to put it back. Said as "no mitigation
+    # was proposed", a write-up read it as Argus having no flag mitigation and
+    # never told a person to switch the flag off.
+    published: list[IncidentEvent] = []
+    some_candidate = a_determined_hypothesis(a_random_id()).model_copy(
+        update={"subject": "kuki-flag"})
+
+    Scenario() \
+        .given(
+            a_gated_incident := _a_mitigating_incident(about=some_candidate,
+                                                       whose_flag_record_reads=[])
+        ) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(all_of(
+            _the_refusal_was_published(Refusal.NAMED_CHANGE_NOT_RECORDED, published),
+            _the_candidate_was_recorded_as_untried(
+                some_candidate, why_it_was_refused(Refusal.NAMED_CHANGE_NOT_RECORDED),
+                record_outcome),
+            _the_incident_was_moved_nowhere()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("mode", "refusal"), [
+    (FailureMode.UPSTREAM_DEPENDENCY_FAILURE, Refusal.SOMEBODY_ELSES_SERVICE),
+    (FailureMode.MONITORING_CONFIGURATION_DRIFT, Refusal.WOULD_UNDO_A_MEANT_CHANGE)
+], ids=["upstream", "drift"])
+def test_the_candidate_row_says_why_argus_takes_nothing_for_this_kind_of_failure(
+    mode: FailureMode,
+    refusal: Refusal,
     record_outcome: MagicMock
 ) -> None:
     # The row is read beside the other candidates rather than on the timeline,
     # so it has to say what happened to this explanation in full - and "no
     # mitigation was proposed" would read, wrongly, as an investigation that
-    # came up short.
-    some_candidate = _a_cause_with_no_mitigation()
+    # came up short. Each mode says its own reason: "no mitigation Argus can take
+    # answers this" is false of drift, where a rollback answers it and is
+    # declined, and a model reading it wrote that Argus could not act.
+    some_candidate = _a_cause_with_no_mitigation(mode)
 
     Scenario() \
         .given(
@@ -480,10 +539,9 @@ def test_the_candidate_row_says_nothing_answers_this_kind_of_failure(
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
-        .then(_the_candidate_was_recorded_as_untried(
-            some_candidate,
-            "no mitigation Argus can take answers this kind of failure",
-            record_outcome))
+        .then(_the_candidate_was_recorded_as_untried(some_candidate,
+                                                     why_it_was_refused(refusal),
+                                                     record_outcome))
 
 
 @pytest.mark.unit
@@ -590,9 +648,38 @@ def test_an_action_nothing_could_confirm_is_refused(
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
-                     _the_recommendation_was_narrated(),
+                     _the_recommendation_was_narrated(Refusal.NOTHING_COULD_CONFIRM_IT),
                      _the_refusal_was_published(
                          Refusal.NOTHING_COULD_CONFIRM_IT, published)))
+
+
+@pytest.mark.unit
+def test_a_refusal_and_its_recommendation_say_the_number_of_the_candidate_they_answer(
+    record_outcome: MagicMock
+) -> None:
+    # The move to mitigating names no candidate, so these are where a reader
+    # learns which cause was refused - a chat has no candidate panel to look
+    # it up in, and two candidates refused for one reason read as one.
+    published: list[IncidentEvent] = []
+    a_second_rounds_candidate = a_determined_hypothesis(a_random_id()).model_copy(
+        update={"number": 3})
+
+    Scenario() \
+        .given(
+            an_incident_no_series_carries := _a_mitigating_incident(
+                proposing=_a_proposed_action(),
+                about=a_second_rounds_candidate,
+                dated_by_the_alert=datetime(2026, 9, 22, 9, 19, 43, tzinfo=UTC)
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_no_series_carries,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(
+            _what_was_published_was_for_candidate(3, published)
+        )
 
 
 @pytest.mark.unit
@@ -748,28 +835,8 @@ def test_a_candidate_refused_for_where_it_was_aimed_says_so_in_its_row(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(_the_candidate_was_recorded_as_untried(
             some_candidate,
-            "outside the estate Argus may act on",
+            why_it_was_refused(Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH),
             record_outcome))
-
-
-@pytest.mark.unit
-def test_every_refusal_has_a_sentence_for_the_candidates_row() -> None:
-    # The same subscript the narration carried, in a worse place. A refusal
-    # with no sentence here does not degrade to a blank row - it raises inside
-    # the gate, which is on the walk itself rather than on the page, so a new
-    # refusal would end the incident instead of spoiling its account.
-    #
-    # Over the whole enum rather than per member, for the reason the narration's
-    # is: what must hold is that no refusal reaches a candidate's row as a value
-    # nobody wrote a sentence for, and a test naming the ones that exist today
-    # would say nothing about the next.
-    Scenario() \
-        .given(every_reason_to_refuse := list(Refusal)) \
-        .when(lambda: {
-            refusal: _what_the_row_would_say_about(refusal)
-            for refusal in every_reason_to_refuse
-        }) \
-        .then(_every_refusal_was_put_into_words())
 
 
 @pytest.mark.unit
@@ -826,23 +893,28 @@ def _a_mitigating_incident(proposing: Action | None = None,
                            already_tried: list[Attempt] | None = None,
                            listing: list[ServiceDependency] | None = None,
                            dated_by_the_alert: datetime | None = None,
-                           whose_minutes_were_read: bool = True
+                           whose_minutes_were_read: bool = True,
+                           whose_mode_has_no_mitigation: bool = False,
+                           whose_flag_record_reads: list[FlagChange] | None = None
                            ) -> IncidentState:
+    some_incident_id = a_random_id()
     some_alert = Alert(
         service="kuki-service",
         alert_name="HighErrorRate",
         stated_onset=dated_by_the_alert
     )
-    state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
 
-    return state.model_copy(
-        update={
-            "hypothesis": about or a_determined_hypothesis(state.incident_id),
-            "proposed_action": proposing,
-            "attempts": already_tried or [],
-            "dependencies": listing or [],
-            "readings_cover_the_incident": whose_minutes_were_read
-        }
+    return IncidentState(
+        incident_id=some_incident_id,
+        alert=some_alert,
+        status=IncidentStatus.MITIGATING,
+        hypothesis=about or a_determined_hypothesis(some_incident_id),
+        proposed_action=proposing,
+        attempts=already_tried or [],
+        dependencies=listing or [],
+        readings_cover_the_incident=whose_minutes_were_read,
+        the_mode_has_no_mitigation=whose_mode_has_no_mitigation,
+        flag_changes=whose_flag_record_reads
     )
 
 
@@ -1045,6 +1117,24 @@ def _the_recommendation_was_published(flag: str,
     return assertion
 
 
+def _what_was_published_was_for_candidate(number: int,
+                                          published: list[IncidentEvent]
+                                          ) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        said = [(event.kind, event.candidate_number) for event in published
+                if isinstance(event, ActionRefused | ActionRecommended)]
+        expected = [("action-refused", number), ("action-recommended", number)]
+        if said != expected:
+            raise AssertionError(
+                f"Expected the refusal and the recommendation for candidate {number}, "
+                f"and the gate published {said}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _nothing_was_published_recommending_anything(
     published: list[IncidentEvent]
 ) -> Assertion[StateDelta]:
@@ -1112,13 +1202,16 @@ def _nothing_was_narrated() -> Assertion[StateDelta]:
     return assertion
 
 
-def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
+def _the_recommendation_was_narrated(refusal: Refusal) -> Assertion[StateDelta]:
     """The gate accounts for a refusal that ends the mitigation phase.
 
     Four of the others end an attempt and leave the status where it was. This one
     leaves a recommendation, the status derives from that, and the walk refuses
     a move with no account of itself - so silence here is not a quieter gate,
     it is a walk that stops with a `ValueError` at the node.
+
+    Without the refusal's reason, which the refusal's own line already gives:
+    said again on the move, the account reads the same sentence twice in a row.
     """
     def assertion(updates: StateDelta) -> bool:
         if updates.narration is None:
@@ -1127,17 +1220,19 @@ def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
                 "narrated nothing."
             )
 
+        _the_move_does_not_repeat(refusal, updates.narration.said())
+
         return True
 
     return assertion
 
 
-def _it_was_recorded_that_nothing_answers_the_mode() -> Assertion[StateDelta]:
+def _it_was_recorded_that_the_mode_has_no_mitigation() -> Assertion[StateDelta]:
     def assertion(updates: StateDelta) -> bool:
-        if updates.nothing_answers_the_mode is not True:
+        if updates.the_mode_has_no_mitigation is not True:
             raise AssertionError(
                 f"Expected the gate to record that nothing answers the mode, it "
-                f"returned [{updates.nothing_answers_the_mode}] - so the walk "
+                f"returned [{updates.the_mode_has_no_mitigation}] - so the walk "
                 f"would go on to the next candidate and act on a reading the "
                 f"diagnosis ranked below this one."
             )
@@ -1147,11 +1242,12 @@ def _it_was_recorded_that_nothing_answers_the_mode() -> Assertion[StateDelta]:
     return assertion
 
 
-def _the_end_of_mitigation_was_narrated() -> Assertion[StateDelta]:
+def _the_end_of_mitigation_was_narrated(refusal: Refusal) -> Assertion[StateDelta]:
     """The gate accounts for ending the mitigation phase.
 
     The same reason the recommendation is narrated: the incident's status moves
-    from this node, and the walk refuses a move with no account of itself.
+    from this node, and the walk refuses a move with no account of itself. And
+    without the refusal's reason, for the same reason too.
     """
     def assertion(updates: StateDelta) -> bool:
         if updates.narration is None:
@@ -1160,9 +1256,21 @@ def _the_end_of_mitigation_was_narrated() -> Assertion[StateDelta]:
                 "it narrated nothing."
             )
 
+        _the_move_does_not_repeat(refusal, updates.narration.said())
+
         return True
 
     return assertion
+
+
+def _the_move_does_not_repeat(refusal: Refusal, said: str) -> None:
+    reason = why_it_was_refused(refusal)
+
+    if reason in said:
+        raise AssertionError(
+            f"Expected the move to leave the refusal's reason to the refusal's own "
+            f"line, it said [{said}] - so the account says [{reason}] twice in a row."
+        )
 
 
 def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,
@@ -1200,47 +1308,15 @@ def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,
     return assertion
 
 
-def _a_cause_with_no_mitigation() -> Hypothesis:
-    """A hypothesis naming the one mode nothing in the closed set answers.
+def _a_cause_with_no_mitigation(mode: FailureMode) -> Hypothesis:
+    """A hypothesis naming a mode Argus takes no mitigation for.
 
     Built from the determined one rather than from scratch, because everything
     else about it is beside the point: what the gate reads is the mode, and a
     second full builder would be a second place for a candidate's shape to
     drift.
     """
-    state_id = a_random_id()
-
-    return a_determined_hypothesis(state_id).model_copy(
-        update={"failure_mode": FailureMode.UPSTREAM_DEPENDENCY_FAILURE}
-    )
-
-
-def _what_the_row_would_say_about(refusal: Refusal) -> str:
-    """The row's sentence for one refusal, or the empty string where there is none.
-
-    Caught rather than allowed to raise, so the assertion below names every
-    refusal without a sentence instead of the test ending on the first one.
-    """
-    try:
-        return what_the_row_says(refusal)
-    except KeyError:
-        return ""
-
-
-def _every_refusal_was_put_into_words() -> Assertion[dict[Refusal, str]]:
-    def assertion(said: dict[Refusal, str]) -> bool:
-        wordless = [refusal.value for refusal, sentence in said.items() if not sentence]
-
-        if wordless:
-            raise AssertionError(
-                f"{sorted(wordless)} have no sentence, so a candidate refused "
-                f"for one of those reasons fails the walk at the gate - before "
-                f"anything has been tried and before anything has been said."
-            )
-
-        return True
-
-    return assertion
+    return a_determined_hypothesis(a_random_id(), failure_mode=mode)
 
 
 def _a_dependency_of_ours(name: str) -> ServiceDependency:
@@ -1265,6 +1341,4 @@ def _a_cause_nobody_named() -> Hypothesis:
     this node, and a candidate whose mode this version cannot spell arrives
     here looking exactly like one.
     """
-    return a_determined_hypothesis(a_random_id()).model_copy(
-        update={"failure_mode": None}
-    )
+    return an_undetermined_hypothesis(a_random_id())

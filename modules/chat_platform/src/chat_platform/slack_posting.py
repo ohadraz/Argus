@@ -30,7 +30,16 @@ logger = logging.getLogger(__name__)
 # asterisks is bold, and `<url|label>` is a link that reads as its label
 # (docs.slack.dev, "Formatting text for app surfaces").
 _BOLD: Final = "*"
+_ITALIC: Final = "_"
 _LINK: Final = "<{url}|{label}>"
+
+# Markdown's bold - two asterisks either side - and its italic - one - each
+# around a run that neither starts nor ends with a space, as CommonMark asks.
+_MARKDOWN_BOLD: Final = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*")
+_MARKDOWN_ITALIC: Final = re.compile(r"(?<!\*)\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?!\*)")
+
+# A span of code, between backticks, which `mrkdwn` reads as Markdown does.
+_A_CODE_SPAN: Final = re.compile(r"(`[^`]*`)")
 
 # The three characters Slack reads as its own markup, and what each is written
 # as where it is only text (docs.slack.dev, "Formatting text for app
@@ -89,17 +98,39 @@ def as_slack_says_it(line: Line) -> str:
 
     Every part is said as text before any link is written in: Slack reads &,
     < and > as markup, and escaped afterwards, the links would be escaped too.
+
+    An aside is a paragraph of its own between the sentence and the link, in
+    the text rather than in a block: a section block holds 3,000 characters
+    and what Code-Fix says of the code runs longer, where a message's text is
+    cut only past 40,000 (docs.slack.dev, "Section block", "chat.postMessage").
+    No line with a button carries one, so the blocks never repeat it. It is
+    said in Slack's own markup, being Code-Fix's Markdown.
+
+    A marked part written in Markdown is said in Slack's own markup rather
+    than set apart: it is a model's whole answer, paragraphs and lists, and one
+    emphasis around all of it is unreadable.
     """
     def as_said(part: str) -> str:
         return _linked(_escaped(part), line.links)
 
-    said = (f"{as_said(line.before_emphasis)}{_BOLD}{as_said(line.emphasis)}{_BOLD}"
-            f"{as_said(line.after_emphasis)}"
+    marked = (_in_slack_markup(as_said(line.emphasis)) if line.emphasis_is_markdown
+              else f"{_BOLD}{as_said(line.emphasis)}{_BOLD}")
+    said = (f"{as_said(line.before_emphasis)}{marked}{as_said(line.after_emphasis)}"
             if line.emphasis else as_said(line.text))
+    aside = f"\n\n{_in_slack_markup(as_said(line.aside))}" if line.aside else ""
     linked = (f"\n{_LINK.format(url=line.link.url, label=line.link.label)}"
               if line.link is not None else "")
 
-    return f"{line.who}: {said}{linked}"
+    return f"{line.who}: {said}{aside}{linked}"
+
+
+def _in_slack_markup(markdown: str) -> str:
+    """`markdown`'s bold and italics in `mrkdwn`'s - one asterisk for bold, an
+    underscore for italics. The italics first, since Slack's bold is
+    Markdown's italic spelled the same way."""
+    italic = _MARKDOWN_ITALIC.sub(rf"{_ITALIC}\1{_ITALIC}", markdown)
+
+    return _MARKDOWN_BOLD.sub(rf"{_BOLD}\1{_BOLD}", italic)
 
 
 def _escaped(text: str) -> str:
@@ -112,15 +143,22 @@ def _escaped(text: str) -> str:
 
 def _linked(text: str, links: Mapping[str, str]) -> str:
     """`text` with each word of `links` it says, matched whole, linked to
-    where it opens."""
+    where it opens - outside code alone. Slack draws nothing inside code but
+    the code, a link included, so one written there is printed as its markup:
+    the page leaves the same word unlinked for the same reason."""
     if not links:
         return text
 
     named = "|".join(re.escape(word) for word in sorted(links, key=len, reverse=True))
 
-    return re.sub(rf"(?<![\w-])({named})(?![\w-])",
-                  lambda found: _LINK.format(url=links[found.group(1)], label=found.group(1)),
-                  text)
+    def outside_code(part: str) -> str:
+        return re.sub(rf"(?<![\w-])({named})(?![\w-])",
+                      lambda found: _LINK.format(url=links[found.group(1)],
+                                                 label=found.group(1)),
+                      part)
+
+    return "".join(part if _A_CODE_SPAN.fullmatch(part) else outside_code(part)
+                   for part in _A_CODE_SPAN.split(text))
 
 
 def a_line_with_a_button(said: str,

@@ -88,7 +88,7 @@ class FailureMode(StrEnum):
     # A deployment's configuration was changed into a broken state, with
     # nothing wrong in the code and nothing wrong in whatever the
     # configuration points at. Distinct from a flag toggle, which is answered by
-    # putting one value back through a provider built for it, and distinct from
+    # reverting one value through a provider built for it, and distinct from
     # a bad deployment in what it tells a reader and in what is left to fix
     # afterwards - a values file here, the service's source there - though a
     # deployment rollback answers both, since one revision carries the code and
@@ -113,9 +113,10 @@ class FailureMode(StrEnum):
     # order of operations: a version that could read both shapes had to ship
     # before one that wrote only the new shape.
     IN_FLIGHT_COMPATIBILITY_BREAK = "in-flight-compatibility-break"
-    # What the service has already written is wrong, while the service itself is
-    # available, fast, and reporting nothing. The first mode in this set that no
-    # series carries: nothing fails, nothing slows, nothing accumulates, and the
+    # What the service has already written is wrong, while the service itself
+    # serves as it did before. The first mode in this set that no series
+    # carries: its error rate and every quantile hold their baseline, nothing
+    # accumulates, and the
     # whole of the symptom is a value that disagrees with the values it was
     # derived from. So it is found by a reconciliation somebody runs rather than
     # by a rule watching a graph, and dated by the oldest record it finds wrong
@@ -123,7 +124,7 @@ class FailureMode(StrEnum):
     #
     # Not one mode with the flag toggle or the bad deployment it may well have
     # been caused by, and the split is by what removing the change does. There
-    # putting the flag back or returning the revision ends the incident; here it
+    # reverting the flag or returning the revision ends the incident; here it
     # stops the drift and repairs nothing, because the damage is in rows that
     # outlive whatever wrote them. That difference is the whole of the response:
     # what is left afterwards is not only a patch but a repair of what the fault
@@ -244,18 +245,19 @@ class FailureMode(StrEnum):
 
 # Model-facing, so worded for somebody reading evidence rather than for
 # somebody maintaining the set: what was observed, and what would distinguish
-# it from its nearest neighbour.
+# it from its nearest neighbour - never what answers it, which the model
+# repeats in a summary asked never to say what to do.
 _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
     FailureMode.FEATURE_FLAG_TOGGLE: (
         "a feature flag was switched and the service got worse; the code and "
         "the configuration are both unchanged. Choose this over "
-        "silent-data-corruption when putting the flag back is the whole of the "
-        "answer - the flag changed how the service behaves and left nothing "
-        "written behind it. The two arrive identically, as one flag moved at "
+        "silent-data-corruption when the flag changed how the service behaves "
+        "and left nothing written behind it - what the service has already "
+        "written is still right. The two arrive identically, as one flag moved at "
         "the onset, and the flag history cannot separate them. Choose it over "
         "monitoring-blind-spot when what got worse is the service rather than "
-        "the reporting of it: there the shop serves every request correctly and "
-        "the minutes a monitor would read are the thing that is wrong, so a "
+        "the reporting of it: there the shop serves as it did before and the "
+        "minutes a monitor would read are the thing that is wrong, so a "
         "window with rows in it that step is this mode and a window whose rows "
         "stop is that one"
     ),
@@ -264,8 +266,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "worse; the fault is in the code that was released. Choose this over "
         "in-flight-compatibility-break only once the rollout has converged - "
         "every replica on the revision that landed. The two arrive the same way, "
-        "as one deployment at the onset, and are answered the same way, so the "
-        "deploy history cannot separate them: it records that a revision was "
+        "as one deployment at the onset, so the deploy history cannot separate "
+        "them: it records that a revision was "
         "deployed and never whether that revision finished arriving. Choose it "
         "over monitoring-blind-spot on whether the service or the reporting of "
         "it stopped: a revision can change what a monitor can reach without "
@@ -273,7 +275,7 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "correctly while the minutes that would show it go missing. Choose it "
         "over output-quality-degradation when the request-level series moved - "
         "an error rate that stepped or latency that climbed; where all of them "
-        "held still and only rule_reading, the series the paging rule watches, "
+        "held still and only rule_reading, the series the alert rule watches, "
         "departed, the revision made the answers worse rather than the serving"
     ),
     FailureMode.RESOURCE_LEAK: (
@@ -290,10 +292,9 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "for, so every one of them queues for capacity that is already busy. "
         "Choose this over resource-leak when the traffic climbed with the "
         "consumption rather than the consumption climbing on its own, which is "
-        "the whole of what separates the pair - restarting answers a leak and "
-        "does nothing here, because demand and capacity are both left where "
-        "they were. Choose it over bad-deployment and over the two dependency "
-        "modes when nothing changed and nothing was deployed, and the time is "
+        "the whole of what separates the pair. Choose it over bad-deployment "
+        "and over the two dependency modes when nothing changed and nothing was "
+        "deployed, and the time is "
         "spent in this service's own work rather than waiting on somebody "
         "else's. Choose it over autoscaling-pathology when cpu_limit_cores holds "
         "one value across the whole window: capacity that was outgrown sits "
@@ -309,15 +310,12 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "is what separates this from demand-saturation: at the bottom of every "
         "cycle the two are identical in the alert, the latency, the traffic and "
         "the change channels, so read that series rather than judging between "
-        "them. What answers this is stopping the controller from scaling back "
-        "down; setting a replica count directly is undone within a minute or "
-        "two, because the controller reclaims what it did not ask for"
+        "them"
     ),
     FailureMode.UPSTREAM_DEPENDENCY_FAILURE: (
         "a service this one depends on stopped answering and the failure "
         "arrived here through that dependency, and the organisation running "
-        "the alerting service does not own it - so nobody here can restart or "
-        "revert anything that reaches it. Choose this over "
+        "the alerting service does not own it. Choose this over "
         "internal-dependency-failure only once the service register says the "
         "failing dependency belongs to another company: the evidence for the "
         "two is identical, and a host name is not evidence of who owns it"
@@ -338,8 +336,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "untouched and the thing the configuration points at is healthy. "
         "Choose this over bad-deployment whenever the change that landed was "
         "to configuration rather than to code, even though it arrived as a "
-        "deployment and is put right the same way: what differs is the fix "
-        "somebody is left with, a values file rather than the source. Which of "
+        "deployment: what differs is where the fault is, a values file rather "
+        "than the source. Which of "
         "the two landed is what the deployment changed, which is retrievable - "
         "read it rather than inferring it. The path a deployment shipped from is "
         "not the answer: that is where its manifests live, and it is the same "
@@ -356,10 +354,9 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "does not carry it - read the rollout rather than inferring from the "
         "entry. Choose it over feature-flag-toggle when no flag moved, because "
         "the metrics here are a flag toggle's exactly: an error rate that steps "
-        "while every quantile stays flat. What answers it is getting the fleet "
-        "onto one revision, which returning the deployment does; what is left "
-        "to fix is the migration that changed a stored shape with no version "
-        "able to read both. Choose it over state-divergence on whether the "
+        "while every quantile stays flat. Behind it is a migration that changed "
+        "a stored shape with no version able to read both. Choose it over "
+        "state-divergence on whether the "
         "requests that read the shared store fail or succeed: here a shape no "
         "reader can parse fails them and steps the error rate, and there they "
         "succeed carrying a value that is merely out of date, which moves no "
@@ -367,8 +364,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
     ),
     FailureMode.SILENT_DATA_CORRUPTION: (
         "what the service has already written is wrong, while the service "
-        "itself is available, fast and reporting nothing - no request fails, no "
-        "quantile moves, nothing accumulates, and the only evidence is a value "
+        "itself serves as it did before - its error rate and every quantile hold "
+        "their baseline, nothing accumulates, and the only evidence is a value "
         "that disagrees with the values it was derived from. Expect the metrics "
         "to be flat across the whole window: that is the mode rather than a "
         "sign there is nothing to find, and the alert's own reconciliation "
@@ -378,20 +375,19 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "the change that caused it is at the older minute. Choose this over "
         "feature-flag-toggle and bad-deployment even where a flag moved or a "
         "revision landed at that minute: they may well be the cause, and what "
-        "separates the modes is that putting the change back stops the drift "
-        "and repairs nothing already written. Choose it over "
+        "separates the modes is that the change left wrong values written "
+        "behind it. Choose it over "
         "monitoring-blind-spot on whether the minutes are there: here every "
         "minute of the window is present and sitting at its baseline, and there "
         "the minutes are missing altogether because nothing was reporting them. "
         "Choose it over state-divergence on which store is wrong: here the store "
-        "of record itself holds the wrong value, so nothing that discards a copy "
-        "of it helps and the repair is a rewrite nobody may do unasked, where "
-        "there the record is right and only a derived copy is stale"
+        "of record itself holds the wrong value, where there the record is "
+        "right and only a derived copy is stale"
     ),
     FailureMode.MONITORING_BLIND_SPOT: (
-        "the service is well and nothing can see that it is - every request is "
-        "served correctly, at the speed it always was, and what stopped is the "
-        "reporting. So the window's rows run up to a minute and then stop, and "
+        "the service is well and nothing can see that it is - it serves as it "
+        "did before, failing and slowing no more than it did, and what stopped "
+        "is the reporting. So the window's rows run up to a minute and then stop, and "
         "the minutes after it are missing rather than flat or zeroed. Read rows "
         "that stop as the shape of the fault rather than as a window that is "
         "merely short: the alert says a series that was reporting has stopped, "
@@ -403,7 +399,7 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "because of the change, so the change is necessarily later than the last "
         "one written, and a candidate is not too late to be the cause here. "
         "Expect the service to be untouched around it too - a revision or a flag "
-        "that landed while every request went on being served correctly is not "
+        "that landed while the service went on serving as it did before is not "
         "evidence against it, because a shop that is well across the change is "
         "exactly what this mode is. Choose this over feature-flag-toggle and "
         "bad-deployment even where a flag moved or a revision landed there: they "
@@ -415,15 +411,16 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "and here they are simply not there. Choose it over "
         "monitoring-configuration-drift when the change altered one value on its "
         "own: where the diff applies a convention - every name changed to one "
-        "rule - the change was meant, and returning it would undo that"
+        "rule - the change was meant"
     ),
     FailureMode.STATE_DIVERGENCE: (
         "two stores that hold the same thing disagree about it, and the one that "
         "is wrong is a copy rather than the store of record - a cache, a "
         "replica, a projection, serving what was true when it last kept up. The "
-        "service is available and fast, every request succeeds, and the values "
-        "it serves from the copy are out of date: expect the metrics to be flat "
-        "across the whole window, because nothing fails and nothing waits. The "
+        "service serves as it did before - its error rate and every quantile "
+        "hold their baseline - and the values it serves from the copy are out "
+        "of date: expect the metrics to be flat across the whole window, "
+        "because serving a stale value adds no failure and no wait. The "
         "evidence is a reconciliation the service runs on itself, comparing the "
         "copy against what it was derived from, and nothing else carries it. "
         "Two times come with that finding and they are not the same: date the "
@@ -432,16 +429,13 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "behind, which is how long it had been drifting while nobody could see "
         "it, and the copy was harmless until something started reading it. "
         "Choose this over silent-data-corruption on which store is wrong: there "
-        "the store of record holds the bad value and no action reaches it, and "
-        "here the record is correct, so discarding the copy ends it and whatever "
-        "reads it next rebuilds it from data that never moved. Choose it over "
+        "the store of record holds the bad value, and here the record is correct "
+        "and only the copy is stale. Choose it over "
         "in-flight-compatibility-break on whether the requests that read the "
         "shared store succeed: there two versions disagree about a stored "
         "shape and the requests between them fail, and here the shape is agreed "
-        "and the request is served with a wrong number in it. What is left to "
-        "fix is how the copy is kept rather than any code - so discarding is a "
-        "mitigation and not a resolution, and the divergence returns as a leak's "
-        "does"
+        "and the request is served with a wrong number in it. The fault is in "
+        "how the copy is kept rather than in any code"
     ),
     FailureMode.MONITORING_CONFIGURATION_DRIFT: (
         "the service was deliberately changed and is well, and the monitoring's "
@@ -452,27 +446,24 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "normally across the missing minutes, a revision at that minute. Choose "
         "this over monitoring-blind-spot on what the revision's diff did: where "
         "it applies a convention - every name of its kind changed to one rule in "
-        "one commit - the change was meant, and returning it would restore the "
-        "sight by undoing that work. Choose it over config-induced-failure "
+        "one commit - the change was meant. Choose it over config-induced-failure "
         "because the service's configuration is the intended one: what is behind "
-        "is the configuration doing the watching. What is owed is the "
-        "monitoring's configuration rolled forward to the change, and the change "
-        "kept; no mitigation answers it"
+        "is the configuration doing the watching"
     ),
     FailureMode.OUTPUT_QUALITY_DEGRADATION: (
         "a model the service runs is answering worse - filing, ranking or "
         "generating with less confidence or less sense than before - while "
-        "every request succeeds as quickly as it always did. Expect the error "
-        "rate and every latency and resource series to be flat: the departure "
-        "is in rule_reading, the series the paging rule watches, which is a "
+        "its requests fail and slow no more than they did before. Expect the "
+        "error rate and every latency and resource series to be flat: the departure "
+        "is in rule_reading, the series the alert rule watches, which is a "
         "quality measure rather than a request-level one. Choose this over "
         "bad-deployment when a revision landed at the onset and only "
-        "rule_reading moved: both arrive as one deployment and both are "
-        "answered by returning it, and what separates them is whether the "
+        "rule_reading moved: both arrive as one deployment, and what separates "
+        "them is whether the "
         "revision made requests fail or slow, or left them as they were and "
-        "made their answers worse. What is left to fix is the model or what it "
+        "made their answers worse. The fault is in the model or what it "
         "is fed - a training and serving pipeline that disagree, a vocabulary, "
-        "a prompt - so returning the deployment mitigates and does not resolve. "
+        "a prompt. "
         "Choose accelerator-heterogeneity instead when no revision sits at the "
         "onset and the placement shows a replica started there on a card the "
         "others do not run on"
@@ -488,10 +479,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "onset: a revision there is that mode, and a replica moved to another "
         "card with nothing deployed is this one. Choose it over bad-deployment "
         "too, though a pod was replaced at the onset: there requests fail or "
-        "slow, and here every request succeeds as fast as it did. It is "
-        "answered by holding the "
-        "deployment to the card the earlier replicas ran on; what is left to fix "
-        "is the model's tolerance of the card, or where the deployment may land, "
-        "so the pin mitigates and does not resolve"
+        "slow, and here they fail and slow no more than they did. The fault is "
+        "in the model's tolerance of the card, or in where the deployment may "
+        "land"
     )
 }

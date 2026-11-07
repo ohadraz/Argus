@@ -8,16 +8,18 @@ once are readable where a dozen inline fragments saying it again are not.
 
 Deduplicated by the identity the evidence already has: a bucket is its minute
 and a log line is its text. Where a minute comes back twice the later read
-wins, because it is the later read that Argus acted on.
+wins, because it is the later read that Argus acted on. A line is kept as many
+times as any one read holds it, since a line written twice is two things said.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from hashlib import sha256
 
-from argus_core import UuidStr, utc_now
+from argus_core import UuidStr, to_iso, utc_now
 from argus_core.events import ChangesRetrieved, IncidentEvent, StatusChanged
 from argus_core.models import Alert, ChangeEvent, FlagChange, Incident, IncidentStatus
 from argus_narration import (
@@ -27,16 +29,18 @@ from argus_narration import (
     NarrationLine,
     ShownRevision,
     a_flag_history,
+    a_moment,
     build_narration,
     pointed_at,
     shown,
     the_minutes_logged,
+    the_pull_requests,
     the_revisions,
 )
 from postmortem_rendering import Run, a_reference, what_a_change_did
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from argus_web.views.decorating import DecoratedLine, decorated
+from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
 
 
 class ChangeRow(BaseModel):
@@ -45,11 +49,15 @@ class ChangeRow(BaseModel):
     its commit - and what it did, in the postmortem's own words.
 
     The words come from the postmortem's renderer rather than from a second
-    wording here, so the page and the document name one revision one way."""
+    wording here, so the page and the document name one revision one way.
+
+    `when` is the moment it was made, said as the timeline says one - against
+    the line that read it, so a change made on another day keeps its date."""
 
     change: ChangeEvent
     reference: Run
     summary: tuple[Run, ...]
+    when: str
 
 
 class Story(BaseModel):
@@ -75,6 +83,9 @@ class Story(BaseModel):
     # finding - it is what rules a deploy out - and a table that simply did not
     # appear would leave that finding unsaid.
     read_changes: bool
+    # Each revision the incident read and how the page says it, for what is
+    # shown beside the story - the walk's candidates - to say it alike.
+    revisions: dict[str, ShownRevision] = Field(default_factory=dict)
 
 
 class LiveIncident(BaseModel):
@@ -116,39 +127,52 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     Deduplicated by the identity the evidence already has: a bucket is its
     minute and a log line is its text. Where a minute comes back twice the
     later read wins, because it is the later read that Argus acted on.
+
+    A line is kept as many times as any one read holds it. Two reads of the
+    same minutes return one line twice, and that is one thing the service said;
+    a service that wrote one line twice in a minute returns it twice in a
+    single read, and that is two. Kept once, the page showed fewer lines than
+    the line above it said were read back.
     """
     narration = build_narration(events)
     revisions = the_revisions(events)
+    pull_requests = the_pull_requests(events)
 
     minutes: dict[str, BucketRow] = {}
-    lines: dict[str, LogLine] = {}
-    changed: dict[str, ChangeEvent] = {}
-    toggled: dict[tuple[str, str], FlagChange] = {}
+    lines: dict[str, list[LogLine]] = {}
+    # Each change with the moment of the line that read it.
+    changed: dict[str, tuple[ChangeEvent, datetime]] = {}
+    toggled: dict[tuple[str, str], tuple[FlagChange, datetime]] = {}
 
     for line in narration:
         minutes.update({bucket.bucket_id: bucket for bucket in line.buckets})
-        lines.update({log.text: log for log in line.log_lines})
-        changed.update({change.reference: change for change in line.changes})
+        held = Counter(log.text for log in line.log_lines)
+        lines.update({log.text: [log] * held[log.text] for log in line.log_lines
+                      if held[log.text] > len(lines.get(log.text, []))})
+        changed.update({change.reference: (change, line.at) for change in line.changes})
         # Keyed by flag and moment together: one flag moving twice is two
         # changes, and it is exactly the flag that moved twice - tried, then
         # put back - whose second move a reader must not lose.
-        toggled.update({(toggle.flag, toggle.occurred_at): toggle
+        toggled.update({(toggle.flag, toggle.occurred_at): (toggle, line.at)
                         for toggle in line.flag_changes})
 
+    flag_history = a_flag_history([(toggle, to_iso(read_at)) for toggle, read_at in
+                                   sorted(toggled.values(), key=lambda read: read[0].occurred_at)])
+    logs = sorted((log for each in lines.values() for log in each),
+                  key=lambda log: log.stamp or "")
+    rows = the_rows_held(minutes.values(), logs, flag_history)
+
     return Story(
-        narration=[
-            decorated(_pointed_at(shown(line, revisions), list(minutes),
-                                  the_minutes_logged(lines.values())))
-            for line in narration
-        ],
+        narration=[decorated(_pointed_at(shown(line, revisions, pull_requests), rows), held=rows)
+                   for line in narration],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
-        logs=sorted(lines.values(), key=lambda log: log.stamp or ""),
-        changes=[_a_row(change, revisions)
-                 for change in sorted(changed.values(), key=lambda change: change.occurred_at)],
-        flag_changes=a_flag_history(
-            sorted(toggled.values(), key=lambda toggle: toggle.occurred_at)
-        ),
-        read_changes=any(isinstance(event, ChangesRetrieved) for event in events)
+        logs=logs,
+        changes=[_a_row(change, revisions, read_at)
+                 for change, read_at in sorted(changed.values(),
+                                               key=lambda read: read[0].occurred_at)],
+        flag_changes=flag_history,
+        read_changes=any(isinstance(event, ChangesRetrieved) for event in events),
+        revisions=revisions
     )
 
 
@@ -176,20 +200,37 @@ def build_live_incident(incident: Incident,
     )
 
 
-def _a_row(change: ChangeEvent, revisions: Mapping[str, ShownRevision]) -> ChangeRow:
+def _a_row(change: ChangeEvent, revisions: Mapping[str, ShownRevision],
+           read_at: datetime) -> ChangeRow:
     """A change read, named by the short form a line says its revision by -
-    and, where it is no revision the incident can open, as it was read."""
+    and, where it is no revision the incident can open, as it was read - and
+    when it was made, against `read_at`, the moment of the line that read it."""
     shown_as = revisions.get(change.reference)
     short = shown_as.short if shown_as is not None else change.reference
 
     return ChangeRow(change=change,
                      reference=a_reference(change, short),
-                     summary=what_a_change_did(change, short))
+                     summary=what_a_change_did(change, short),
+                     when=a_moment(change.occurred_at, beside=to_iso(read_at)))
 
 
-def _pointed_at(line: NarrationLine,
-                minutes: Sequence[str],
-                logged: Sequence[str]) -> NarrationLine:
+def the_rows_held(metrics: Iterable[BucketRow],
+                  logs: Iterable[LogLine],
+                  flags: Iterable[FlagToggleRow]) -> RowsHeld:
+    """The rows a page showing these tables holds, for its lines and findings
+    to lead to.
+
+    Answered once, for the timeline and the walk's candidates alike: two
+    answers to it are links that can come to land on different rows. A flag is
+    held where its history has a row for it - the table's anchor is on the
+    flag's latest move, and every flag in the history has one.
+    """
+    return RowsHeld(minutes=[bucket.bucket_id for bucket in metrics],
+                    logged=the_minutes_logged(logs),
+                    flags=list(dict.fromkeys(row.flag for row in flags)))
+
+
+def _pointed_at(line: NarrationLine, held: RowsHeld) -> NarrationLine:
     """One line, with its findings pointed at the minutes the page holds.
 
     Done here rather than while the line is built, because a finding cited at
@@ -201,7 +242,7 @@ def _pointed_at(line: NarrationLine,
 
     return line.model_copy(update={"candidates": [
         candidate.model_copy(update={"evidence": [
-            pointed_at(cited, minutes, logged) for cited in candidate.evidence
+            pointed_at(cited, held.minutes, held.logged) for cited in candidate.evidence
         ]})
         for candidate in line.candidates
     ]})

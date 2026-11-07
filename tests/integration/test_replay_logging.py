@@ -25,7 +25,7 @@ import pytest
 from agent_investigator import investigate
 from agent_investigator.budget import InvestigationSettings
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core import connect_from_env, get_settings
+from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.models import Alert
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.publishing import calls_into
@@ -41,6 +41,7 @@ from tests.framework.investigating import (
     no_rollout_was_read,
     pods_that_never_moved,
     the_configured_thresholds,
+    what_the_read_tier_offers_the_investigator,
 )
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
 
@@ -68,7 +69,7 @@ def test_an_investigations_calls_reach_the_replay_log(
     # both payloads, because an entry that reached the table with an empty
     # request is a row that satisfies a count and replays nothing.
     with psycopg.connect(DATABASE_URL) as conn:
-        incident_id = incidents.create(conn, _an_alert())
+        incident_id = incidents.create(conn, _an_alert(), at=utc_now())
         conn.commit()  # the recorder writes on a connection of its own
         the_replay_log_holds = _the_replay_log_holds
 
@@ -89,6 +90,7 @@ def test_an_investigations_calls_reach_the_replay_log(
                     fetch_placements=pods_that_never_moved,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
+                    read_tier_tools=what_the_read_tier_offers_the_investigator,
                     recorder=calls_into(connect_from_env)
                 )
             ) \
@@ -109,7 +111,7 @@ def test_an_investigation_that_records_nowhere_still_investigates(
     # the work. An investigation asked to record nowhere must reach the same
     # conclusion, and must not leave rows behind under some other incident.
     with psycopg.connect(DATABASE_URL) as conn:
-        incident_id = incidents.create(conn, _an_alert())
+        incident_id = incidents.create(conn, _an_alert(), at=utc_now())
 
         Scenario() \
             .given(
@@ -128,6 +130,7 @@ def test_an_investigation_that_records_nowhere_still_investigates(
                     fetch_placements=pods_that_never_moved,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
+                    read_tier_tools=what_the_read_tier_offers_the_investigator,
                 )
             ) \
             .then(

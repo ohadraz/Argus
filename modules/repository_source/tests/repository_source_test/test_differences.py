@@ -64,6 +64,26 @@ SOME_FILE_RENAMED_TO = "src/io_shop/spending.py"
 # distinct files and cares about nothing else about them.
 A_NUMBERED_MODULE = "src/io_shop/module_{number}.py"
 
+# Where two lines of history part, for the deploys that are not ahead of what
+# ran before them.
+THE_MERGE_BASE = "a97029318f2d4c6b8e0a1c3e5f7092b4d6f8a0c2"
+
+# A file the revision deployed before had and the one deployed does not: what a
+# deploy back to an ancestor takes away, as the base's side of the comparison
+# says it and as the deploy did it.
+THE_SCRAPE_CONFIGURATION = "deploy/scrape.yaml"
+THE_SCRAPE_ADDED = "@@ -0,0 +1,2 @@\n+scrape:\n+  port: metrics\n"
+THE_SCRAPE_REMOVED = "@@ -1,2 +0,0 @@\n-scrape:\n-  port: metrics\n"
+
+# The port that moved, put back: what a deploy took away when the base's side
+# moved it.
+THE_PORT_MOVED_BACK = (
+    "@@ -24,4 +24,4 @@ cache:\n"
+    "   host: cache.io-shop.svc.cluster.local\n"
+    "-  port: 6380\n"
+    "+  port: 6379\n"
+)
+
 
 @pytest.mark.unit
 def test_a_changed_file_comes_back_with_its_path_and_what_changed_in_it() -> None:
@@ -312,6 +332,178 @@ def test_the_difference_names_the_two_revisions_it_was_taken_between() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_a_deploy_back_to_an_earlier_revision_says_what_it_took_away() -> None:
+    # A comparison lists what the head added since the two commits parted, and
+    # a deploy back to an ancestor added nothing - so it read as a deploy that
+    # changed no file at all, and ruled itself out. What it took away is what
+    # the base added, asked the other way round and read as the deploy did it.
+    compared = two_comparisons(
+        {"status": "behind", "merge_base_commit": {"sha": THE_REVISION_DEPLOYED},
+         "files": []},
+        {"status": "ahead", "merge_base_commit": {"sha": THE_REVISION_DEPLOYED},
+         "files": [{"filename": THE_SCRAPE_CONFIGURATION, "status": "added",
+                    "patch": THE_SCRAPE_ADDED}]})
+
+    Scenario() \
+        .when(
+            lambda: the_difference_between(
+                THE_REVISION_DEPLOYED_BEFORE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(all_of(
+            _the_files_that_changed_are([]),
+            _the_relation_was("behind"),
+            _what_was_taken_away_is([ChangedFile(path=THE_SCRAPE_CONFIGURATION,
+                                                 status="removed",
+                                                 patch=THE_SCRAPE_REMOVED)]),
+            _the_request_ended_with(
+                compared,
+                f"/compare/{THE_REVISION_DEPLOYED}...{THE_REVISION_DEPLOYED_BEFORE}")
+        ))
+
+
+@pytest.mark.unit
+def test_a_deploy_from_another_line_says_what_it_brought_and_what_it_took_away() -> None:
+    # Cut from before the revision that ran, a deploy brings its own side and
+    # takes away the other's, and listed by its own side alone it was half of
+    # what changed. Each change taken away reads in the deploy's direction: as
+    # the base's side wrote it, a port the deploy put back reads as one moved.
+    compared = two_comparisons(
+        {"status": "diverged", "merge_base_commit": {"sha": THE_MERGE_BASE},
+         "files": [{"filename": THE_SOURCE_FILE, "status": "modified", "patch": SOME_PATCH}]},
+        {"status": "diverged", "merge_base_commit": {"sha": THE_MERGE_BASE},
+         "files": [{"filename": THE_CONFIGURATION_FILE, "status": "modified",
+                    "patch": THE_PORT_THAT_MOVED}]})
+
+    Scenario() \
+        .when(
+            lambda: the_difference_between(
+                DONT_CARE_BASE,
+                DONT_CARE_HEAD,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(all_of(
+            _the_files_that_changed_are([THE_SOURCE_FILE]),
+            _the_relation_was("diverged"),
+            _the_merge_base_was(THE_MERGE_BASE),
+            _what_was_taken_away_is([ChangedFile(path=THE_CONFIGURATION_FILE,
+                                                 status="modified",
+                                                 patch=THE_PORT_MOVED_BACK)])
+        ))
+
+
+@pytest.mark.unit
+def test_a_file_renamed_on_the_side_taken_away_is_renamed_back() -> None:
+    # The base's side moved it; the deploy moved it back to where it was.
+    compared = two_comparisons(
+        {"status": "behind", "merge_base_commit": {"sha": DONT_CARE_HEAD}, "files": []},
+        {"status": "ahead", "merge_base_commit": {"sha": DONT_CARE_HEAD},
+         "files": [{"filename": SOME_FILE_RENAMED_TO, "status": "renamed",
+                    "previous_filename": SOME_FILE_RENAMED_FROM}]})
+
+    Scenario() \
+        .when(
+            lambda: the_difference_between(
+                DONT_CARE_BASE,
+                DONT_CARE_HEAD,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(
+            _what_was_taken_away_is([ChangedFile(path=SOME_FILE_RENAMED_FROM,
+                                                 status="renamed",
+                                                 previous_path=SOME_FILE_RENAMED_TO)])
+        )
+
+
+@pytest.mark.unit
+def test_a_file_copied_on_the_side_taken_away_is_removed_with_where_it_was_copied_from(
+) -> None:
+    # The deploy does not have the copy, so it removed it. The comparison's
+    # patch is how the copy differed from its source, not what the copy held,
+    # so turned round it is no removal: none is carried, and the source is,
+    # for whoever has to say why there is no diff.
+    compared = two_comparisons(
+        {"status": "behind", "merge_base_commit": {"sha": DONT_CARE_HEAD}, "files": []},
+        {"status": "ahead", "merge_base_commit": {"sha": DONT_CARE_HEAD},
+         "files": [{"filename": SOME_FILE_RENAMED_TO, "status": "copied",
+                    "previous_filename": SOME_FILE_RENAMED_FROM, "patch": SOME_PATCH}]})
+
+    Scenario() \
+        .when(
+            lambda: the_difference_between(
+                DONT_CARE_BASE,
+                DONT_CARE_HEAD,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(
+            _what_was_taken_away_is([ChangedFile(path=SOME_FILE_RENAMED_TO,
+                                                 status="removed",
+                                                 copied_from=SOME_FILE_RENAMED_FROM)])
+        )
+
+
+@pytest.mark.unit
+def test_a_deploy_ahead_of_what_ran_before_it_is_one_comparison_and_takes_nothing_away(
+) -> None:
+    # The ordinary deploy: everything the base had, the head has too.
+    compared = a_comparison_of({
+        "filename": THE_SOURCE_FILE,
+        "status": "modified",
+        "patch": SOME_PATCH
+    })
+
+    Scenario() \
+        .when(
+            lambda: the_difference_between(
+                DONT_CARE_BASE,
+                DONT_CARE_HEAD,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(all_of(
+            _the_relation_was("ahead"),
+            _what_was_taken_away_is([]),
+            _only_one_comparison_was_asked(compared)
+        ))
+
+
+@pytest.mark.unit
+def test_a_side_taken_away_at_the_api_s_ceiling_says_there_were_more_than_it_listed(
+) -> None:
+    # Either side can be cut off, and either one cut off is a change listed
+    # short.
+    compared = two_comparisons(
+        {"status": "behind", "merge_base_commit": {"sha": DONT_CARE_HEAD}, "files": []},
+        {"status": "ahead", "merge_base_commit": {"sha": DONT_CARE_HEAD},
+         "files": [{"filename": A_NUMBERED_MODULE.format(number=number),
+                    "status": "modified", "patch": SOME_PATCH}
+                   for number in range(MOST_FILES_A_COMPARISON_LISTS)]})
+
+    Scenario() \
+        .when(
+            lambda: the_difference_between(
+                DONT_CARE_BASE,
+                DONT_CARE_HEAD,
+                some_settings(),
+                get=compared
+            )
+        ) \
+        .then(
+            _there_were_more_files_than_were_listed()
+        )
+
+
 def _the_files_that_changed_are(paths: list[str]) -> Assertion[SourceDifference]:
     """Which files the deployment touched, and no others."""
     def assertion(difference: SourceDifference) -> bool:
@@ -437,6 +629,49 @@ def _the_revisions_compared_were(base: str,
     return assertion
 
 
+def _the_relation_was(expected: str) -> Assertion[SourceDifference]:
+    """How the deployed revision stands to the one before it, in GitHub's word."""
+    def assertion(difference: SourceDifference) -> bool:
+        if difference.relation != expected:
+            raise AssertionError(
+                f"Expected the revision deployed to be [{expected}] of the one before "
+                f"it, and the difference says [{difference.relation}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_merge_base_was(expected: str) -> Assertion[SourceDifference]:
+    """Where the two lines of history part."""
+    def assertion(difference: SourceDifference) -> bool:
+        if difference.merge_base != expected:
+            raise AssertionError(
+                f"Expected the two revisions to part at [{expected}], and the "
+                f"difference says [{difference.merge_base}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_taken_away_is(expected: list[ChangedFile]) -> Assertion[SourceDifference]:
+    """What the revision before had that the one deployed does not, read as the
+    deploy did it."""
+    def assertion(difference: SourceDifference) -> bool:
+        if list(difference.taken_away) != expected:
+            raise AssertionError(
+                f"Expected the deploy to have taken away {expected}, and the "
+                f"difference says {list(difference.taken_away)}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_request_ended_with(compared: Any,
                             path: str) -> Assertion[SourceDifference]:
     def assertion(dont_care_difference: SourceDifference) -> bool:
@@ -472,12 +707,39 @@ def _the_entry_for(path: str, difference: SourceDifference) -> ChangedFile:
 
 
 def a_comparison_of(*files: dict[str, str]) -> Any:
-    """GitHub's answer for two commits, carrying the entries it lists."""
+    """GitHub's answer for two commits, the second ahead of the first, carrying
+    the entries it lists."""
     compared = create_autospec(httpx2.get)
     compared.return_value = httpx2.Response(
         status_code=200,
-        json={"files": list(files)},
+        json={"status": "ahead", "files": list(files)},
         request=httpx2.Request("GET", "http://github.invalid/")
     )
 
     return compared
+
+
+def two_comparisons(first: dict[str, Any], second: dict[str, Any]) -> Any:
+    """GitHub's answers for the comparison asked, then for the same two commits
+    the other way round."""
+    compared = create_autospec(httpx2.get)
+    compared.side_effect = [
+        httpx2.Response(status_code=200, json=answer,
+                        request=httpx2.Request("GET", "http://github.invalid/"))
+        for answer in (first, second)
+    ]
+
+    return compared
+
+
+def _only_one_comparison_was_asked(compared: Any) -> Assertion[Any]:
+    def assertion(dont_care_result: Any) -> bool:
+        if compared.call_count != 1:
+            raise AssertionError(
+                f"Expected one comparison, and {compared.call_count} were asked: "
+                f"{[made.args[0] for made in compared.call_args_list]}."
+            )
+
+        return True
+
+    return assertion

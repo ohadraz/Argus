@@ -26,19 +26,22 @@ class ChangeKind(StrEnum):
 
 class RevisionSource(BaseModel):
     """Where a deployed revision can be opened: the repository by owner and name,
-    and the addresses a person reads it at - the repository, the commit, and the
-    directory it was synced from at that commit.
+    and the addresses a person reads it at - the repository, the commit, its
+    files, and the directory it was synced from at that commit.
 
     Addresses rather than the parts to build them from, because which page a
     commit is on is the repository host's to say, and whoever reads the change
     afterwards - a page, a PDF - would otherwise have to know whose host it is.
-    `directory` is the path as the summary names it, and both directory fields
-    are `None` where the deploy came from the root or from nowhere said.
+    `files_address` is where a file at that commit opens with its path after it,
+    `None` on a change read before it was carried. `directory` is the path as
+    the summary names it, and both directory fields are `None` where the deploy
+    came from the root or from nowhere said.
     """
 
     repository: str
     repository_address: str
     revision_address: str
+    files_address: str | None = None
     directory: str | None = None
     directory_address: str | None = None
 
@@ -73,7 +76,6 @@ class ChangeEvent(BaseModel):
     # named for is still a real change; dropping it for want of a name would
     # lose the evidence.
     actor: str | None = None
-    source: str | None = None
     # Where a deploy's revision can be opened. `None` for a flag toggle, and for
     # a deploy from a repository whose host's pages Argus does not know.
     revision_source: RevisionSource | None = None
@@ -83,7 +85,7 @@ def as_a_change(toggle: FlagChange) -> ChangeEvent:
     """One flag toggle, as the change channel's own shape.
 
     The direction is spelled out rather than left to the reader of a boolean:
-    both are real - a feature is put back by switching it off, a withdrawn
+    both are real - a feature is reverted by switching it off, a withdrawn
     fallback by switching it on - and "the flag changed" leaves the model
     unable to say which state is now in effect.
 

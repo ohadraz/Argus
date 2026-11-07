@@ -1,13 +1,14 @@
 """What the stack remembers of an incident, and that the next one reaches for it.
 
 Two halves of one mechanism, and only the whole stack can show either. The
-record is composed from rows the walk wrote, embedded by a model that runs in
-Argus's own process, and put in a collection nothing else here touches - which
-is four pieces that a unit test can only assert separately.
+record is composed from rows the walk wrote, filed as a row of its own, embedded
+by the deliverer with a model that runs in Argus's own process, and put in a
+collection nothing else here touches - which is four pieces that a unit test can
+only assert separately.
 
-The seeding is deliberately done **through the same writer the walk uses**, and
-it lives in the framework rather than here: `scripts/record_incident.py` has to
-stage the same world when it captures the corpus these cases replay. See
+The seeding is deliberately done **through the same writer the deliverer uses**,
+and it lives in the framework rather than here: `scripts/record_incident.py` has
+to stage the same world when it captures the corpus these cases replay. See
 `tests.e2e.framework.memory`.
 """
 
@@ -24,14 +25,14 @@ from argus_core.events import SimilarIncidentsRecalled
 from argus_core.models import IncidentStatus, Verdict
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
-from incident_memory.store import recalled
+from incident_memory.recalling import recalled
 from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_FLAG_TOGGLE,
-    RECORDED_FLAG_TOGGLE_RED_HERRING,
+    RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
@@ -98,8 +99,8 @@ def test_an_earlier_incident_like_this_one_is_found_and_said() -> None:
         .given(
             calling(that_flag_was_tried_before_and_did_not_help),
             calling(a_scenario_was_seeded("flag-toggle-red-herring",
-                                          as_recorded_in=RECORDED_FLAG_TOGGLE_RED_HERRING)),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED)),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -123,7 +124,8 @@ def _it_was_remembered_as_having_tried(
 
     Searched rather than fetched by id, because searching is what a later walk
     does: a record that was written and cannot be found is, from where it
-    matters, a record that was not written.
+    matters, a record that was not written. Asked until it holds, because the
+    walk only files the record and the deliverer brings it here after.
     """
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
@@ -188,7 +190,7 @@ def _the_walk_said_it_recalled(incident_id: str) -> Assertion[httpx2.Response]:
                 f"it said {sorted({event.kind for event in recorded})}"
             )
 
-        found = [one for event in said for one in event.incident_ids]
+        found = [one.incident_id for event in said for one in event.recalled]
 
         if incident_id not in found:
             raise AssertionError(

@@ -8,6 +8,7 @@ PromQL, Prometheus's envelope, or its errors.
 from __future__ import annotations
 
 import logging
+import math
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -86,6 +87,29 @@ QUERIES: Final[Mapping[str, str]] = {
 _EVERY_BUCKET_NEEDS: Final = frozenset(QUERIES) - {
     "memory_limit_bytes", "cpu_limit_cores", "cache_hit_ratio"
 }
+
+
+def is_the_error_rate(query: str) -> bool:
+    """Whether `query` is the one the error rate is read by, however it is laid
+    out - PromQL reads nothing into whitespace, so neither does this.
+
+    A paging rule over the error rate itself watches the figure every reader of
+    the incident is already given as the error rate, and whoever says what the
+    rule watched would otherwise say that figure twice."""
+    return "".join(query.split()) == "".join(QUERIES["error_rate"].split())
+
+
+# The fields whose queries are a latency: how long requests took, at a quantile.
+_LATENCIES: Final = ("p50_ms", "p95_ms", "p99_ms")
+
+
+def is_a_latency(query: str) -> bool:
+    """Whether `query` is one a latency is read by, however it is laid out.
+
+    A paging rule over a latency watches how long requests took, which is what
+    whoever reads the incident is given as its latency, and said beside the
+    rule's own series it would be said twice."""
+    return "".join(query.split()) in {"".join(QUERIES[field].split()) for field in _LATENCIES}
 
 
 def buckets_between(started_at: datetime,
@@ -178,12 +202,23 @@ def _the_rules_readings(get: Get,
 
 
 def _samples_in(answer: Any) -> list[tuple[datetime, float]]:
-    """Every sample in one answer, each against the minute it describes - the
-    minute that ended at the sample's own time."""
+    """Every sample in one answer that is a number, each against the minute it
+    describes - the minute that ended at the sample's own time.
+
+    One that is no number is no reading. Prometheus's arithmetic is IEEE 754's,
+    so a ratio over a minute with no requests answers `NaN`, and a summary
+    nothing was observed by exports `NaN` for every quantile. Kept, it failed
+    the whole window's read where a latency is rounded to a whole number, and
+    was judged where it was not: `NaN` compares false with every line, so a
+    minute of it was clear of a rule firing above its line and past one firing
+    below. Left out, it is a minute missing that reading, which is dropped
+    where every bucket needs it and absent where not.
+    """
     return [
-        (datetime.fromtimestamp(float(at), UTC) - _A_MINUTE, float(value))
+        (datetime.fromtimestamp(float(at), UTC) - _A_MINUTE, reading)
         for series in answer[_DATA][_RESULT]
         for at, value in series[_VALUES]
+        if math.isfinite(reading := float(value))
     ]
 
 

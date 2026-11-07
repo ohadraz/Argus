@@ -32,6 +32,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import agent_investigator
 import pytest
+from argus_core import to_iso
 from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
@@ -46,14 +47,17 @@ from argus_core.models import (
     Actor,
     Alert,
     Attempt,
+    DeploymentChanges,
     Disproof,
     EstablishedOnset,
     FlagChange,
+    FlagHistory,
     HowTheMinuteIsKnown,
     Hypothesis,
     IncidentStatus,
     Ownership,
     Reading,
+    RecalledIncident,
     RecordedPlacement,
     RetrievalChannel,
     ServiceDependency,
@@ -61,6 +65,7 @@ from argus_core.models import (
     ThreadMessage,
     Verdict,
     Weighing,
+    WhatWasTried,
 )
 from argus_incidents import IsStillWanted
 from argus_testkit import (
@@ -71,11 +76,12 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
-from incident_memory.records import RememberedIncident, WhatWasTried
+from incident_memory.records import RememberedIncident
 from orchestrator.walk import ports
+from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
-from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.assertions import (
@@ -99,8 +105,8 @@ from orchestrator_test.framework.builders import (
     an_undetermined_hypothesis,
     discarding,
     holding_to_a_card,
-    putting_back,
     restarting,
+    reverting,
     rolling_back,
 )
 
@@ -117,6 +123,10 @@ WHAT_THE_PROVIDER_RECORDED = [
     FlagChange(flag=SOME_FLAG, enabled=True, occurred_at=DONT_CARE_MOMENT),
     FlagChange(flag=ANOTHER_FLAG, enabled=True, occurred_at=DONT_CARE_MOMENT)
 ]
+
+# The window the provider was read over, as the read says it.
+SOME_HISTORY_START = datetime(2026, 8, 20, 10, 35, tzinfo=UTC)
+SOME_HISTORY_END = datetime(2026, 8, 20, 11, 5, tzinfo=UTC)
 
 # What the register says the alerting service calls. Non-empty for the reason
 # the flag history above is: an empty register is what an unreadable one looks
@@ -169,7 +179,9 @@ def record_weighing() -> MagicMock:
 @pytest.fixture
 def fetch_flag_changes() -> MagicMock:
     fetch = cast(MagicMock, create_autospec(ports.FetchFlagChanges, instance=True))
-    fetch.return_value = list(WHAT_THE_PROVIDER_RECORDED)
+    fetch.return_value = FlagHistory(changes=list(WHAT_THE_PROVIDER_RECORDED),
+                                     since=SOME_HISTORY_START,
+                                     until=SOME_HISTORY_END)
 
     return fetch
 
@@ -218,9 +230,12 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
+                    deployment_changes={},
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
+                    attempts_handed=0,
+                    candidates_formed=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
                     narration=Narration(action="hypothesis formed")
@@ -265,9 +280,12 @@ def test_whether_the_incident_was_read_at_all_is_carried_to_the_gate(
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
+                    deployment_changes={},
                     already_read=[],
                     readings_cover_the_incident=False,
                     rounds=1,
+                    attempts_handed=0,
+                    candidates_formed=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
                     narration=Narration(action="hypothesis formed")
@@ -357,7 +375,7 @@ def test_an_incident_whose_minutes_nothing_read_asks_the_flag_history_for_the_pr
     # instead the last reading there was - and what ended the readings is the
     # change, so the change lies at or after that minute and a window ending
     # there holds none of it. Mitigation is then handed an empty history and
-    # proposes nothing, on the one incident whose only mitigation is putting back
+    # proposes nothing, on the one incident whose only mitigation is reverting
     # the flag that blinded it.
     a_stated_onset = datetime(2026, 9, 22, 14, 10, tzinfo=UTC)
     an_incident_nothing_saw = an_incident_state(
@@ -463,9 +481,12 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
+                    deployment_changes={},
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
+                    attempts_handed=0,
+                    candidates_formed=1,
                     confidence=None,
                     nothing_worth_trying=True,
                     narration=Narration(action="insufficient evidence")
@@ -774,7 +795,7 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
     a_window_already_read = Reading(channel=RetrievalChannel.LOGS,
                                     window_start="2026-08-20T10:30:00Z",
                                     window_end="2026-08-20T11:08:00Z")
-    a_refuted_attempt = _an_attempt_to(putting_back(SOME_FLAG))
+    a_refuted_attempt = _an_attempt_to(reverting(SOME_FLAG))
     a_second_round = _an_investigating_incident().model_copy(
         update={"already_read": [a_window_already_read],
                 "attempts": [a_refuted_attempt]}
@@ -798,6 +819,36 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
                                         investigate),
             _the_investigation_was_told("already_refuted", [a_refuted_attempt],
                                         investigate)))
+
+
+@pytest.mark.unit
+def test_a_round_keeps_how_many_attempts_it_was_handed(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # What says, once this round's candidates are spent, whether anything was
+    # refuted after it began - and so whether another round would be handed
+    # anything this one was not.
+    a_second_round = _an_investigating_incident().model_copy(
+        update={"attempts": [_an_attempt_to(reverting(SOME_FLAG))]}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate, a_determined_hypothesis(a_second_round.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(a_second_round,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            _the_round_was_handed(1)
+        )
 
 
 @pytest.mark.unit
@@ -831,6 +882,37 @@ def test_a_later_round_is_handed_the_onset_the_first_round_established(
 
 
 @pytest.mark.unit
+def test_a_later_round_numbers_on_from_the_candidates_earlier_rounds_formed(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # A candidate is said by its number the moment it is formed, so a round is
+    # told how many came before it - and leaves the count, its own added, for
+    # the next round to number from. Its own list alone would restart at one.
+    a_second_round = _an_investigating_incident().model_copy(update={"candidates_formed": 2})
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(a_second_round.incident_id),
+                a_determined_hypothesis(a_second_round.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(a_second_round,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(all_of(
+            _the_investigation_was_told("earlier_candidates", 2, investigate),
+            the_result_at("candidates_formed", 4)
+        ))
+
+
+@pytest.mark.unit
 def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
     investigate: MagicMock, record_hypothesis: MagicMock,
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
@@ -840,12 +922,12 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
     # it must not do is send the walk back to change the same flag a second
     # time, which would spend the round budget flipping one flag back and forth.
     #
-    # The round reports that it found nothing worth trying, which is what ends
-    # the incident. It is a fact about the investigation, not a status: the walk
-    # leaves an identical candidate list behind when it runs out, and those two
-    # do not end the same way.
+    # The round has spent its list rather than found nothing: it named a cause,
+    # and the walk has already answered it. So it leaves no candidate under test
+    # and does not report nothing worth trying - the fact that sends a round
+    # naming no cause to a human, where this one goes on to a fix.
     a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(putting_back(SOME_FLAG))]}
+        update={"attempts": [_an_attempt_to(reverting(SOME_FLAG))]}
     )
     the_same_explanation_again = a_candidate_blaming(
         a_round_after_that_flag_was_tried.incident_id, SOME_FLAG
@@ -864,7 +946,7 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
                                       fetch_flag_changes=fetch_flag_changes,
                                       fetch_dependencies=fetch_dependencies)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
 
 
 @pytest.mark.unit
@@ -896,7 +978,47 @@ def test_a_later_round_does_not_restart_a_service_it_already_restarted(
                                       fetch_flag_changes=fetch_flag_changes,
                                       fetch_dependencies=fetch_dependencies)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
+
+
+@pytest.mark.unit
+def test_a_round_that_spent_the_list_says_so_in_the_walks_words(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The move it leads to is the one the walk makes when it runs out of
+    # candidates, for the same reason, so it is said in the same words. Said as
+    # "hypothesis formed", it reached the timeline, Slack and the postmortem as
+    # the reason the incident went to a human.
+    the_attempts = [_an_attempt_to(reverting(SOME_FLAG))]
+    a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
+        update={"attempts": the_attempts}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_candidate_blaming(a_round_after_that_flag_was_tried.incident_id,
+                                    SOME_FLAG)))
+        ) \
+        .when(
+            lambda: investigator_node(a_round_after_that_flag_was_tried,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(the_result_at("narration", nothing_left_to_try(the_attempts)))
+
+
+@pytest.mark.unit
+def test_an_investigation_that_spent_the_list_goes_on_to_a_fix() -> None:
+    Scenario() \
+        .given(a_fixing_incident := _an_incident_in(IncidentStatus.FIXING)) \
+        .when(lambda: route_after_investigation(a_fixing_incident)) \
+        .then(the_route_is(FIXING_ROUTE))
 
 
 @pytest.mark.unit
@@ -932,7 +1054,7 @@ def test_an_action_an_earlier_incident_refuted_is_tried_last(
                 an_investigating_incident,
                 investigate=investigate,
                 recall_similar=_an_earlier_incident_that_refuted(
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes,
@@ -1025,7 +1147,7 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
     # A walk that tried its second-best candidate first, with nothing saying
     # why, is a walk a human reading the incident back cannot account for. What
     # is said is the action, because "moved kuki-service down the list" is true
-    # of a service restarted and of a flag put back.
+    # of a service restarted and of a flag reverted.
     an_investigating_incident = _an_investigating_incident()
     the_incident_that_moved_it = "3f2b1a09-0000-4000-8000-00000000000a"
     published: Kept[IncidentEvent] = Kept()
@@ -1044,7 +1166,7 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
                 an_investigating_incident,
                 investigate=investigate,
                 recall_similar=_an_earlier_incident_that_refuted(
-                    putting_back(SOME_FLAG), incident_id=the_incident_that_moved_it
+                    reverting(SOME_FLAG), incident_id=the_incident_that_moved_it
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes,
@@ -1052,7 +1174,7 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
                 publisher=published.take)
         ) \
         .then(_it_was_said_that(published,
-                                putting_back(SOME_FLAG),
+                                reverting(SOME_FLAG),
                                 the_incident_that_moved_it))
 
 
@@ -1097,7 +1219,8 @@ def test_what_memory_recalled_is_said_on_the_timeline(
     # model's to decide - so a timeline carrying only `CandidatesReordered` is
     # silent about memory on every walk where memory was read and did find
     # something. One candidate here, so nothing can move and the recall is the
-    # only thing there is to say.
+    # only thing there is to say. Each incident with what it tried and what came
+    # of it, nearest first: an id alone says nothing a reader can use.
     an_investigating_incident = _an_investigating_incident()
     the_nearest = "3f2b1a09-0000-4000-8000-00000000000a"
     the_one_behind_it = "3f2b1a09-0000-4000-8000-00000000000b"
@@ -1122,7 +1245,11 @@ def test_what_memory_recalled_is_said_on_the_timeline(
                 fetch_dependencies=fetch_dependencies,
                 publisher=published.take)
         ) \
-        .then(_the_recall_said(published, [the_nearest, the_one_behind_it]))
+        .then(_the_recall_said(published, [
+            RecalledIncident(incident_id=the_nearest, tried=[
+                WhatWasTried(identity=reverting(ANOTHER_FLAG), verdict=Verdict.REFUTED)]),
+            RecalledIncident(incident_id=the_one_behind_it, tried=[
+                WhatWasTried(identity=reverting(ANOTHER_FLAG), verdict=Verdict.REFUTED)])]))
 
 
 @pytest.mark.unit
@@ -1184,6 +1311,36 @@ def test_the_round_says_what_flag_history_it_reasoned_from(
                                       publisher=published.take)
         ) \
         .then(_the_history_published_is(WHAT_THE_PROVIDER_RECORDED, published))
+
+
+@pytest.mark.unit
+def test_the_round_says_the_window_its_flag_history_was_read_over(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # A history with no window says no flag moved "lately", and a write-up
+    # ruling flags out rules out a stretch nobody can see. The walk's window,
+    # which is not the Investigator's.
+    published: Kept[IncidentEvent] = Kept()
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      publisher=published.take)
+        ) \
+        .then(_the_history_published_over(to_iso(SOME_HISTORY_START), to_iso(SOME_HISTORY_END),
+                                          published))
 
 
 @pytest.mark.unit
@@ -1368,6 +1525,45 @@ def test_the_round_carries_the_placement_the_investigation_recorded(
 
 
 @pytest.mark.unit
+def test_the_round_keeps_what_each_deployment_changed_beside_what_earlier_rounds_read(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Kept across rounds, as what was read is. What a deploy changed is a fact
+    # about its commit, and a later round blaming the file again without
+    # reading the diff again still has it to find the deploy by.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    another_revision = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+    earlier = DeploymentChanges(said=["modified deploy/values-production.yaml"],
+                                lists_every_file=True)
+    later = DeploymentChanges(said=["modified src/io_shop/purchase_ledger.py"],
+                              lists_every_file=True)
+    an_incident_an_earlier_round_read = _an_investigating_incident().model_copy(
+        update={"deployment_changes": {some_revision: earlier}}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_read_what_deployments_changed(
+                investigate,
+                {another_revision: later},
+                a_determined_hypothesis(an_incident_an_earlier_round_read.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_incident_an_earlier_round_read,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            the_result_at("deployment_changes", {some_revision: earlier, another_revision: later})
+        )
+
+
+@pytest.mark.unit
 def test_a_round_that_could_not_read_the_placement_does_not_keep_the_last_one(
     investigate: MagicMock, record_hypothesis: MagicMock,
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
@@ -1440,11 +1636,12 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
     fetch_deployments: MagicMock
 ) -> None:
-    # The guard once more, for the candidate whose answer is read off the deploy
-    # history. The round asks each candidate which action would answer it, and
-    # has to ask with the history it just read: asked without it, a corruption
-    # no flag caused reads as answered by nothing, which matches nothing already
-    # tried - so the walk would roll the same deployment back once per wording.
+    # The guard once more, for the candidate whose answer is checked against the
+    # deploy history. The round asks each candidate which action would answer
+    # it, and has to ask with the history it just read: asked without it, a
+    # corruption blaming a revision reads as answered by nothing, which matches
+    # nothing already tried - so the walk would roll the same deployment back
+    # once per round.
     a_round_after_the_rollback = _an_investigating_incident().model_copy(
         update={"attempts": [_an_attempt_to(rolling_back(SOME_SERVICE))]}
     )
@@ -1454,7 +1651,7 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
             calling(lambda: _the_investigation_returned(
                 investigate,
                 a_corruption_blamed_on(a_round_after_the_rollback.incident_id,
-                                       "monthly totals fall behind the purchases")))
+                                       a_deployment().reference)))
         ) \
         .when(
             lambda: investigator_node(a_round_after_the_rollback,
@@ -1465,7 +1662,7 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
                                       fetch_dependencies=fetch_dependencies,
                                       fetch_deployments=fetch_deployments)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
 
 
 @pytest.mark.unit
@@ -1499,7 +1696,7 @@ def test_a_later_round_does_not_hold_the_fleet_to_a_card_it_already_held_it_to(
                                       fetch_flag_changes=fetch_flag_changes,
                                       fetch_dependencies=fetch_dependencies)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
 
 
 @pytest.mark.unit
@@ -1773,7 +1970,7 @@ def _earlier_incidents_nearest_first(*incident_ids: str) -> ports.RecallSimilar:
                 alert_name="HighErrorRate",
                 tried=[
                     WhatWasTried(
-                        identity=putting_back(ANOTHER_FLAG), verdict=Verdict.REFUTED
+                        identity=reverting(ANOTHER_FLAG), verdict=Verdict.REFUTED
                     )
                 ]
             )
@@ -1871,7 +2068,7 @@ def _no_reordering_was_said(published: Kept[IncidentEvent]) -> Assertion[StateDe
 
 
 def _the_recall_said(published: Kept[IncidentEvent],
-                     expected: list[str]) -> Assertion[StateDelta]:
+                     expected: list[RecalledIncident]) -> Assertion[StateDelta]:
     def assertion(dont_care_delta: StateDelta) -> bool:
         said = [
             event for event in published.taken
@@ -1884,10 +2081,10 @@ def _the_recall_said(published: Kept[IncidentEvent],
                 f"{[event.kind for event in published.taken]}."
             )
 
-        if said[0].incident_ids != expected:
+        if said[0].recalled != expected:
             raise AssertionError(
                 f"Expected the recall to name {expected} nearest first, got "
-                f"{said[0].incident_ids}."
+                f"{said[0].recalled}."
             )
 
         return True
@@ -1925,6 +2122,22 @@ def _the_history_published_is(expected: list[FlagChange],
                 f"Expected the history {expected} to be published, got "
                 f"{read[0].changes}"
             )
+
+        return True
+
+    return assertion
+
+
+def _the_history_published_over(start: str,
+                                end: str,
+                                published: Kept[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        read = [(event.window_start, event.window_end) for event in published.taken
+                if isinstance(event, FlagChangesRetrieved)]
+
+        if read != [(start, end)]:
+            raise AssertionError(
+                f"Expected one history published over [{start}] to [{end}], got {read}.")
 
         return True
 
@@ -2266,6 +2479,15 @@ def _the_investigation_recorded_the_placement(investigate: MagicMock,
     )
 
 
+def _the_investigation_read_what_deployments_changed(
+        investigate: MagicMock,
+        deployment_changes: dict[str, DeploymentChanges],
+        *candidates: Hypothesis) -> None:
+    investigate.return_value = agent_investigator.Findings(
+        candidates=list(candidates), already_read=[], deployment_changes=deployment_changes
+    )
+
+
 def _the_placement_is_sent_on_as_unread() -> Assertion[StateDelta]:
     """Sent on as `None`, rather than left out of the update.
 
@@ -2306,6 +2528,43 @@ def _the_investigation_found_the_incident_unread(investigate: MagicMock,
 
 def _an_attempt_to(identity: ActionIdentity) -> Attempt:
     return Attempt(identity=identity, enabled=False, occurred_at="2026-08-29T16:00:00Z")
+
+
+def _the_round_was_handed(expected: int) -> Assertion[StateDelta]:
+    def assertion(result: StateDelta) -> bool:
+        if result.attempts_handed != expected:
+            raise AssertionError(
+                f"Expected the round to keep that it was handed [{expected}] "
+                f"attempt(s), got [{result.attempts_handed}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_round_spent_the_list() -> Assertion[StateDelta]:
+    """No candidate left under test, and not a round that found nothing.
+
+    Both, because each alone is true of another round as well: a round that
+    named no cause leaves nothing under test either, and one with a candidate
+    to try does not report finding nothing.
+    """
+    def assertion(result: StateDelta) -> bool:
+        candidates = result.candidates or []
+
+        if not candidates or result.candidate_index != len(candidates) \
+                or result.nothing_worth_trying:
+            raise AssertionError(
+                f"Expected the round to leave no candidate of its {len(candidates)} "
+                f"under test without reporting nothing worth trying, it left the "
+                f"index at [{result.candidate_index}] and nothing worth trying "
+                f"[{result.nothing_worth_trying}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _every_candidate_was_recorded(expected: list[Hypothesis],

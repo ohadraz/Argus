@@ -17,6 +17,7 @@ from argus_core.models import (
     Alert,
     Attempt,
     ChangeEvent,
+    DeploymentChanges,
     Disproof,
     EstablishedOnset,
     FlagChange,
@@ -89,6 +90,15 @@ class IncidentState(BaseModel):
     # hard incident has usually spent its whole widening schedule by the time
     # the first attempt comes back refuted.
     rounds: int = 0
+    # How many attempts the latest round was handed. What says whether anything
+    # was refuted since it began - an action the gate refused or the tier could
+    # not take adds no attempt - and so whether another round would be told
+    # anything the last one was not.
+    attempts_handed: int = 0
+    # How many candidates this incident's rounds have formed, which is what the
+    # next round numbers its own from (`Hypothesis.number`). Not `candidates`'
+    # length: that is the latest round's alone.
+    candidates_formed: int = 0
     # What the flag provider recorded as having changed, read once at the top
     # of each round. Carried rather than fetched where it is used because it is
     # used three times over - deciding what each candidate would be answered
@@ -113,6 +123,12 @@ class IncidentState(BaseModel):
     # made when acting is made after the walk may already have moved the pods.
     # `None` where the round could not read it, never an empty placement.
     placement: RecordedPlacement | None = None
+    # What each deployment this incident's investigations looked into changed,
+    # by its revision. Kept across rounds, as `already_read` is: what a deploy
+    # changed is a fact about its commit, and a later round blaming a file it
+    # did not look into again still needs the diff to find the deploy that
+    # carried it.
+    deployment_changes: dict[str, DeploymentChanges] = {}
     # What the service register says this service calls, read once at the top of
     # each round beside the flag history. Carried for the same reason: the gate
     # reads it to decide whether the service an action is addressed to is one
@@ -149,7 +165,7 @@ class IncidentState(BaseModel):
     # candidate: the candidate in hand is the likeliest explanation still
     # standing, and where it says no mitigation applies, acting on a less likely
     # one is acting against the diagnosis.
-    nothing_answers_the_mode: bool = False
+    the_mode_has_no_mitigation: bool = False
     # Whether the round that just ran found any candidate worth acting on. The
     # Investigator's own answer, recorded because it is the one thing that
     # distinguishes an investigation with nothing to offer from a walk that has
@@ -181,6 +197,10 @@ class IncidentState(BaseModel):
     # state machine branches on this, and a comparison against a string is one
     # that keeps compiling after somebody changes how a verdict is written.
     action_outcome: Verdict | None = None
+    # What the verification wait judged the attempt on, carried to the round
+    # that reads it as an attempt (`Attempt.refuted_because`). `None` where
+    # nothing was watched.
+    action_because: str | None = None
 
 
 def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
@@ -263,7 +283,7 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # The gate ended the mitigation phase with its candidate still in hand, so
     # the index below would read as a candidate under test. Nothing is: no
     # mitigation answers the mode, and the walk is on its way to Code-Fix.
-    if state.nothing_answers_the_mode:
+    if state.the_mode_has_no_mitigation:
         return IncidentStatus.FIXING
 
     # Not a third opinion on the hypothesis: nothing was changed and nothing was
@@ -301,7 +321,31 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     if state.unreachable_platforms:
         return IncidentStatus.ESCALATED
 
-    if state.rounds < max_rounds:
+    if another_round_is_bought(state, max_rounds):
         return IncidentStatus.INVESTIGATING
 
     return IncidentStatus.FIXING
+
+
+def another_round_is_bought(state: IncidentState, max_rounds: int) -> bool:
+    """Whether the walk, out of candidates, investigates again.
+
+    Bought by a refutation, and only by one made since the latest round began:
+    Argus changed production and the service did not answer, which is evidence
+    no amount of re-reading produces and the model has never seen. A list spent
+    without one - every action refused by the gate, or one the tier had nowhere
+    to take - leaves the next round the evidence the last was handed, and a
+    re-read of it is the round `nothing_worth_trying` already declines to pay
+    for.
+
+    The first round is owed rather than bought: nothing has been read yet, so
+    there is nothing for it to repeat.
+
+    Stated once, because two callers ask it: `status_after`, and the node that
+    says why the walk moved. Asked separately, the two could disagree about
+    where the incident went and why.
+    """
+    if state.rounds == 0:
+        return max_rounds > 0
+
+    return state.rounds < max_rounds and len(state.attempts) > state.attempts_handed

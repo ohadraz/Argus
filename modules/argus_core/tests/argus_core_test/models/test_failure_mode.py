@@ -284,14 +284,6 @@ def test_drift_says_when_to_prefer_it_to_a_broken_configuration() -> None:
 
 
 @pytest.mark.unit
-def test_drift_says_what_is_owed_is_the_watching_rolled_forward() -> None:
-    Scenario() \
-        .given(drift := FailureMode.MONITORING_CONFIGURATION_DRIFT) \
-        .when(lambda: drift.meaning()) \
-        .then(_it_says_the_watching_is_rolled_forward())
-
-
-@pytest.mark.unit
 def test_the_mode_whose_cause_lands_after_its_own_onset_says_so() -> None:
     # The one mode whose change cannot be at the onset, and so the one where a
     # model reading the change channels correctly reaches the wrong conclusion.
@@ -451,6 +443,54 @@ def test_a_card_says_when_to_prefer_it_to_a_bad_deployment() -> None:
         .then(_the_meaning_of(the_card).says_when_to_prefer_it_to(
             FailureMode.BAD_DEPLOYMENT
         ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cause", list(FailureMode))
+def test_no_meaning_says_a_rule_pages(cause: FailureMode) -> None:
+    # A rule fires; a person is paged. A meaning that sent the model to "the
+    # series the paging rule watches" taught it the word, and a write-up then
+    # said the alert paged somebody of an incident nobody was paged for.
+    Scenario() \
+        .when(lambda: cause.meaning()) \
+        .then(all_of(
+            _never_says("paging"), 
+            _never_says("paged")))
+
+
+# Words that say what answers a mode rather than what happened in it.
+_WHAT_ANSWERS_IT = ("revert", "rollback", "roll back", "rolled forward", "restart",
+                    "returning", "putting", "mitigat", "answered by", "what answers",
+                    "put right", "discard", "fix", "rewrite", "repair", "undo", "restore")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cause", list(FailureMode))
+def test_no_meaning_says_what_answers_it(cause: FailureMode) -> None:
+    # The meanings are read by an Investigator whose summary is asked never to
+    # say what to do, and it says what they say: told a corruption's repair is
+    # a rewrite, it wrote that the records "need a rewrite"; told returning a
+    # drift's revision would restore the sight, it wrote "Reverting would
+    # restore the metrics". What happened and what tells a mode apart from its
+    # neighbour is all a meaning carries; the action is chosen from the mode
+    # elsewhere.
+    Scenario() \
+        .when(lambda: cause.meaning()) \
+        .then(all_of(*(_never_says(word) for word in _WHAT_ANSWERS_IT)))
+
+
+def _never_says(word: str) -> Assertion[str]:
+    """That a meaning never puts one word in front of the model, whatever its
+    case - a sentence opening on it spells it with a capital."""
+    def assertion(meaning: str) -> bool:
+        if word.lower() in meaning.lower():
+            raise AssertionError(
+                f"Expected the meaning never to say [{word}], got [{meaning}]."
+            )
+
+        return True
+
+    return assertion
 
 
 class _Meaning:
@@ -690,7 +730,7 @@ def _the_pair_is_told_apart_by_the_rollout() -> Assertion[
 def _the_pair_is_told_apart_by_what_the_change_left_behind() -> Assertion[
     tuple[FailureMode, FailureMode]
 ]:
-    """Each meaning has to say whether putting the change back ends it.
+    """Each meaning has to say whether reverting the change ends it.
 
     Naming the other mode is not enough, for the reason it is not enough of any
     pair above - and here the evidence agrees on the one thing a model looks at
@@ -698,8 +738,8 @@ def _the_pair_is_told_apart_by_what_the_change_left_behind() -> Assertion[
     history describes the two identically: somebody turned something on, and the
     shop went wrong from that minute.
 
-    What separates them is what the flag left behind. Put it back and a toggle
-    is over; put it back here and the drift stops while every value already
+    What separates them is what the flag left behind. Revert it and a toggle
+    is over; revert it here and the drift stops while every value already
     written stays wrong. So a meaning that does not send the model to what the
     service has already written leaves it reading a mode whose damage outlives
     its cause as one whose damage ends with it - and the cost of that reading is
@@ -730,7 +770,6 @@ def _the_pair_is_told_apart_by_what_stopped_reporting() -> Assertion[
 ]:
     """Each meaning has to say whether the service or its reporting is what broke.
 
-    Naming the other mode is not enough, for the reason it is not enough of any
     Naming the other mode is not enough, for the reason it is not enough of any
     pair above. What a model has in front of it is one change at the onset -
     a flag in one of the pairs this is asked of, a revision in the other - and
@@ -820,28 +859,6 @@ def _the_pair_is_told_apart_by_the_convention() -> Assertion[
                 f"without saying whether the change applied a convention - so "
                 f"the model is told there is a distinction and not that one of "
                 f"the pair is answered by keeping the change."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_says_the_watching_is_rolled_forward() -> Assertion[str]:
-    """The meaning has to say what is owed: the observer changed, the service kept.
-
-    The mode exists because the answer every other deploy-shaped mode gives -
-    return the revision - is the wrong one here, and a meaning that names the
-    cause without naming the remedy leaves the model to reach for the remedy it
-    knows.
-    """
-    def assertion(meaning: str) -> bool:
-        if "rolled forward" not in meaning:
-            raise AssertionError(
-                "The meaning of [monitoring-configuration-drift] never says the "
-                "monitoring's configuration is rolled forward to the change, so "
-                "a model that has named it still reaches for the rollback every "
-                "other deploy-shaped mode is answered by."
             )
 
         return True

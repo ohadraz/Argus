@@ -513,11 +513,12 @@
                                                              padding-right: 36px; }
   .postmortem-timeline tr.marker td { font-weight: 600; }
   .postmortem-timeline tr.marker td:nth-child(2) { opacity: 1; }
-  /* Coloured by what each marker means for the service: broken, seen, put
-     right, over. */
+  /* Coloured by what each marker means for the service: broken, unmeasured
+     or seen, put right, over. */
   .postmortem-timeline span.marker { font-family: ui-monospace, monospace;
                                           font-size: .85em; letter-spacing: .06em; margin-right: .5em; }
   .postmortem-timeline span.marker.impact-begins { color: var(--bad); }
+  .postmortem-timeline span.marker.metrics-stop,
   .postmortem-timeline span.marker.detected { color: var(--amber); }
   .postmortem-timeline span.marker.mitigation-applied,
   .postmortem-timeline span.marker.impact-ends { color: var(--good); }
@@ -544,9 +545,12 @@
   ol.chain .claim { margin: 0 0 4px; }
   ol.chain .evidence { display: block; margin: 0; font-size: .82em; opacity: .65; }
   ol.chain .cited { display: block; font-size: .95em; }
+  ol.chain .ruled { margin: 4px 0 0; font-size: .85em; }
   table.evidence-read td.label, table.timeline td.label, table.resolution-steps td.label,
   .lead-label { font-family: ui-monospace, monospace; font-size: .85em; color: var(--eye);
                 white-space: nowrap; }
+  /* Words written in paragraphs and lists keep their lines. */
+  td.keeps-lines { white-space: pre-line; }
   /* A diff keeps its lines and the spaces that set them in. */
   table.diffs-read td.diff { font-family: ui-monospace, monospace; font-size: .85em;
                              white-space: pre-wrap; }
@@ -634,6 +638,7 @@
                           opacity: .78; }
   .timeline-table .who  { white-space: nowrap; color: var(--eye); }
   .repeated { margin-left: 8px; opacity: .7; font-variant-numeric: tabular-nums; }
+  .aside { margin: 6px 0 0; opacity: .8; font-style: italic; white-space: pre-line; }
   .jump { margin-left: 8px; font-size: .78em; letter-spacing: .06em;
           text-transform: uppercase; }
   /* A word in the sentence that leads off the page, rather than a jump to a
@@ -671,9 +676,9 @@
   .changes { margin: 6px 0 0; }
   .changes li { padding: 2px 0; }
 
-  /* The candidates, ranked, under the line that formed them. Numbered by the
-     list itself so the rank a reader sees is the rank the investigation gave,
-     with nothing to keep in sync. */
+  /* The candidates, best first, under the line that formed them. Each item
+     carries its candidate's own number as its value, so the number a reader
+     sees is the one the chat says, read rather than counted. */
   .candidates { margin: 6px 0 2px; padding-left: 1.6em; }
   .candidates > li { padding: 3px 0; }
 

@@ -16,7 +16,20 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import NamedTuple
 
-from argus_core.models import Reading, ToolCall, ToolResult
+from argus_core.models import DeploymentChanges, Reading, ToolCall, ToolResult
+
+
+class DeploymentRead(NamedTuple):
+    """What one deployment changed, under the revision the model asked about.
+
+    Handed back beside the model's answer rather than read off the account,
+    because the walk decides from it - a candidate blaming a file is answered
+    by the deploy whose diff names that file - and an account is read by
+    nothing that decides.
+    """
+
+    revision: str
+    changes: DeploymentChanges
 
 
 class Unanswered(NamedTuple):
@@ -46,11 +59,15 @@ class Served(NamedTuple):
     something the model did. It is carried here rather than published where it
     happens so that one place decides - the dispatcher every call passes through
     - and a channel added later cannot arrive silent.
+
+    `deployment_read` is set only where a deployment's diff came back, which
+    the dispatcher keeps for the walk.
     """
 
     result: ToolResult
     reading: Reading | None
     unanswered: Unanswered | None = None
+    deployment_read: DeploymentRead | None = None
 
 
 def served(call: ToolCall, content: str, reading: Reading) -> Served:

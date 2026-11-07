@@ -34,7 +34,7 @@ def metrics_tool() -> ToolDefinition:
         description=(
             "Per-minute error rate, latency and request volume for the service, over "
             "the fixed span around the alert. The onset you were given was located "
-            "from this. Where the alert rule that paged watches a series of its own, "
+            "from this. Where the alert rule that fired watches a series of its own, "
             "each minute also carries that series' value as rule_reading. Takes no "
             "window: the span is one the metrics source decides, and it is already "
             "wider than any log window you may ask for."

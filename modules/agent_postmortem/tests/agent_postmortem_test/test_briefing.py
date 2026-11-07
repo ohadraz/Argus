@@ -19,9 +19,10 @@ from argus_testkit import Assertion, Scenario, the_answer_was
 
 # The five whys, by the words that carry its rules: where the chain starts,
 # where it stops, where a why the record cannot answer goes, that it never
-# stops at a person, and what the root cause is.
+# stops at a person, and what the root cause is - the mechanism, not the
+# chain's last step, which is often the change that set it off.
 THE_FIVE_WHYS = ("five whys", "symptom", "evidence stops", "contributing factor",
-                 "at a person", "last step of the chain")
+                 "at a person", "says the mechanism")
 
 # Whose account wins where the candidates and the record disagree.
 THE_RECORD_OUTRANKS_A_CANDIDATE = ("Investigator's account", "the record is right")
@@ -41,7 +42,24 @@ def test_the_postmortem_is_asked_under_its_brief() -> None:
         ) \
         .then(
             the_answer_was(ModelPolicy(model=some_model, effort=some_effort,
-                                       brief=STANDING_BRIEF))
+                                       brief=STANDING_BRIEF, one_tool_call_per_turn=True))
+        )
+
+
+@pytest.mark.unit
+def test_the_postmortem_is_asked_for_one_tool_call_per_turn() -> None:
+    # Its one tool ends the conversation, so a second call beside the first is
+    # never a second piece of work. One arrived anyway - a submission filled
+    # with placeholders - and refusing the pair cost a whole turn every walk.
+    dont_care_model = "dont care which model"
+    dont_care_effort: Effort = "low"
+
+    Scenario() \
+        .when(
+            lambda: postmortem_policy(dont_care_model, dont_care_effort).one_tool_call_per_turn
+        ) \
+        .then(
+            the_answer_was(True)
         )
 
 

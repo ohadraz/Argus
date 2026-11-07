@@ -20,8 +20,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections import deque
-from typing import Any
+from typing import Any, Final
 
 import httpx2
 from fastapi import FastAPI, Request
@@ -77,6 +78,11 @@ class Seed(BaseModel):
     recording: str | None = None
     status: int = 200
     body: dict[str, Any] | None = None
+    # The recording a `body` was made from - a recorded answer rebased onto
+    # this run's world. Not served, the body is; compared, as a recording's own
+    # question is, so a rebased answer to a question that has since changed is
+    # listed in `/double-control/state` like any other.
+    recorded_as: str | None = None
     # How many calls this seed answers before the queue moves on. `None` means
     # "until reset", which is the only honest way to express a condition the
     # SDK retries through: it answers a 429 up to `max_retries` times on its
@@ -94,6 +100,9 @@ class Seed(BaseModel):
             )
         if self.recording is not None and self.body is not None:
             raise ValueError("a seed carries either a recording or a body, not both")
+        if self.recorded_as is not None and self.body is None:
+            raise ValueError("`recorded_as` names the recording a body was made from - "
+                             "a seed with no body was made from nothing")
         if self.repeat is not None and self.repeat < 1:
             raise ValueError("a seed answers at least one call, or `null` for until-reset")
         return self
@@ -120,9 +129,15 @@ class _State:
         # A hold asked for and not yet caught, and a call caught and waiting.
         self.holding: bool = False
         self.held: bool = False
+        # The tools the call held was offered, so whoever holds it can tell
+        # which call it is - a walk at its ending can still be in Code-Fix.
+        self.held_tools: list[str] = []
         # A hold for the first call the queue cannot answer, asked for and not
         # yet caught.
         self.holding_when_dry: bool = False
+        # Each recording served to a question other than the one it answered,
+        # by name, with the part of the question that differed.
+        self.diverged: dict[str, str] = {}
 
     def reset(self) -> None:
         self.seeds.clear()
@@ -130,7 +145,9 @@ class _State:
         self.recorded = 0
         self.holding = False
         self.held = False
+        self.held_tools = []
         self.holding_when_dry = False
+        self.diverged.clear()
 
     def catches(self) -> bool:
         """Whether the hold catches the call now arriving - the first to arrive
@@ -271,6 +288,7 @@ def release() -> dict[str, bool]:
     _state.holding = False
     _state.holding_when_dry = False
     _state.held = False
+    _state.held_tools = []
     return {"released": released}
 
 
@@ -306,6 +324,8 @@ def state() -> dict[str, Any]:
         "holding": _state.holding,
         "holding_when_dry": _state.holding_when_dry,
         "held": _state.held,
+        "held_tools": _state.held_tools,
+        "diverged": _state.diverged,
         "available_recordings": recordings.available(),
     }
 
@@ -320,13 +340,115 @@ def _error_body(status: int) -> dict[str, Any]:
     }
 
 
-def _serve(seed: Seed, streaming: bool = False) -> Response:
+def _the_part_that_differs(recorded: dict[str, Any], asked: dict[str, Any]) -> str | None:
+    """Which part of the question a recorded answer was given to differs from
+    the question now asked - `None` where neither does.
+
+    Two parts, compared two ways, because a replay never asks exactly the
+    question its recording answered. The brief carries the run's own instants,
+    incident id and measured figures, so a run that changed nothing still asks
+    with different numbers in it - and a comparison that counted those would
+    report every recording stale on every run.
+
+    So everything but the conversation - the instructions, the tools, the
+    model, its budget and its effort - is compared exactly: those differ only
+    where the code changed. Every field rather than a list of them, so a field
+    the adapter starts sending tomorrow shows as a difference instead of
+    passing unread; only what says how a question travels, and cannot change
+    its answer, is left out.
+
+    The conversation is compared with every id and digit masked out: what is
+    left is the wording of the brief and which lines it holds, which differ
+    where a sentence changed or the run took a different branch - and either
+    is a different question.
+    """
+    def all_but_the_conversation(body: dict[str, Any]) -> dict[str, Any]:
+        return {field: value for field, value in body.items()
+                if field != _THE_CONVERSATION and field not in _HOW_IT_TRAVELS}
+
+    if all_but_the_conversation(recorded) != all_but_the_conversation(asked):
+        return "instructions"
+
+    if _masked(recorded.get(_THE_CONVERSATION)) != _masked(asked.get(_THE_CONVERSATION)):
+        return "conversation"
+
+    return None
+
+
+# The field of a Messages API request that holds the conversation.
+_THE_CONVERSATION: Final = "messages"
+
+# The fields that say how a question travels and cannot change its answer:
+# streamed or not, and where the cache breakpoints sit.
+_HOW_IT_TRAVELS: Final = frozenset({"stream", "cache_control"})
+
+# What a run writes into a question differently every time it runs, masked out
+# of the conversation before it is compared: an id - a uuid, whose groups can be
+# all letters, or a run of hex long enough to be a commit - and any digit, which
+# takes an instant, a measured figure, a count and a port with it.
+_RUN_SPECIFIC: Final = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"|\b[0-9a-f]{7,40}\b"
+    r"|\d+"
+)
+
+# A span of time, masked whole before its digits are: which units it names, and
+# whether each is said in the singular, are run timing as much as its digits are
+# - a span landing on a whole minute drops its seconds, one landing on a single
+# second says "second", and one under a second says neither.
+_A_SPAN: Final = re.compile(
+    r"\b\d+ (?:day|hour|minute|second)s?(?: \d+ (?:day|hour|minute|second)s?)*\b"
+    r"|\bless than a second\b"
+)
+
+
+# A day as a reader says one - "Oct 16" - masked whole before its digits are:
+# the shift follows the day a replay runs, so its month moves as its digits
+# do. Only beside a day number, so "May" as a word is still compared.
+_A_DAY: Final = re.compile(
+    r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b"
+)
+
+
+# A run of rows that are nothing but masked figures - a metrics table, one
+# minute a line - said as one row, after the digits are masked. How many
+# minutes a read covers is run timing too: a walk reading one minute later
+# than its recording holds one more row, and the question is the same one.
+# Matched in the dumped text, where a line ends in an escaped newline, and
+# only from a line's start: a line that merely ends in figures is not a row.
+_A_RUN_OF_ROWS: Final = re.compile(r"(?<=\\n)(?:[-.,:TZ ]*#[-#.,:TZ ]*\\n)+")
+
+
+def _masked(conversation: Any) -> str:
+    """A conversation as one canonical text, with everything a run writes
+    differently each time masked out."""
+    said = json.dumps(conversation, sort_keys=True)
+    said = _RUN_SPECIFIC.sub("#", _A_SPAN.sub("#", _A_DAY.sub("#", said)))
+    return _A_RUN_OF_ROWS.sub(r"#\\n", said)
+
+
+def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = None) -> Response:
     """One seeded answer, said whichever way the caller asked for it.
 
     Only a real answer can be streamed. An error is an error in both shapes -
     the SDK reads a non-200 as a failure before it looks for events - so a
     seeded status keeps the body it always had.
+
+    A recorded answer is still served when the question it answered has since
+    changed - a replay is not the place a stale recording fails, the case's own
+    assertions are - but the name goes on the list `/double-control/state`
+    reports, which is what a partial re-record is chosen from.
     """
+    # A body rebased from a recording is compared as that recording: the
+    # question it answered is the recording's, whatever instants it now names.
+    named = seed.recording or seed.recorded_as
+    if named is not None and asked is not None:
+        recorded_question = recordings.load_question(named)
+        if recorded_question is not None:
+            differs = _the_part_that_differs(recorded_question, asked)
+            if differs is not None:
+                _state.diverged[named] = differs
+
     if seed.recording is not None:
         answered = recordings.load(seed.recording)
         if streaming:
@@ -384,7 +506,11 @@ async def _record_upstream(request: Request, streaming: bool) -> Response:
     if status != 200:
         return JSONResponse(status_code=status, content=answered)
 
-    recordings.save(_state.next_recording_name(), answered)
+    # The question beside the answer, as it was forwarded: what a later replay
+    # is compared with to tell whether this answer is still to the point.
+    name = _state.next_recording_name()
+    recordings.save(name, answered)
+    recordings.save_question(name, json.loads(sent))
 
     # Said back the way it was asked for, exactly as a seeded answer is. What
     # is stored is the assembled message either way - but a caller that asked
@@ -426,11 +552,12 @@ async def messages(request: Request) -> Response:
     # answer is chosen only after, so a seed queued while waiting is the one
     # this call takes.
     if _state.catches() or _state.catches_when_dry():
+        _state.held_tools = [tool["name"] for tool in asked.get("tools", [])]
         while _state.held:
             await asyncio.sleep(_A_HELD_CALL_LOOKS_EVERY)
 
     if _state.seeds:
-        return _serve(_state.take_next_seed(), streaming)
+        return _serve(_state.take_next_seed(), streaming, asked)
 
     if _state.record_as is not None:
         return await _record_upstream(request, streaming)

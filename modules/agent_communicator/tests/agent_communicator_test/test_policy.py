@@ -17,8 +17,6 @@ component making an editorial decision in the middle of doing its job.
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
 from agent_communicator.policy import Register, how_it_is_said
 from argus_core import new_id
@@ -29,6 +27,7 @@ from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     AwaitingRecovery,
     CandidateSelected,
     CandidatesReordered,
@@ -251,10 +250,9 @@ def test_a_postmortem_is_filed_rather_than_announced() -> None:
         .given(
             the_write_up := PostmortemWritten(
                 incident_id=AN_INCIDENT,
-                root_cause="monthly-spend-feature divided by a month with no purchases",
-                executive_summary="Account pages failed for a third of shoppers.",
-                customer_loss_estimate=Decimal("1240.50"),
-                estimate_currency="USD",
+                cause_in_plain_words="A month with no purchases broke the account pages.",
+                executive_summary="Account pages failed for a third of shoppers. A month with no "
+                                  "purchases broke the account pages.",
                 engineer_minutes=34
             )
         ) \
@@ -502,10 +500,12 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
     """
     return [
         OnsetDetected(incident_id=AN_INCIDENT, onset="2026-08-30T10:03:00Z"),
+        AnchoredOnTheAlarm(incident_id=AN_INCIDENT, minute="2026-08-30T10:03:00Z"),
         HypothesisFormed(
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
             rank=1,
+            number=1,
             summary="the monthly-spend flag was turned on",
             failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
             confidence=0.8,
@@ -515,8 +515,7 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
         CandidateSelected(
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
-            summary="the monthly-spend flag was turned on",
-            confidence=0.8
+            candidate_number=1
         ),
         ActionRefused(
             incident_id=AN_INCIDENT,

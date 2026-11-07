@@ -7,11 +7,12 @@ names what it modified - and the repository's own listing says which of those
 names are files it holds.
 
 Greedy on purpose, with the listing as the safety net. A name is looked for in
-every spelling the evidence uses: a path with a line or a range of lines, a
-bare filename, a log's path inside the container, a dotted module, a stem. Only
-what the repository holds is listed, so a greedy reading costs a word that
-happens to be a file's stem, and a missed spelling costs the one file that
-mattered.
+every spelling a file is written in: a path with a line or a range of lines, a
+bare filename, a log's path inside the container, a dotted module. Only what
+the repository holds is listed. A bare word is never one of those spellings,
+whatever file's stem it matches: "the rollout has converged" is not
+`rollout.py`, and a list saying it is sends a model to read that file first. A
+module said by a bare word is still in plain view, in the repository's listing.
 
 What is said to be missing is narrower: only a name shaped like a file the
 repository could hold - one ending in an extension its own files carry. A
@@ -106,7 +107,7 @@ def _the_files_named(name: str,
     if "." in name:
         return _by_its_longest_resolving_prefix(name.split("."), listing)
 
-    return [path for path in listing if _stem_of(path) == name]
+    return []
 
 
 def _by_its_longest_resolving_prefix(parts: list[str], listing: Sequence[str]) -> list[str]:
@@ -151,8 +152,3 @@ def _without_extension(path: str) -> str:
     extension = _extension_of(path)
 
     return path[:-len(extension) - 1] if extension else path
-
-
-def _stem_of(path: str) -> str:
-    """A file's name up to its first dot."""
-    return path.rsplit("/", 1)[-1].split(".", 1)[0]

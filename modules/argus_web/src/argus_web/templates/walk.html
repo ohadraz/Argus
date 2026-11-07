@@ -41,30 +41,44 @@
 
   <h2>Candidates</h2>
 
-  {# Every candidate the investigation formed, in rank order - including the
+  {# Every candidate the investigation formed, in the order it formed them and
+     by the number the timeline and the chat give each - including the
      ones the walk never reached. Showing only what was tried would make every
      incident look like a lucky guess. #}
   <ul class="candidates">
   {% for candidate in incident.candidates %}
     <li class="candidate"
-        data-rank="{{ candidate.rank }}"
+        data-number="{{ candidate.number }}"
         data-subject="{{ candidate.subject if candidate.subject is not none else '' }}"
         data-tested="{{ 'true' if candidate.tested else 'false' }}"
         data-result="{{ candidate.result if candidate.result is not none else '' }}">
 
       <p class="claim">
-        <span class="rank">#{{ candidate.rank }}</span>
-        {{ candidate.summary }}
-        {% if candidate.subject %}<code>{{ candidate.subject }}</code>{% endif %}
+        <span class="number">#{{ candidate.number }}</span>
+        {{ candidate.summary | references([], candidate.links) }}
+        {% if candidate.subject %}<code>{{ candidate.subject | references([], candidate.links) }}</code>{% endif %}
         {# The move it blamed, struck through and picked out - the same shape
            the flag table and the story use for a change. #}
         {% if candidate.moved_to %}
-          <span class="moved"><s>{{ candidate.moved_from }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to }}</span></span>
+          <span class="moved"><s>{{ candidate.moved_from | references([], candidate.links) }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to | references([], candidate.links) }}</span></span>
         {% endif %}
         {% if candidate.confidence is not none %}
           <span class="confidence">{{ "%.0f%%"|format(candidate.confidence * 100) }}</span>
         {% endif %}
-        {% if not candidate.tested %}
+        {# Reached and held back is not never reached: the gate writes on the
+           row why it declined the test, and without it a refusal reads as a
+           candidate nobody got to - in the words the one after it carries.
+           A tier that had nowhere to take the action writes its own words
+           there too, and that candidate has its attempt beneath - so it reads
+           as the brief says it, an action not taken, where a gate's refusal,
+           which never reaches a tier, is a test held back. Nor is an attempt
+           the walk stopped before its verdict: untested and with no result,
+           it was still reached, and its attempt is beneath. #}
+        {% if not candidate.tested and candidate.result and candidate.attempts %}
+          <span class="untried">action not taken: {{ candidate.result | references([], candidate.links) }}</span>
+        {% elif not candidate.tested and candidate.result %}
+          <span class="untried">test held back: {{ candidate.result | references([], candidate.links) }}</span>
+        {% elif not candidate.tested and not candidate.attempts %}
           <span class="untried">never reached</span>
         {% endif %}
       </p>
@@ -73,8 +87,16 @@
          matching evidence to claims by timestamp is investigating again. #}
       {% if candidate.evidence %}
       <ul class="evidence">
-        {% for line in candidate.evidence %}
-        <li class="evidence-line">{{ line }}</li>
+        {% for finding in candidate.evidence %}
+        <li class="evidence-line">
+          {{ finding.text | references([], candidate.links) }}
+          {% if finding.links_to_minute %}
+            <a class="jump" href="#minute-{{ finding.links_to_minute }}">{{ finding.minute_said }}</a>
+          {% endif %}
+          {% if finding.links_to_lines %}
+            <a class="jump" href="#log-at-{{ finding.links_to_lines }}">log lines at {{ finding.minute_said }}</a>
+          {% endif %}
+        </li>
         {% endfor %}
       </ul>
       {% endif %}
@@ -83,23 +105,42 @@
       {% for attempt in candidate.attempts %}
         <li class="attempt"
             data-outcome="{{ attempt.outcome if attempt.outcome is not none else '' }}"
-            data-undone="{{ 'true' if attempt.undone else 'false' }}">
+            data-undone="{{ attempt.undone if attempt.undone is not none else '' }}">
           <span class="action">{{ attempt.action_type }}</span>
           {# An action taken a moment ago has no answer yet. That is a state to
-             show, not an absence to hide. #}
-          {% if attempt.outcome is none %}
+             show, not an absence to hide. On an incident that is over, no
+             answer is coming. #}
+          {% if attempt.awaiting_a_verdict %}
             <span class="verdict undecided">no verdict yet</span>
+          {% elif attempt.outcome is none %}
+            <span class="verdict unrecorded">no verdict recorded</span>
           {% else %}
             <span class="verdict {{ attempt.outcome }}">{{ attempt.outcome }}</span>
           {% endif %}
-          {% if attempt.undone %}<span class="undone">put back</span>{% endif %}
-          <span class="when">{{ attempt.taken_at | utc("%H:%M:%S") }}</span>
+          {# What putting the change back did, as the row records it - the
+             walk's own undo after a refutation, or the cleanup after a
+             withdrawal or a failed run: restored, or left as somebody else had
+             set it since. Nothing for any other - a refuted restart put
+             nothing back. #}
+          {% if attempt.undone == "restored" %}<span class="undone">put back</span>
+          {% elif attempt.undone == "left-as-found" %}<span class="undone">left as found</span>
+          {% endif %}
+          <span class="when">{{ attempt.taken_at | time }} UTC</span>
         </li>
       {% endfor %}
       </ul>
     </li>
   {% else %}
+    {# "Yet" only while one can still come: on an ended incident it promises
+       an explanation nothing will form, and of a disproven alarm there was
+       nothing to explain. #}
+    {% if incident.status == "disproven" %}
+    <li class="empty">None: the alarm was disproven.</li>
+    {% elif incident.status.is_terminal() %}
+    <li class="empty">No explanation was formed.</li>
+    {% else %}
     <li class="empty">No explanation has been formed yet.</li>
+    {% endif %}
   {% endfor %}
   </ul>
 
@@ -111,9 +152,9 @@
   {% for attempt in incident.unattributed_attempts %}
     <li class="attempt"
         data-outcome="{{ attempt.outcome if attempt.outcome is not none else '' }}"
-        data-undone="{{ 'true' if attempt.undone else 'false' }}">
+        data-undone="{{ attempt.undone if attempt.undone is not none else '' }}">
       <span class="action">{{ attempt.action_type }}</span>
-      <span class="when">{{ attempt.taken_at | utc("%H:%M:%S") }}</span>
+      <span class="when">{{ attempt.taken_at | time }} UTC</span>
     </li>
   {% endfor %}
   </ul>

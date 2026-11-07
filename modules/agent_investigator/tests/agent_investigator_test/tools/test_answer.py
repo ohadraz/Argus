@@ -116,12 +116,56 @@ def test_the_summary_says_what_happened_and_leaves_what_to_do_to_others() -> Non
     # takes it literally, and everywhere else it is shown - the page, Slack, the
     # postmortem, the pull request - it reads as Argus's plan, beside the action
     # Argus actually took.
+    #
+    # Said of alternatives too, because that is where it survived being told
+    # once: "It is put right by reverting the values file", "The fix would be
+    # in the code, not the flag" - an alternative set apart from the first by
+    # its remedy rather than by what happened.
     Scenario() \
         .when(
             lambda: answer_tool()
         ) \
         .then(
-            _the_field("summary").says("Not what to do about it")
+            all_of(
+                _the_field("summary").says("Never what to do about it"),
+                _the_field("summary").says("tell an alternative apart by what happened")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_summary_names_a_moment_with_its_date_and_never_a_time_of_day_alone() -> None:
+    # "The flag was switched on at 07:44" was said of a moment a week before the
+    # alert, and read beneath it - on the page and in its Slack thread - as the
+    # alert's own minute. The model had the date in front of it, in the
+    # evidence's `at`, and wrote the time of day alone. Written in full, how much
+    # of it to say is the page's to decide: the time alone on its own day, the
+    # date as well on any other.
+    Scenario() \
+        .when(
+            lambda: answer_tool()
+        ) \
+        .then(
+            _the_field("summary").says("never a time of day alone")
+        )
+
+
+@pytest.mark.unit
+def test_an_alternative_reading_of_a_change_still_names_the_change() -> None:
+    # The second of two readings of one deploy came back with no subject: read
+    # another way, the change seemed to name nothing specific. So nothing could
+    # tell it was the same change - the postmortem listed it as a cause of its
+    # own - though it was the one alternative whose action differed, a rollback
+    # where the first reading declines one. And naming it some other way - a
+    # file the deploy changed, where the other named its revision - left the
+    # two apart all the same: they merge only where all three words agree.
+    Scenario() \
+        .when(
+            lambda: answer_tool()
+        ) \
+        .then(
+            _the_field("subject").says("gives that change the same subject, from_state and "
+                                       "to_state as the other, word for word")
         )
 
 

@@ -7,9 +7,9 @@ it walked, `ingesting` records a person's words about one, once, `publishing` is
 the one subscriber the event stream has - where an event is written on the
 connection its decision is written on - `following` is how a reader of the
 event log finds what it has not yet read and keeps its place, `waiting` is how
-a walk holds off its next step while a person is asked to confirm, and
+a walk holds off its next step while a person is asked to confirm,
 `tracing` is how any later work on an incident continues the trace its alert
-arrived in.
+arrived in, and `dating` is when an action was taken, as every reader says it.
 
 `repository` is deliberately not flattened into this namespace. Its modules are
 named for the tables they own and are meant to be read that way -
@@ -27,10 +27,13 @@ refactor gets to make on the way past.
 
 from __future__ import annotations
 
+from argus_incidents.dating import when_it_was_taken
 from argus_incidents.ending import (
     EndedByAPerson,
     IsStillWanted,
+    StillHeld,
     ended_by_a_person_via,
+    still_held_via,
     wanted_until_a_person_ends_it,
 )
 from argus_incidents.following import Backlog, Place, events_since, place_for
@@ -56,6 +59,7 @@ __all__ = [
     "Place",
     "WaitForPeople",
     "PublisherFor",
+    "StillHeld",
     "acknowledge_alert",
     "calls_into",
     "ended_by_a_person_via",
@@ -68,7 +72,9 @@ __all__ = [
     "publish_beside",
     "resolve_incident",
     "start_incident",
+    "still_held_via",
     "waiting_for_people_via",
     "wanted_until_a_person_ends_it",
+    "when_it_was_taken",
     "withdraw_incident"
 ]

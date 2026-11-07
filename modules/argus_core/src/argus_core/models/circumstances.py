@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime
 
 from argus_core.models.change_event import ChangeEvent
+from argus_core.models.deployment_changes import DeploymentChanges
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.placement import RecordedPlacement
 
@@ -23,8 +25,9 @@ class Circumstances:
     and the rest is the same for all of them.
 
     `service` is the alert's, because an action addressed to a service is
-    addressed to the one the incident is about; a candidate's subject is prose
-    and names nothing a platform could be asked to act on.
+    addressed to the one the incident is about; a candidate's subject is never
+    an address - where it names a flag or a revision it is only compared against
+    the record, and otherwise it describes the fault.
 
     `stale_entry_keys` is the one field that is an address rather than an
     account of what happened. A cache key belongs to whoever wrote the cache, so
@@ -55,3 +58,12 @@ class Circumstances:
     # an empty placement in its place: that would claim the service runs on no
     # pod, and a strategy deciding from it would find no replica that moved.
     placement: RecordedPlacement | None = None
+    # What each deployment the investigation looked into changed, by its
+    # revision, as the read tier said it. Empty by default for the reason
+    # `deployments` is: one mode reads it, to find the deploy that changed a
+    # file its candidate blamed.
+    deployment_changes: Mapping[str, DeploymentChanges] = field(default_factory=dict)
+    # The minute the incident is dated from: a change that came after its end
+    # (`the_end_of_the_onset`) did not begin it. `None` where the round had no
+    # minute, and no change read is ruled out by when it came.
+    onset: datetime | None = None

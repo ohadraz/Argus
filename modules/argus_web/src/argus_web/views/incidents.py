@@ -11,21 +11,36 @@ explanation?" is the question a reader has while looking at one.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
+from types import MappingProxyType
+from typing import Final
 
-from argus_core import UuidStr
+from argus_core import UuidStr, to_iso
+from argus_core.events import IncidentEvent
 from argus_core.models import (
     Alert,
-    Evidence,
     FailureMode,
     Hypothesis,
     Incident,
     IncidentStatus,
     TakenAction,
-    Verdict,
+    Undone,
 )
-from argus_narration import said_as_a_state
-from pydantic import BaseModel
+from argus_incidents import when_it_was_taken
+from argus_narration import (
+    Finding,
+    ShownRevision,
+    a_finding,
+    said_as_a_state,
+    said_as_shown,
+    said_plainly,
+    the_links_in,
+)
+from pydantic import BaseModel, Field
+
+# A walk shown with no revision the incident read to say short.
+_NO_REVISIONS: Final[Mapping[str, ShownRevision]] = MappingProxyType({})
 
 
 class Attempt(BaseModel):
@@ -33,8 +48,15 @@ class Attempt(BaseModel):
 
     action_type: str
     outcome: str | None
-    undone: bool
+    # What putting the change back did, as the row records it - the walk's own
+    # undo or the cleanup after the incident: restored, or left as somebody
+    # else had since set it - and `None` where nothing put it back.
+    undone: Undone | None
     taken_at: datetime
+    # Whether a verdict may still come: none is recorded and the incident is
+    # still being worked. With the incident over, a missing verdict is one that
+    # never will be.
+    awaiting_a_verdict: bool = False
 
 
 class Candidate(BaseModel):
@@ -45,7 +67,9 @@ class Candidate(BaseModel):
     investigation over again.
     """
 
-    rank: int
+    # Which candidate of the incident it is (`Hypothesis.number`), as the
+    # timeline and the chat say it.
+    number: int
     summary: str
     failure_mode: FailureMode | None
     confidence: float | None
@@ -56,10 +80,16 @@ class Candidate(BaseModel):
     # where a state is only ever shown.
     moved_from: str = ""
     moved_to: str = ""
-    evidence: list[Evidence]
+    # Each in the words the timeline says it in: a finding is shown, never the
+    # record it is kept in.
+    evidence: list[Finding]
     tested: bool
     result: str | None
     attempts: list[Attempt]
+    # Each revision its claim, subject, move, findings and reason name, by the
+    # short form they say it by, and where it opens - as a line of the timeline
+    # leads.
+    links: dict[str, str] = Field(default_factory=dict)
 
 
 class IncidentSummary(BaseModel):
@@ -106,7 +136,11 @@ def build_incident_summary(incident: Incident) -> IncidentSummary:
 def build_incident_detail(
     incident: Incident,
     candidates: list[Hypothesis],
-    attempts: list[TakenAction]
+    attempts: list[TakenAction],
+    account: Sequence[IncidentEvent],
+    minutes: Sequence[str] = (),
+    logged: Sequence[str] = (),
+    revisions: Mapping[str, ShownRevision] = _NO_REVISIONS
 ) -> IncidentDetail:
     """Arranges an incident's rows into the walk a reader follows.
 
@@ -117,12 +151,25 @@ def build_incident_detail(
 
     Attempts are attached to the candidate they name, because "what did we try
     for this explanation?" is the question a reader has while looking at one.
+    Each is dated as the postmortem dates it, by `account` - the incident's
+    events - through `when_it_was_taken`: dated by its row, the page put a
+    roll-back a second before the postmortem did.
+
+    `minutes` and `logged` are the rows the page holds - the minutes read and
+    the minutes logged - so a finding naming one of them leads to it, as the
+    same finding does in the timeline. Empty, a finding leads nowhere.
+
+    A candidate's words are said as the timeline says them, an instant in
+    them on the clock and read against the day the incident opened, and each
+    of `revisions` - the ones the incident read - by its short form, leading
+    to its commit.
     """
     attached: dict[str, list[Attempt]] = {}
     unattributed: list[Attempt] = []
 
     for taken_action in attempts:
-        shown = _an_attempt(taken_action)
+        shown = _an_attempt(taken_action, account,
+                            still_worked=not incident.status.is_terminal())
         if taken_action.hypothesis_id is None:
             unattributed.append(shown)
         else:
@@ -134,29 +181,31 @@ def build_incident_detail(
         status=incident.status,
         created_at=incident.created_at,
         candidates=[
-            _a_candidate(candidate, attached.get(candidate.id, []))
+            _a_candidate(candidate, attached.get(candidate.id, []), minutes, logged,
+                         opened=to_iso(incident.created_at), revisions=revisions)
             for candidate in candidates
         ],
         unattributed_attempts=unattributed
     )
 
 
-def _an_attempt(taken_action: TakenAction) -> Attempt:
+def _an_attempt(taken_action: TakenAction,
+                account: Sequence[IncidentEvent],
+                still_worked: bool) -> Attempt:
     """One action row, as a reader sees it.
 
-    An action with no outcome yet is undecided rather than undone: it was taken
-    a moment ago and the service has not answered. That is a state to show, not
-    an absence to hide - the same way the shop's console shows a minute still
-    in progress.
+    An action with no outcome on an incident still being worked is undecided
+    rather than undone: it was taken a moment ago and the service has not
+    answered. That is a state to show, not an absence to hide - the same way the
+    shop's console shows a minute still in progress. On an incident that is
+    over it is the opposite: no verdict is coming, because the worker taking it
+    stopped - and "yet" would promise one.
 
-    Undone is the verdict an action gets when the service did not recover and
-    the action left something to put back: the walk puts such an action back
-    before returning it - see `agent_mitigation` - so `REFUTED` is also the
-    record that the change was reverted. An action that left nothing behind is
-    refuted with nothing undone, which is a cleaner ending and reads as one.
-    That is an inference from the walk's contract rather than something the row
-    states, and if the contract changes the fix is to record the revert, not to
-    read it off a different verdict.
+    What putting it back did is the row's own record of it - the walk's undo
+    or the cleanup's - not an inference from the verdict: a refuted restart put
+    nothing back, and a refuted flag somebody changed since was left as they
+    set it - both `REFUTED`, and neither put back. Nor from the verdict the
+    other way: a change a withdrawal put back is `STOPPED`, and was put back.
 
     The outcome is shown as the page was handed it, which is the spelling the
     column holds even where no verdict spells it. A row an older version wrote
@@ -166,28 +215,47 @@ def _an_attempt(taken_action: TakenAction) -> Attempt:
     return Attempt(
         action_type=taken_action.type,
         outcome=taken_action.outcome,
-        undone=taken_action.outcome is Verdict.REFUTED,
-        taken_at=taken_action.taken_at
+        undone=taken_action.undone,
+        taken_at=when_it_was_taken(taken_action, account),
+        awaiting_a_verdict=taken_action.outcome is None and still_worked
     )
 
 
-def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
+def _a_candidate(hypothesis: Hypothesis,
+                 attempts: list[Attempt],
+                 minutes: Sequence[str],
+                 logged: Sequence[str],
+                 opened: str,
+                 revisions: Mapping[str, ShownRevision]) -> Candidate:
     """One hypothesis row, with the attempts made for it.
 
     A candidate the walk never reached comes back with no attempts and
     `tested` false, which is the difference between an investigation that ran
     out of options and one that stopped because it was right.
     """
+    summary = said_as_shown(said_plainly(hypothesis.summary, beside=opened), revisions)
+    subject = (said_as_shown(hypothesis.subject, revisions)
+               if hypothesis.subject is not None else None)
+    moved_from = said_as_shown(said_as_a_state(hypothesis.from_state), revisions)
+    moved_to = said_as_shown(said_as_a_state(hypothesis.to_state), revisions)
+    result = (said_as_shown(hypothesis.result, revisions)
+              if hypothesis.result is not None else None)
+    evidence = [finding.model_copy(update={"text": said_as_shown(finding.text, revisions)})
+                for finding in (a_finding(cited, minutes, logged, beside=opened)
+                                for cited in hypothesis.supporting_evidence)]
+
     return Candidate(
-        rank=hypothesis.rank,
-        summary=hypothesis.summary,
+        number=hypothesis.number,
+        summary=summary,
         failure_mode=hypothesis.failure_mode,
         confidence=hypothesis.confidence,
-        subject=hypothesis.subject,
-        moved_from=said_as_a_state(hypothesis.from_state),
-        moved_to=said_as_a_state(hypothesis.to_state),
-        evidence=hypothesis.supporting_evidence,
+        subject=subject,
+        moved_from=moved_from,
+        moved_to=moved_to,
+        evidence=evidence,
         tested=hypothesis.tested,
-        result=hypothesis.result,
-        attempts=attempts
+        result=result,
+        attempts=attempts,
+        links=the_links_in([summary, subject or "", moved_from, moved_to, result or "",
+                            *(finding.text for finding in evidence)], revisions)
     )

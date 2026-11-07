@@ -23,7 +23,7 @@ from agent_intent.answering import ANSWER_FIELD, ANSWER_TOOL_NAME, answer
 from argus_core import to_iso
 from argus_core.llm import LLMClient, ModelDidNotAnswer
 from argus_core.models import Ask, ToolCall, ToolDefinition, Transcript, Turn
-from argus_narration import NarrationLine
+from argus_narration import CandidateLine, NarrationLine
 from argus_testkit import Assertion, Kept, Scenario, all_of
 
 SOME_QUESTION = "why did you revert the checkout flag?"
@@ -34,6 +34,10 @@ SOME_ANSWER = "The checkout flag was switched on at 12:01, a minute before error
 # around them is free to be improved.
 WHAT_THE_MODEL_IS_HELD_TO = "only from"
 WHAT_IT_SAYS_OF_A_SILENT_RECORD = "does not say"
+# And that a line's measure is told in that line's words: "no longer at the
+# incident's level" retold as "back to normal" was an answer the record did not
+# give, since the two are different measures with different times.
+WHAT_A_MEASURE_IS_TOLD_IN = "in that line's own words"
 
 
 @pytest.mark.unit
@@ -74,6 +78,77 @@ def test_the_model_is_shown_every_line_of_the_timeline_with_when_and_who() -> No
 
 
 @pytest.mark.unit
+def test_the_model_is_shown_what_a_line_says_beside_itself() -> None:
+    # Where Code-Fix found nothing to change, what it said would have to change
+    # elsewhere is the thread's likeliest question - and the answer is on the
+    # line, beside its sentence rather than in it.
+    asked: Kept[Transcript] = Kept()
+    some_aside = "Code-Fix's reading of the code, which nothing ran: scrape.yaml names the old port"
+    some_timeline = [
+        NarrationLine(at=datetime(2026, 10, 11, 12, 9, tzinfo=UTC),
+                      kind="fix-attempted",
+                      who="Code-Fix Agent",
+                      text="Read the code and found no code-level fix to make",
+                      aside=some_aside)
+    ]
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
+        .then(_the_model_was_shown(asked, some_aside))
+
+
+@pytest.mark.unit
+def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
+    # An explanation runs to more than one line; a later one at the margin
+    # reads as a line of the timeline of its own, said by nobody at no time.
+    asked: Kept[Transcript] = Kept()
+    some_timeline = [
+        NarrationLine(at=datetime(2026, 10, 11, 12, 9, tzinfo=UTC),
+                      kind="fix-attempted",
+                      who="Code-Fix Agent",
+                      text="Read the code and found no code-level fix to make",
+                      aside="Code-Fix's reading: scrape.yaml\nnames the old port")
+    ]
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
+        .then(_the_model_was_shown(asked,
+                                   "\n  Code-Fix's reading: scrape.yaml\n  names the old port\n"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("line", "said"), [
+    (NarrationLine(at=datetime(2026, 10, 11, 12, 4, tzinfo=UTC), kind="action-taken",
+                   who="Mitigation Agent", text="Reverted the feature flag checkout, moved ",
+                   moved_from="ON", moved_to="OFF"),
+     "Reverted the feature flag checkout, moved from ON to OFF"),
+    (NarrationLine(at=datetime(2026, 10, 11, 12, 3, tzinfo=UTC), kind="hypothesis-formed",
+                   who="Investigator Agent", text="Formed 1 candidate cause, best first:",
+                   candidates=[CandidateLine(hypothesis_id="h1", number=1,
+                                             summary="The checkout flag broke the page",
+                                             subject="checkout", confidence="0.8",
+                                             evidence=[])]),
+     "Formed 1 candidate cause, best first: The checkout flag broke the page")
+], ids=["a-move", "candidates"])
+def test_the_model_is_shown_each_line_in_full(line: NarrationLine, said: str) -> None:
+    # Shown the line's text alone, the model read "Reverted the feature flag
+    # monthly-spend-feature, moved " with nowhere it moved to, and "best
+    # first:" with no candidate after it - what a page lays out beside the
+    # sentence, and a thread has only the sentence for.
+    asked: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, [line], a_model)) \
+        .then(_the_model_was_shown(asked, said))
+
+
+@pytest.mark.unit
 def test_the_model_is_held_to_the_timeline() -> None:
     asked: Kept[Transcript] = Kept()
 
@@ -83,6 +158,17 @@ def test_the_model_is_held_to_the_timeline() -> None:
         .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
         .then(all_of(_the_model_was_shown(asked, WHAT_THE_MODEL_IS_HELD_TO),
                      _the_model_was_shown(asked, WHAT_IT_SAYS_OF_A_SILENT_RECORD)))
+
+
+@pytest.mark.unit
+def test_the_model_is_held_to_each_lines_own_words_for_what_it_measured() -> None:
+    asked: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .then(_the_model_was_shown(asked, WHAT_A_MEASURE_IS_TOLD_IN))
 
 
 @pytest.mark.unit

@@ -38,7 +38,8 @@ def the_leads(postmortem: PostmortemDocument) -> tuple[LeadItem, ...]:
                                  Run(text=f" - {lead.person_name or lead.person_id}, "),
                                  Run.a_moment(lead.written_at))),
                  weighing=(Line(runs=(Run(text=lead.weighing.standing.value, role=Role.STATUS),
-                                      Run(text=f": {lead.weighing.reason}")))
+                                      *Run(text=f": {lead.weighing.reason}")
+                                      .with_code_set_apart()))
                            if lead.weighing
                            else Line(runs=(Run(text="never weighed", role=Role.STATUS),))),
                  effect=(Line(runs=(Run(text=lead.effect, role=Role.PROSE),))

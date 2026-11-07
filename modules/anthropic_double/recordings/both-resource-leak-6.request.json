@@ -1,0 +1,267 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: io-shop's memory grew steadily from about 2026-11-05T20:19:00Z, from roughly 465MB to 1.8GB of the 2GB limit, with no matching increase in traffic. No deploy or flag change accompanied it. Latency then degraded as memory pressure built, starting around 2026-11-05T20:38:00Z. This fits a leak inside the running process. The evidence doesn't show which allocation is leaking.\n\nWhat that rests on:\n  - memory_used_bytes 466545519 at 20:18 rising monotonically to 1812774106 at 21:01 against a 2147483648 limit, while request_volume stays at 1200\n  - cpu_limit_cores constant at 3.0 across the whole window and process_start_time_seconds unchanged (no restart)\n  - get_changes: nothing changed in the 24h before the onset\n  - p99 climbs from ~380ms to 2412ms and p95 from ~215ms to 1449ms after memory passes ~1GB, while error rate stays at baseline noise\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_012o9q4QL27aK9hYYvu3P6jR",
+          "input": {
+            "description": "module-level dict or list that grows on every request and is never evicted or cleared"
+          },
+          "name": "search_repository_by_meaning",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "tests/io_shop/test_visits.py:26-34\n@pytest.fixture(autouse=True)\ndef a_shop_that_has_just_started() -> None:\n    \"\"\"Every case begins with an empty store.\n\n    The store is module state, so without this each test would inherit\n    whatever the last one left - which is the bug under discussion, and a poor\n    thing to also have in the tests about it.\n    \"\"\"\n    forget_every_visit()\n\nsrc/io_shop/monthly_statement.py:1443-1461\n@dataclass(frozen=True)\nclass StatementProblem:\n    \"\"\"Something about a statement that does not hold together.\n\n    Carried rather than raised, and that is the distinction this type exists\n    for. A statement that cannot be built raises - there is no document, and\n    the page turns that into a failed request. A statement that was built and\n    then found to disagree with itself is a different situation: the document\n    exists, the shopper is looking at it, and refusing to show it at that point\n    replaces a wrong figure with a blank panel without telling anybody why.\n\n    So the problems are collected, logged, and the statement is shown. What\n    makes that defensible rather than negligent is that they are collected at\n    all: a shop that checks and records is a shop that finds out on the day\n    rather than in a support queue six weeks later.\n    \"\"\"\n\n    what: str\n    detail: str\n\ntests/io_shop/test_categorising.py:45-48\ndef test_every_model_is_loadable_by_the_version_the_deployment_names() -> None:\n    assert {version: model.version for version, model in MODELS.items()} == {\n        \"v1\": \"v1\", \"v2\": \"v2\"\n    }\n\ntests/io_shop/test_summary_cache.py:100-105\ndef test_a_cache_that_holds_nothing_answers_with_nothing() -> None:\n    # An ordinary miss. Every entry has a first request, and nothing about this\n    # is worth reporting.\n    found = cached_summary(SOME_SHOPPER, a_cache_holding_nothing(), SOME_ENDPOINT)\n\n    assert found is None\n\nsrc/io_shop/visits.py:34-40\ndef forget_every_visit() -> None:\n    \"\"\"Drops the lot.\n\n    What a new process starts with anyway - the shop's own reset, for a\n    deployment that wants one without waiting for a restart.\n    \"\"\"\n    _LAST_SEEN.clear()\n\nsrc/io_shop/pricing_service.py:59-71\n@dataclass(frozen=True)\nclass PricedBasket:\n    \"\"\"A priced basket, and the words for a call that was worth remarking on.\n\n    `slow_call` is `None` on a call that came back in the time it always does,\n    and is a sentence naming the service, the path and the milliseconds when it\n    did not. It sits here rather than being raised, because a slow answer is\n    still an answer - the same shape as `RenderedPage.cache_failure`, which\n    reports something broken underneath a page that rendered perfectly well.\n    \"\"\"\n\n    total_cents: int\n    slow_call: str | None = None\n\ntests/io_shop/test_account_page.py:185-186\ndef a_cache_holding_nothing() -> LookUpSummary:\n    return lambda dont_care_shopper: CacheAnswer(reached=True)\n\ntests/io_shop/test_summary_cache.py:41-42\ndef a_cache_holding_nothing() -> LookUpSummary:\n    return lambda dont_care_shopper: CacheAnswer(reached=True)",
+          "tool_use_id": "toolu_012o9q4QL27aK9hYYvu3P6jR",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01FtNsGS51Gmn9HdV3zk8Fsx",
+          "input": {
+            "path": "src/io_shop/visits.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_015Xcs7BXA6budEgofzKTvTn",
+          "input": {
+            "path": "tests/io_shop/test_visits.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"Who has looked at their account page, and what they were shown.\n\nThe shop keeps this so the page can greet a returning shopper with the figure\nthey saw last time instead of an empty panel while the real one loads. It is\nwritten on every render and read on the next visit, which is why it lives in\nthe process rather than in a store: a round trip to the database would cost\nmore than the panel is worth.\n\nOne entry per shopper, the newest render winning. Io has a few million\nregistered shoppers and this holds whichever of them have been by.\n\"\"\"\n\nfrom __future__ import annotations\n\n_LAST_SEEN: dict[str, str] = {}\n\n\ndef record_visit(shopper_id: str, shown: str) -> None:\n    \"\"\"Notes what this shopper was last shown.\"\"\"\n    _LAST_SEEN[shopper_id] = shown\n\n\ndef what_they_saw_last_time(shopper_id: str) -> str | None:\n    \"\"\"What this shopper was shown on their previous visit, if they have been\n    here before.\"\"\"\n    return _LAST_SEEN.get(shopper_id)\n\n\ndef how_many_shoppers_are_remembered() -> int:\n    \"\"\"How many shoppers this process is holding a visit for.\"\"\"\n    return len(_LAST_SEEN)\n\n\ndef forget_every_visit() -> None:\n    \"\"\"Drops the lot.\n\n    What a new process starts with anyway - the shop's own reset, for a\n    deployment that wants one without waiting for a restart.\n    \"\"\"\n    _LAST_SEEN.clear()\n",
+          "tool_use_id": "toolu_01FtNsGS51Gmn9HdV3zk8Fsx",
+          "type": "tool_result"
+        },
+        {
+          "content": "from __future__ import annotations\n\nimport pytest\n\nfrom io_shop.account_page import serve_account_page\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.payment_provider import AskTheProvider, ProviderAnswer, StoredCard\nfrom io_shop.pricing_service import AskThePricingService, PricingAnswer\nfrom io_shop.visits import (\n    forget_every_visit,\n    how_many_shoppers_are_remembered,\n    record_visit,\n    what_they_saw_last_time,\n)\n\n\"\"\"What the account page keeps about the shoppers who have been by.\n\nThe store itself is small and does what it says. What these pin down is the\npart that matters to an incident: it grows with every new shopper and shrinks\nfor no reason at all, which is the shape of the fault the leak scenario is\nabout - and that a new process starts empty, which is why restarting the shop\nis worth anything.\n\"\"\"\n\n\n@pytest.fixture(autouse=True)\ndef a_shop_that_has_just_started() -> None:\n    \"\"\"Every case begins with an empty store.\n\n    The store is module state, so without this each test would inherit\n    whatever the last one left - which is the bug under discussion, and a poor\n    thing to also have in the tests about it.\n    \"\"\"\n    forget_every_visit()\n\n\ndef a_provider_holding_a_card() -> AskTheProvider:\n    \"\"\"The provider answering, which is what it does in every case here - these\n    are about what the page remembers, not about who it asks.\"\"\"\n    return lambda dont_care_shopper: ProviderAnswer(\n        status=200, card=StoredCard(brand=\"visa\", last_four=\"4242\")\n    )\n\n\ndef a_prompt_pricing_service() -> AskThePricingService:\n    \"\"\"The pricing service answering promptly, for the same reason the provider\n    above answers at all: these cases are about what the page remembers.\"\"\"\n    return lambda dont_care_shopper: PricingAnswer(total_cents=8400, took_ms=12)\n\n\ndef an_account(shopper_id: str, *prices: int) -> Account:\n    return Account(\n        shopper_id=shopper_id,\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef test_a_shopper_who_has_been_here_before_is_remembered() -> None:\n    record_visit(\"shopper-1\", \"2000\")\n\n    assert what_they_saw_last_time(\"shopper-1\") == \"2000\"\n\n\ndef test_a_shopper_who_has_never_been_here_is_not() -> None:\n    assert what_they_saw_last_time(\"shopper-nobody\") is None\n\n\ndef test_the_newest_visit_is_the_one_kept() -> None:\n    record_visit(\"shopper-1\", \"2000\")\n    record_visit(\"shopper-1\", \"3000\")\n\n    assert what_they_saw_last_time(\"shopper-1\") == \"3000\"\n\n\ndef test_every_new_shopper_adds_to_what_the_process_is_holding() -> None:\n    # The fault, stated plainly: what this holds is a function of how many\n    # different shoppers have been by, and nothing takes any of it away.\n    for shopper in range(50):\n        record_visit(f\"shopper-{shopper}\", \"2000\")\n\n    assert how_many_shoppers_are_remembered() == 50\n\n\ndef test_a_shopper_coming_back_adds_nothing() -> None:\n    # Worth pinning because it is what makes the climb track *traffic* rather\n    # than requests: a shop serving the same hundred shoppers all day holds a\n    # hundred entries, and one serving the internet holds the internet.\n    for _ in range(50):\n        record_visit(\"shopper-1\", \"2000\")\n\n    assert how_many_shoppers_are_remembered() == 1\n\n\ndef test_serving_a_page_records_the_visit() -> None:\n    serve_account_page(an_account(\"shopper-1\", 1000, 3000),\n                       use_monthly_summary=False,\n                       ask_the_provider=a_provider_holding_a_card(),\n                       ask_the_pricing_service=a_prompt_pricing_service())\n\n    assert what_they_saw_last_time(\"shopper-1\") == \"2000\"\n\n\ndef test_a_page_that_failed_is_a_visit_too() -> None:\n    # The shopper was here. A store that only grew on success would leave the\n    # shop leaking at a rate that depended on how well it was working, which is\n    # not how retained state behaves.\n    serve_account_page(an_account(\"shopper-1\"),\n                       use_monthly_summary=False,\n                       ask_the_provider=a_provider_holding_a_card(),\n                       ask_the_pricing_service=a_prompt_pricing_service())\n\n    remembered = what_they_saw_last_time(\"shopper-1\")\n\n    assert remembered is not None\n    assert remembered.startswith(\"ZeroDivisionError\")\n\n\ndef test_serving_pages_to_many_shoppers_holds_one_entry_each() -> None:\n    for shopper in range(20):\n        serve_account_page(\n            an_account(f\"shopper-{shopper}\", 1000, 3000),\n            use_monthly_summary=False,\n            ask_the_provider=a_provider_holding_a_card(),\n            ask_the_pricing_service=a_prompt_pricing_service()\n        )\n\n    assert how_many_shoppers_are_remembered() == 20\n\n\ndef test_a_restarted_shop_is_holding_nothing() -> None:\n    # What a new process starts with, and the whole of what a restart buys. The\n    # fault is still in the code when it comes back, which is why the climb\n    # begins again - but it begins from here.\n    for shopper in range(20):\n        record_visit(f\"shopper-{shopper}\", \"2000\")\n\n    forget_every_visit()\n\n    assert how_many_shoppers_are_remembered() == 0\n",
+          "tool_use_id": "toolu_015Xcs7BXA6budEgofzKTvTn",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01SDgU6qxDFYF6GkCR9ZNm72",
+          "input": {
+            "query": "visits"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "src/io_shop/account_page.py:38: from io_shop.visits import record_visit\ntests/io_shop/test_visits.py:9: from io_shop.visits import (",
+          "tool_use_id": "toolu_01SDgU6qxDFYF6GkCR9ZNm72",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
+      "strict": true
+    }
+  ]
+}

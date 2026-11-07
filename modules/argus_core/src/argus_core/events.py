@@ -14,13 +14,13 @@ each of them all the same - it is what a stored row is read back by.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, Any, Final, Literal, Protocol
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
+from argus_core.fencing import was_lost
 from argus_core.ids import UuidStr, new_id
 from argus_core.models.action import (
     ActionIdentity,
@@ -31,9 +31,10 @@ from argus_core.models.action import (
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
+from argus_core.models.deployment_changes import DeploymentComparison
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
-from argus_core.models.fix import FixOutcome
+from argus_core.models.fix import CodeUse, FileAsItRan, FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.meaning import Meaning
@@ -43,7 +44,10 @@ from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.reference import Reference
 from argus_core.models.refusal import Refusal
+from argus_core.models.remembered import RecalledIncident
 from argus_core.models.report import Report
+from argus_core.models.rollout import RolloutAccount
+from argus_core.models.service_dependency import ServiceDependency
 from argus_core.models.thread_message import Standing
 from argus_core.models.undone import Undone
 from argus_core.telemetry import ARGUS_INCIDENT_ID
@@ -177,13 +181,75 @@ class DeploymentChangesRead(_Event):
     leave it nothing to find that in, and the transcript the model read is not
     something the write-up holds.
 
-    Published only where something was read. A refusal, a comparison nobody
-    could make and an answer of nothing are none of them a diff.
+    Published only where the read tier answered about the deployment. A
+    refusal, a comparison nobody could make and an answer of nothing are none
+    of them that.
+
+    `lists_every_file` is whether the lines name every file the deployed
+    revision differs in from the one compared against - where they do, a file
+    they leave out is as it was there. `False`, claiming nothing, on an event
+    written before it was carried.
+
+    `comparison` is whether the lines are a diff at all: an answer that no
+    deployment has the revision, or that none came before it, is a fact about
+    the history, which every reader but the model says in its own words - of
+    `service`, the one whose history was read. Compared, and of no service
+    named, on an event written before they were carried, as every one of
+    those claimed to be a diff.
     """
 
     kind: Literal["deployment-changes-read"] = "deployment-changes-read"
     revision: str
     said: list[str]
+    lists_every_file: bool = False
+    comparison: DeploymentComparison = DeploymentComparison.COMPARED
+    service: str | None = None
+
+    @model_validator(mode="after")
+    def _names_its_service_where_nothing_was_compared(self) -> DeploymentChangesRead:
+        """In the type rather than in the one caller that publishes it, as
+        `SimilarIncidentsRecalled` holds its incidents: a row is read back by every
+        reader that says it, and one with no service would say it of nothing."""
+        if self.comparison is not DeploymentComparison.COMPARED and self.service is None:
+            raise ValueError(f"An answer that is {self.comparison.value}, not a diff, "
+                             f"names the service whose history was read.")
+
+        return self
+
+
+class RolloutRead(_Event):
+    """How far the deployment had rolled out, as the Investigator read it.
+
+    The read tier's value whole - the counts, the revision going out and the
+    one before it - rather than the sentences the model was shown. Those are
+    the model's, and every other reader says the rollout in its own words:
+    which it can do from the value, and could only do from the sentences by
+    searching them for a revision and a moment.
+
+    Published only where the tier answered. A rollout nobody could read says
+    nothing about the deployment, and is said as unanswered instead.
+    """
+
+    kind: Literal["rollout-read"] = "rollout-read"
+    account: RolloutAccount
+
+
+class ServiceRegisterRead(_Event):
+    """What the service register says the service calls, as the Investigator
+    read it.
+
+    The entries whole, because a cause resting on a dependency rests on this
+    read: whose the dependency is decided whether anything could be done about
+    it, and an account that left the read out would leave a reader with the
+    conclusion and not the fact under it.
+
+    Published wherever the register answered, an empty answer among them -
+    that the service calls nothing, as far as the register knows, is a finding.
+    Not where it could not be read, which is said as unanswered instead.
+    """
+
+    kind: Literal["service-register-read"] = "service-register-read"
+    dependencies: list[ServiceDependency]
 
 
 # How `DeploymentChangesRead.said` sets out a diff: every line under the one
@@ -192,6 +258,47 @@ class DeploymentChangesRead(_Event):
 # read tier writes the layout and the write-up reads it back.
 PATCH_LINE_INDENT: Final = "  "
 HUNK_HEADER: Final = "@@"
+
+
+def a_changed_file_line(status: str, path: str) -> str:
+    """The line of `DeploymentChangesRead.said` naming one file the diff
+    changed: the status the comparison gave it - one word, as `modified` - and
+    then its path."""
+    return f"{status} {path}"
+
+
+def names_as_changed(line: str, path: str) -> bool:
+    """Whether `line` is the one naming `path` among the files the diff
+    changed, as `a_changed_file_line` writes it: the whole path after the one
+    word of its status. A line set in under a file - the file's own text, which
+    can name any other - opens with no word at all, and a longer path ending
+    in this one, or a sentence that does, is not the path after a status."""
+    status, space, named = line.partition(" ")
+
+    return bool(status) and bool(space) and named == path
+
+
+# What sets a file off from the key in it, where a setting is named with the
+# file it lives in: `deploy/values-production.yaml:cache.port`, or the same
+# with a space.
+WHAT_ENDS_A_FILE: Final = ": "
+
+
+def the_changed_file_it_names(subject: str, said: Sequence[str]) -> str | None:
+    """The file `subject` names among those a diff changed, as the lines of
+    `said` name them (`names_as_changed`) - or `None` where it names none.
+
+    The longest start of the subject that a line names, ending where the
+    subject does or at a colon or a space: a setting is named with the file it
+    lives in, and a path can hold a space of its own. Declared once, because
+    the walk and the write-up both find the deploy that carried a file by it,
+    and a subject read two ways would credit two different deploys."""
+    ends = [at for at, character in enumerate(subject) if character in WHAT_ENDS_A_FILE]
+    for end in sorted([*ends, len(subject)], reverse=True):
+        if any(names_as_changed(line, subject[:end]) for line in said):
+            return subject[:end]
+
+    return None
 
 
 class ChannelsUnread(_Event):
@@ -262,6 +369,21 @@ class OnsetDetected(_Event):
     onset: str
 
 
+class AnchoredOnTheAlarm(_Event):
+    """The minute an investigation looked from where nothing dated the incident:
+    the one the alarm fired in, named as a bucket.
+
+    Its own event rather than an `OnsetDetected` carrying a grade, because it is
+    the opposite claim. An onset says when the incident began; this says nobody
+    knows, and names the minute every window was anchored on only so that the
+    reads after it are not windows around nothing. Said as an onset, a page and
+    a postmortem dated the incident from the moment the alarm went off.
+    """
+
+    kind: Literal["anchored-on-the-alarm"] = "anchored-on-the-alarm"
+    minute: str
+
+
 class HypothesisFormed(_Event):
     """One explanation the Investigator arrived at, as it arrived at it.
 
@@ -283,6 +405,11 @@ class HypothesisFormed(_Event):
     from_state: str | None = None
     to_state: str | None = None
     rank: int
+    # Which candidate of the incident this is, across every round
+    # (`Hypothesis.number`): what the line says it as, here and in the chat,
+    # where `rank` restarts with each round and two rounds' first would read
+    # as one.
+    number: int
     # What the candidate rests on, as the Investigator cited it. A claim
     # published without its evidence is an assertion, and an account of an
     # investigation that shows only conclusions asks its reader to take them on
@@ -291,7 +418,7 @@ class HypothesisFormed(_Event):
 
 
 class FlagChangesRetrieved(_Event):
-    """What the flag provider says has changed lately, as Mitigation read it.
+    """What the flag provider says has changed lately, as the walk read it.
 
     Its own event rather than a `ChangesRetrieved` with a different kind: this
     is read to *act* on, not to reason with. It carries which flag moved and
@@ -302,10 +429,16 @@ class FlagChangesRetrieved(_Event):
     be reached reports nothing, and nothing is not an empty history - "nobody
     could say what changed" and "nothing changed" lead to the same place and
     are not the same fact.
+
+    The window it was read over rides with it, in wire format as a retrieval's
+    does: "none changed" is only true of those minutes. Absent only on an event
+    written before it was carried.
     """
 
     kind: Literal["flag-changes-retrieved"] = "flag-changes-retrieved"
     changes: list[FlagChange]
+    window_start: str | None = None
+    window_end: str | None = None
 
 
 class PlacementRecorded(_Event):
@@ -324,10 +457,20 @@ class PlacementRecorded(_Event):
 
 
 class ActionTaken(_Event):
-    """A change Argus made to the service, for a candidate."""
+    """A change Argus made to the service, for a candidate.
+
+    Published once the change is made and never before: said ahead of the write,
+    an attempt the platform refused was told as done. An attempt that ended
+    before its write has no such line; its verdict says what was not done.
+    """
 
     kind: Literal["action-taken"] = "action-taken"
     hypothesis_id: UuidStr | None
+    # The number of the candidate it was for (`Hypothesis.number`), so the line
+    # says which: the move to mitigating cannot, and an action read against
+    # the wrong candidate is a verdict credited to the wrong cause. `None`
+    # where it was for none, and on an event written before it was carried.
+    candidate_number: int | None = None
     # The tag, not a free string: every renderer of this event matches on it
     # exhaustively, so a second kind of action is a type error where the words
     # for it are written rather than a row that renders as its own identifier.
@@ -358,7 +501,7 @@ class ActionTaken(_Event):
 
 
 class AwaitingRecovery(_Event):
-    """An action has been taken and the service is being given time to answer.
+    """An action has been taken and the verification wait has begun.
 
     Published at the moment production has already changed, because that is
     where the account would otherwise go quiet: the flag has moved and nothing
@@ -374,6 +517,11 @@ class AwaitingRecovery(_Event):
     measured off its window (§16) rather than configured: said before the first
     reading it would be a guess, and this line is the one a reader takes the
     length of the wait from.
+
+    `until_read_again` is a wait on a blind spot - no minute published from the
+    onset to the action - which waits for the minutes to be published again, as
+    the look that settles it asks (`RecoveryChecked.read_again`): no level was
+    read while they were missing, so none is left to come down from.
     """
 
     kind: Literal["awaiting-recovery"] = "awaiting-recovery"
@@ -381,6 +529,7 @@ class AwaitingRecovery(_Event):
     # A float, because it is a span between two instants - how long the clear
     # minutes a recovery must hold run for, from the moment the change arrived.
     seconds_allowed: float
+    until_read_again: bool = False
 
 
 class RecoveryChecked(_Event):
@@ -408,12 +557,25 @@ class RecoveryChecked(_Event):
     Absent on every look that found the service still failing, since those have
     nothing to date, and absent too on a confirmation nothing can date: the
     verdict is reached on a window whose departure need not have persisted.
+
+    `saw_no_minute` is a look that found no minute since the change to judge -
+    in the metrics, or in an alert rule's evaluation whose range began before
+    it: neither recovered nor still at the incident's level, because nothing
+    since the change was measured to say either.
+
+    `read_again` is a look that found the service's minutes published again
+    where none had been from the onset to the action - a blind spot's
+    recovery, which is its rows returning rather than a level falling. There
+    `recovered_minute` is the first minute carrying a row again, and the line
+    says that rather than a level the service was never read at.
     """
 
     kind: Literal["recovery-checked"] = "recovery-checked"
     minute: str
     recovered: bool
     recovered_minute: str | None = None
+    saw_no_minute: bool = False
+    read_again: bool = False
 
 
 class VerdictReached(_Event):
@@ -423,11 +585,38 @@ class VerdictReached(_Event):
     answers already have a name in this system, and an event typed `str` is
     one every reader downstream has to recognise a word in - which is how a
     page and a policy end up matching on different sets of four.
+
+    Which action it was, and whether it was performed at all. An attempt that
+    ended before its write is announced by nothing else - the announcement is
+    made only once a change is - so this is the one line that says what was
+    reached for and not done. Defaulted for an event written before they were
+    carried: what it named then was a performed action's verdict.
     """
 
     kind: Literal["verdict-reached"] = "verdict-reached"
     hypothesis_id: UuidStr | None
+    # The number of the candidate the action was for, as `ActionTaken` carries
+    # it: an attempt that ended before its write is said by this line alone.
+    candidate_number: int | None = None
     outcome: Verdict
+    action_type: ActionType | None = None
+    subject: str | None = None
+    performed: bool = True
+    # Why it was not performed, in the tier's own words, where it was not and a
+    # tier said: the one reason a reader of this line has for an explanation
+    # passed over untested. `None` for a performed action and a person's stop.
+    not_performed_because: str | None = None
+    # What putting the change back did, where the attempt was refuted and put
+    # it back, and the undo's own words for it - said on this line because
+    # nothing else live says it: "monthly-spend-feature was put back ON".
+    # `None` where no undo was attempted.
+    undone: Undone | None = None
+    undone_detail: str | None = None
+    # Whether this attempt judged the action: false where the wait never read
+    # the service, and for a stop whatever it read before it. A wait whose
+    # every look went unanswered escalates with the word a refutation whose
+    # undo failed escalates with, and only the second judged anything.
+    judged: bool = True
 
 
 class CandidateSelected(_Event):
@@ -436,17 +625,18 @@ class CandidateSelected(_Event):
     Which candidate is under test now is not derivable from the ranked list the
     investigation published: the walk skips any it cannot act on, so a reader
     following along has no way to work out which explanation an attempt belongs
-    to. The summary and the confidence travel because they are what the reader
-    would otherwise go back to the list for, and a list read later is a list
-    that may have been added to since.
+    to.
+
+    Not its words: they are the Investigator's claims, said by the candidate's
+    own line, which the id finds however much the list has grown since.
     """
 
     kind: Literal["candidate-selected"] = "candidate-selected"
     hypothesis_id: UuidStr
-    summary: str
-    # Nullable because a hypothesis's is: a candidate that named no cause has
-    # no confidence to state, and `HypothesisFormed` carries it the same way.
-    confidence: float | None
+    # The number of the candidate (`Hypothesis.number`), so the line names it as
+    # every line acting for it does. `None` on an event written before it was
+    # carried.
+    candidate_number: int | None = None
 
 
 class ActionRefused(_Event):
@@ -467,6 +657,10 @@ class ActionRefused(_Event):
     # to is still a refusal, and skipping it would leave the gap this event
     # exists to close.
     hypothesis_id: UuidStr | None
+    # The number of the candidate the refused action was for, as `ActionTaken`
+    # carries it: a chat with no candidate panel cannot tell a later round's
+    # refusal from the first's otherwise, nor two refused for one reason apart.
+    candidate_number: int | None = None
     refusal: Refusal
 
 
@@ -492,6 +686,9 @@ class ActionRecommended(_Event):
 
     kind: Literal["action-recommended"] = "action-recommended"
     hypothesis_id: UuidStr | None
+    # The number of the candidate the recommendation answers, for the reason
+    # the refusal beside it carries one.
+    candidate_number: int | None = None
     action_type: ActionType
     subject: str | None
 
@@ -617,6 +814,24 @@ class FixAttempted(_Event):
     `explanation` is what Code-Fix said of the code - why this change, or why
     there was nothing to change - and `None` wherever it said nothing: the one
     account of the mechanism the walk holds, and a static reading nothing ran.
+
+    `branch_read` is the branch Code-Fix read, and `holds_what_ran` whether it
+    contains the revision running when the alert fired - `None` for either
+    where it was not established. The write-up reads them: a fix written
+    against a branch that does not hold what ran changes nothing that runs once
+    merged, not until a deploy carries it.
+
+    `as_it_ran` is each file the explanation names, read again at the revision
+    that ran - what settles a reading made on a branch that is other text.
+
+    `uses_outside` is how the code the patch does not touch uses what it
+    changes, said by the syntax tree: what a model got wrong when it surveyed
+    those readers in its own words.
+
+    `unproposed` is a fix Code-Fix wrote that the repository would not take a
+    proposal of, and `branch_written` the branch it is on - `None` where the
+    branch was refused too. GitHub answered 500 to a pull request once, and
+    the fix sat on its branch with nothing saying it was there to open.
     """
 
     kind: Literal["fix-attempted"] = "fix-attempted"
@@ -624,15 +839,29 @@ class FixAttempted(_Event):
     pull_request: OpenedPullRequest | None = None
     detail: str
     explanation: str | None = None
+    branch_read: str | None = None
+    holds_what_ran: bool | None = None
+    as_it_ran: list[FileAsItRan] = []
+    uses_outside: list[CodeUse] = []
+    unproposed: bool = False
+    branch_written: str | None = None
 
 
 class PostmortemWritten(_Event):
     """The incident written up, in the few lines somebody would read first.
 
     The summary rather than the document. The whole postmortem is a row of its
-    own and a page of its own; what an account needs is the sentence a reader
-    stops at - what caused it, what it cost, and how long people spent on it -
-    and a destination that wanted more has somewhere to send them.
+    own and a page of its own; what an account needs is the paragraph a reader
+    stops at - when and for how long, how bad, why, what was done and what is
+    left - and a destination that wanted more has somewhere to send them.
+
+    The summary as it is said off the page, without the labels that lead to
+    the document's rows: an account has no rows for them to lead to. Not the
+    root cause or the loss beside it, which the summary already says - the
+    loss as a floor where the service was not seen back, which a figure said
+    on its own would state as final. The cause in plain words is carried apart
+    from the summary that contains it, as the part a reader scanning a list of
+    endings is looking for.
 
     Every field is optional because the document's are: a postmortem written
     from an incident nobody recorded hours against is still a postmortem, and
@@ -640,14 +869,8 @@ class PostmortemWritten(_Event):
     """
 
     kind: Literal["postmortem-written"] = "postmortem-written"
-    root_cause: str | None = None
+    cause_in_plain_words: str | None = None
     executive_summary: str | None = None
-    customer_loss_estimate: Decimal | None = None
-    # What that figure is in, carried rather than looked up, for the reason the
-    # document carries it: the reporting currency is configured, and an account
-    # that read it back from settings would relabel figures already published
-    # the day somebody changed it.
-    estimate_currency: str | None = None
     engineer_minutes: int | None = None
 
 
@@ -678,16 +901,18 @@ class SimilarIncidentsRecalled(_Event):
     """
 
     kind: Literal["similar-incidents-recalled"] = "similar-incidents-recalled"
-    # The ids alone. What each of those incidents tried is in the record this was
-    # read from, and a copy of it here would be a second version of the same
-    # fact - one that goes stale the moment the record is written to again.
+    # Each incident with what it had tried when the walk read it. Not a copy of
+    # the record to go stale when it is written to again: it is what this walk
+    # was shown, which no later write changes. And it is the part a reader can
+    # use - an id alone sends them to look the incident up, and what they would
+    # find there is an action and whether it helped.
     #
     # At least one, in the type rather than in the caller that publishes this. The
     # silence on an empty search is a decision one publisher makes, and a row is
     # read back by everything that renders a timeline - which reads the nearest
     # incident off the front of this list, and would raise on a page and in a
     # postmortem a long way from whoever wrote the row.
-    incident_ids: list[str] = Field(min_length=1)
+    recalled: list[RecalledIncident] = Field(min_length=1)
 
 
 class CandidatesReordered(_Event):
@@ -707,7 +932,7 @@ class CandidatesReordered(_Event):
     # The action that was tried before, not the candidate that would take it
     # again. Both halves, because the subject alone does not say what was done
     # to it: "moved checkout down the list" is true of a service somebody
-    # restarted and of a flag somebody put back, and a reader cannot tell from
+    # restarted and of a flag somebody reverted, and a reader cannot tell from
     # the line which experiment this incident is being spared.
     action_type: ActionType
     subject: str
@@ -724,7 +949,7 @@ class IncidentRemembered(_Event):
     Each as its identity rather than as the subject it acted on, because the
     subject alone is half of what was filed: "filed what was tried: io-shop"
     says nothing about whether io-shop was a service somebody restarted or a
-    flag somebody put back, and a reader cannot tell one incident's record
+    flag somebody reverted, and a reader cannot tell one incident's record
     from the other's. It is the same halving `CandidatesReordered` carries the
     kind to avoid.
 
@@ -905,10 +1130,13 @@ type IncidentEvent = Annotated[
         | LogsRetrieved
         | ChangesRetrieved
         | DeploymentChangesRead
+        | RolloutRead
+        | ServiceRegisterRead
         | ChannelsUnread
         | FlagChangesRetrieved
         | PlacementRecorded
         | OnsetDetected
+        | AnchoredOnTheAlarm
         | HypothesisFormed
         | CandidateSelected
         | ActionRefused
@@ -948,6 +1176,20 @@ def parse_event(row: dict[str, Any]) -> IncidentEvent:
     dictionary it has to match on strings to interpret.
     """
     return _events.validate_python(row)
+
+
+def the_escalations(recorded: Sequence[IncidentEvent]) -> list[StatusChanged]:
+    """Argus's own moves of an incident to escalated, in the order recorded.
+
+    Said once, because the page's head and the postmortem both ask whether
+    Argus handed an incident over, and two copies of the rule are two answers.
+    A person's report never escalates - it withdraws or resolves - so a
+    reported move there is not Argus handing over, and is left out.
+    """
+    return [event for event in recorded
+            if isinstance(event, StatusChanged)
+            and event.to_status is IncidentStatus.ESCALATED
+            and event.reported is None]
 
 
 class RecordedEvent(BaseModel):
@@ -995,21 +1237,29 @@ def nobody(event: IncidentEvent) -> None:
 
 
 def publish(event: IncidentEvent, publisher: Publisher = nobody) -> None:
-    """Hands one event to a publisher, and cannot fail.
+    """Hands one event to a publisher, and fails only for a lost run.
 
-    The single place in this codebase where an exception is caught and
-    discarded, and it is correct here for one reason: the account of the work
-    is never part of the work. An incident that would have resolved must
+    One of the few places in this codebase where an exception is caught and
+    not raised again, each with a reason of its own written beside it. This
+    one's is that the account of the work is never part of the work. An
+    incident that would have resolved must
     resolve even when nobody could write down that it was resolving, so a
     subscriber having a bad day costs the story a line and costs the
     investigation nothing.
 
     Logged at warning rather than silently, so a stream that has stopped
     recording is discoverable without reading the page and noticing a gap.
+
+    All but a store refusing the write because the run was lost
+    (`argus_core.fencing`), which is no bad day: the walk publishing no longer
+    holds its run, and is told so here as every other write would tell it.
     """
     try:
         publisher(event)
-    except Exception:
+    except Exception as error:
+        if was_lost(error):
+            raise
+
         # The incident named here as well as stamped: a publish before any work
         # on the incident has begun - its alert acknowledged - has no baggage to
         # stamp it from.

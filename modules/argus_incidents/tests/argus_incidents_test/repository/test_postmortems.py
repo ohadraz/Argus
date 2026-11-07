@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -20,10 +20,13 @@ from argus_core.models import (
     CitedEvidence,
     ContributingFactor,
     Detection,
+    DetectionLesson,
+    DetectionMeasuredFrom,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
     Lessons,
+    NoTrigger,
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
@@ -35,6 +38,7 @@ from argus_core.models import (
     TimelineMarker,
     Trigger,
     Weighing,
+    WhyNoTrigger,
 )
 from argus_incidents.repository import incidents, postmortems
 from argus_testkit import Assertion, Scenario, all_of
@@ -63,7 +67,7 @@ def test_a_document_proposing_a_fix_comes_back_naming_where_to_read_it() -> None
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_proposing)
+                lambda: postmortems.record(conn, incident_id, a_document_proposing, at=utc_now())
             ) \
             .then(
                 all_of(
@@ -72,6 +76,25 @@ def test_a_document_proposing_a_fix_comes_back_naming_where_to_read_it() -> None
                     ),
                     _the_stored_postmortem_numbers_the_proposal(conn, incident_id, 7)
                 )
+            )
+
+
+@pytest.mark.integration
+def test_a_document_is_dated_by_the_moment_given() -> None:
+    # The moment of the line saying it was written: the page's author line and
+    # the account's line are one instant.
+    some_moment = datetime(2026, 10, 21, 19, 14, 9, 456789, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_created_in(conn)
+
+        Scenario() \
+            .when(
+                lambda: postmortems.record(conn, incident_id, _a_document(pull_request=None),
+                                           at=some_moment)
+            ) \
+            .then(
+                _the_stored_postmortem_was_written_at(conn, incident_id, some_moment)
             )
 
 
@@ -86,7 +109,8 @@ def test_a_document_that_proposed_no_fix_comes_back_proposing_none() -> None:
         Scenario() \
             .when(
                 lambda: postmortems.record(
-                    conn, incident_id, a_document_proposing_nothing
+                    conn, incident_id, a_document_proposing_nothing,
+                    at=utc_now()
                 )
             ) \
             .then(
@@ -115,6 +139,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "root_cause": "a feature flag was toggled on and the checkout path fell over",
         "executive_summary": "one flag, seven minutes, reverted",
         "symptom": "Checkout failed",
+        "cause_in_plain_words": "A flag change turned off the path checkout relies on.",
         "customer_loss_estimate": Decimal("1840.00"),
         "estimate_currency": "usd",
         "engineer_minutes": 7,
@@ -124,13 +149,16 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "responder_cost_minimum": Decimal("24.00"),
         "responder_cost_maximum": Decimal("39.00"),
         "responder_cost_currency": "usd",
+        "response_cost_basis": ["Working year: annual pay bands divided by 2080 hours"],
         "tokens_spent": 48210,
         "assumptions": ["the published rate for the day the incident opened"],
-        "recommended_action": "putting monthly-spend-feature back",
+        "recommended_action": "reverting monthly-spend-feature",
+        "disproven_at": utc_now(),
         "leads": [_a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted")],
         "deploys_reading": ChannelReading.READ,
         "flags_reading": ChannelReading.READ,
         "logs_reading": ChannelReading.READ,
+        "fix_branch_read": "main",
         **_every_section_of_the_template()
     })
 
@@ -139,7 +167,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_complete_document)
+                lambda: postmortems.record(conn, incident_id, a_complete_document, at=utc_now())
             ) \
             .then(
                 no_column_is_empty(conn, "postmortem", "incident_id", incident_id)
@@ -165,7 +193,7 @@ def test_what_people_told_the_incident_comes_back_whole() -> None:
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_with_leads)
+                lambda: postmortems.record(conn, incident_id, a_document_with_leads, at=utc_now())
             ) \
             .then(
                 _the_stored_postmortem_carries_the_leads(conn, incident_id, some_leads)
@@ -189,7 +217,8 @@ def test_the_templates_sections_come_back_whole() -> None:
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_with_every_section)
+                lambda: postmortems.record(conn, incident_id, a_document_with_every_section,
+                                           at=utc_now())
             ) \
             .then(
                 _the_stored_postmortem_carries_the_sections(conn, incident_id, some_sections)
@@ -210,13 +239,30 @@ def test_what_came_of_each_read_comes_back_as_it_was_written() -> None:
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_with_readings)
+                lambda: postmortems.record(conn, incident_id, a_document_with_readings,
+                                           at=utc_now())
             ) \
             .then(
                 _the_stored_postmortem_read(conn, incident_id, (ChannelReading.UNANSWERED,
                                                                 ChannelReading.ONLY_SINCE_ARGUS_ACTED,
                                                                 ChannelReading.NOT_ASKED))
             )
+
+
+def _the_stored_postmortem_was_written_at(conn: psycopg.Connection,
+                                          incident_id: str,
+                                          moment: datetime) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        stored = postmortems.get_by_incident(conn, incident_id)
+        written_at = stored.created_at if stored is not None else None
+
+        if written_at != moment:
+            raise AssertionError(
+                f"Expected the postmortem to be written at [{moment}], got [{written_at}].")
+
+        return True
+
+    return assertion
 
 
 def _the_stored_postmortem_read(conn: psycopg.Connection,
@@ -358,11 +404,18 @@ def _every_section_of_the_template() -> dict[str, Any]:
             to_state="on",
             changed_at=SOME_MOMENT - timedelta(seconds=8)
         ),
+        "no_trigger": NoTrigger(
+            why=WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET,
+            candidate="C1",
+            subject="deploy/values-production.yaml",
+            service="io-pricing",
+            deploys=["P1"]
+        ),
         "resolution": [ResolutionStep(
             at=SOME_MOMENT + timedelta(minutes=5),
             action="turned monthly-spend-feature off",
             by="Argus",
-            reversible=True,
+            has_a_way_back=True,
             outcome="recovered, still in place",
             label="M1"
         )],
@@ -392,6 +445,14 @@ def _every_section_of_the_template() -> dict[str, Any]:
             went_well=["the alert fired within 3 minutes"],
             went_wrong=["no test exercised an empty month"],
             got_lucky=["the fault was behind a flag"]
+        ),
+        "detection_lesson": DetectionLesson(
+            gap=timedelta(minutes=2, seconds=40),
+            measured_from=DetectionMeasuredFrom.LINE_PASSED,
+            rule_waits=timedelta(minutes=1),
+            rule_looks_back=timedelta(minutes=5),
+            rule_evaluated_every=timedelta(seconds=30),
+            scraping_and_storing=timedelta(seconds=30)
         ),
         "timeline": [TimelineEntry(
             at=SOME_MOMENT,
@@ -456,7 +517,8 @@ def _an_incident_created_in(conn: psycopg.Connection) -> str:
             severity="critical",
             summary="dont care",
             started_at=datetime.now(UTC)
-        )
+        ),
+        at=utc_now()
     )
 
 

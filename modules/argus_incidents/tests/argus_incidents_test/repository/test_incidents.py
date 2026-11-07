@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.models import ALERT_FIRING, Alert, Incident, IncidentStatus, Reference
 from argus_incidents.repository import incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -30,10 +30,29 @@ def test_create_writes_the_incident_acknowledged() -> None:
 
         Scenario() \
             .when(
-                lambda: incidents.create(conn, some_alert)
+                lambda: incidents.create(conn, some_alert, at=utc_now())
             ) \
             .then(
                 the_incident_is("acknowledged")
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_opens_at_the_moment_it_is_given() -> None:
+    # The moment of the line opening its account. Stamped by the database's own
+    # clock instead, the row and the account disagree about when it began.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 10, 21, 19, 12, 56, 123456, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_opened_at = partial(_the_incident_opened_at, conn)
+
+        Scenario() \
+            .when(
+                lambda: incidents.create(conn, some_alert, at=some_moment)
+            ) \
+            .then(
+                the_incident_opened_at(some_moment)
             )
 
 
@@ -56,7 +75,8 @@ def test_transition_updates_the_status() -> None:
             ) \
             .when(
                 lambda: incidents.transition(
-                    conn, incident_id, IncidentStatus.MITIGATING
+                    conn, incident_id, IncidentStatus.MITIGATING,
+                    at=utc_now()
                 )
             ) \
             .then(
@@ -72,12 +92,14 @@ def test_get_current_prefers_an_incident_that_has_not_finished() -> None:
         # Created first, so it is also the *older* of the two - which is what
         # makes this a claim about "has not finished" rather than about "newest".
         still_running = incidents.create(
-            conn, Alert(service="running", alert_name="HighErrorRate")
+            conn, Alert(service="running", alert_name="HighErrorRate"),
+            at=utc_now()
         )
         already_finished = incidents.create(
-            conn, Alert(service="finished", alert_name="HighErrorRate")
+            conn, Alert(service="finished", alert_name="HighErrorRate"),
+            at=utc_now()
         )
-        incidents.transition(conn, already_finished, IncidentStatus.RESOLVED)
+        incidents.transition(conn, already_finished, IncidentStatus.RESOLVED, at=utc_now())
 
         Scenario() \
             .given(
@@ -99,9 +121,11 @@ def test_get_current_falls_back_to_the_newest_when_nothing_is_running() -> None:
         _no_incidents_at_all(conn)
 
         the_only_one_there_has_been = incidents.create(
-            conn, Alert(service="io-shop", alert_name="HighErrorRate")
+            conn, Alert(service="io-shop", alert_name="HighErrorRate"),
+            at=utc_now()
         )
-        incidents.transition(conn, the_only_one_there_has_been, IncidentStatus.RESOLVED)
+        incidents.transition(conn, the_only_one_there_has_been, IncidentStatus.RESOLVED,
+                             at=utc_now())
 
         Scenario() \
             .given(
@@ -152,6 +176,7 @@ def test_an_incident_that_resolved_records_when_it_ended() -> None:
                     conn,
                     incident_id,
                     IncidentStatus.RESOLVED,
+                    at=utc_now(),
                 )
             ) \
             .then(
@@ -178,10 +203,74 @@ def test_an_incident_that_escalated_records_when_it_ended() -> None:
                     conn,
                     incident_id,
                     IncidentStatus.ESCALATED,
+                    at=utc_now(),
                 )
             ) \
             .then(
                 the_incident_records_an_end(incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_a_move_that_ends_an_incident_ends_it_at_the_moment_given() -> None:
+    # The moment of the line saying so: the summary said Argus stopped at
+    # 19:14:02, the database's transaction start, a second before that line.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 10, 21, 19, 14, 3, 456789, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_ended_at = partial(_the_incident_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .when(
+                lambda: incidents.transition(conn, incident_id, IncidentStatus.ESCALATED,
+                                             at=some_moment)
+            ) \
+            .then(
+                the_incident_ended_at(incident_id, some_moment)
+            )
+
+
+@pytest.mark.integration
+def test_a_withdrawal_ends_an_incident_at_the_moment_given() -> None:
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 10, 21, 19, 14, 3, 456789, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_ended_at = partial(_the_incident_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .when(
+                lambda: incidents.withdraw(conn, incident_id, at=some_moment)
+            ) \
+            .then(
+                the_incident_ended_at(incident_id, some_moment)
+            )
+
+
+@pytest.mark.integration
+def test_a_resolution_ends_a_running_incident_at_the_moment_given() -> None:
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 10, 21, 19, 14, 3, 456789, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_ended_at = partial(_the_incident_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .when(
+                lambda: incidents.resolve(conn, incident_id, at=some_moment)
+            ) \
+            .then(
+                the_incident_ended_at(incident_id, some_moment)
             )
 
 
@@ -204,6 +293,7 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
                     conn,
                     incident_id,
                     IncidentStatus.FIXING,
+                    at=utc_now(),
                 )
             ) \
             .then(
@@ -224,7 +314,8 @@ def test_transition_says_that_it_took_effect() -> None:
                 incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
-                lambda: incidents.transition(conn, incident_id, IncidentStatus.MITIGATING)
+                lambda: incidents.transition(conn, incident_id, IncidentStatus.MITIGATING,
+                                             at=utc_now())
             ) \
             .then(
                 _the_transition_reported(True)
@@ -249,7 +340,7 @@ def test_a_withdrawn_incident_is_not_moved_by_a_transition(to_status: IncidentSt
                 incident_id := a_withdrawn_incident_for(some_alert)
             ) \
             .when(
-                lambda: incidents.transition(conn, incident_id, to_status)
+                lambda: incidents.transition(conn, incident_id, to_status, at=utc_now())
             ) \
             .then(all_of(
                 _the_transition_reported(False),
@@ -276,11 +367,72 @@ def test_a_resolved_incident_is_not_moved_by_a_transition(to_status: IncidentSta
                 incident_id := a_resolved_incident_for(some_alert)
             ) \
             .when(
-                lambda: incidents.transition(conn, incident_id, to_status)
+                lambda: incidents.transition(conn, incident_id, to_status, at=utc_now())
             ) \
             .then(all_of(
                 _the_transition_reported(False),
                 the_incident_is(IncidentStatus.RESOLVED, incident_id=incident_id)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("status", [status for status in IncidentStatus
+                                    if not status.is_terminal()])
+def test_an_incident_still_being_worked_is_escalated_when_its_walk_stopped(
+    status: IncidentStatus
+) -> None:
+    # The walk raised part-way through, and nothing will take its run again. An
+    # incident left where the walk was - `mitigating`, most often - reads as
+    # work in progress that nobody is going to pick up.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 10, 28, 3, 50, 1, 234567, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_ended_at = partial(_the_incident_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := _an_incident_at(conn, some_alert, status)
+            ) \
+            .when(
+                lambda: incidents.escalate_unless_ended(conn, incident_id, at=some_moment)
+            ) \
+            .then(all_of(
+                _the_transition_reported(True),
+                the_incident_is(IncidentStatus.ESCALATED, incident_id=incident_id),
+                the_incident_ended_at(incident_id, some_moment)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("ending", [status for status in IncidentStatus if status.is_terminal()])
+def test_an_incident_that_already_ended_is_not_escalated_when_its_walk_stopped(
+    ending: IncidentStatus
+) -> None:
+    # The walk failed after an ending - its own, in the write-up after it
+    # mitigated, or a person's. Escalating would call a mitigated incident one
+    # a person must take over, and re-stamp when it ended. In the statement
+    # rather than a read before it, as `transition` keeps a person's endings:
+    # a read that failed would otherwise leave a stopped walk unescalated.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_still_ended_at = partial(_the_incident_still_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := _an_incident_ended_as(conn, some_alert, ending),
+                ended_at := _when_it_ended(conn, incident_id)
+            ) \
+            .when(
+                lambda: incidents.escalate_unless_ended(conn, incident_id, at=utc_now())
+            ) \
+            .then(all_of(
+                _the_transition_reported(False),
+                the_incident_is(ending, incident_id=incident_id),
+                the_incident_still_ended_at(incident_id, ended_at)
             ))
 
 
@@ -329,7 +481,7 @@ def test_a_running_incident_can_be_withdrawn() -> None:
                 incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id)
+                lambda: incidents.withdraw(conn, incident_id, at=utc_now())
             ) \
             .then(all_of(
                 the_incident_is(IncidentStatus.WITHDRAWN, incident_id=incident_id),
@@ -351,7 +503,7 @@ def test_withdrawing_says_that_it_took_effect() -> None:
                 incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id)
+                lambda: incidents.withdraw(conn, incident_id, at=utc_now())
             ) \
             .then(
                 _it_reported(True)
@@ -373,7 +525,7 @@ def test_an_incident_that_already_ended_is_not_withdrawn() -> None:
                 incident_id := a_resolved_incident_for(some_alert)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id)
+                lambda: incidents.withdraw(conn, incident_id, at=utc_now())
             ) \
             .then(all_of(
                 _it_reported(False),
@@ -400,7 +552,7 @@ def test_withdrawing_twice_changes_nothing_the_second_time() -> None:
                 first_ended_at := _when_it_ended(conn, incident_id)
             ) \
             .when(
-                lambda: incidents.withdraw(conn, incident_id)
+                lambda: incidents.withdraw(conn, incident_id, at=utc_now())
             ) \
             .then(all_of(
                 _it_reported(False),
@@ -424,7 +576,7 @@ def test_a_running_incident_can_be_resolved() -> None:
                 incident_id := an_incident_created_for(conn, some_alert)
             ) \
             .when(
-                lambda: incidents.resolve(conn, incident_id)
+                lambda: incidents.resolve(conn, incident_id, at=utc_now())
             ) \
             .then(all_of(
                 _the_resolution_reported(True),
@@ -454,7 +606,7 @@ def test_resolving_an_incident_argus_had_ended_keeps_its_end(ending: IncidentSta
                 argus_ended_it_at := _when_it_ended(conn, incident_id)
             ) \
             .when(
-                lambda: incidents.resolve(conn, incident_id)
+                lambda: incidents.resolve(conn, incident_id, at=utc_now())
             ) \
             .then(all_of(
                 _the_resolution_reported(True),
@@ -480,7 +632,7 @@ def test_an_incident_a_resolution_would_contradict_is_not_resolved(ending: Incid
                 incident_id := _an_incident_ended_as(conn, some_alert, ending)
             ) \
             .when(
-                lambda: incidents.resolve(conn, incident_id)
+                lambda: incidents.resolve(conn, incident_id, at=utc_now())
             ) \
             .then(all_of(
                 _the_resolution_reported(False),
@@ -520,11 +672,12 @@ def test_an_incident_that_ended_leaves_no_column_of_its_row_empty() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
         Scenario() \
             .when(
-                lambda: incidents.transition(conn, incident_id, IncidentStatus.RESOLVED)
+                lambda: incidents.transition(conn, incident_id, IncidentStatus.RESOLVED,
+                                             at=utc_now())
             ) \
             .then(
                 no_column_is_empty(conn, "incident", "id", incident_id)
@@ -565,7 +718,7 @@ def test_an_incident_that_ended_is_not_found_open(ending: IncidentStatus) -> Non
 
         Scenario() \
             .given(
-                calling(lambda: incidents.transition(conn, incident_id, ending))
+                calling(lambda: incidents.transition(conn, incident_id, ending, at=utc_now()))
             ) \
             .when(
                 lambda: incidents.get_open_by_rule_and_service(conn, some_rule, some_service)
@@ -785,11 +938,11 @@ def _it_ended_as(conn: psycopg.Connection, incident_id: str, status: IncidentSta
         case IncidentStatus.ACKNOWLEDGED:
             pass
         case IncidentStatus.RESOLVED:
-            incidents.resolve(conn, incident_id)
+            incidents.resolve(conn, incident_id, at=utc_now())
         case IncidentStatus.WITHDRAWN:
-            incidents.withdraw(conn, incident_id)
+            incidents.withdraw(conn, incident_id, at=utc_now())
         case _:
-            incidents.transition(conn, incident_id, status)
+            incidents.transition(conn, incident_id, status, at=utc_now())
 
 
 def _the_incident_is(conn: psycopg.Connection,
@@ -938,25 +1091,31 @@ def _the_incidents_come_back(conn: psycopg.Connection,
 
 
 def _a_resolved_incident_for(conn: psycopg.Connection, alert: Alert) -> str:
-    incident_id = incidents.create(conn, alert)
+    incident_id = incidents.create(conn, alert, at=utc_now())
     incidents.transition(
         conn,
         incident_id,
         IncidentStatus.RESOLVED,
+        at=utc_now(),
     )
 
     return incident_id
 
 
-def _an_incident_ended_as(conn: psycopg.Connection, alert: Alert, ending: IncidentStatus) -> str:
-    """An incident that reached `ending`, committed.
+def _an_incident_at(conn: psycopg.Connection, alert: Alert, status: IncidentStatus) -> str:
+    """An incident still being worked, at `status`, committed."""
+    incident_id = incidents.create(conn, alert, at=utc_now())
+    incidents.transition(conn, incident_id, status, at=utc_now())
+    conn.commit()
 
-    Committed so that the end it records is stamped in a transaction of its
-    own: `now()` is transaction time, and a resolution sharing the transaction
-    would stamp the same moment whether or not it kept the end it found.
-    """
-    incident_id = incidents.create(conn, alert)
-    incidents.transition(conn, incident_id, ending)
+    return incident_id
+
+
+def _an_incident_ended_as(conn: psycopg.Connection, alert: Alert, ending: IncidentStatus) -> str:
+    """An incident that reached `ending`, committed - its end stamped before
+    the resolution that follows gives a later one."""
+    incident_id = incidents.create(conn, alert, at=utc_now())
+    incidents.transition(conn, incident_id, ending, at=utc_now())
     conn.commit()
 
     return incident_id
@@ -977,8 +1136,8 @@ def _the_resolution_reported(expected: bool) -> Assertion[bool]:
 
 
 def _a_withdrawn_incident_for(conn: psycopg.Connection, alert: Alert) -> str:
-    incident_id = incidents.create(conn, alert)
-    incidents.withdraw(conn, incident_id)
+    incident_id = incidents.create(conn, alert, at=utc_now())
+    incidents.withdraw(conn, incident_id, at=utc_now())
 
     return incident_id
 
@@ -1017,6 +1176,44 @@ def _when_it_ended(conn: psycopg.Connection, incident_id: str) -> datetime:
     assert incident is not None and incident.ended_at is not None
 
     return incident.ended_at
+
+
+def _the_incident_opened_at(conn: psycopg.Connection, moment: datetime) -> Assertion[str]:
+    def assertion(incident_id: str) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None:
+            raise AssertionError(f"No incident found with id [{incident_id}].")
+
+        if incident.created_at != moment:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to open at [{moment}], got "
+                f"[{incident.created_at}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_ended_at(conn: psycopg.Connection,
+                           incident_id: str,
+                           moment: datetime) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None:
+            raise AssertionError(f"No incident found with id [{incident_id}].")
+
+        if incident.ended_at != moment:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to end at [{moment}], got "
+                f"[{incident.ended_at}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_incident_still_ended_at(conn: psycopg.Connection,

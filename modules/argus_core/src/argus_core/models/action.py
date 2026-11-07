@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 
 from argus_core.models.undo_descriptor import FlagUndo, UndoDescriptor
+from argus_core.models.undone import Undone
 
 
 class Verdict(StrEnum):
@@ -19,9 +20,11 @@ class Verdict(StrEnum):
     was reached at all, because nothing could be done or because the
     environment was left in a state Argus cannot account for.
 
-    `WITHDRAWN` is the other way no verdict is reached: the action was taken and
-    then abandoned, because somebody took the incident back while the service
-    was still being watched. It is not `REFUTED` - nothing was measured, and
+    `STOPPED` is the other way no verdict is reached: the action was taken and
+    then left unjudged, because a person ended the incident - resolved it or took
+    it back - while the service was still being watched. Not named for either
+    ending, because it is both: the record says the judging stopped, and the
+    incident's own status says why. It is not `REFUTED` - nothing was judged, and
     recording evidence against a hypothesis nobody finished testing is the one
     thing a stopped experiment must not leave behind. The change it made is
     still out there, which is why the outcome carries its undo descriptor.
@@ -58,7 +61,7 @@ class Verdict(StrEnum):
     CONFIRMED = "confirmed"
     REFUTED = "refuted"
     ESCALATED = "escalated"
-    WITHDRAWN = "withdrawn"
+    STOPPED = "stopped"
     NOT_ATTEMPTED = "not-attempted"
     PLATFORM_UNREACHABLE = "platform-unreachable"
 
@@ -124,7 +127,7 @@ _THE_SPELLINGS_OF_A_VERDICT: Final = frozenset(verdict.value for verdict in Verd
 
 
 class RevertFeatureFlag(BaseModel):
-    """Putting one feature flag back where it was (spec §7.3, §13).
+    """Reverting one feature flag to where it was (spec §7.3, §13).
 
     Here rather than in `agent_mitigation` for the same reason `Hypothesis` is
     here: it crosses agent boundaries. Mitigation proposes one, the
@@ -299,7 +302,7 @@ class DiscardCacheEntries(BaseModel):
     again, and saying so a third time is the point: what admits an action unasked
     is membership of the declared set (spec §13), never the kind of change it
     makes - and this is the member most likely to be mistaken for a weakening,
-    because removing data sounds heavier than putting a value back and is not.
+    because removing data sounds heavier than reverting a value and is not.
 
     Nothing is lost. What is discarded was derived from a store this never
     touches, the service recomputes from that store on the next read, and what is
@@ -441,7 +444,7 @@ class CacheEntriesDiscarded(BaseModel):
 
     The one action whose own answer is evidence rather than an acknowledgement.
     Every other result in this module records something the tier had to go and
-    look at afterwards - a process's start time, a revision put back - because a
+    look at afterwards - a process's start time, a deployment rolled back - because a
     platform accepting a request says nothing about whether the request took
     effect. A store answering "these many of the keys you named existed and are
     now gone" is a statement about the world, made by the only thing that could
@@ -588,7 +591,7 @@ class ActionIdentity(BaseModel, frozen=True):
     compare one type.
 
     Both halves, because either alone answers something else. The subject alone
-    cannot tell a flag put back from a service restarted, and those are
+    cannot tell a flag reverted from a service restarted, and those are
     different evidence about the same cause. The kind alone says nothing about
     blast radius: restarting one service is no licence to restart another.
 
@@ -613,6 +616,25 @@ class ActionIdentity(BaseModel, frozen=True):
 
     action_type: ActionType
     subject: str
+
+
+class WhatArgusDid(BaseModel):
+    """One action Argus took on an incident, what the service's metrics made
+    of it, and whether its change still stands.
+
+    Not `WhatWasTried`, which is memory's record of the same action: a later
+    incident is told what an action was worth, and whether this incident's
+    change is still in production is nothing to it. Code-Fix is told both,
+    because the verdict alone leaves a refuted revert reading as a flag still
+    off when Mitigation put it back.
+
+    `standing` is said in the words the write-up's own account of the action
+    uses, so the two cannot say one action two ways.
+    """
+
+    identity: ActionIdentity
+    verdict: Verdict
+    standing: str
 
 
 def the_identity_of(action: Action) -> ActionIdentity:
@@ -905,13 +927,16 @@ class Outcome(BaseModel):
     tier returned, which is the record of what was actually changed rather than
     what was intended; it is absent when nothing was changed at all.
 
-    `measured` is the second fact the verdict cannot carry, and it exists
-    because `ESCALATED` arrives from two opposite places. One is a refutation
-    whose undo could not be established: the service was watched, it did not
-    recover, and only putting the change back went wrong. The other is an action
-    whose window ran out without the service being read once. Both escalate,
-    both end the walk, and only the first tested anything - so the candidate's
-    row is decided on this rather than on a word that means both.
+    `judged` is the second fact the verdict cannot carry: whether this attempt
+    judged the action. False where the wait never read the service, and for a
+    stop whatever the wait read before it - a reading is not a judgement until
+    the wait reaches one. It exists because `ESCALATED` arrives from two
+    opposite places. One is a refutation whose undo could not be established:
+    the service was watched, it did not recover, and only putting the change
+    back went wrong. The other is an action whose window ran out without the
+    service being read once. Both escalate, both end the walk, and only the
+    first judged anything - so the candidate's row is decided on this rather
+    than on a word that means both.
 
     A field rather than a seventh `Verdict` member because nothing routes on it.
     The status derived from either is the same, the walk ends either way, and
@@ -920,11 +945,49 @@ class Outcome(BaseModel):
     `incident_memory` a value to order by, for a difference nobody branches on.
 
     It defaults to true, which is the ordinary case: an action was taken and the
-    service was watched afterwards. Only the paths that know they watched
-    nothing say so.
+    service was watched to a verdict afterwards. Only the paths that know they
+    judged nothing say so.
     """
 
     verdict: Verdict
     detail: str
     undo_descriptor: UndoDescriptor | None = None
-    measured: bool = True
+    judged: bool = True
+    # Whether the action was performed at all - false where the attempt ended
+    # before the action itself was done, though it may have changed something
+    # on the way. What says a candidate was tried where nothing was judged:
+    # a person's ending stops a test before the write and during the wait
+    # alike, and only the second tried the candidate.
+    performed: bool = True
+    # Whether `undo_descriptor` is the whole of what the attempt left behind -
+    # nothing, where it is `None`. True for a change made, whose descriptor is
+    # the tier's own account of it, and for every ending before any change was
+    # asked for; false where a change request may have landed and nobody can
+    # say, or where what failed said nothing about the estate at all. What tells
+    # a refusal that changed nothing from one nobody can account for, which the
+    # verdict cannot: both escalate, and both are not performed.
+    #
+    # Required, where `judged` and `performed` default: a default of true would
+    # let a new ending claim to know the estate by forgetting to say.
+    left_behind_known: bool
+    # What the verification wait judged, apart from the sentence that says it:
+    # the rule still firing, the service still at the incident's level, a
+    # window that never showed the incident. `detail` is for a reader; this is
+    # for a later round of the same incident, which is told why each attempt
+    # did not help and nothing else about it. `None` where nothing was watched.
+    because: str | None = None
+    # Why the action was not performed, in the tier's own words - "[io-shop]
+    # has no revision before the one it is running" - apart from the sentence
+    # that says it, as `because` is for a watched one. What the candidate's row
+    # and the line saying the attempt keep, so an explanation passed over is
+    # never left with no reason on it. `None` for a performed action, and for a
+    # person's stop, whose own line says why.
+    not_performed_because: str | None = None
+    # What putting a refuted change back did, and the undo's own words for it -
+    # "was put back ON", "was left as found: it has been changed from outside
+    # since Argus set it". Carried apart from `detail` because the row and the
+    # line both keep it: a refutation put back and one left as somebody else
+    # set it are different states of the estate. `None` where no undo was
+    # attempted.
+    undone: Undone | None = None
+    undone_detail: str | None = None

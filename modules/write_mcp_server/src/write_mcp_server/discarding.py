@@ -15,7 +15,7 @@ downstream could tell a derived key from a real one.
 
 The count is the point of the module. Every other action in this tier answers with
 a platform's acknowledgement and then has to go and look at something - a process's
-start time, a revision put back - because "the request was accepted" says nothing
+start time, a deployment rolled back - because "the request was accepted" says nothing
 about whether it took effect. A store answering how many of the named keys existed
 and are now gone has made a statement about the world, and it is the only thing in
 a position to make it. So nothing is read back afterwards: asking the same store
@@ -31,11 +31,15 @@ records, and writing the stale figures back would be recreating the incident.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
-from typing import Final, Protocol
+from collections.abc import Callable, Sequence
+from typing import Any, Final, Protocol
 
 from argus_core import SettingsSlice
-from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
+from argus_core.mcp_transport import (
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
+    an_unreachable_platform,
+)
 from argus_core.models import CACHE, CacheEntriesDiscarded
 
 logger = logging.getLogger(__name__)
@@ -90,11 +94,20 @@ class DiscardEntries(Protocol):
     takes at most a handful of these, minutes apart, and a pooled client would be
     a connection kept alive for an incident's duration to save a handshake.
 
-    Answers how many of the named keys existed and were removed. Raises whatever
-    the client raises where the store could not be reached at all.
+    Answers how many of the named keys existed and were removed. Raises
+    `StoreNotReached` where the store was not there before the discard was
+    asked of it, and whatever the client raises once it had been.
     """
 
     def __call__(self, cache_url: str, keys: Sequence[str], /) -> int: ...
+
+
+class StoreNotReached(Exception):
+    """The store did not answer before anything was asked of it.
+
+    The seam's own word for it, because only the seam can tell: a failure before
+    the discard left the entries where they were, and one after it may not have.
+    """
 
 
 class NothingLeftToDiscard(Exception):
@@ -120,7 +133,7 @@ class NothingLeftToDiscard(Exception):
 
 
 class EntriesNotDiscarded(Exception):
-    """The store could not be reached, so nothing was discarded.
+    """The store could not be reached, or went once the discard was on its way.
 
     Raised rather than reported as a count of zero, because the two mean opposite
     things to whoever picks the incident up. A store that answered and held none
@@ -131,28 +144,61 @@ class EntriesNotDiscarded(Exception):
     """
 
 
-def with_redis(cache_url: str, keys: Sequence[str], /) -> int:
-    """Removes `keys` from the Redis at `cache_url`, answering how many went.
+class StoreClient(Protocol):
+    """The three things `with_redis` asks of a store's client - a `Protocol` so
+    a test can stand one in with `create_autospec`."""
 
-    The real seam, and the only code in Argus that imports a store's client. A
-    connection per call rather than a pool, for the reason the protocol above
-    says: a walk takes a handful of these minutes apart.
+    def ping(self) -> Any: ...
+
+    def unlink(self, *names: str) -> Any: ...
+
+    def close(self) -> None: ...
+
+
+def a_redis_at(cache_url: str) -> StoreClient:
+    """A client for the Redis at `cache_url`, and the only code in Argus that
+    imports a store's client.
 
     `decode_responses` is not asked for, because nothing here reads a value - the
     command answers with an integer and the keys go out as the text they arrived
     as. Nothing is read back either, so there is no reply to decode.
 
     Not unit-tested, and deliberately: what there would be to assert is that the
-    client was asked for `UNLINK` with these keys, which is this function's body
-    written twice. What it is actually claiming - that a real store answers that
-    way - is only true or false against a real store, and the end-to-end stack is
-    where one exists.
+    client was built with these arguments, which is this function's body written
+    twice. That a real store answers to it is only true or false against a real
+    store, and the end-to-end stack is where one exists.
     """
     from redis import Redis
 
-    client = Redis.from_url(cache_url, socket_connect_timeout=CONNECT_TIMEOUT_SECONDS)
+    return Redis.from_url(cache_url, socket_connect_timeout=CONNECT_TIMEOUT_SECONDS)
+
+
+def with_redis(cache_url: str,
+               keys: Sequence[str],
+               /,
+               connect: Callable[[str], StoreClient] = a_redis_at) -> int:
+    """Removes `keys` from the Redis at `cache_url`, answering how many went.
+
+    The real seam. A connection per call rather than a pool, for the reason the
+    protocol above says: a walk takes a handful of these minutes apart. `connect`
+    is where a test puts the store.
+    """
+    # An address the client cannot be built from was never dialled, so nothing
+    # was asked of the store.
+    try:
+        client = connect(cache_url)
+    except Exception as error:
+        raise StoreNotReached(f"{error}") from error
 
     try:
+        # Asked before the discard, so a store that is not there is told apart
+        # from one that went once the discard was on its way - after which the
+        # entries may well be gone.
+        try:
+            client.ping()
+        except Exception as error:
+            raise StoreNotReached(f"{error}") from error
+
         return int(client.unlink(*keys))
     finally:
         client.close()
@@ -173,10 +219,12 @@ def discard_cache_entries(
 
     Raises `EntriesNotDiscarded` where the store did not answer, marked so a
     caller narrows itself rather than offering the same action again: a store that
-    is not there has taken every action through it away at once. The message names
-    the endpoint that was dialled, which is the whole diagnosis of this particular
-    failure - a reader setting it against the address the deployment configured is
-    doing the one comparison that explains it.
+    is not there has taken every action through it away at once. Marked only
+    where it was not there before the discard: one that went after it may have
+    discarded the entries, and a store marked unreachable says nothing changed.
+    The message names the endpoint that was dialled, which is the whole diagnosis
+    of this particular failure - a reader setting it against the address the
+    deployment configured is doing the one comparison that explains it.
 
     Raises the same thing, and never dials, where no keys were named. The tool
     above takes a bare list, and a schema is a request rather than a guarantee -
@@ -184,25 +232,35 @@ def discard_cache_entries(
     removal of nothing. That refusal would be reported as a store that errored,
     which is this module's word for a cache that could not be reached, and a walk
     would narrow itself away from every action on a store that is perfectly well.
-    Unmarked, because nothing about the estate is unavailable: it is a caller that
-    has not said what to act on.
+    Not marked unreachable, because nothing about the estate is unavailable: it is
+    a caller that has not said what to act on. And said to have left nothing,
+    because nothing was asked of the store.
     """
     if not keys:
         logger.warning("no cache entries named")
-        raise EntriesNotDiscarded(
+        raise EntriesNotDiscarded(a_refusal_saying_what_it_left(
             f"no cache entries were named to discard at [{settings.cache_url}], "
             f"so nothing was asked of it"
-        )
+        ))
 
     try:
         discarded = discard(settings.cache_url, tuple(keys))
-    except Exception as error:
+    except StoreNotReached as error:
         raise EntriesNotDiscarded(
             an_unreachable_platform(
                 CACHE,
                 f"could not discard {len(keys)} cache entries at "
                 f"[{settings.cache_url}]: {error}"
             )
+        ) from error
+    except Exception as error:
+        # The discard was on its way, and the entries may have gone with it.
+        # Unmarked, because a store marked unreachable says nothing was
+        # changed - and the walk would narrow away from one that may well have
+        # answered.
+        raise EntriesNotDiscarded(
+            f"could not discard {len(keys)} cache entries at "
+            f"[{settings.cache_url}]: {error}"
         ) from error
 
     if not discarded:

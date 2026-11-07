@@ -46,11 +46,13 @@ from agent_mitigation.binding import an_undo_over
 from agent_mitigation.strategies import (
     MitigationStrategy,
     PinToAcceleratorStrategy,
+    Reasons,
     RestartDependencyStrategy,
     RestartServiceStrategy,
     ScaleOutStrategy,
     Strategies,
-    a_mitigation_answers,
+    why_no_mitigation_answers,
+    why_nothing_was_proposed,
 )
 from agent_mitigation.tools import (
     DeploymentsBetween,
@@ -71,7 +73,7 @@ from agent_mitigation.tools import (
     recent_metrics_over,
     rules_read_over,
 )
-from agent_mitigation.trying import UndoChange, take_action
+from agent_mitigation.trying import ChangeMade, UndoChange, take_action
 from agent_mitigation.undoing import undo_change
 
 __all__ = [
@@ -79,6 +81,7 @@ __all__ = [
     "REVERT_FEATURE_FLAG",
     "Action",
     "AdmittedMitigations",
+    "ChangeMade",
     "DeploymentsBetween",
     "FlagChangesSince",
     "MitigationSettings",
@@ -86,6 +89,7 @@ __all__ = [
     "Outcome",
     "PerformingWrites",
     "PinToAcceleratorStrategy",
+    "Reasons",
     "RestartDependencyStrategy",
     "RestartServiceStrategy",
     "RevertFeatureFlag",
@@ -97,7 +101,6 @@ __all__ = [
     "UndoChange",
     "Undone",
     "Verdict",
-    "a_mitigation_answers",
     "an_undo_over",
     "argus_changed_flag_since",
     "deployment_restorer_over",
@@ -115,5 +118,7 @@ __all__ = [
     "rules_read_over",
     "propose_action",
     "take_action",
-    "undo_change"
+    "undo_change",
+    "why_no_mitigation_answers",
+    "why_nothing_was_proposed"
 ]

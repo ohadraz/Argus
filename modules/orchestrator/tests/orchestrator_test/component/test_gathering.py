@@ -23,17 +23,21 @@ without all five installed and reachable.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import psycopg
 import pytest
 from agent_postmortem import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
-from argus_core import connect_from_env, new_id, parse_iso
+from argus_core import connect_from_env, new_id, parse_iso, utc_now
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
+    ActionRecommended,
+    ActionRefused,
     ActionTaken,
+    AgentInvoked,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     ChangesRetrieved,
     DeploymentChangesRead,
     FixAttempted,
@@ -41,40 +45,54 @@ from argus_core.events import (
     HypothesisFormed,
     IncidentEvent,
     IncidentRemembered,
+    LeadWeighed,
     LogsRetrieved,
+    MessageUnderstood,
     OnsetDetected,
     PersonWrote,
-    PlacementRecorded,
+    QuestionAnswered,
     RecoveryChecked,
     RememberingFailed,
+    ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
+    SimilarIncidentsRecalled,
     StatusChanged,
+    VerdictReached,
 )
 from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
+    CHAT_THREAD,
     DISCARD_CACHE_ENTRIES,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    ActionIdentity,
+    ActionProgress,
     ActionType,
+    Actor,
     Alert,
     ChangeEvent,
     ChangeKind,
     ChannelReading,
+    CodeUse,
+    DeploymentComparison,
     DeploymentRollbackUndo,
     FailureMode,
+    FileAsItRan,
+    FirstTold,
     FixOutcome,
     FlagChange,
     FlagUndo,
+    ForCandidate,
     Hypothesis,
     IncidentStatus,
     Meaning,
     ModelPolicy,
     OpenedPullRequest,
-    PodPlacement,
     PostmortemDocument,
-    RecordedPlacement,
+    RecalledIncident,
     Reference,
+    Refusal,
     Report,
     ReportChannel,
     RetrievalChannel,
@@ -85,9 +103,12 @@ from argus_core.models import (
     Transcript,
     Turn,
     UndoDescriptor,
+    Undone,
     Verdict,
     Weighing,
+    WhatWasTried,
     a_chat_message,
+    a_chat_thread,
     as_a_change,
 )
 from argus_core.replay import CallType, Replay
@@ -97,9 +118,11 @@ from argus_incidents.repository import (
     events,
     hypotheses,
     incidents,
+    references,
     replay,
     taken_actions,
 )
+from argus_narration import what_to_do
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
@@ -124,6 +147,12 @@ DONT_CARE_THRESHOLDS = AnomalyThresholds(
 # How late the metrics source reports a minute. Unread here for the reason the
 # thresholds are, and without a default for the same one.
 DONT_CARE_REPORTING_LAG_MINUTES = 0
+
+# When an action a case never asks the moment of was taken.
+DONT_CARE_TAKEN_AT = parse_iso("2026-09-02T11:52:00Z")
+
+# A message a person wrote in the incident's thread. Any reference does.
+SOME_MESSAGE = Reference(source="some-chat", kind="some-kind", value="some-message")
 
 # The flag the actions here act on. Any name does.
 SOME_FLAG = "monthly-spend-feature"
@@ -264,29 +293,133 @@ def test_a_candidate_carries_what_it_blamed_and_what_became_of_it(
 
 
 @pytest.mark.component
+def test_a_candidate_carries_the_service_it_blames(a_clean_database: None) -> None:
+    # Only the alerting service's deploys are read, so a cause in another
+    # service is one whose changes nobody looked at - which the document says,
+    # and can only say knowing which service that is.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: hypotheses.record(conn, Hypothesis(
+                    incident_id=incident_id,
+                    summary="dont care",
+                    failure_mode=FailureMode.INTERNAL_DEPENDENCY_FAILURE,
+                    confidence=0.8,
+                    supporting_evidence=[],
+                    subject="pricing.timeoutMs",
+                    faulting_service="io-pricing"
+                )))
+            ) \
+            .when(
+                lambda: [candidate.faulting_service
+                         for candidate in gather_evidence(conn, incident_id).candidates]
+            ) \
+            .then(
+                the_answer_was(["io-pricing"])
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_the_service_the_alert_named(a_clean_database: None) -> None:
+    # Whose deploys were read: the investigation reads the alerting service's
+    # and no other.
+    some_service = "some-service"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, service=some_service)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).service
+            ) \
+            .then(
+                the_answer_was(some_service)
+            )
+
+
+@pytest.mark.component
 def test_a_line_that_formed_candidates_names_them_among_the_evidence_s_own(
     a_clean_database: None
 ) -> None:
     # So the write-up can point at a candidate under its own label rather than
     # say it twice. By the hypothesis each line formed, not by counting: the
-    # candidates are listed best first across every round, so a second round's
-    # best sits between the first round's two, and a count names the wrong one.
+    # candidates are listed across every round, and a line forms only its own
+    # round's - here the second round's, which a count from the line's own
+    # first would number from one.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
         Scenario() \
             .given(
-                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1)),
-                calling(lambda: _a_candidate_formed(conn, incident_id, rank=2)),
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1, number=1)),
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=2, number=2)),
                 calling(lambda: events.record(conn, StatusChanged(
                     incident_id=incident_id, to_status=IncidentStatus.INVESTIGATING))),
-                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1))
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1, number=3))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _the_lines_name_the_candidates([[0, 2], [1]])
+                _the_lines_name_the_candidates([[0, 1], [2]])
+            )
+
+
+@pytest.mark.component
+def test_a_line_acting_for_a_candidate_says_where_it_sits_and_how_the_line_names_it(
+    a_clean_database: None
+) -> None:
+    # So the write-up can name it by its label rather than by the narration's
+    # words for it. By the hypothesis the line acted for, as a line forming
+    # candidates is found - here the second, which the line names #2.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        _a_candidate_formed(conn, incident_id, rank=1, number=1)
+        the_second = _a_candidate_formed(conn, incident_id, rank=2, number=2)
+
+        Scenario() \
+            .given(
+                calling(lambda: events.record(conn, ActionRefused(
+                    incident_id=incident_id, hypothesis_id=the_second, candidate_number=2,
+                    refusal=Refusal.NOTHING_COULD_CONFIRM_IT)))
+            ) \
+            .when(
+                lambda: [entry.for_candidate for entry in
+                         gather_evidence(conn, incident_id).timeline
+                         if entry.for_candidate is not None]
+            ) \
+            .then(
+                the_answer_was([ForCandidate(place=1, said_as="candidate cause #2")])
+            )
+
+
+@pytest.mark.component
+def test_a_line_about_an_earlier_incident_names_it_for_the_document_to_lead_there(
+    a_clean_database: None
+) -> None:
+    # The walk page leads a reader to the earlier incident memory found, and the
+    # document can only if its line says which incident it is about: the id in
+    # the sentence is no name to look up by hand.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_recall := SimilarIncidentsRecalled(
+                    incident_id=incident_id,
+                    recalled=[RecalledIncident(incident_id=the_earlier_incident, tried=[])])
+            ) \
+            .when(
+                lambda: [entry.names_incident for entry in
+                         _the_evidence_after_publishing(conn, incident_id, some_recall).timeline
+                         if entry.names_incident is not None]
+            ) \
+            .then(
+                the_answer_was([the_earlier_incident])
             )
 
 
@@ -349,6 +482,100 @@ def test_a_line_read_again_by_a_wider_read_is_read_once(a_clean_database: None) 
             ) \
             .then(
                 _carries_the_log_lines([a_failure, a_failure, another, a_later_one])
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_where_the_furthest_read_of_the_logs_ended(
+        a_clean_database: None) -> None:
+    # Where the lines stop is as often where the reading stopped as where the
+    # service did, and nothing in a line says which. The furthest end of any
+    # read, since nothing after it was read - whatever order the reads came in.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, LogsRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    lines=[]
+                ))),
+                calling(lambda: events.record(conn, LogsRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T12:00:00Z",
+                    window_end="2026-09-02T12:05:30Z",
+                    lines=[]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_logs_were_read_until(parse_iso("2026-09-02T12:30:00Z"))
+            )
+
+
+@pytest.mark.component
+def test_an_incident_that_read_no_logs_says_no_reading_of_them_ended(
+        a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_logs_were_read_until(None)
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_where_the_furthest_read_of_the_changes_ended(
+        a_clean_database: None) -> None:
+    # What tells a change only the walk found, made past the end of the
+    # investigation's reads, from one a read should have returned. The furthest
+    # end of any read, whatever order the reads came in.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[]
+                ))),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T12:00:00Z",
+                    window_end="2026-09-02T12:05:30Z",
+                    changes=[]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_changes_were_read_until(parse_iso("2026-09-02T12:30:00Z"))
+            )
+
+
+@pytest.mark.component
+def test_an_incident_that_read_no_changes_says_no_reading_of_them_ended(
+        a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_changes_were_read_until(None)
             )
 
 
@@ -454,6 +681,40 @@ def test_a_flag_change_only_the_walk_read_is_carried_once_in_its_place_in_time(
             .then(
                 _carries_the_changes([as_a_change(the_flip_only_the_walk_read),
                                       as_a_change(the_flip)])
+            )
+
+
+@pytest.mark.component
+def test_a_flag_change_only_the_walk_read_is_carried_as_the_walk_s_alone(
+        a_clean_database: None) -> None:
+    # The Investigator never saw it, and listed among its reads with nothing to
+    # tell them apart, a write-up credited the Investigator with ruling it out.
+    # A change both of them read is the investigation's.
+    the_flip = FlagChange(flag=SOME_FLAG, enabled=True, occurred_at="2026-09-02T11:49:52Z")
+    the_flip_only_the_walk_read = FlagChange(flag=SOME_OTHER_FLAG,
+                                             enabled=True,
+                                             occurred_at="2026-09-02T11:20:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[as_a_change(the_flip)]
+                ))),
+                calling(lambda: events.record(conn, FlagChangesRetrieved(
+                    incident_id=incident_id,
+                    changes=[the_flip_only_the_walk_read, the_flip]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_as_the_walk_s_alone([as_a_change(the_flip_only_the_walk_read)])
             )
 
 
@@ -629,9 +890,10 @@ def test_a_flag_history_never_read_says_whether_it_was_asked_for(
 @pytest.mark.component
 def test_the_evidence_carries_what_each_deployment_read_changed(a_clean_database: None) -> None:
     # What tells a configuration change from a code change, and what names the
-    # deploy that carried one: every line, under the revision it was read for.
-    # Read twice, one deployment is one row - a row per read would number the
-    # deployments by how often the model happened to ask.
+    # deploy that carried one: every line, under the revision it was read for,
+    # and whether the lines list every file it changed. Read twice, one
+    # deployment is one row - a row per read would number the deployments by
+    # how often the model happened to ask.
     the_diff = ["Deployment of revision 7c3ca00 to io-shop, compared against 1a2b3c4 - "
                 "the revision deployed before it.",
                 "modified deploy/values-production.yaml",
@@ -646,19 +908,51 @@ def test_the_evidence_carries_what_each_deployment_read_changed(a_clean_database
             .given(
                 incident_id := _an_incident_that_ended(conn),
                 calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="7c3ca00", said=the_diff))),
+                    incident_id=incident_id, revision="7c3ca00", said=the_diff,
+                    lists_every_file=True))),
                 calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="1a2b3c4", said=another_diff))),
+                    incident_id=incident_id, revision="1a2b3c4", said=another_diff,
+                    lists_every_file=False))),
                 calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="7c3ca00", said=the_diff)))
+                    incident_id=incident_id, revision="7c3ca00", said=the_diff,
+                    lists_every_file=True)))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
                 _carries_the_deployment_changes([
-                    DeploymentChangesRecord(revision="7c3ca00", said=the_diff),
-                    DeploymentChangesRecord(revision="1a2b3c4", said=another_diff)
+                    DeploymentChangesRecord(revision="7c3ca00", said=the_diff,
+                                            lists_every_file=True),
+                    DeploymentChangesRecord(revision="1a2b3c4", said=another_diff,
+                                            lists_every_file=False)
+                ])
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_whether_each_deployment_read_was_compared(
+        a_clean_database: None) -> None:
+    # Only a comparison is a diff. A deployment with nothing before it, or a
+    # revision no deployment has, is said in the write-up's own words, of the
+    # service whose history was read.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, DeploymentChangesRead(
+                    incident_id=incident_id, revision="7c3ca00", said=["dont care"],
+                    comparison=DeploymentComparison.NOTHING_BEFORE_IT, service="io-shop"))),
+                calling(lambda: events.record(conn, DeploymentChangesRead(
+                    incident_id=incident_id, revision="1a2b3c4", said=["dont care"])))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_each_deployment_read_as([
+                    ("7c3ca00", DeploymentComparison.NOTHING_BEFORE_IT, "io-shop"),
+                    ("1a2b3c4", DeploymentComparison.COMPARED, None)
                 ])
             )
 
@@ -685,24 +979,288 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_data
 @pytest.mark.component
 def test_a_line_written_outside_the_walk_is_carried_as_such(a_clean_database: None) -> None:
     # The document numbers the walk's lines apart from these: where a person's
-    # message lands among the walk's is timing, and counted with them it
+    # report lands among the walk's is timing, and counted with them it
     # renumbers every line of the walk after it.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
         Scenario() \
             .given(
-                somebody_writing := PersonWrote(
+                somebody_reporting := StatusChanged(
                     incident_id=incident_id,
-                    message=Reference(source="some-chat", kind="some-kind", value="some-message"),
-                    person_id="some-person-id",
-                    text="looks fine to me")
+                    to_status=IncidentStatus.RESOLVED,
+                    reported=Report(by="some person", channel=ReportChannel.ARGUS_UI))
             ) \
             .when(
-                lambda: _the_evidence_after_publishing(conn, incident_id, somebody_writing)
+                lambda: _the_evidence_after_publishing(conn, incident_id, somebody_reporting)
             ) \
             .then(
-                _only_the_lines_dated_are_outside_the_walk([somebody_writing.at])
+                _only_the_lines_dated_are_outside_the_walk([somebody_reporting.at])
+            )
+
+
+@pytest.mark.component
+def test_a_line_saying_an_agent_was_called_in_is_carried_as_such(a_clean_database: None) -> None:
+    # The document's page leaves it out - the line after it, the agent at
+    # work, says it already - and knows it by its kind, not by its words.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling_mitigation_in := AgentInvoked(incident_id=incident_id,
+                                                      agent=Actor.MITIGATION)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, calling_mitigation_in)
+            ) \
+            .then(
+                _only_the_lines_calling_an_agent_in_are_carried_as_such(
+                    calling_mitigation_in.at)
+            )
+
+
+@pytest.mark.component
+def test_a_resolution_written_in_the_thread_is_said_as_the_report_it_was(
+        a_clean_database: None) -> None:
+    # Said as no more than something written, a report reads as one Argus was
+    # free to pass over - and every write-up told so said Argus pressed on
+    # regardless of it. By the name it was offered back under.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="rolled it back, all fine"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=Meaning.RESOLVE),
+                    ResolutionOffered(incident_id=incident_id, message=the_message,
+                                      person_id="U-some-person", person_name="Some Person",
+                                      said="rolled it back, all fine")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_timeline_holds("Some Person",
+                                    "Reported the incident resolved in the thread: "
+                                    "rolled it back, all fine")
+            )
+
+
+@pytest.mark.component
+def test_the_offer_back_to_the_person_is_not_on_the_timeline(a_clean_database: None) -> None:
+    # The offer is how a report is confirmed: it says nothing the report and the
+    # move it made do not.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="dont care"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=Meaning.RESOLVE),
+                    ResolutionOffered(incident_id=incident_id, message=the_message,
+                                      person_id="U-some-person", person_name="Some Person",
+                                      said="dont care")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _no_line_of_the_timeline_says("to confirm")
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("meaning", [Meaning.QUESTION, Meaning.INFORMATION, Meaning.OTHER])
+def test_a_message_that_bore_on_nothing_is_not_on_the_timeline(meaning: Meaning,
+                                                                 a_clean_database: None) -> None:
+    # A question, a thank-you, or something never weighed as a lead: neither
+    # what the person wrote nor what was made of it says anything of the
+    # incident.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="some words"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=meaning),
+                    QuestionAnswered(incident_id=incident_id, message=the_message,
+                                     answer="some answer")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _no_line_of_the_timeline_says("some words"),
+                _no_line_of_the_timeline_says("Classified the message"),
+                _no_line_of_the_timeline_says("some answer"),
+                _says_people_wrote(False)
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("standing", [Standing.REFUTED, Standing.SUPPORTED])
+def test_a_lead_the_investigation_weighed_is_on_the_timeline(standing: Standing,
+                                                             a_clean_database: None) -> None:
+    # Ruled out or taken up, a lead is part of the story: one ruled out is what
+    # the investigation did not follow, and why.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="the cache was flushed"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=Meaning.INFORMATION),
+                    LeadWeighed(incident_id=incident_id, message=the_message,
+                                standing=standing, reason="dont care")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _the_timeline_holds("A person",
+                                    "Wrote in the incident's thread: the cache was flushed"),
+                _says_people_wrote(True)
+            ))
+
+
+@pytest.mark.component
+def test_the_evidence_says_when_argus_first_posted_where_people_could_read_it(
+        a_clean_database: None) -> None:
+    # Told only that nobody was paged, a write-up said nobody was told at all,
+    # of an incident Argus had announced in its thread. The thread is written
+    # down once the chat platform accepted the line that opened it, and is the
+    # only record a line was said.
+    some_thread = a_chat_thread(ReportChannel.SLACK, "C-some-channel", "1.000100")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: references.add(conn, incident_id, [some_thread]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).first_told
+            ) \
+            .then(
+                _told_in_its_thread(conn, incident_id, ReportChannel.SLACK)
+            )
+
+
+@pytest.mark.component
+def test_a_candidate_says_how_far_the_action_testing_it_got(a_clean_database: None) -> None:
+    # A person's ending can stop the test before anything is measured, which
+    # leaves the candidate's row untested - and without the action, a write-up
+    # reads it as never tried. Only an action performed tried it: a row is also
+    # written for an attempt that changed nothing, a platform that never
+    # answered among them, and for one a dead worker left with the change made
+    # and no verdict, or with nobody able to say whether it was made at all.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, REVERT_FEATURE_FLAG,
+                                                 Verdict.STOPPED,
+                                                 FlagUndo(flag=SOME_FLAG, was_enabled=True))),
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.PLATFORM_UNREACHABLE, None,
+                                                 summary="a rollback that never ran",
+                                                 performed=False)),
+                calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.PERFORMED,
+                                                   summary="a change a dead worker made")),
+                calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.UNKNOWN,
+                                                   summary="a change nobody can account for")),
+                calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.CLAIMED,
+                                                   summary="a claim never answered")),
+                calling(lambda: hypotheses.record(conn, Hypothesis(
+                    incident_id=incident_id, summary="an untried cause",
+                    failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.1,
+                    supporting_evidence=[])))
+            ) \
+            .when(
+                lambda: {candidate.summary: (candidate.progress, candidate.verdict_recorded)
+                         for candidate in gather_evidence(conn, incident_id).candidates}
+            ) \
+            .then(
+                the_answer_was({
+                    "dont care": (ActionProgress.PERFORMED, True),
+                    "a rollback that never ran": (ActionProgress.NOT_PERFORMED, True),
+                    "a change a dead worker made": (ActionProgress.PERFORMED, False),
+                    "a change nobody can account for": (ActionProgress.UNKNOWN, False),
+                    "a claim never answered": (ActionProgress.CLAIMED, False),
+                    "an untried cause": (None, False)
+                })
+            )
+
+
+@pytest.mark.component
+def test_an_incident_argus_never_posted_about_was_told_nowhere(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).first_told
+            ) \
+            .then(
+                the_answer_was(None)
+            )
+
+
+@pytest.mark.component
+def test_a_move_to_act_that_no_act_followed_is_not_on_the_timeline(
+        a_clean_database: None) -> None:
+    # A person ended the incident first, and the walk held off from the moment
+    # the move was written. On the timeline after their report, the move reads
+    # as Argus pressing on regardless of it.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_a_person_ended(conn,
+                                                           after=[IncidentStatus.MITIGATING])
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _no_line_of_the_timeline_says("MITIGATING")
+            )
+
+
+@pytest.mark.component
+def test_a_move_to_act_the_walk_went_on_from_is_on_the_timeline(
+        a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_a_person_ended(
+                    conn, after=[IncidentStatus.MITIGATING, IncidentStatus.ESCALATED])
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _mentions_among(lambda evidence: [entry.text for entry in evidence.timeline],
+                                "MITIGATING")
             )
 
 
@@ -760,33 +1318,6 @@ def test_a_read_of_what_a_deployment_changed_is_a_line_of_the_timeline(
 
 
 @pytest.mark.component
-def test_a_placement_s_line_carries_the_placement_it_tells(a_clean_database: None) -> None:
-    # The line says where the replicas ran in a sentence, and the sentence is
-    # what the model reads. The page lays the placement out from its values,
-    # so it can say one that tells nothing apart in fewer words without
-    # parsing the sentence or changing what the model read.
-    with connect_from_env() as conn:
-        incident_id = _an_incident_that_ended(conn)
-
-        Scenario() \
-            .given(
-                some_record := PlacementRecorded(
-                    incident_id=incident_id,
-                    placement=RecordedPlacement(
-                        onset=parse_iso("2026-09-02T12:00:00Z"),
-                        pods=(PodPlacement(pod="io-shop-a", node="node-1",
-                                           accelerator="Tesla-V100-SXM2-16GB",
-                                           started_at=parse_iso("2026-09-02T06:00:00Z")),)))
-            ) \
-            .when(
-                lambda: _the_evidence_after_publishing(conn, incident_id, some_record)
-            ) \
-            .then(
-                _the_last_line_carries(some_record.placement)
-            )
-
-
-@pytest.mark.component
 def test_a_wait_is_carried_once_by_the_look_that_settled_it(a_clean_database: None) -> None:
     # Told look by look, the walk's lines number by how many looks a wait took
     # and where a person's message fell among them - which is timing, not the
@@ -831,7 +1362,8 @@ def test_an_incident_that_has_not_ended_cannot_be_summarised(a_clean_database: N
         Scenario() \
             .given(
                 incident_id := incidents.create(
-                    conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+                    conn, Alert(service="io-shop", alert_name="HighErrorRate"),
+                    at=utc_now())
             ) \
             .when(
                 attempting(lambda: gather_evidence(conn, incident_id))
@@ -903,6 +1435,33 @@ def test_an_incident_whose_onset_was_never_found_carries_none(a_clean_database: 
 
 
 @pytest.mark.component
+def test_the_alarms_minute_an_investigation_looked_from_is_carried_and_never_as_the_onset(
+        a_clean_database: None) -> None:
+    # Where nothing dated the incident the Investigator anchored on the minute
+    # the alarm fired in, and said so. Carried as where it looked from, for what
+    # it says of the walk; read as the onset, it would date the incident from
+    # the moment the alarm went off.
+    some_minute = "2026-09-02T12:00"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(
+                    conn, incident_id, AnchoredOnTheAlarm(incident_id=incident_id,
+                                                          minute=some_minute))
+            ) \
+            .then(
+                all_of(
+                    _carries_the_anchor(parse_iso(some_minute)),
+                    _carries_no_onset()
+                )
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_minute_the_recovery_was_recorded_at(
         a_clean_database: None) -> None:
     # The onset's counterpart, read off the account for the same reason. The
@@ -937,12 +1496,13 @@ def test_the_evidence_carries_the_minute_the_recovery_was_recorded_at(
 
 
 @pytest.mark.component
-def test_a_persons_resolution_dates_a_recovery_argus_never_recorded(
+def test_the_evidence_carries_when_a_person_reported_the_incident_resolved(
         a_clean_database: None) -> None:
-    # A person saying the incident is over is the fact (spec §16), so the
-    # recovery is dated from what they said rather than searched for in a
-    # series - which would be Argus looking for a level falling to corroborate
-    # a report it does not test.
+    # A person saying the incident is over is the fact (spec §16). Carried apart
+    # from a recovery Argus recorded, because the document searches the series
+    # from a recorded minute for where the service was back to normal - and
+    # searching it from a report would be Argus looking for a level falling to
+    # corroborate a report it does not test.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
@@ -957,17 +1517,18 @@ def test_a_persons_resolution_dates_a_recovery_argus_never_recorded(
             .when(
                 lambda: _the_evidence_after_publishing(conn, incident_id, the_report)
             ) \
-            .then(
-                _carries_the_recovery(the_report.at)
-            )
+            .then(all_of(
+                _carries_the_report(the_report.at, "some person"),
+                _carries_no_recovery()
+            ))
 
 
 @pytest.mark.component
-def test_a_recovery_argus_confirmed_stands_over_a_later_resolution(
+def test_a_recovery_argus_confirmed_and_a_later_resolution_are_both_carried(
         a_clean_database: None) -> None:
-    # Not a contradiction of the report: Argus measured the service coming
-    # back, and the person reported the incident over afterwards. The earlier
-    # measurement is the better answer to when it came back.
+    # Which of the two ends the incident is the document's to say, and it says
+    # the earlier measurement: not a contradiction of the report, but a better
+    # answer to when the service came back.
     the_minute_it_came_back = "2026-09-02T12:06:00Z"
 
     with connect_from_env() as conn:
@@ -988,9 +1549,10 @@ def test_a_recovery_argus_confirmed_stands_over_a_later_resolution(
             .when(
                 lambda: _the_evidence_after_publishing(conn, incident_id, the_report)
             ) \
-            .then(
-                _carries_the_recovery(parse_iso(the_minute_it_came_back))
-            )
+            .then(all_of(
+                _carries_the_recovery(parse_iso(the_minute_it_came_back)),
+                _carries_the_report(the_report.at, "some person")
+            ))
 
 
 @pytest.mark.component
@@ -1006,9 +1568,10 @@ def test_an_ending_argus_reached_itself_dates_no_recovery(a_clean_database: None
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
-            .then(
-                _carries_no_recovery()
-            )
+            .then(all_of(
+                _carries_no_recovery(),
+                _carries_no_report()
+            ))
 
 
 @pytest.mark.component
@@ -1080,6 +1643,89 @@ def test_an_incident_nobody_watched_is_not_said_never_to_have_recovered(
 
 
 @pytest.mark.component
+def test_an_incident_argus_escalated_is_said_to_have_been_handed_to_a_person(
+        a_clean_database: None) -> None:
+    # Argus running out of moves and handing over is how the incident ended,
+    # and a summary saying only what Argus did reads as an incident it closed.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                the_escalation := StatusChanged(incident_id=incident_id,
+                                                to_status=IncidentStatus.ESCALATED)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, the_escalation)
+            ) \
+            .then(
+                _was_escalated(True)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("ending", "disproven"), [
+    (IncidentStatus.DISPROVEN, True),
+    (IncidentStatus.ESCALATED, False)
+], ids=["disproven", "any-other-ending"])
+def test_an_incident_argus_closed_as_disproven_is_said_to_have_been(
+        ending: IncidentStatus, disproven: bool, a_clean_database: None) -> None:
+    # How the incident ended, off its row: measured as an incident, an alarm
+    # there was none of read as a service broken from the alert and never back.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, ending=ending)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _was_disproven(disproven)
+            )
+
+
+@pytest.mark.component
+def test_an_incident_argus_never_escalated_is_not_said_to_have_been_handed_over(
+        a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _was_escalated(False)
+            )
+
+
+@pytest.mark.component
+def test_an_action_left_for_a_person_is_said_as_an_instruction(a_clean_database: None) -> None:
+    # It becomes an action item, in a list that says everything else as
+    # something to do, and is said there in the narration's own words.
+    some_service = "io-shop"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                the_recommendation := ActionRecommended(incident_id=incident_id,
+                                                        hypothesis_id=None,
+                                                        action_type=ROLL_BACK_DEPLOYMENT,
+                                                        subject=some_service)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, the_recommendation)
+            ) \
+            .then(
+                _recommends(what_to_do(ROLL_BACK_DEPLOYMENT, some_service))
+            )
+
+
+@pytest.mark.component
 def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_database: None) -> None:
     # After a resolution nothing is unwound, so a flag Argus turned off is off
     # when the document is written - and a responder reading it needs to know
@@ -1124,6 +1770,282 @@ def test_an_action_that_did_not_help_is_said_to_be_put_back(a_clean_database: No
                     lambda evidence: [action.standing for action in evidence.actions],
                     "put back"
                 )
+            )
+
+
+@pytest.mark.component
+def test_an_action_that_did_not_help_and_was_changed_since_is_said_to_be_left_as_found(
+        a_clean_database: None) -> None:
+    # Refuted too, and not put back: somebody changed the flag after Argus set
+    # it, so it was left as they set it. Said as put back, a reader would take
+    # the flag for Argus's again.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.REFUTED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                    undone=Undone.LEFT_AS_FOUND))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _mentions_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "left as found"
+                ),
+                _mentions_none_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "put back"
+                )
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("action_type", "outcome", "undo", "undone", "put_back"), [
+    pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                 None, True, id="put-back"),
+    pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                 Undone.LEFT_AS_FOUND, False, id="left-as-found"),
+    pytest.param(REVERT_FEATURE_FLAG, Verdict.CONFIRMED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                 None, False, id="still-in-place"),
+    pytest.param(DISCARD_CACHE_ENTRIES, Verdict.REFUTED, None, None, False,
+                 id="nothing-to-put-back")
+])
+def test_an_action_says_whether_the_walk_put_it_back(
+    action_type: ActionType,
+    outcome: Verdict,
+    undo: UndoDescriptor | None,
+    undone: Undone | None,
+    put_back: bool,
+    a_clean_database: None
+) -> None:
+    # As a fact, not only in the standing's words: the write-up is asked what
+    # stops the harm where a change put back left it standing, and reads which
+    # changes were put back off this.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, action_type, outcome, undo,
+                                                 undone=undone))
+            ) \
+            .when(
+                lambda: [action.put_back for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([put_back])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("progress", "standing"), [
+    pytest.param(ActionProgress.PERFORMED, "may still be in place", id="made-and-never-judged"),
+    pytest.param(ActionProgress.UNKNOWN, "not known whether it was made", id="unaccounted-for"),
+    pytest.param(ActionProgress.CLAIMED, "not known whether it was made", id="never-answered")
+])
+def test_an_action_with_no_verdict_on_file_is_not_said_to_be_still_in_place(
+        progress: ActionProgress, standing: str, a_clean_database: None) -> None:
+    # A refuted change is put back before its verdict is written, so a worker
+    # that died in between left it put back with nothing on file - and a claim
+    # that never said more may never have been made. "Still in place" would
+    # send a responder to undo what may not be there.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_left_at(conn, incident_id, progress))
+            ) \
+            .when(
+                lambda: [action.standing
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([standing])
+            )
+
+
+@pytest.mark.component
+def test_an_action_never_performed_is_said_as_not_done_and_as_changing_nothing(
+        a_clean_database: None) -> None:
+    # A platform that never answered: nothing was rolled back and nothing is in
+    # place, and the write-up said both the other way round.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.PLATFORM_UNREACHABLE, None,
+                                                 performed=False))
+            ) \
+            .when(
+                lambda: [(action.action, action.standing, action.progress,
+                          action.has_a_way_back, action.left_behind_known)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                # Nothing to put back either: a rollback's kind leaves a way
+                # back, and one never made left nothing.
+                the_answer_was([(f"Did not roll back the deployment of {SOME_FLAG}",
+                                 "nothing was changed", ActionProgress.NOT_PERFORMED, False,
+                                 True)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_a_tier_refused_unaccountably_is_not_said_to_have_changed_nothing(
+        a_clean_database: None) -> None:
+    # A refusal nobody can account for - a change request whose answer was
+    # lost, a tool that raised for a reason nobody foresaw - and nobody can say
+    # what production holds. Nor that there is nothing to put back.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.ESCALATED, None, performed=False,
+                                                 left_behind_known=False))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back, action.left_behind_known)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("not known whether anything was changed", False, False)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_a_tier_refused_before_asking_for_any_change_is_said_to_have_changed_nothing(
+        a_clean_database: None) -> None:
+    # A tier that refused before asking for any change - "could not read
+    # [io-shop]" - said so, and the row kept it: the write-up says nothing was
+    # changed rather than that nobody knows.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.ESCALATED, None, performed=False,
+                                                 left_behind_known=True))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back, action.left_behind_known)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("nothing was changed", False, True)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_whose_answer_was_lost_after_a_suspension_says_both(
+        a_clean_database: None) -> None:
+    # The suspension is in place either way, and whether the rollback itself
+    # landed is what nobody can say.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.ESCALATED,
+                    DeploymentRollbackUndo(application=SOME_FLAG, was_on_history_id=41,
+                                           was_on_revision="0f1e2d3",
+                                           was_syncing_itself=True),
+                    performed=False, left_behind_known=False))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("not known whether it was made; what it changed on the way "
+                                 "is still in place", True)])
+            )
+
+
+@pytest.mark.component
+def test_a_flag_set_at_the_provider_and_never_seen_in_effect_is_said_as_made(
+        a_clean_database: None) -> None:
+    # "Not made" would be false: the provider took the write. What nobody saw
+    # is the flag evaluating as set, and what is left is the flag itself.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.ESCALATED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                    performed=False, left_behind_known=True))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("made at the provider but never seen in effect; still in "
+                                 "place", True)])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_an_action_nobody_can_account_for_is_named_in_no_tense(
+        progress: ActionProgress, a_clean_database: None) -> None:
+    # Nothing announced it and nothing says it ran, so "Reverted the feature
+    # flag" would claim it was done and "Did not" that it was not. How far it
+    # got travels with it, so the brief lists it under neither heading.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_left_at(conn, incident_id, progress))
+            ) \
+            .when(
+                lambda: [(action.action, action.progress)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([(f"Reverting {SOME_FLAG}", progress)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_never_performed_that_left_something_on_the_way_says_it_is_in_place(
+        a_clean_database: None) -> None:
+    # The platform went after the sync was suspended: the rollback was not
+    # made, and the suspension it left is still there for somebody to undo.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.PLATFORM_UNREACHABLE,
+                    DeploymentRollbackUndo(application=SOME_FLAG, was_on_history_id=41,
+                                           was_on_revision="0f1e2d3",
+                                           was_syncing_itself=True),
+                    performed=False))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("not made; what it changed on the way is still in place",
+                                 True)])
             )
 
 
@@ -1213,6 +2135,75 @@ def test_an_action_is_said_in_words(a_clean_database: None) -> None:
 
 
 @pytest.mark.component
+def test_an_action_carries_the_candidate_it_was_for(a_clean_database: None) -> None:
+    # By that candidate's place among the candidates, which is what its label
+    # counts. Nothing else says which an action was for: the move to
+    # mitigating names none, and a write-up left to guess credited the action
+    # to the leading candidate and called the one it was for never acted on.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: hypotheses.record(conn, Hypothesis(
+                    incident_id=incident_id, summary="the leading cause",
+                    failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.9,
+                    supporting_evidence=[], number=1))),
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.ESCALATED, None,
+                    performed=False, number=2))
+            ) \
+            .when(
+                lambda: [action.candidate for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([2])
+            )
+
+
+@pytest.mark.component
+def test_an_action_carries_what_it_came_to_on_each_earlier_incident_that_tried_it(
+        a_clean_database: None) -> None:
+    # Matched on the kind and the thing it was done to together, as memory
+    # matches it: a service restarted is no repeat of a flag reverted. Once per
+    # earlier incident, though a walk recalls it again each round.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+    another_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000b"
+    this_action = ActionIdentity(action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG)
+    another_action = ActionIdentity(action_type=ROLL_BACK_DEPLOYMENT, subject=SOME_FLAG)
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        def a_recall() -> SimilarIncidentsRecalled:
+            return SimilarIncidentsRecalled(
+                incident_id=incident_id,
+                recalled=[
+                    RecalledIncident(incident_id=the_earlier_incident,
+                                     tried=[WhatWasTried(identity=this_action,
+                                                         verdict=Verdict.REFUTED)]),
+                    RecalledIncident(incident_id=another_earlier_incident,
+                                     tried=[WhatWasTried(identity=another_action,
+                                                         verdict=Verdict.CONFIRMED)])])
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.REFUTED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True))),
+                calling(lambda: events.record(conn, a_recall())),
+                calling(lambda: events.record(conn, a_recall()))
+            ) \
+            .when(
+                lambda: [action.tried_before
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([[Verdict.REFUTED]])
+            )
+
+
+@pytest.mark.component
 def test_an_action_carries_the_verdict_it_reached(a_clean_database: None) -> None:
     # The document numbers an action that brought recovery as an action item
     # already done, so whether it did has to arrive as the verdict, not as a
@@ -1258,6 +2249,30 @@ def test_an_action_is_dated_by_when_it_was_taken_not_by_when_it_was_claimed(
 
 
 @pytest.mark.component
+def test_an_action_never_performed_is_dated_by_the_verdict_that_says_so(
+        a_clean_database: None) -> None:
+    # An attempt that ended before its write is announced by nothing, and its
+    # verdict is the one line that says it. Dated by its claim, a roll-back the
+    # platform refused stood before the agent reaching for it was called in.
+    some_verdict_at = parse_iso("2026-11-02T17:41:11Z")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_claimed_then_not_performed(conn, incident_id,
+                                                                      some_verdict_at))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _dates_its_one_action_at(some_verdict_at)
+            )
+
+
+@pytest.mark.component
 def test_each_action_points_at_its_own_line_once_each_wait_is_told_once(
         a_clean_database: None) -> None:
     # The document marks the line that took the action credited with the
@@ -1268,8 +2283,10 @@ def test_each_action_points_at_its_own_line_once_each_wait_is_told_once(
 
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
-        the_first = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.REFUTED)
-        the_second = _a_candidate_acted_on(conn, incident_id, some_other_flag, Verdict.CONFIRMED)
+        the_first = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.REFUTED,
+                                          "2026-09-02T12:05:00Z")
+        the_second = _a_candidate_acted_on(conn, incident_id, some_other_flag, Verdict.CONFIRMED,
+                                           "2026-09-02T12:08:00Z")
 
         Scenario() \
             .given(
@@ -1302,7 +2319,8 @@ def test_an_action_announced_twice_points_at_the_announcement_it_was_taken_by(
 
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
-        the_candidate = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.CONFIRMED)
+        the_candidate = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.CONFIRMED,
+                                              "2026-09-02T12:05:00Z")
 
         Scenario() \
             .given(
@@ -1316,6 +2334,33 @@ def test_an_action_announced_twice_points_at_the_announcement_it_was_taken_by(
             .then(all_of(
                 _dates_its_one_action_at(parse_iso(the_resumed_announcement)),
                 _each_action_is_said_by_the_line_it_points_at()))
+
+
+@pytest.mark.component
+def test_the_evidence_points_at_each_line_saying_the_gate_refused_to_act(
+        a_clean_database: None) -> None:
+    # A refusal is a decision about how the incident ended, which the document
+    # lists beside the actions taken - by its line in the timeline, so it is
+    # dated and said as the timeline says it.
+    the_refusal = "2026-09-02T12:05:00Z"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    ActionRefused(incident_id=incident_id, hypothesis_id=None,
+                                  refusal=Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+                                  at=parse_iso(the_refusal))]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _points_at_refusals_dated([(parse_iso(the_refusal),
+                                            Refusal.WOULD_UNDO_A_MEANT_CHANGE)])
+            )
 
 
 @pytest.mark.component
@@ -1407,6 +2452,157 @@ def test_the_evidence_carries_what_code_fix_last_said_of_the_code(a_clean_databa
 
 
 @pytest.mark.component
+def test_the_evidence_carries_which_branch_code_fix_read_off_the_reading_that_stands(
+    a_clean_database: None
+) -> None:
+    # Off the same attempt as what it said: the branch and whether it held what
+    # ran are facts about that reading, and an earlier attempt's would describe
+    # a reading the document no longer shows.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="an earlier reading",
+                    branch_read="release", holds_what_ran=True))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="the reading that stands",
+                    branch_read="main", holds_what_ran=False)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_what_code_fix_read("main", False)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("outcome", "pull_request", "needs_code_outside"), [
+    (FixOutcome.NOT_OPENED, None, True),
+    (FixOutcome.NOT_WARRANTED, None, False),
+    (FixOutcome.PROPOSED,
+     OpenedPullRequest(number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                       branch="argus/fix-abc"),
+     False)
+], ids=["not-opened", "not-warranted", "proposed"])
+def test_the_evidence_carries_whether_the_fix_that_stands_needs_code_outside(
+    outcome: FixOutcome, pull_request: OpenedPullRequest | None, needs_code_outside: bool,
+    a_clean_database: None
+) -> None:
+    # A fix needing code outside the repository was written and not kept, and
+    # the document has its change to the repository written again. Nothing
+    # else is: a reading with nothing to change had nothing to keep, and a
+    # proposed fix was kept.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=outcome, pull_request=pull_request,
+                    detail="dont care", explanation="dont care what it said")))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_a_fix_needing_code_outside(needs_code_outside)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("unproposed", "branch"), [
+    (True, "argus/fix-abc"),
+    (True, None),
+    (False, None)
+], ids=["left-on-a-branch", "on-no-branch", "nothing-written"])
+def test_the_evidence_carries_a_fix_code_fix_wrote_and_could_not_propose(
+    unproposed: bool, branch: str | None, a_clean_database: None
+) -> None:
+    # GitHub answered 500 to the pull request, and the fix stayed on the branch
+    # it had been written to with nothing saying so: no item opened its pull
+    # request. A failure before anything was written left nothing to open.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_POSSIBLE,
+                    detail="dont care", explanation="dont care what it said",
+                    unproposed=unproposed, branch_written=branch)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_a_fix_unproposed_on(unproposed, branch)
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_the_files_as_they_ran_off_the_reading_that_stands(
+    a_clean_database: None
+) -> None:
+    # The files the standing reading names, as they ran: an earlier attempt's
+    # would settle a reading the document no longer shows.
+    the_file = FileAsItRan(path="deploy/scrape.yaml", revision="53f02e9", as_read=False,
+                           content="selector:\n  port: metrics\n")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="an earlier reading",
+                    as_it_ran=[the_file.model_copy(update={"path": "deploy/other.yaml"})]))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="the reading that stands",
+                    as_it_ran=[the_file])))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_as_they_ran([the_file])
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_the_uses_outside_the_patch_off_the_reading_that_stands(
+    a_clean_database: None
+) -> None:
+    # The uses that stand beside the reading the document shows: an earlier
+    # attempt's patch changed something else.
+    the_use = CodeUse(name="total_this_month_cents", path="src/io_shop/spend_reconciliation.py",
+                      line=109, function="reconcile_monthly_totals",
+                      does="compares it with _bought_this_month(account)")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="an earlier reading",
+                    uses_outside=[the_use.model_copy(update={"line": 115})]))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="the reading that stands",
+                    uses_outside=[the_use])))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_uses_outside([the_use])
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_what_people_told_the_incident_as_it_was_weighed(
     a_clean_database: None
 ) -> None:
@@ -1494,6 +2690,42 @@ def test_an_alert_that_said_nothing_carries_no_finding(a_clean_database: None) -
 
 
 @pytest.mark.component
+def test_the_evidence_carries_when_the_alert_said_the_incident_began(
+        a_clean_database: None) -> None:
+    # A check that reconciles stored figures dates the fault itself, by the
+    # oldest record it found wrong, and finds it on its own schedule - so the
+    # time from that onset to the alert is the schedule, not detection.
+    some_onset = parse_iso("2026-10-15T19:56:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, stated_onset=some_onset)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_stated_onset(some_onset)
+            )
+
+
+@pytest.mark.component
+def test_an_alert_that_dated_nothing_carries_no_stated_onset(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_stated_onset(None)
+            )
+
+
+@pytest.mark.component
 def test_a_postmortem_is_written_from_the_sources_it_was_handed(
     a_clean_database: None
 ) -> None:
@@ -1515,7 +2747,11 @@ def test_a_postmortem_is_written_from_the_sources_it_was_handed(
         incident_id = _an_incident_that_ended(conn)
         incident = incidents.get(conn, incident_id)
         assert incident is not None and incident.ended_at is not None
-        the_incidents_own_window = (incident.created_at, incident.ended_at)
+        # From an onset, since without one no loss is counted and the takings
+        # are never asked for.
+        some_onset = (incident.created_at - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M")
+        events.record(conn, OnsetDetected(incident_id=incident_id, onset=some_onset))
+        the_incidents_own_window = (parse_iso(some_onset), incident.ended_at)
 
     Scenario() \
         .given(
@@ -1594,7 +2830,7 @@ def _sources_recording_into(
         working_hours_a_year=DONT_CARE_WORKING_YEAR,
         reporting_currency="USD",
         metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES,
-        rule_wait=lambda dont_care_rule: None
+        alert_rule=lambda dont_care_rule: None
     )
 
 
@@ -1769,27 +3005,65 @@ def _an_action_taken(conn: psycopg.Connection,
                      incident_id: str,
                      action_type: ActionType,
                      outcome: Verdict,
-                     undo_descriptor: UndoDescriptor | None) -> None:
-    """One finished action, on a candidate of its own."""
+                     undo_descriptor: UndoDescriptor | None,
+                     summary: str = "dont care",
+                     performed: bool = True,
+                     left_behind_known: bool = True,
+                     number: int = 1,
+                     undone: Undone | None = None) -> None:
+    """One finished action, on a candidate of its own - performed, unless a
+    case says the attempt ended before its write, and known to have left what
+    its descriptor says, unless a case says nobody can tell."""
     candidate = Hypothesis(incident_id=incident_id,
-                           summary="dont care",
+                           summary=summary,
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                            confidence=0.8,
-                           supporting_evidence=[])
+                           supporting_evidence=[],
+                           number=number)
     hypotheses.record(conn, candidate)
     taken_actions.record(conn, incident_id,
                          hypothesis_id=candidate.id,
                          action_type=action_type,
                          subject=SOME_FLAG,
                          outcome=outcome,
-                         undo_descriptor=undo_descriptor)
+                         undo_descriptor=undo_descriptor,
+                         at=DONT_CARE_TAKEN_AT,
+                         performed=performed,
+                         left_behind_known=left_behind_known,
+                         undone=undone)
+
+
+def _an_action_left_at(conn: psycopg.Connection,
+                       incident_id: str,
+                       progress: ActionProgress,
+                       summary: str = "dont care") -> None:
+    """One flag revert whose row got as far as `progress` and recorded no
+    verdict - what a worker that died mid-attempt leaves, on a candidate of its
+    own."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary=summary,
+                           failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.claim(conn, incident_id,
+                        hypothesis_id=candidate.id,
+                        action_type=REVERT_FEATURE_FLAG,
+                        subject=SOME_FLAG,
+                        at=DONT_CARE_TAKEN_AT)
+
+    if progress is not ActionProgress.CLAIMED:
+        taken_actions.advance(conn, incident_id,
+                              hypothesis_id=candidate.id,
+                              to=progress,
+                              undo_descriptor=None)
 
 
 def _an_action_claimed_then_taken(conn: psycopg.Connection,
                                   incident_id: str,
                                   taken_at: datetime) -> None:
-    """One action whose row was claimed now and whose change the account says
-    was made at `taken_at` - the two moments a walk writes for every action."""
+    """One action whose row was claimed before the account says its change was
+    made at `taken_at` - the two moments a walk writes for every action."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary="dont care",
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
@@ -1801,7 +3075,9 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
                          action_type=REVERT_FEATURE_FLAG,
                          subject=SOME_FLAG,
                          outcome=Verdict.CONFIRMED,
-                         undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True))
+                         undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                         at=taken_at - timedelta(minutes=4),
+                         left_behind_known=True)
     events.record(conn, ActionTaken(incident_id=incident_id,
                                     hypothesis_id=candidate.id,
                                     action_type=REVERT_FEATURE_FLAG,
@@ -1809,10 +3085,41 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
                                     at=taken_at))
 
 
+def _an_action_claimed_then_not_performed(conn: psycopg.Connection,
+                                          incident_id: str,
+                                          verdict_at: datetime) -> None:
+    """One action whose row was claimed and whose platform refused it before
+    its write, said by its verdict at `verdict_at` and by nothing else."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary="dont care",
+                           failure_mode=FailureMode.BAD_DEPLOYMENT,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.record(conn, incident_id,
+                         hypothesis_id=candidate.id,
+                         action_type=ROLL_BACK_DEPLOYMENT,
+                         subject="dont-care",
+                         outcome=Verdict.PLATFORM_UNREACHABLE,
+                         undo_descriptor=None,
+                         at=verdict_at - timedelta(milliseconds=860),
+                         performed=False,
+                         left_behind_known=True)
+    events.record(conn, VerdictReached(incident_id=incident_id,
+                                       hypothesis_id=candidate.id,
+                                       outcome=Verdict.PLATFORM_UNREACHABLE,
+                                       action_type=ROLL_BACK_DEPLOYMENT,
+                                       subject="dont-care",
+                                       performed=False,
+                                       judged=False,
+                                       at=verdict_at))
+
+
 def _a_candidate_acted_on(conn: psycopg.Connection,
                           incident_id: str,
                           subject: str,
-                          outcome: Verdict) -> str:
+                          outcome: Verdict,
+                          taken_at: str) -> str:
     """A candidate and its action's row, the account's lines about it left to
     the case - a walk can announce one action more than once."""
     candidate = Hypothesis(incident_id=incident_id,
@@ -1826,7 +3133,9 @@ def _a_candidate_acted_on(conn: psycopg.Connection,
                          action_type=REVERT_FEATURE_FLAG,
                          subject=subject,
                          outcome=outcome,
-                         undo_descriptor=FlagUndo(flag=subject, was_enabled=True))
+                         undo_descriptor=FlagUndo(flag=subject, was_enabled=True),
+                         at=parse_iso(taken_at),
+                         left_behind_known=True)
 
     return candidate.id
 
@@ -1853,6 +3162,25 @@ def _each_action_is_said_by_the_line_it_points_at() -> Assertion[IncidentEvidenc
                                for (at, words), line in zip(expected, pointed_at, strict=True)):
             raise AssertionError(
                 f"Expected each action to point at its own line, said as {expected}, "
+                f"and they point at {pointed_at}.")
+
+        return True
+
+    return assertion
+
+
+def _points_at_refusals_dated(
+        expected: list[tuple[datetime, Refusal]]) -> Assertion[IncidentEvidence]:
+    """The lines the evidence points at as refusals are dated as `expected`,
+    each carrying the refusal it says."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        pointed_at = [(evidence.timeline[refused.line].at, refused.refusal)
+                      if 0 <= refused.line < len(evidence.timeline) else None
+                      for refused in evidence.refusals]
+
+        if pointed_at != expected:
+            raise AssertionError(
+                f"Expected the refusals to point at lines dated {expected}, "
                 f"and they point at {pointed_at}.")
 
         return True
@@ -1904,6 +3232,75 @@ def _carries_the_recovery(expected: datetime) -> Assertion[IncidentEvidence]:
     return assertion
 
 
+def _carries_the_report(at: datetime, by: str) -> Assertion[IncidentEvidence]:
+    """The resolution reported at `at` by `by`, pointing at the timeline's line
+    of that report."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        resolution = evidence.resolution
+        if resolution is None or (resolution.at, resolution.by) != (at, by):
+            raise AssertionError(
+                f"Expected the resolution reported at [{at}] by [{by}], got [{resolution}].")
+
+        line = evidence.timeline[resolution.line] if resolution.line is not None else None
+        if line is None or line.at != at or not line.outside_the_walk:
+            raise AssertionError(
+                f"Expected the resolution to point at its report's line, dated [{at}], "
+                f"got [{line}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_no_report() -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.resolution is not None:
+            raise AssertionError(
+                f"Expected no resolution reported, got [{evidence.resolution}].")
+
+        return True
+
+    return assertion
+
+
+def _was_escalated(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.escalated != expected:
+            raise AssertionError(
+                f"Expected the evidence to say Argus {'' if expected else 'never '}handed the "
+                f"incident to a person, and it says it "
+                f"{'did' if evidence.escalated else 'did not'}.")
+
+        return True
+
+    return assertion
+
+
+def _was_disproven(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.disproven != expected:
+            raise AssertionError(
+                f"Expected the evidence to say Argus {'' if expected else 'never '}closed the "
+                f"incident as disproven, and it says it "
+                f"{'did' if evidence.disproven else 'did not'}.")
+
+        return True
+
+    return assertion
+
+
+def _recommends(expected: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.recommended_action != expected:
+            raise AssertionError(
+                f"Expected the evidence to recommend [{expected}], got "
+                f"[{evidence.recommended_action}].")
+
+        return True
+
+    return assertion
+
+
 def _was_watched_and_never_recovered(expected: bool) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.watched_and_never_recovered != expected:
@@ -1939,11 +3336,35 @@ def _carries_the_alert_finding(expected: str | None) -> Assertion[IncidentEviden
     return assertion
 
 
+def _carries_the_stated_onset(expected: datetime | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.onset_stated_by_the_alert != expected:
+            raise AssertionError(
+                f"Expected the onset the alert stated, [{expected}], got "
+                f"[{evidence.onset_stated_by_the_alert}].")
+
+        return True
+
+    return assertion
+
+
 def _carries_the_onset(expected: datetime) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.onset_at != expected:
             raise AssertionError(
                 f"Expected the onset [{expected}], got [{evidence.onset_at}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_anchor(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.anchored_at != expected:
+            raise AssertionError(
+                f"Expected the minute the investigation looked from [{expected}], got "
+                f"[{evidence.anchored_at}].")
 
         return True
 
@@ -1999,6 +3420,71 @@ def _carries_what_code_fix_said(expected: str | None) -> Assertion[IncidentEvide
     return assertion
 
 
+def _carries_as_they_ran(expected: list[FileAsItRan]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.files_as_they_ran != expected:
+            raise AssertionError(
+                f"Expected the files Code-Fix's reading names, as they ran, to be "
+                f"{expected}, got {evidence.files_as_they_ran}.")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_uses_outside(expected: list[CodeUse]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.uses_outside != expected:
+            raise AssertionError(
+                f"Expected how the code outside Code-Fix's patch uses what it changes "
+                f"to be {expected}, got {evidence.uses_outside}.")
+
+        return True
+
+    return assertion
+
+
+def _carries_what_code_fix_read(branch: str | None,
+                                holds_what_ran: bool | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        read = (evidence.fix_branch_read, evidence.fix_holds_what_ran)
+
+        if read != (branch, holds_what_ran):
+            raise AssertionError(
+                f"Expected Code-Fix to have read [{branch}], holding what ran "
+                f"[{holds_what_ran}], got {read}.")
+
+        return True
+
+    return assertion
+
+
+def _carries_a_fix_unproposed_on(unproposed: bool,
+                                 branch: str | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if (evidence.fix_unproposed is not unproposed
+                or evidence.fix_branch_written != branch):
+            raise AssertionError(
+                f"Expected the evidence to carry a fix unproposed [{unproposed}] on "
+                f"[{branch}], got [{evidence.fix_unproposed}] on "
+                f"[{evidence.fix_branch_written}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_a_fix_needing_code_outside(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.fix_needs_code_outside is not expected:
+            raise AssertionError(
+                f"Expected the evidence to carry a fix needing code outside the "
+                f"repository [{expected}], got [{evidence.fix_needs_code_outside}].")
+
+        return True
+
+    return assertion
+
 
 def _carries_the_leads(expected: list[ThreadMessage]) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
@@ -2014,7 +3500,10 @@ def _carries_the_leads(expected: list[ThreadMessage]) -> Assertion[IncidentEvide
     return assertion
 
 
-def _a_candidate_formed(conn: psycopg.Connection, incident_id: str, rank: int) -> str:
+def _a_candidate_formed(conn: psycopg.Connection,
+                        incident_id: str,
+                        rank: int,
+                        number: int) -> str:
     """One candidate as the walk leaves it: the row, and the line saying it was
     formed - one hypothesis, seen twice."""
     a_candidate = Hypothesis(incident_id=incident_id,
@@ -2022,7 +3511,8 @@ def _a_candidate_formed(conn: psycopg.Connection, incident_id: str, rank: int) -
                              failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                              confidence=0.5,
                              supporting_evidence=[],
-                             rank=rank)
+                             rank=rank,
+                             number=number)
     hypotheses.record(conn, a_candidate)
     events.record(conn, HypothesisFormed(incident_id=incident_id,
                                          hypothesis_id=a_candidate.id,
@@ -2030,7 +3520,8 @@ def _a_candidate_formed(conn: psycopg.Connection, incident_id: str, rank: int) -
                                          failure_mode=a_candidate.failure_mode,
                                          confidence=a_candidate.confidence,
                                          subject=None,
-                                         rank=rank))
+                                         rank=rank,
+                                         number=number))
 
     return a_candidate.id
 
@@ -2072,12 +3563,49 @@ def _carries_the_log_lines(expected: list[str]) -> Assertion[IncidentEvidence]:
     return assertion
 
 
+def _the_logs_were_read_until(expected: datetime | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.log_reading_ended != expected:
+            raise AssertionError(
+                f"Expected the logs to have been read until {expected}, and the evidence "
+                f"says {evidence.log_reading_ended}.")
+
+        return True
+
+    return assertion
+
+
+def _the_changes_were_read_until(expected: datetime | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.change_reading_ended != expected:
+            raise AssertionError(
+                f"Expected the changes to have been read until {expected}, and the evidence "
+                f"says {evidence.change_reading_ended}.")
+
+        return True
+
+    return assertion
+
+
 def _carries_the_changes(expected: list[ChangeEvent]) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.changes != expected:
             raise AssertionError(
                 f"Expected the evidence to carry the changes {expected}, and it "
                 f"carried {evidence.changes}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _carries_as_the_walk_s_alone(expected: list[ChangeEvent]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.changes_the_walk_alone_read != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry {expected} as read by the walk alone, and "
+                f"it carried {evidence.changes_the_walk_alone_read}."
             )
 
         return True
@@ -2092,6 +3620,24 @@ def _carries_the_deployment_changes(
             raise AssertionError(
                 f"Expected the evidence to carry what each deployment read changed, "
                 f"{expected}, and it carried {evidence.deployment_changes}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _carries_each_deployment_read_as(
+        expected: list[tuple[str, DeploymentComparison, str | None]]
+        ) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        carried = [(record.revision, record.comparison, record.service)
+                   for record in evidence.deployment_changes]
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry each deployment read as {expected} - "
+                f"whether it was compared, and of which service - and it carried {carried}."
             )
 
         return True
@@ -2133,29 +3679,108 @@ def _a_message_understood_as(conn: psycopg.Connection,
 def _an_incident_that_ended(conn: psycopg.Connection,
                             rule: str | None = None,
                             summary: str | None = None,
-                            started_at: datetime | None = None) -> str:
-    """An incident with both a row and an account of itself.
+                            started_at: datetime | None = None,
+                            stated_onset: datetime | None = None,
+                            ending: IncidentStatus = IncidentStatus.RESOLVED,
+                            service: str = "io-shop") -> str:
+    """An incident with both a row and an account of itself, ended as
+    `ending` - resolved, unless a test says otherwise - on `service`.
 
     The events as well as the rows, because the document is written from the
     account now rather than from the status column: an incident whose rows
     moved and whose story says nothing is one the postmortem has nothing to
     read.
     """
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule, summary=summary,
-                       started_at=started_at)
-    incident_id = incidents.create(conn, some_alert)
+    some_alert = Alert(service=service, alert_name="HighErrorRate", rule=rule, summary=summary,
+                       started_at=started_at, stated_onset=stated_onset)
+    incident_id = incidents.create(conn, some_alert, at=utc_now())
     events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
     incidents.transition(
         conn,
         incident_id,
-        IncidentStatus.RESOLVED,
+        ending,
+        at=utc_now(),
     )
     events.record(
         conn,
-        StatusChanged(incident_id=incident_id, to_status=IncidentStatus.RESOLVED)
+        StatusChanged(incident_id=incident_id, to_status=ending)
     )
 
     return incident_id
+
+
+def _an_incident_a_person_ended(conn: psycopg.Connection,
+                                after: list[IncidentStatus]) -> str:
+    """An incident the walk moved through `after`, in order, and a person then
+    reported resolved - with no move of the walk's own after their report."""
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    incident_id = incidents.create(conn, some_alert, at=utc_now())
+    events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
+    for status in after:
+        events.record(conn, StatusChanged(incident_id=incident_id, to_status=status))
+    incidents.transition(conn, incident_id, IncidentStatus.RESOLVED, at=utc_now())
+    events.record(conn, StatusChanged(
+        incident_id=incident_id,
+        to_status=IncidentStatus.RESOLVED,
+        reported=Report(by="some person", channel=ReportChannel.SLACK)))
+
+    return incident_id
+
+
+def _the_timeline_holds(who: str, text: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        said = [(entry.who, entry.text) for entry in evidence.timeline]
+
+        if (who, text) not in said:
+            raise AssertionError(f"Expected [{who}] saying [{text}] on the timeline, got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _no_line_of_the_timeline_says(words: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        saying = [entry.text for entry in evidence.timeline if words in entry.text]
+
+        if saying:
+            raise AssertionError(f"Expected no line of the timeline saying [{words}], "
+                                 f"got {saying}.")
+
+        return True
+
+    return assertion
+
+
+def _told_in_its_thread(conn: psycopg.Connection,
+                        incident_id: str,
+                        channel: ReportChannel) -> Assertion[FirstTold | None]:
+    """Told on that platform, at the moment the thread's own row says it was
+    written down."""
+    def assertion(told: FirstTold | None) -> bool:
+        row = conn.execute(
+            "SELECT recorded_at FROM incident_reference WHERE incident_id = %s AND kind = %s",
+            (incident_id, CHAT_THREAD)
+        ).fetchone()
+        expected = FirstTold(channel=channel, at=row[0]) if row else None
+
+        if told != expected:
+            raise AssertionError(f"Expected the incident first told as {expected}, got {told}.")
+
+        return True
+
+    return assertion
+
+
+def _says_people_wrote(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.people_wrote != expected:
+            raise AssertionError(
+                f"Expected people_wrote to be [{expected}], got [{evidence.people_wrote}].")
+
+        return True
+
+    return assertion
 
 
 def _spans_the_incident(conn: psycopg.Connection,
@@ -2206,6 +3831,39 @@ def _mentions_among(reading: Callable[[IncidentEvidence], list[str]],
 
         if not any(expected in line for line in lines):
             raise AssertionError(f"Expected [{expected}] among {lines}.")
+
+        return True
+
+    return assertion
+
+
+def _mentions_none_among(reading: Callable[[IncidentEvidence], list[str]],
+                         unwanted: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        lines = reading(evidence)
+
+        if any(unwanted in line for line in lines):
+            raise AssertionError(f"Expected [{unwanted}] in none of {lines}.")
+
+        return True
+
+    return assertion
+
+
+def _only_the_lines_calling_an_agent_in_are_carried_as_such(at: datetime
+                                                            ) -> Assertion[IncidentEvidence]:
+    """Every line saying an agent was called in carried as one, the line
+    dated `at` among them, and no other line."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        wrong = [entry.text for entry in evidence.timeline
+                 if entry.an_agent_called_in != entry.text.startswith("Called in the ")]
+        dated = [entry.at for entry in evidence.timeline if entry.an_agent_called_in]
+
+        if wrong or at not in dated:
+            raise AssertionError(
+                f"Expected every line calling an agent in, the one at [{at}] among them, "
+                f"carried as such and no other line; wrongly carried {wrong}, and those "
+                f"carried are dated {dated}.")
 
         return True
 
@@ -2278,19 +3936,6 @@ def _timeline_begins_with(expected: str) -> Assertion[IncidentEvidence]:
         if not said or expected not in said[0]:
             raise AssertionError(
                 f"Expected the timeline to open on [{expected}], got {said}.")
-
-        return True
-
-    return assertion
-
-
-def _the_last_line_carries(expected: RecordedPlacement) -> Assertion[IncidentEvidence]:
-    def assertion(evidence: IncidentEvidence) -> bool:
-        carried = evidence.timeline[-1].placement
-
-        if carried != expected:
-            raise AssertionError(
-                f"Expected the last line to carry the placement {expected}, got {carried}.")
 
         return True
 

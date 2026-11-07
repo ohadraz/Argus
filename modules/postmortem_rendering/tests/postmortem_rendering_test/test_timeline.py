@@ -11,8 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from argus_core.models import (
     HypothesisConsidered,
-    PodPlacement,
-    RecordedPlacement,
+    OpenedPullRequest,
     TimelineEntry,
     TimelineMarker,
 )
@@ -25,6 +24,7 @@ from postmortem_rendering_test.framework.builders import (
     SOME_REPOSITORY_ADDRESS,
     a_deploy_read,
     a_postmortem,
+    the_page_of,
 )
 
 SOME_MOMENT = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
@@ -40,10 +40,10 @@ def test_a_line_carries_its_time_its_marker_who_said_it_and_the_narration() -> N
                               marker=TimelineMarker.IMPACT_BEGINS, label="E1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows
+            lambda: the_timeline(some_postmortem, the_page_of).rows
         ) \
         .then(
-            the_answer_was((TimelineRow(label="E1", at="Oct 11 14:03:00",
+            the_answer_was((TimelineRow(label="E1", at="Oct 11 14:03",
                                         marker="IMPACT BEGINS", who="Investigator Agent",
                                         text=Line(runs=(Run(text="the service began to fail",
                                                             role=Role.NARRATION),))),)))
@@ -67,7 +67,7 @@ def test_a_line_naming_the_candidates_it_formed_cites_each_one_s_row() -> None:
                                         label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -92,7 +92,7 @@ def test_a_candidate_the_line_names_by_a_label_its_row_also_goes_by_cites_that_r
                                         label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -119,12 +119,41 @@ def test_a_revision_a_line_names_whole_is_said_short_and_leads_where_it_opens() 
                     label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
-                Run(text="rolled io-shop back off revision ", role=Role.NARRATION),
+                Run(text="rolled ", role=Role.NARRATION),
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" back off revision ", role=Role.NARRATION),
                 Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit)))))
+
+
+@pytest.mark.unit
+def test_a_name_a_line_of_the_walk_quotes_is_said_as_code() -> None:
+    # The brackets mark a name off for a model reading the record, and a reader
+    # of the document needs it marked off too - a count among them. The words
+    # either side still cite the candidates they name.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="dont care", label="C1")],
+                timeline=[TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent",
+                                        text="Scaled [io-shop] to [6] replicas for C1",
+                                        label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Scaled ", role=Role.NARRATION),
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" to ", role=Role.NARRATION),
+                Run(text="6", role=Role.CODE),
+                Run(text=" replicas for ", role=Role.NARRATION),
+                Run(text="C1", role=Role.CITATION, address="C1")))))
 
 
 @pytest.mark.unit
@@ -144,7 +173,7 @@ def test_a_revision_a_line_names_by_a_start_of_it_is_said_short_and_leads_where_
                     label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -154,9 +183,63 @@ def test_a_revision_a_line_names_by_a_start_of_it_is_said_short_and_leads_where_
 
 
 @pytest.mark.unit
+def test_the_fix_a_line_names_by_its_address_is_said_as_the_document_names_it() -> None:
+    # Everywhere else the document names the fix "PR #7", and writes its
+    # address out once, where a reader of paper looks for addresses. A line
+    # saying the address whole names one pull request two ways.
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                pull_request=some_fix,
+                timeline=[TimelineEntry(
+                    at=SOME_MOMENT, who="Code-Fix Agent",
+                    text=f"Proposed a fix as a draft pull request - {some_fix.url}",
+                    label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Proposed a fix as a draft pull request - ", role=Role.NARRATION),
+                Run(text="PR #7", role=Role.LINK, address=some_fix.url)))))
+
+
+@pytest.mark.unit
+def test_a_fix_the_document_does_not_carry_keeps_its_address() -> None:
+    # A walk that went back to investigate can reach the code twice, and the
+    # document carries the fix that stands. "PR #N" is a name only the row
+    # giving its address defines, and the one superseded has no row - so its
+    # address is the only way there.
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+    some_superseded_fix = "https://github.com/acme/shop/pull/6"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                pull_request=some_fix,
+                timeline=[TimelineEntry(
+                    at=SOME_MOMENT, who="Code-Fix Agent",
+                    text=f"Proposed a fix as a draft pull request - {some_superseded_fix}",
+                    label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text=f"Proposed a fix as a draft pull request - {some_superseded_fix}",
+                    role=Role.NARRATION),))))
+
+
+@pytest.mark.unit
 def test_a_line_a_person_wrote_keeps_its_brackets() -> None:
-    # The walk's brackets quote a name for the model and are left off where a
-    # line is shown; a person's are theirs.
+    # The walk's brackets quote a name for the model and are said as code where
+    # a line is shown; a person's are theirs.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(timeline=[
@@ -164,11 +247,33 @@ def test_a_line_a_person_wrote_keeps_its_brackets() -> None:
                               label="XW1", outside_the_walk=True)])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text="the [checkout] flag again?",
                                           role=Role.NARRATION),))))
+
+
+@pytest.mark.unit
+def test_code_a_person_quotes_is_set_apart_and_their_brackets_kept() -> None:
+    # Their backticks are Markdown, drawn as code wherever a line is shown -
+    # the dashboard sets the same line's code apart - while their brackets are
+    # theirs, and not Argus's way of quoting a name.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                TimelineEntry(at=SOME_MOMENT, who="kuki",
+                              text="try `kubectl rollout undo` on [checkout]",
+                              label="XW1", outside_the_walk=True)])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="try ", role=Role.NARRATION),
+                Run(text="kubectl rollout undo", role=Role.CODE),
+                Run(text=" on [checkout]", role=Role.NARRATION)))))
 
 
 @pytest.mark.unit
@@ -184,10 +289,56 @@ def test_a_revision_a_person_wrote_is_said_as_they_wrote_it() -> None:
                                         label="XW1", outside_the_walk=True)])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text=f"was it {SOME_DEPLOYED_REVISION}?",
+                                          role=Role.NARRATION),))))
+
+
+@pytest.mark.unit
+def test_an_earlier_incident_a_line_names_leads_to_its_page() -> None:
+    # Named by a whole id, which is no name to look up by hand. The walk page
+    # leads there, and so does the document, by the full address a page read
+    # away from the screen needs.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[TimelineEntry(
+                at=SOME_MOMENT, who="Argus",
+                text=f"Found 1 earlier incident like this one in memory, the closest match "
+                     f"being incident {the_earlier_incident}",
+                names_incident=the_earlier_incident, label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Found 1 earlier incident like this one in memory, the closest match "
+                         "being incident ", role=Role.NARRATION),
+                Run(text=the_earlier_incident, role=Role.LINK,
+                    address=the_page_of(the_earlier_incident))))))
+
+
+@pytest.mark.unit
+def test_a_line_a_person_wrote_leads_to_no_incident() -> None:
+    # A person's words are shown as they wrote them, with nothing in them a
+    # link - an incident id among them.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[TimelineEntry(
+                at=SOME_MOMENT, who="kuki", text=f"like {the_earlier_incident}?",
+                names_incident=the_earlier_incident, label="XW1", outside_the_walk=True)])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text=f"like {the_earlier_incident}?",
                                           role=Role.NARRATION),))))
 
 
@@ -203,42 +354,27 @@ def test_the_date_is_said_where_the_day_changes_and_only_there() -> None:
                 TimelineEntry(at=SOME_MOMENT + timedelta(days=1), who=None, text="dont care")])
         ) \
         .when(
-            lambda: tuple(row.at for row in the_timeline(some_postmortem).rows)
+            lambda: tuple(row.at for row in the_timeline(some_postmortem, the_page_of).rows)
         ) \
         .then(
-            the_answer_was(("Oct 11 14:03:00", "14:04:00", "Oct 12 14:03:00")))
+            the_answer_was(("Oct 11 14:03", "14:04", "Oct 12 14:03")))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("cards", "started", "said"), [
-    (("Tesla-V100-SXM2-16GB", "Tesla-V100-SXM2-16GB"), SOME_MOMENT - timedelta(hours=6),
-     "Recorded where the 2 replicas run - all on Tesla-V100-SXM2-16GB"),
-    (("Tesla-V100-SXM2-16GB", "Tesla-T4"), SOME_MOMENT - timedelta(hours=6),
-     "the line as it was narrated"),
-    (("Tesla-V100-SXM2-16GB", "Tesla-V100-SXM2-16GB"), SOME_MOMENT,
-     "the line as it was narrated")
-], ids=["one-card-long-before", "two-cards", "placed-at-the-onset"])
-def test_a_placement_that_tells_nothing_apart_is_said_in_a_line(
-        cards: tuple[str, ...], started: datetime, said: str) -> None:
-    # Every pod with its card, all on the same card and serving long before the
-    # onset, is a paragraph telling nothing apart. Where the cards differ or a
-    # pod came up at the onset, the listing is the finding, and is said in full.
-    some_placement = RecordedPlacement(onset=SOME_MOMENT, pods=tuple(
-        PodPlacement(pod=f"io-shop-{place}", node="dont care", accelerator=card,
-                     started_at=started)
-        for place, card in enumerate(cards)))
-
+def test_a_line_on_a_second_says_its_time_to_that_second() -> None:
+    # Every instant to the minute, and to the second only where it has one: the
+    # column said "19:07:00" of the instant the head and the chain say "19:07".
     Scenario() \
         .given(
             some_postmortem := a_postmortem(timeline=[
-                TimelineEntry(at=SOME_MOMENT, who="Investigator Agent",
-                              text="the line as it was narrated", placement=some_placement)])
+                TimelineEntry(at=SOME_MOMENT + timedelta(seconds=7), who=None,
+                              text="dont care")])
         ) \
         .when(
-            lambda: [run.text for run in the_timeline(some_postmortem).rows[0].text.runs]
+            lambda: tuple(row.at for row in the_timeline(some_postmortem, the_page_of).rows)
         ) \
         .then(
-            the_answer_was([said]))
+            the_answer_was(("Oct 11 14:03:07",)))
 
 
 @pytest.mark.unit
@@ -249,8 +385,8 @@ def test_a_line_without_a_marker_or_a_speaker_carries_neither() -> None:
                 TimelineEntry(at=SOME_MOMENT, who=None, text="dont care")])
         ) \
         .when(
-            lambda: (the_timeline(some_postmortem).rows[0].marker,
-                     the_timeline(some_postmortem).rows[0].who)
+            lambda: (the_timeline(some_postmortem, the_page_of).rows[0].marker,
+                     the_timeline(some_postmortem, the_page_of).rows[0].who)
         ) \
         .then(
             the_answer_was((None, None)))
@@ -263,7 +399,7 @@ def test_the_timeline_says_its_zone_once() -> None:
             dont_care_postmortem := a_postmortem()
         ) \
         .when(
-            lambda: the_timeline(dont_care_postmortem).zone
+            lambda: the_timeline(dont_care_postmortem, the_page_of).zone
         ) \
         .then(
             the_answer_was("(UTC)"))
@@ -276,7 +412,7 @@ def test_no_timeline_says_none_was_recorded() -> None:
             some_postmortem := a_postmortem(timeline=[])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).absent
+            lambda: the_timeline(some_postmortem, the_page_of).absent
         ) \
         .then(
             the_answer_was("No timeline was recorded."))

@@ -12,17 +12,18 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection, Iterator, Mapping
-from datetime import datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Final
 
+from argus_core import said_as_a_time
+from argus_core.models import OpenedPullRequest
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import in_utc
+from postmortem_rendering.formatting import on_the_day_and_clock
 
-# How a moment is said in the body of the document: its date spelled once, in
-# UTC, which every destination can print and none has to work out.
-_A_MOMENT: Final = "%b %d, %Y, %H:%M"
+# Code quoted inline in Markdown: between single backticks, on one line.
+_A_CODE_SPAN: Final = re.compile(r"`([^`\n]+)`")
 
 
 class Role(StrEnum):
@@ -71,8 +72,21 @@ class Run(BaseModel):
     @classmethod
     def a_moment(cls, at: datetime) -> Run:
         """A moment said in UTC, carrying the instant for a destination that
-        can say it again on a reader's own clock."""
-        return cls(text=in_utc(at, _A_MOMENT), role=Role.MOMENT, at=at)
+        can say it again on a reader's own clock - to the second only where
+        it has one, as every figure of the write-up is."""
+        return cls(text=f"{on_the_day_and_clock(at)} UTC", role=Role.MOMENT, at=at)
+
+    def said_on(self, day: date) -> Run:
+        """This run, said by its time alone where it is a moment falling on
+        `day` in UTC - the day a head says once - and as it was otherwise. A
+        window keeps its words, which already say its day once."""
+        if self.role is not Role.MOMENT or self.at is None or self.until is not None:
+            return self
+
+        if self.at.astimezone(UTC).date() != day:
+            return self
+
+        return self.model_copy(update={"text": f"{said_as_a_time(self.at)} UTC"})
 
     @classmethod
     def an_address(cls, address: str) -> Run:
@@ -81,11 +95,11 @@ class Run(BaseModel):
         return cls(text=address, role=Role.LINK, address=address)
 
     @classmethod
-    def a_pull_request(cls, number: int) -> Run:
-        """A pull request by the name GitHub gives it - one name wherever the
+    def a_pull_request(cls, pull_request: OpenedPullRequest) -> Run:
+        """A pull request by Argus's name for it - one name wherever the
         document mentions it, its address written out once, where a reader of
         paper looks for addresses."""
-        return cls(text=f"PR #{number}")
+        return cls(text=pull_request.name)
 
     def linked_to(self, address: str) -> Run:
         """The same words, opening `address`."""
@@ -119,7 +133,30 @@ class Run(BaseModel):
         """The run cut at every label it cites, as `with_citations` cuts it,
         and the words between them at every name in `addresses`, as
         `with_links` does - "the deploy of revision 7c3ca00 (P2)" leading to
-        the row P2 names and to where the revision opens."""
+        the row P2 names and to where the revision opens.
+
+        Code it quotes is set apart first, as `with_code_set_apart` sets it:
+        quoted, a label or a name is the code's text, and neither cited nor
+        linked."""
+        return tuple(referenced
+                     for piece in self.with_code_set_apart()
+                     for referenced in ((piece,) if piece.role is Role.CODE
+                                        else piece._cited_and_linked(labels, addresses)))
+
+    def with_code_set_apart(self) -> tuple[Run, ...]:
+        """The run cut at the code it quotes between backticks, each quote code
+        with its backticks left out and the words between them playing this
+        run's part: a model writes Markdown, and a mark printed is one nobody
+        reading the page or the paper was meant to see."""
+        pieces = _A_CODE_SPAN.split(self.text)
+        # `split` puts what the group matched at every odd place.
+        return tuple(Run(text=piece, role=Role.CODE) if place % 2
+                     else self.model_copy(update={"text": piece})
+                     for place, piece in enumerate(pieces) if piece)
+
+    def _cited_and_linked(self, labels: Collection[str],
+                          addresses: Mapping[str, str]) -> tuple[Run, ...]:
+        """The run cut at every label it cites and every name it links."""
         return tuple(linked for piece in self.with_citations(labels)
                      for linked in (piece.with_links(addresses)
                                     if piece.role is not Role.CITATION else (piece,)))

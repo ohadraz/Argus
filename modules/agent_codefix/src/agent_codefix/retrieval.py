@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from argus_core.models import CodeOutsideThePatch, ToolDefinition
+
 # `Protocol` rather than a `Callable` alias throughout, for the reason the
 # investigator's retrieval channels are: a test stands each of these in with
 # `create_autospec`, which needs something introspectable - and specing against
@@ -53,3 +55,37 @@ class FileLister(Protocol):
 
 class FileReader(Protocol):
     def __call__(self, path: str, ref: str, /) -> str: ...
+
+
+class BranchMembership(Protocol):
+    """Whether the branch read contains the revision that ran.
+
+    Asked once, before the conversation starts, like the index notice: a model
+    that learns the files it read are not the files that ran has learned it
+    after it described them.
+    """
+
+    def __call__(self, branch: str, revision: str, /) -> bool: ...
+
+
+class CodeOutsideReader(Protocol):
+    """How the code a patch does not touch uses what it changes, and every name
+    that code defines.
+
+    Asked of every submission before it is asked anything: what a line outside
+    the patch does is the syntax tree's to say, and a sentence of the
+    explanation speaking of several such lines at once goes back with them.
+    """
+
+    def __call__(self, files: dict[str, str], ref: str, /) -> CodeOutsideThePatch: ...
+
+
+class ReadTierTools(Protocol):
+    """The repository tools Code-Fix holds, as the read tier declares them.
+
+    Asked once, before the conversation starts, like the two above: what a tier
+    serves does not change mid-fix, and the tool list is the start of every
+    request's cached prefix.
+    """
+
+    def __call__(self) -> list[ToolDefinition]: ...

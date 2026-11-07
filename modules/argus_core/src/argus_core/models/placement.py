@@ -40,10 +40,17 @@ class RecordedPlacement(BaseModel, frozen=True):
     A contract rather than the Investigator's own type, because the walk carries
     it to a strategy and an event carries it to the page, and a shape kept
     inside the agent is one the others install an agent to read.
+
+    `against_the_alarm` where nothing dated the incident and the minute is the
+    one the alarm fired in. The pods are marked against it by the same rule, and
+    every reader says it as what it is: a pod placed then was placed as
+    the alarm went off, and is not known to have served only during the
+    incident - said as started at the onset, it was read as the cause.
     """
 
     onset: datetime
     pods: tuple[PodPlacement, ...]
+    against_the_alarm: bool = False
 
     def started_before_the_onset(self) -> list[PodPlacement]:
         """The pods that were serving before the incident began, in the order

@@ -74,11 +74,9 @@ WHAT_THE_ALERT_SAYS = "Memory usage climbing against the container limit for 15m
 
 # How much of the climb the onset may miss and still be the climb. The heap has
 # to rise clear of the opening stretch's own spread before it counts as
-# departed, which on this scenario's slope is about six minutes - so a window
-# that is sixty calm minutes and then thirty of climbing should be dated in the
-# first third of the climb, and anything earlier than the climb is the detector
-# finding a departure in flat telemetry.
-THE_CLIMB_IS_MINUTES_LONG = 30
+# departed, which on this scenario's slope is about six minutes - so the onset
+# should land in the first minutes of the climb, and anything earlier than the
+# climb is the detector finding a departure in flat telemetry.
 THE_ONSET_MAY_BE_MINUTES_LATE = 10
 
 
@@ -138,9 +136,10 @@ def _the_onset_was_dated_inside_the_climb() -> Assertion[httpx2.Response]:
             )
 
         onset = onsets[-1].onset
-        climb_began_at = window[-THE_CLIMB_IS_MINUTES_LONG]["bucket_id"]
+        began = _the_minute_the_climb_began(window)
+        climb_began_at = window[began]["bucket_id"]
         latest_it_may_be = window[
-            -THE_CLIMB_IS_MINUTES_LONG + THE_ONSET_MAY_BE_MINUTES_LATE
+            min(began + THE_ONSET_MAY_BE_MINUTES_LATE, len(window) - 1)
         ]["bucket_id"]
 
         if not climb_began_at <= onset <= latest_it_may_be:
@@ -254,13 +253,38 @@ def _the_heap_climbed_and_then_came_back_down() -> Assertion[httpx2.Response]:
     return assertion
 
 
+def _the_minute_the_climb_began(window: list[dict[str, Any]]) -> int:
+    """Where in `window` the climb began, read off the window's own memory.
+
+    Read rather than counted back from the window's end, because where the end
+    falls is the restart's to decide, and how long the shop had been leaking
+    when it was seeded is the Target Service's. Its opening half is the calm the
+    climb departs from, and the climb begins the minute after the last one
+    before the heap's highest that still reads no higher than that calm did.
+    """
+    readings = [minute["memory_used_bytes"] for minute in window]
+    opening = len(readings) // 2
+    highest = readings.index(max(readings))
+
+    if highest < opening:
+        raise AssertionError(
+            f"Expected the heap's highest minute to come after the window's calm "
+            f"opening half, and it was minute [{highest}] of [{len(readings)}], "
+            f"at [{window[highest]['bucket_id']}]."
+        )
+
+    calm = max(readings[:opening])
+    still_calm = [index for index in range(highest) if readings[index] <= calm]
+
+    return still_calm[-1] + 1
+
+
 def _the_shops_window() -> list[dict[str, Any]]:
-    """The Target Service's own metrics, insisting on enough of them.
+    """The Target Service's own metrics, insisting on some.
 
-    Its own rather than the framework's: what this case needs is not merely
-    a non-empty window but one long enough to contain the climb it asserts
-    about, and a shorter one has to fail here rather than in the arithmetic.
-
+    Its own rather than the framework's: what this case needs is the whole
+    window the shop reports, its calm opening as well as the climb, and an
+    empty one has to fail here rather than in the arithmetic.
     """
     response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/scenario/metrics", timeout=REQUEST_TIMEOUT_SECONDS
@@ -268,10 +292,10 @@ def _the_shops_window() -> list[dict[str, Any]]:
     response.raise_for_status()
     window: list[dict[str, Any]] = response.json()
 
-    if len(window) < THE_CLIMB_IS_MINUTES_LONG:
+    if not window:
         raise AssertionError(
-            f"The shop is reporting {len(window)} minutes, which is too few to "
-            f"say anything about a climb {THE_CLIMB_IS_MINUTES_LONG} minutes long."
+            "The shop is reporting no minutes, so there is no climb to say "
+            "anything about."
         )
 
     return window

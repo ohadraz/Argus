@@ -34,7 +34,7 @@ from agent_investigator.retrieval import (
     placements_over,
     rollouts_over,
 )
-from agent_investigator.tools import investigator_tools
+from agent_investigator.tools import investigator_tools, read_tier_tools_over
 
 __all__ = [
     "BRIEF",
@@ -48,5 +48,6 @@ __all__ = [
     "logs_over",
     "metrics_over",
     "placements_over",
+    "read_tier_tools_over",
     "rollouts_over"
 ]

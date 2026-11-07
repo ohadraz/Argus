@@ -316,11 +316,11 @@ def _ended_as(status: IncidentStatus, incident_id: str) -> str:
     with connect_from_env() as conn:
         match status:
             case IncidentStatus.RESOLVED:
-                ended = incidents.resolve(conn, incident_id)
+                ended = incidents.resolve(conn, incident_id, at=utc_now())
             case IncidentStatus.WITHDRAWN:
-                ended = incidents.withdraw(conn, incident_id)
+                ended = incidents.withdraw(conn, incident_id, at=utc_now())
             case _:
-                ended = incidents.transition(conn, incident_id, status)
+                ended = incidents.transition(conn, incident_id, status, at=utc_now())
                 conn.commit()
 
     if not ended:

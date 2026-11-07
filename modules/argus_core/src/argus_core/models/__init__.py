@@ -41,6 +41,7 @@ from argus_core.models.action import (
     ScaleOut,
     UnreadVerdict,
     Verdict,
+    WhatArgusDid,
     changes_something_persistent,
     leaves_something_to_put_back,
     reports_what_it_changed,
@@ -66,12 +67,19 @@ from argus_core.models.change_event import (
 )
 from argus_core.models.circumstances import Circumstances
 from argus_core.models.code_search import CodeSearch
+from argus_core.models.deployment_changes import DeploymentChanges, DeploymentComparison
 from argus_core.models.disproof import Disproof
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
 from argus_core.models.findings import Findings
-from argus_core.models.fix import FixOutcome, ProposedFix
-from argus_core.models.flag_change import FlagChange
+from argus_core.models.fix import (
+    CodeOutsideThePatch,
+    CodeUse,
+    FileAsItRan,
+    FixOutcome,
+    ProposedFix,
+)
+from argus_core.models.flag_change import FlagChange, FlagHistory
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
@@ -80,6 +88,7 @@ from argus_core.models.meaning import Meaning
 from argus_core.models.metrics import (
     RULE_READING_FIELD,
     MetricBucket,
+    Quantile,
     RuleLine,
     RuleReading,
     WorseWhen,
@@ -89,6 +98,7 @@ from argus_core.models.model_policy import (
     Effort,
     ModelPolicy,
 )
+from argus_core.models.money import said_as_money
 from argus_core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from argus_core.models.placement import PodPlacement, RecordedPlacement
 from argus_core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
@@ -102,21 +112,44 @@ from argus_core.models.postmortem_sections import (
     CitedEvidence,
     ContributingFactor,
     Detection,
+    DetectionLesson,
+    DetectionMeasuredFrom,
+    DetectionPart,
     ErrorRateLevels,
+    FirstTold,
+    ForCandidate,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
+    LatencyHarm,
     Lessons,
+    LogsInTheGap,
+    NoTrigger,
     ResolutionStep,
     ReviewCriterion,
+    RuledOut,
+    RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    WhyNoTrigger,
+    accounted_for,
+    for_the_candidate,
+    shorter_than_the_rules_wait,
+    the_detection_lesson_said,
+    whether_it_can_be_put_back,
+    within_what_was_accounted_for,
 )
-from argus_core.models.pull_request import OpenedPullRequest
+from argus_core.models.pull_request import NOTHING_RECORDED_AFTER_IT_WAS_OPENED, OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
-from argus_core.models.reading import ChannelReading, Reading, RetrievalChannel
+from argus_core.models.reading import (
+    ChannelReading,
+    Reading,
+    RetrievalChannel,
+    changes_not_listed,
+    no_logs_listed,
+)
 from argus_core.models.reference import (
     ALERT_FIRING,
     CHAT_MESSAGE,
@@ -125,6 +158,7 @@ from argus_core.models.reference import (
     CHAT_WITHDRAWAL_OFFER,
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
+    RecordedReference,
     Reference,
     a_chat_message,
     a_chat_resolution_offer,
@@ -132,11 +166,12 @@ from argus_core.models.reference import (
     a_chat_withdrawal_offer,
     the_place_of,
 )
-from argus_core.models.refusal import Refusal
+from argus_core.models.refusal import Refusal, why_it_was_refused
+from argus_core.models.remembered import RecalledIncident, WhatWasTried
 from argus_core.models.report import Report, ReportChannel
-from argus_core.models.rollout import RolloutProgress
+from argus_core.models.rollout import RolloutAccount, RolloutProgress
 from argus_core.models.service_dependency import Ownership, ServiceDependency
-from argus_core.models.taken_action import TakenAction
+from argus_core.models.taken_action import ActionProgress, TakenAction
 from argus_core.models.thread_message import (
     Leads,
     Offer,
@@ -205,6 +240,7 @@ __all__ = [
     "SET_FEATURE_FLAG_TOOL",
     "Action",
     "ActionIdentity",
+    "ActionProgress",
     "ActionType",
     "Actor",
     "AlarmClaim",
@@ -218,14 +254,20 @@ __all__ = [
     "RevisionSource",
     "as_a_change",
     "Circumstances",
+    "DeploymentChanges",
+    "DeploymentComparison",
+    "CodeOutsideThePatch",
     "CodeSearch",
+    "CodeUse",
     "Disproof",
     "EstablishedOnset",
     "Evidence",
     "Exchange",
+    "FileAsItRan",
     "Findings",
     "FixOutcome",
     "FlagChange",
+    "FlagHistory",
     "AutoscalerUndo",
     "AutoscalingRestored",
     "CacheEntriesDiscarded",
@@ -248,6 +290,7 @@ __all__ = [
     "Offer",
     "OfferedEnding",
     "OpenedPullRequest",
+    "NOTHING_RECORDED_AFTER_IT_WAS_OPENED",
     "Outcome",
     "Ownership",
     "ActionItem",
@@ -259,24 +302,45 @@ __all__ = [
     "CitedEvidence",
     "ContributingFactor",
     "Detection",
+    "DetectionLesson",
+    "DetectionMeasuredFrom",
+    "DetectionPart",
     "ErrorRateLevels",
+    "FirstTold",
+    "ForCandidate",
     "HypothesisConsidered",
     "Impact",
     "ImpactExtent",
+    "LatencyHarm",
     "Lessons",
+    "LogsInTheGap",
+    "NoTrigger",
     "ResolutionStep",
     "ReviewCriterion",
+    "RuledOut",
+    "RuleSeriesBeforeTheAlert",
     "RuleSeriesHarm",
     "TimelineEntry",
     "TimelineMarker",
     "Trigger",
+    "WhyNoTrigger",
+    "accounted_for",
+    "for_the_candidate",
+    "shorter_than_the_rules_wait",
+    "the_detection_lesson_said",
+    "whether_it_can_be_put_back",
+    "within_what_was_accounted_for",
     "Postmortem",
     "PostmortemDocument",
     "PostmortemLead",
     "ProposedFix",
     "PublishedRates",
+    "Quantile",
     "RatesUnavailable",
     "Reading",
+    "RecalledIncident",
+    "changes_not_listed",
+    "no_logs_listed",
     "ALERT_FIRING",
     "NOTIFICATION_KEY",
     "ON_CALL_INCIDENT",
@@ -284,6 +348,7 @@ __all__ = [
     "CHAT_RESOLUTION_OFFER",
     "CHAT_THREAD",
     "CHAT_WITHDRAWAL_OFFER",
+    "RecordedReference",
     "Reference",
     "a_chat_message",
     "a_chat_resolution_offer",
@@ -294,6 +359,8 @@ __all__ = [
     "not_yet_shown",
     "the_place_of",
     "Refusal",
+    "why_it_was_refused",
+    "said_as_money",
     "Report",
     "ReportChannel",
     "RetrievalChannel",
@@ -307,6 +374,7 @@ __all__ = [
     "ReplicaUndo",
     "RestartService",
     "RollBackDeployment",
+    "RolloutAccount",
     "RolloutProgress",
     "AlertRuleStanding",
     "ScaleOut",
@@ -325,6 +393,8 @@ __all__ = [
     "UndoDescriptor",
     "Undone",
     "Weighing",
+    "WhatArgusDid",
+    "WhatWasTried",
     "WhatWouldBeTried",
     "WorseWhen",
     # Public because `ClaimedAction` names it in an annotation a consumer has

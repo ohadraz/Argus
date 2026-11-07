@@ -15,11 +15,12 @@ strategy says what would help, and has no business also saying what is
 permitted.
 
 A second question is asked of the registry rather than of any strategy, and
-`a_mitigation_answers` is it: whether this kind of failure has an answer here
-at all. The gate needs it to tell two silences apart - a mitigation that could
-not identify what to act on, and a mode nothing in the set addresses - and
-asking it here is what keeps the gate from holding its own copy of what Argus
-can do.
+`why_nothing_was_proposed` is it: why a candidate reached the gate with no
+action. The gate needs it to tell three silences apart - a mitigation that
+could not identify what to act on, a change the candidate named that the record
+does not hold, and a mode Argus takes nothing for (`why_no_mitigation_answers`)
+- and asking it here is what keeps the gate from holding its own copy of what
+Argus can do.
 """
 
 from __future__ import annotations
@@ -27,6 +28,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
+from argus_core import parse_iso
+from argus_core.anomaly import the_end_of_the_onset
+from argus_core.events import names_as_changed, the_changed_file_it_names
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
@@ -45,6 +49,7 @@ from argus_core.models import (
     Hypothesis,
     PinAutoscaler,
     PinToAccelerator,
+    Refusal,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -55,6 +60,7 @@ from agent_mitigation.accelerators import the_accelerator_to_pin_to
 
 __all__ = [
     "DEFAULT_STRATEGIES",
+    "NO_MITIGATION_BECAUSE",
     "DiscardCacheEntriesStrategy",
     "MitigationStrategy",
     "PinAutoscalerStrategy",
@@ -66,7 +72,9 @@ __all__ = [
     "ScaleOutStrategy",
     "Strategies",
     "UndoTheRecordedChangeStrategy",
-    "a_mitigation_answers"
+    "Reasons",
+    "why_no_mitigation_answers",
+    "why_nothing_was_proposed"
 ]
 
 
@@ -77,8 +85,8 @@ class MitigationStrategy(Protocol):
     that a strategy cannot be registered without saying which actions it
     answers for - and so that the kinds a cause maps to can be read without
     building the action first. A set rather than one kind, because one mode
-    names the damage rather than the change, and its strategy answers with
-    whichever undo the record calls for.
+    names the damage rather than the change, and its strategy answers by
+    undoing the change the candidate named, as the record holds it.
     """
 
     action_types: frozenset[ActionType]
@@ -99,7 +107,7 @@ class MitigationStrategy(Protocol):
 
 
 class RevertFeatureFlagStrategy:
-    """Answering a flag that was toggled by putting it back.
+    """Answering a flag that was toggled by reverting it.
 
     Which flag comes from the hypothesis, confirmed against what the provider
     recorded as changing - never from Argus's configuration and never from
@@ -200,8 +208,8 @@ class RollBackDeploymentStrategy:
     Like a restart and unlike a flag revert, the subject comes from the alert
     and from nowhere else. Not from Argus's configuration, which would
     hardcode one deployment's answer into the agent - and not from the
-    hypothesis, whose subject is the model's description of what went wrong
-    rather than the name of anything that can be addressed.
+    hypothesis, whose subject is never an address: it describes what went
+    wrong, or names a revision only for the record to be compared against.
 
     Which revision to return to is named nowhere here, because nothing at this
     layer could name it honestly: a deployment history lives with the platform,
@@ -236,10 +244,12 @@ class RestartDependencyStrategy:
     service it acts on; what changes is where that name comes from.
 
     It comes from the hypothesis, and this is the one strategy where that is
-    right. The three above refuse to read the hypothesis for a subject, and the
-    refusal is sound: what a model writes in `subject` is its description of what
-    went wrong, and a platform call sent to "kuki heap (memory_used_bytes / heap
-    of 2048MiB limit)" asks about a resource nobody has. `faulting_service` is a
+    right. None of the three above takes an address from the hypothesis's
+    `subject`, and that is sound: a subject is never an address. Where it names
+    a flag or a revision it is compared against the record to say which change
+    was blamed, and the address comes from the record or the alert; otherwise it
+    describes what went wrong, and a platform call sent to a description asks
+    about a resource nobody has. `faulting_service` is a
     different field for exactly that reason - an address rather than a
     description, written from the service register, which is the only place the
     name a platform knows a service by can be copied from.
@@ -354,7 +364,7 @@ class PinAutoscalerStrategy:
     Like a restart, a rollback and a scale-out, the deployment comes from the alert
     and from nowhere else. Not from Argus's configuration, which would hardcode one
     estate's answer into the agent - and not from the hypothesis, whose subject is
-    the model's description of what would not settle rather than the name of
+    never an address: here it describes what would not settle, rather than naming
     anything a platform can be asked about.
 
     How high to raise the floor is named nowhere here, for the scale-out's reason
@@ -390,7 +400,7 @@ class DiscardCacheEntriesStrategy:
     that, as it was unchanged by the one that adds and the one that stops: what
     admits an action unasked is membership of the declared set, never the kind of
     change it makes. This is the member most likely to be read as a weakening,
-    because removing data sounds heavier than putting a value back - and it is
+    because removing data sounds heavier than reverting a value - and it is
     not, because what it removes was derived from records it never touches.
 
     It is also the one strategy whose action is addressed by something the
@@ -440,26 +450,31 @@ class DiscardCacheEntriesStrategy:
 
 
 class UndoTheRecordedChangeStrategy:
-    """Answering damage a change left behind by undoing whichever change the
-    record holds.
+    """Answering damage a change left behind by undoing the change the
+    candidate named, as the record holds it.
 
     Every other strategy here answers a mode that is itself a statement about
     what kind of thing went wrong - a flag, a revision, a heap, a controller. A
     mode that names the damage instead says nothing of the sort: wrong data can
     be written by a flag somebody turned on, by a revision somebody deployed, by
     a migration or by a person at a console. So the mode chooses the family of
-    answers - undo the change - and the record chooses which member.
+    answers - undo the change - and the candidate's subject chooses which
+    member, confirmed against the record.
 
-    The flag revert is asked first, because it is the narrower claim. It answers
-    only where a recorded change matches the flag the candidate named, or - where
-    the candidate named none - is the only flag that moved; an estate deploys far
-    more often than it toggles, so a deployment in the window says less. The
-    rollback follows where the platform recorded one, and is addressed to the
-    alerting service as every rollback is.
+    The flag revert answers where a recorded change matches the flag the
+    candidate named, and the rollback where it named a revision the platform
+    recorded deploying - a subject names one or the other, never both. Or where
+    it named a file, or a setting in one, that one recorded deploy changed by
+    the end of the onset: what carried the file is the deploy whose diff names
+    it among those it changed, the rule the write-up names it by. The rollback
+    is addressed to the alerting service as every rollback is.
 
-    Neither is a default. Where the record holds no change, nothing is proposed:
-    a rollback recommended with no deployment behind it sends a person to undo
-    somebody else's work for a fault it did not cause.
+    Neither is a default. Where the candidate named no recorded change, nothing
+    is proposed - even with one change in the record. The walk reads the
+    histories over a window of its own, so that change can be one the
+    Investigator never saw, and undoing it would be acting on a cause nobody
+    weighed; a rollback recommended for it sends a person to undo somebody
+    else's work for a fault it may not have caused.
     """
 
     action_types: frozenset[ActionType] = frozenset(
@@ -469,14 +484,23 @@ class UndoTheRecordedChangeStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 circumstances: Circumstances) -> Action | None:
-        """The flag revert where the flag history names the change, else the
-        rollback where the platform recorded a deployment, else `None`."""
+        """The flag revert where the candidate named a recorded flag change,
+        else the rollback where it named a recorded revision or a file one
+        recorded deploy carried, else `None`.
+
+        Two deploys that carried the file, and the diffs cannot say which to
+        undo; one made after the onset did not begin the incident; and one
+        the platform did not record is not the deploy a rollback of the
+        service returns."""
         flag_revert = RevertFeatureFlagStrategy().propose(hypothesis, circumstances)
 
         if flag_revert is not None:
             return flag_revert
 
-        if circumstances.deployments:
+        if any(deployment.reference == hypothesis.subject
+               for deployment in circumstances.deployments) \
+                or len(_the_deploys_that_carried_the_file(hypothesis.subject,
+                                                          circumstances)) == 1:
             return RollBackDeploymentStrategy().propose(hypothesis, circumstances)
 
         return None
@@ -523,14 +547,11 @@ class PinToAcceleratorStrategy:
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
+Reasons = Mapping[FailureMode, Refusal]
 
 # Which mitigation answers which cause. A mode absent from this is one Argus
-# has nothing to offer for, and `UPSTREAM_DEPENDENCY_FAILURE` is absent
-# deliberately rather than pending: every mitigation here acts on Argus's own
-# deployment, and another company's outage is reachable by none of them. The
-# day something is registered for it, that will be a claim that Argus can shed
-# load or fail over - which is a mitigation somebody has to build and defend,
-# not a gap to be filled in.
+# takes nothing for, and each of those is absent deliberately rather than
+# pending - `NO_MITIGATION_BECAUSE` below says why, one mode at a time.
 #
 # Many-to-one, and the three deployment modes are where that shows: a revision
 # carries the code and the configuration it shipped with, so returning the
@@ -580,17 +601,16 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.DEMAND_SATURATION: ScaleOutStrategy(),
     FailureMode.AUTOSCALING_PATHOLOGY: PinAutoscalerStrategy(),
     FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: RollBackDeploymentStrategy(),
-    # Whichever change the record holds at the onset, undone - and the one entry
+    # The change the candidate named, as the record holds it, undone - and the one entry
     # here whose action the gate will decline. That refusal is the gate's
-    # judgement and not this table's: a mode absent from this mapping answers
-    # `None`, which is refused as nothing answering the kind of failure at all,
-    # and the incident then ends saying a person is needed without saying what
-    # for. Named here so there is something to recommend.
+    # judgement and not this table's: a mode absent from this mapping proposes
+    # `None`, and the incident then ends saying a person is needed without
+    # saying what for. Named here so there is something to recommend.
     FailureMode.SILENT_DATA_CORRUPTION: UndoTheRecordedChangeStrategy(),
     # The fourth mode returning a deployment, and the only one where what comes
     # back is the sight of the service rather than its behaviour. Nothing about
     # the service got worse; a revision changed what reaches the scrape, and
-    # returning it is what puts the readings back. So what confirms this action
+    # returning it is what restores the readings. So what confirms this action
     # is the rows existing again rather than a level coming down, which is the
     # one place in this table where the action and what judges it come apart.
     FailureMode.MONITORING_BLIND_SPOT: RollBackDeploymentStrategy(),
@@ -602,7 +622,7 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.STATE_DIVERGENCE: DiscardCacheEntriesStrategy(),
     # The fifth mode returning a deployment, and the one whose requests never
     # failed: the revision made the answers worse while every request still
-    # succeeded as fast as before. Returning it puts the answers back, and what
+    # succeeded as fast as before. Returning it restores the answers, and what
     # confirms that is the rule that paged - whose series is the only one that
     # moved.
     FailureMode.OUTPUT_QUALITY_DEGRADATION: RollBackDeploymentStrategy(),
@@ -614,25 +634,140 @@ DEFAULT_STRATEGIES: Strategies = {
 }
 
 
-def a_mitigation_answers(failure_mode: FailureMode | None,
-                         strategies: Strategies = DEFAULT_STRATEGIES) -> bool:
-    """Whether anything Argus knows how to do answers this kind of failure.
+# Why each mode with no strategy has none. A table beside the one above rather
+# than a value inside it, because a mapping named for strategies that also held
+# refusals would be the word meaning two things - and every mode is in exactly
+# one of the two, which a test asks of the whole set.
+#
+# Two reasons, and they send a reader to different people. Every mitigation
+# above acts on Argus's own deployment, and another company's outage is
+# reachable by none of them: the day something is registered for it, that will
+# be a claim that Argus can shed load or fail over, which is a mitigation
+# somebody has to build and defend rather than a gap to be filled in. The drift
+# is the opposite case - a rollback reaches it and would bring the sight back,
+# and is declined because the revision it returns is a change somebody meant.
+NO_MITIGATION_BECAUSE: Reasons = {
+    FailureMode.UPSTREAM_DEPENDENCY_FAILURE: Refusal.SOMEBODY_ELSES_SERVICE,
+    FailureMode.MONITORING_CONFIGURATION_DRIFT: Refusal.WOULD_UNDO_A_MEANT_CHANGE
+}
 
-    Asked by the gate, which has to tell two silences apart: an incident that
-    reached it with no action because nothing answers the mode at all, and one
-    that reached it with no action because the mitigation that does answer the
-    mode could not identify what to act on. Both end the same way and mean
-    different things to whoever picks the incident up.
 
-    Answered here rather than by the gate reading this mapping itself, for the
-    reason the mapping is here at all: which cause has an answer is policy, and
-    policy kept in two places is policy that comes to differ.
+def why_no_mitigation_answers(failure_mode: FailureMode,
+                              strategies: Strategies = DEFAULT_STRATEGIES,
+                              because: Reasons = NO_MITIGATION_BECAUSE
+                              ) -> Refusal | None:
+    """Why Argus takes nothing for this kind of failure, or `None` where a
+    mitigation answers it.
 
-    A candidate that determined no mode is not answered either. There is
-    nothing to look up, which is a gap in the investigation rather than a
-    statement about what can be done - and the refusal that follows says so.
+    Asked first by `why_nothing_was_proposed`, which tells an incident that
+    reached the gate with no action because Argus takes nothing for the mode
+    from one whose mode a mitigation does answer. They end differently and mean
+    different things to whoever picks the incident up - and the first has two
+    reasons, which mean different things again.
+
+    Answered here rather than by the gate reading these mappings itself, for the
+    reason the mappings are here at all: which cause has an answer is policy,
+    and policy kept in two places is policy that comes to differ.
+
+    A subscript rather than a `get`: a mode in neither table is one nobody has
+    decided about, and saying "nothing answers this" of it would be inventing
+    the decision. It raises instead, before anything is tried or said.
+
+    A mode, never `None`. A candidate that determined no mode has nothing to look
+    up, which is a gap in the investigation rather than a statement about what
+    can be done - and the gate settles that before it asks.
     """
-    return failure_mode is not None and failure_mode in strategies
+    if failure_mode in strategies:
+        return None
+
+    return because[failure_mode]
+
+
+def why_nothing_was_proposed(hypothesis: Hypothesis | None,
+                             circumstances: Circumstances | None,
+                             strategies: Strategies = DEFAULT_STRATEGIES,
+                             because: Reasons = NO_MITIGATION_BECAUSE) -> Refusal:
+    """Why no action was proposed for `hypothesis` - asked by the gate, of a
+    candidate that reached it with none.
+
+    Three silences, each sent to a different reader. A mode Argus takes nothing
+    for says why (`why_no_mitigation_answers`). A candidate that named the
+    change it blames, answered by a mitigation that undoes a recorded change,
+    with no such change in the record that was read, is left to a person: the
+    candidate said what to undo, and nothing says which way to put it back.
+    Everything else is the evidence not saying what to act on - no candidate,
+    no mode, a record nobody could read, a subject that is no change, or a file
+    the diffs read show changed where no one recorded deploy carried it.
+
+    Read off the record rather than off which strategy proposed nothing: a
+    subject the record holds, under a strategy that did not act on it, is no
+    change missing from the record.
+    """
+    if hypothesis is None or hypothesis.failure_mode is None:
+        return Refusal.NO_MITIGATION_PROPOSED
+
+    reason = why_no_mitigation_answers(hypothesis.failure_mode, strategies, because)
+    if reason is not None:
+        return reason
+
+    if (circumstances is not None
+            and REVERT_FEATURE_FLAG in strategies[hypothesis.failure_mode].action_types
+            and _names_a_change_nothing_recorded(hypothesis.subject, circumstances)):
+        return Refusal.NAMED_CHANGE_NOT_RECORDED
+
+    return Refusal.NO_MITIGATION_PROPOSED
+
+
+def _names_a_change_nothing_recorded(subject: str | None, circumstances: Circumstances) -> bool:
+    """Whether `subject` names something, and no record read holds it - the
+    flag history, the deploy history, or a diff naming it among the files a
+    deploy changed."""
+    if subject is None:
+        return False
+
+    return (all(change.flag != subject for change in circumstances.flag_changes)
+            and all(deployment.reference != subject
+                    for deployment in circumstances.deployments)
+            and _the_file_named(subject, circumstances) is None)
+
+
+def _the_file_named(subject: str | None, circumstances: Circumstances) -> str | None:
+    """The file `subject` names among those a diff read changed - itself, or
+    the one a setting it names lives in - or `None` where it names none."""
+    if subject is None:
+        return None
+
+    said = [line for changes in circumstances.deployment_changes.values()
+            for line in changes.said]
+
+    return the_changed_file_it_names(subject, said)
+
+
+def _the_deploys_that_carried_the_file(subject: str | None,
+                                       circumstances: Circumstances) -> set[str]:
+    """The revisions of the recorded deploys, made by the end of the onset,
+    whose diff names the file `subject` names among those it changed.
+
+    Revisions rather than deploys: a revision deployed twice is one change to
+    undo."""
+    path = _the_file_named(subject, circumstances)
+    if path is None:
+        return set()
+
+    end = the_end_of_the_onset(circumstances.onset) if circumstances.onset is not None else None
+
+    return {deployment.reference for deployment in circumstances.deployments
+            if (end is None or parse_iso(deployment.occurred_at) <= end)
+            and any(names_as_changed(line, path)
+                    for line in _the_diff_of(deployment.reference, circumstances))}
+
+
+def _the_diff_of(revision: str, circumstances: Circumstances) -> Sequence[str]:
+    """What the deploy of `revision` changed, as the read tier said it - no
+    lines where nobody read it."""
+    changes = circumstances.deployment_changes.get(revision)
+
+    return changes.said if changes is not None else ()
 
 
 def _the_change_to_undo(subject: str | None,
@@ -641,22 +776,21 @@ def _the_change_to_undo(subject: str | None,
     evidence does not identify one.
 
     A flag toggled more than once counts once, and it is its *latest* change
-    that is undone: the incident is happening now, so the state to put back is
-    the one the service is in now, not whatever it was at the far edge of the
+    that is reverted: the incident is happening now, so the state to revert
+    from is the one the service is in now, not whatever it was at the far edge of the
     window. `flag_changes` arrives oldest first, so the last mention of a flag
     is the current one.
 
-    A hypothesis that named a flag selects it from among these; a hypothesis
-    that named none falls back to the window being unambiguous by itself.
+    Only a flag the hypothesis named. A window holding one change is not a
+    candidate blaming it: the walk reads the history over a window of its own,
+    and its one change can be a flag the Investigator never saw - reverted, it
+    would be Argus acting on a cause nobody weighed.
     """
+    if subject is None:
+        return None
+
     latest_per_flag: dict[str, FlagChange] = {
         change.flag: change for change in flag_changes
     }
 
-    if subject is not None:
-        return latest_per_flag.get(subject)
-
-    if len(latest_per_flag) != 1:
-        return None
-
-    return next(iter(latest_per_flag.values()))
+    return latest_per_flag.get(subject)

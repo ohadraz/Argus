@@ -328,6 +328,77 @@ def test_the_patch_field_says_a_test_for_slowness_has_to_bound_something() -> No
         )
 
 
+@pytest.mark.unit
+def test_the_explanation_says_what_the_test_is_written_to_show_never_that_it_failed() -> None:
+    # Nothing runs a test or a fix Code-Fix writes. Asked for a test that "has
+    # to fail against the code as it stands", an explanation said "Against the
+    # current code those tests fail" and "This makes v2 safe to turn back on" -
+    # an instruction mirrored back as an outcome, and a postmortem repeated
+    # both as fact. So the request is worded as one about the writing, and the
+    # explanation is told what it may claim.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            all_of(
+                _the_description_of(FILES_FIELD,
+                                    mentions="so that it would fail against the code"),
+                _the_description_of(EXPLANATION_FIELD,
+                                    mentions="never that the test fails or that the fix works")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_explanation_says_what_a_file_says_only_of_that_file() -> None:
+    # An explanation said "the comments in both files say nothing checks that the
+    # two names agree", where one file said it and the other said nothing of the
+    # kind. A postmortem then repeated it three times as a reading of the source.
+    # What a comment says is nothing a check can verify afterwards, so the
+    # explanation is told to tie each such claim to the one file it comes from.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            _the_description_of(EXPLANATION_FIELD,
+                                mentions="only of the file that says it, naming it by its path")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("asked", [
+    "Say what each piece of code does only as its own lines do it, with the conditions they "
+    "do it under - no wider than the code you read, and nothing of code you did not read.",
+    "Say of several pieces at once only what each one's own lines do."
+], ids=["each-piece", "several-at-once"])
+def test_the_explanation_says_what_code_does_no_wider_than_its_lines(asked: str) -> None:
+    # Refuting a docstring, an explanation said "nothing in main does that" of
+    # files it had not read, and listed the check comparing a stored total with
+    # the purchases among the readers that "read the stored figure as if it were
+    # true" - having read that comparison in full.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            _the_description_of(EXPLANATION_FIELD, mentions=asked)
+        )
+
+
+@pytest.mark.unit
+def test_the_explanation_leaves_what_the_incident_did_to_the_investigation() -> None:
+    # An explanation said "Turning on monthly-spend-feature sent about half of
+    # evaluations down this path (97 on / 103 off)": one minute's split of a
+    # flag's evaluations, the one figure it was handed, given as how far the
+    # flag reached - though every evaluation after that minute was on. Write-ups
+    # took it up in the root cause. Code-Fix reads code, not telemetry, so what
+    # the incident did is left to the investigation that measured it.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            _the_description_of(EXPLANATION_FIELD,
+                                mentions="what the incident did - how many requests or "
+                                         "evaluations it reached, and how far a rate moved - "
+                                         "is the investigation's to say, not yours to restate")
+        )
+
+
 def _the_description_of(field: str, mentions: str) -> Assertion[dict[str, Any]]:
     def assertion(offered: dict[str, Any]) -> bool:
         said = offered["input_schema"]["properties"][field]["description"]

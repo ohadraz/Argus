@@ -12,32 +12,8 @@ worse off believing an earlier one's answer about a different incident.
 
 from __future__ import annotations
 
-from argus_core.models import ActionIdentity, Verdict
+from argus_core.models import WhatWasTried
 from pydantic import BaseModel
-
-
-class WhatWasTried(BaseModel):
-    """One action Argus took, and what taking it turned out to be worth.
-
-    The action's identity rather than the subject alone, because the subject
-    alone is only half of what was done. A flag put back and a service
-    restarted are different experiments, and a later incident told that
-    "checkout" was tried and did not help learns nothing it can act on - it
-    has to know which thing was done to it. The pair is also what the record
-    is compared against: the walk asks what it would do about a candidate and
-    matches the answer here, and a match on half a key is a match that is
-    sometimes right.
-
-    Only a reached verdict is expressible here. `Verdict` also spells the two
-    ways no verdict was reached - an action that could not be performed, and one
-    abandoned mid-measurement - and a record carrying either would say a subject
-    was tried and failed when it was never tested. What is dropped is dropped
-    when the record is composed, so nothing downstream has to remember the
-    distinction.
-    """
-
-    identity: ActionIdentity
-    verdict: Verdict
 
 
 class RememberedIncident(BaseModel):

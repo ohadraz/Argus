@@ -26,6 +26,7 @@ from argus_core.models import (
     Action,
     Attempt,
     ChangeEvent,
+    DeploymentChanges,
     Disproof,
     EstablishedOnset,
     FlagChange,
@@ -103,6 +104,8 @@ class StateDelta(BaseModel):
     # the postmortem, and every later round is handed it.
     onset: EstablishedOnset | None = None
     rounds: int | None = None
+    attempts_handed: int | None = None
+    candidates_formed: int | None = None
     # Set explicitly to `None` by the node that could not read the provider, so
     # that "nobody could say" reaches the rest of the round as itself.
     # `model_fields_set` is what makes that possible: a `None` a node chose is
@@ -116,6 +119,9 @@ class StateDelta(BaseModel):
     # round recorded is cleared rather than left standing for a fleet this round
     # no longer has.
     placement: RecordedPlacement | None = None
+    # What each deployment this incident's investigations looked into changed,
+    # by its revision - every round's, set by the investigating node.
+    deployment_changes: dict[str, DeploymentChanges] | None = None
     # What the register says the alerting service calls, read in the same round
     # as the flag history. Optional here for the reason every field above is -
     # a node that did not set it must not overwrite what another node decided -
@@ -134,7 +140,7 @@ class StateDelta(BaseModel):
     recommended_action: Action | None = None
     # Set by the gate alone, when the candidate in hand names a mode no
     # mitigation answers - which ends the mitigation phase.
-    nothing_answers_the_mode: bool | None = None
+    the_mode_has_no_mitigation: bool | None = None
     nothing_worth_trying: bool | None = None
     # The window that contradicted what the alarm claimed, where it did. Set by
     # the investigating node alone, and the one thing that ends a walk without
@@ -148,6 +154,7 @@ class StateDelta(BaseModel):
     # comparison against a misspelt literal is a branch that silently never
     # runs.
     action_outcome: Verdict | None = None
+    action_because: str | None = None
     # What the node says it did. Never a field of the state: `with_status`
     # takes it out, writes the row, and passes on what remains.
     narration: Narration | None = None

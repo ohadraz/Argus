@@ -1,8 +1,8 @@
 """Taking one proposed action, and judging what the service did (spec §7.3).
 
 The mutating half of the agent. `actions.py` decides what to do without
-touching anything; this performs it, waits for the service to answer, and puts
-the change back where the answer refutes the hypothesis it was taken on.
+touching anything; this performs it, runs the verification wait, and puts the
+change back where the wait refutes the hypothesis it was taken on.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import NamedTuple, Protocol, assert_never
 
-from argus_core import sleep_on_the_clock, to_iso_minute, utc_now
+from argus_core import sleep_on_the_clock, to_iso_minute, utc_now, was_lost
 from argus_core.anomaly import (
     AnomalyThresholds,
     find_recovery,
@@ -33,8 +33,10 @@ from argus_core.events import (
 )
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_KNOWN_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
+    McpToolError,
     PlatformUnreachable,
     without_the_payload,
 )
@@ -80,7 +82,15 @@ from agent_mitigation.tools import (
     nothing_to_wait_for,
 )
 
-__all__ = ["UndoChange", "take_action"]
+__all__ = ["ChangeMade", "UndoChange", "take_action"]
+
+# Told that the action's change was made, with what the tier said would put it
+# back - `None` for a change that leaves nothing to restore. Called once, the
+# moment the tier answers and before the wait, so a caller can record the
+# change while the worker that made it is still alive to say so: the wait is
+# the longest stretch of an attempt, and the one a worker is likeliest to die
+# in.
+type ChangeMade = Callable[[UndoDescriptor | None], None]
 
 # How often the service is re-read while waiting for it to answer an action.
 # Metrics are aggregated per minute, so a tighter interval only re-reads the
@@ -134,6 +144,10 @@ class UndoChange(Protocol):
     # two different things again.
 
 
+def _nobody_told(undo_descriptor: UndoDescriptor | None) -> None:
+    """A change made with nobody to tell, for a caller recording nothing."""
+
+
 def take_action(action: Action,
                 settings: MitigationSettings,
                 thresholds: AnomalyThresholds,
@@ -150,7 +164,8 @@ def take_action(action: Action,
                 rule: str | None = None,
                 read_rule: RuleReader | None = None,
                 writes: PerformingWrites,
-                undo: UndoChange) -> Outcome:
+                undo: UndoChange,
+                change_made: ChangeMade = _nobody_told) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
     `rule` is the alert rule that paged, where the alert is about a series and
@@ -218,15 +233,24 @@ def take_action(action: Action,
     a claim, two publishes and on a resumed run a provider read - long enough
     for a person to have said stop. Applying it anyway would change the world
     after they did, and leave behind something for the withdrawal to put back.
+
+    `change_made` is told once the write has landed, before the wait, with the
+    descriptor the tier returned. Never on any of the four ways an attempt ends
+    before its write: nothing was made, and told otherwise a caller records a
+    candidate as tried that never was. What a caller does with it is the
+    caller's - this does not guard it, since whether a failure to record may
+    be survived is the recorder's judgement and not the agent's.
     """
     if not still_wanted():
         logger.info("action not taken, incident no longer wanted")
 
         return Outcome(
-            verdict=Verdict.WITHDRAWN,
+            verdict=Verdict.STOPPED,
+            left_behind_known=True,
             detail="a person ended the incident before the action was taken",
             undo_descriptor=None,
-            measured=False
+            judged=False,
+            performed=False
         )
 
     try:
@@ -250,14 +274,17 @@ def take_action(action: Action,
         # ruled a cause out when nothing ruled it out.
         return Outcome(
             verdict=Verdict.NOT_ATTEMPTED,
+            left_behind_known=True,
             detail=(
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_marker(exhausted)}"
             ),
+            not_performed_because=_without_the_marker(exhausted),
             # The same thing the paragraph above says in words, said where the
             # candidate's row can read it: nothing was tested, so nothing about
             # this explanation may be recorded as having been.
-            measured=False,
+            judged=False,
+            performed=False
         )
     except PlatformUnreachable as unreachable:
         # Caught before the broad handler for the reason above it is: this is an
@@ -287,30 +314,55 @@ def take_action(action: Action,
         # failure, which is the platform going before the first write.
         return Outcome(
             verdict=Verdict.PLATFORM_UNREACHABLE,
+            # Known, as every marked platform failure is: one that may have
+            # changed more than it carries is never marked.
+            left_behind_known=unreachable.left_behind_known,
             detail=(
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_platform_marker(unreachable)}"
             ),
+            not_performed_because=_without_the_platform_marker(unreachable),
             undo_descriptor=unreachable.undo_descriptor,
             # The action was not taken, so the service was never watched for it.
             # The candidate is passed over on this walk and the platform is what
             # explains why - and it must be a candidate still worth trying when
             # the platform comes back, not one the record says was ruled out.
-            measured=False,
+            judged=False,
+            performed=False
         )
     except Exception as error:
+        # A lost run is not an action that failed: the incident is another
+        # claim's walk, and an escalation said here would be said for it.
+        if was_lost(error):
+            raise
+
         logger.warning("action could not be performed", exc_info=True,
                        extra={"action_type": action.action_type})
 
+        # What the tier said it left, where a tier said anything. A refusal
+        # can follow a change - a rollback refused after the sync was
+        # suspended - and the row this outcome writes is the only record of
+        # it. Anything that is not a tool's answer said nothing about the
+        # estate, so nothing about it is known.
+        told = error if isinstance(error, McpToolError) else None
+
         return Outcome(
             verdict=Verdict.ESCALATED,
-            detail=f"could not {_what_it_would_have_done(action)}: {error}",
+            left_behind_known=told.left_behind_known if told is not None else False,
+            detail=f"could not {_what_it_would_have_done(action)}: {_in_its_own_words(error)}",
+            not_performed_because=_in_its_own_words(error),
+            undo_descriptor=told.undo_descriptor if told is not None else None,
             # Nothing was performed and so nothing was watched. This is the
             # broadest of the three and the one most likely to be reached by
             # something nobody foresaw, which is the best reason for it to say
             # what it knows rather than let the verdict be read for it.
-            measured=False,
+            judged=False,
+            performed=False
         )
+
+    # Outside the `try` above, so a caller's failure to record is never read as
+    # the action's failure to happen - the change is made by now.
+    change_made(performed.undo_descriptor)
 
     settled = _what_watching_the_service_settled(
         # Read for the rule that paged, so the recovery is dated on its series.
@@ -327,6 +379,8 @@ def take_action(action: Action,
     if settled.verdict is Verdict.CONFIRMED:
         return Outcome(
             verdict=Verdict.CONFIRMED,
+            left_behind_known=True,
+            because=settled.because,
             # The reason the watching gave, rather than a sentence written here.
             # One verdict is reached four ways that mean different things - a
             # rule that stopped firing, a level that came down, a reading that
@@ -350,35 +404,34 @@ def take_action(action: Action,
     if settled.verdict is Verdict.ESCALATED:
         return Outcome(
             verdict=Verdict.ESCALATED,
+            left_behind_known=True,
             detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
             # Said rather than left to the verdict, which is the same word here
             # as it is for a refutation whose undo failed. What reads this is
             # the candidate's row: a hypothesis marked tested by a wait that
             # took no reading is one a later incident is taught to try last.
-            measured=False,
+            judged=False,
         )
 
     # Left where it is, carrying what would put it back. Undoing it here would
     # be a second opinion about a decision the withdrawal makes once, for every
     # action the incident took and only where nobody else has been in there
     # since Argus wrote.
-    if settled.verdict is Verdict.WITHDRAWN:
+    if settled.verdict is Verdict.STOPPED:
         return Outcome(
-            verdict=Verdict.WITHDRAWN,
-            detail=(
-                f"{performed.said}, and a person ended the incident before the "
-                f"service could answer for it"
-            ),
+            verdict=Verdict.STOPPED,
+            left_behind_known=True,
+            detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
-            # Nothing was measured here either, and saying so rather than
-            # leaving the walk to recognise the word is what lets one fact
-            # decide the candidate's row instead of a list of verdicts that has
-            # to be kept in step with this one.
-            measured=False,
+            # Nothing was judged here either, whatever the wait read before the
+            # stop, and saying so rather than leaving the walk to recognise the
+            # word is what lets one fact decide the candidate's row instead of a
+            # list of verdicts that has to be kept in step with this one.
+            judged=False,
         )
 
-    return _undone(performed, undo, action.action_type)
+    return _undone(performed, undo, action.action_type, settled.because)
 
 
 def _perform(action: Action, writes: PerformingWrites) -> Performed:
@@ -434,7 +487,7 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
                     # it went is the tier's to have decided, and it reports that
                     # figure nowhere a verdict can quote it.
                     f"scaled [{action.application}] out from "
-                    f"[{scaled.was_replicas}] replicas"
+                    f"[{scaled.was_replicas}] {_replicas(scaled.was_replicas)}"
                 ),
                 undo_descriptor=scaled
             )
@@ -459,7 +512,7 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
                     # than to anything Argus wrote. The tier records what it
                     # asked for, which is why this can say it.
                     f"raised [{action.application}]'s autoscaler floor from "
-                    f"[{pinned.was_min_replicas}] replicas to "
+                    f"[{pinned.was_min_replicas}] {_replicas(pinned.was_min_replicas)} to "
                     f"[{pinned.min_replicas_asked_for}]"
                 ),
                 undo_descriptor=pinned
@@ -519,10 +572,12 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
         case AutoscalerUndo():
             return (
                 f"to an autoscaler floor of "
-                f"[{undo_descriptor.was_min_replicas}] replicas"
+                f"[{undo_descriptor.was_min_replicas}] "
+                f"{_replicas(undo_descriptor.was_min_replicas)}"
             )
         case ReplicaUndo():
-            return f"to [{undo_descriptor.was_replicas}] replicas"
+            return (f"to [{undo_descriptor.was_replicas}] "
+                    f"{_replicas(undo_descriptor.was_replicas)}")
         case AcceleratorPinUndo():
             # Two endings, and a sentence saying "let go" for both would report
             # a pin somebody else had set as one removed.
@@ -532,6 +587,10 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
             return f"to holding its pods to [{undo_descriptor.was_pinned_to}]"
         case _:
             assert_never(undo_descriptor)
+
+
+def _replicas(count: int) -> str:
+    return "replica" if count == 1 else "replicas"
 
 
 def _the_card_in_words(card: str | None) -> str:
@@ -611,6 +670,19 @@ def _without_the_platform_marker(unreachable: PlatformUnreachable) -> str:
     ).strip()
 
 
+def _in_its_own_words(failure: Exception) -> str:
+    """A failure that was no answer of a kind, in its own words: without the
+    token that says the tier knows what it left, and without what it left.
+
+    `_without_the_platform_marker`'s reasoning, for the ordinary refusal. Taking
+    any exception rather than a tool's alone, because the branch it serves
+    catches everything - and a failure carrying neither leaves here as it
+    came."""
+    return without_the_payload(
+        str(failure).replace(LEFT_BEHIND_KNOWN_MARKER, "")
+    ).strip()
+
+
 class _Settled(NamedTuple):
     """What watching the service concluded, and why it concluded it.
 
@@ -624,6 +696,24 @@ class _Settled(NamedTuple):
 
     verdict: Verdict
     because: str
+
+
+# What a wait a person ended - resolved or withdrawn - settles as, wherever in a
+# pass it is asked.
+_ENDED_DURING_THE_WAIT = _Settled(
+    Verdict.STOPPED,
+    "a person ended the incident before the verification wait reached a verdict"
+)
+
+# What a wait on the rule that paged settles as where the rule was read and every
+# evaluation read still spanned minutes from before the change. `ESCALATED`, not
+# `REFUTED`: none of them judged anything the change did, so refuting would put
+# back a change that may have worked, on a measurement nobody took.
+_NO_EVALUATION_SINCE_THE_CHANGE = _Settled(
+    Verdict.ESCALATED,
+    "no evaluation of the rule that fired covered only the time since the change "
+    "before the time allowed ran out - so nothing was measured either way"
+)
 
 
 def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBucket]],
@@ -690,9 +780,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     rather than on how the last pass went, because a wait that read the shop
     nine times and failed on the tenth did measure it.
 
-    `WITHDRAWN` where somebody stopped the walk while this was waiting. The loop
-    already wakes every ten seconds to re-read the metrics, so asking here costs
-    nothing and ends the wait within one interval of the withdrawal rather than
+    `STOPPED` where a person ended the incident while this was waiting. The
+    loop already wakes every ten seconds to re-read the metrics, so asking here
+    costs nothing and ends the wait within one interval of the ending rather than
     at the end of a window nobody is waiting for.
 
     Each look is published. This is the one stretch of an incident where Argus
@@ -748,11 +838,25 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     # of the two questions above is asked. `None` until a read answers, because it
     # is measured from a window rather than declared by a caller.
     the_sight_was_absent: bool | None = None
-    # Whether the rule that paged was ever read, which decides what running out
-    # of time means on that path, as `anything_was_read` does on this one.
+    # The wait as measured off the first window that answered, held until a
+    # verdict is read off the minutes it names - `None` once said, or where none
+    # is due.
+    the_wait: AwaitingRecovery | None = None
+    # Whether the rule that paged was ever read, and whether any evaluation read
+    # covered only the time since the change. The second is what decides what
+    # running out of time means on that path, as `anything_was_read` does on
+    # this one: an evaluation over minutes from before the change judged nothing
+    # the change did, so a wait that read only those measured nothing.
     the_rule_was_read = False
+    an_evaluation_since_the_change_was_read = False
 
     while True:
+        # Asked before each look rather than only after it. A walk somebody
+        # stopped has been answered, and a look taken after that - announced on
+        # the first pass, and posted to Slack - tells them Argus is still at it.
+        if not still_wanted():
+            return _ENDED_DURING_THE_WAIT
+
         # A read that cannot be taken costs this pass and nothing more. The loop
         # is already a poll against a deadline, so a reading that did not arrive
         # is the one kind of failure it is built to absorb - and the alternative
@@ -760,19 +864,29 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # stopped mid-action, no verdict was recorded, and the incident kept
         # whatever status it was walking under.
         buckets: list[MetricBucket] | None
+        unanswered: Exception | None = None
         try:
             buckets = fetch_metrics()
-        except Exception as unanswered:
+        except Exception as error:
             logger.warning("metrics could not be read", exc_info=True)
             buckets = None
+            unanswered = error
 
-            if incident_id is not None:
-                say(RetrievalUnanswered(
-                    incident_id=incident_id,
-                    what_was_asked="the service's metrics",
-                    because=str(unanswered),
-                    minute=first_whole_minute
-                ))
+        # And asked again once the read is back, before anything is said. A read
+        # on a fast clock is long enough for the stop to land inside it, and
+        # whatever this pass says next - that the read went unanswered, the
+        # wait, what the look found - would be said after the person was
+        # answered.
+        if not still_wanted():
+            return _ENDED_DURING_THE_WAIT
+
+        if unanswered is not None and incident_id is not None:
+            say(RetrievalUnanswered(
+                incident_id=incident_id,
+                what_was_asked="the service's metrics",
+                because=str(unanswered),
+                minute=first_whole_minute
+            ))
 
         if buckets is None and read_the_rule is not None:
             # On the rule's path the window only dates the recovery, so a window
@@ -798,10 +912,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 if not anything_was_read:
                     logger.warning("nothing was measured before the deadline")
 
+                # What is known is the last look's finding: this read failed,
+                # so the one before it is the last the service was seen at.
                 return (
                     _Settled(
                         Verdict.REFUTED,
-                        "it did not visibly help in the time it was given"
+                        "the service was still at the incident's level at the last "
+                        "look before the verification wait ran out"
                     )
                     if anything_was_read else
                     _Settled(
@@ -825,18 +942,24 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 reporting_lag_minutes=settings.metrics_reporting_lag_minutes
             )
 
-            # Announced here rather than before the first read, because the
+            # Measured here rather than before the first read, because the
             # figure is measured off that window: said earlier it would be a
             # guess, and the page and the Slack line both say it aloud. A wait
             # whose reads never answer therefore announces nothing - what the
             # page carries then is a line per unanswered read, which is the same
             # thing this was there to prevent.
+            #
+            # Held rather than said, and said before the first verdict read off
+            # the minutes it names. The receipt and a window that never departed
+            # settle this same pass on no minute at all, and announced before
+            # them the page said "Waiting ... up to 104s" and gave the verdict
+            # 44 ms later.
             if incident_id is not None:
-                say(AwaitingRecovery(
+                the_wait = AwaitingRecovery(
                     incident_id=incident_id,
                     from_minute=first_whole_minute,
                     seconds_allowed=(watch_until - arrived_at).total_seconds()
-                ))
+                )
 
         anything_was_read = True
         # An incident paged by a rule watching a series is judged by that rule.
@@ -851,34 +974,42 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         if read_the_rule is not None:
             try:
                 standing = read_the_rule()
-            except Exception as unanswered:
+            except Exception as rule_unanswered:
                 logger.warning("alert rule could not be read", exc_info=True)
+
+                # Asked after the rule's read for the reason it is asked after
+                # the window's.
+                if not still_wanted():
+                    return _ENDED_DURING_THE_WAIT
 
                 if incident_id is not None:
                     say(RetrievalUnanswered(
                         incident_id=incident_id,
-                        what_was_asked="the alert rule that paged",
-                        because=str(unanswered),
+                        what_was_asked="the alert rule that fired",
+                        because=str(rule_unanswered),
                         minute=first_whole_minute
                     ))
 
-                # Not refuted where the rule was never read: nothing said it was
-                # still firing, and refuting puts the change back on a
-                # measurement nobody took.
+                # Not refuted where no evaluation since the change was read:
+                # nothing said the rule was still firing on the change's
+                # minutes, and refuting puts the change back on a measurement
+                # nobody took.
                 if now() >= watch_until:
-                    if not the_rule_was_read:
-                        logger.warning("nothing was measured before the deadline")
-
-                    return (
-                        _Settled(
+                    if an_evaluation_since_the_change_was_read:
+                        return _Settled(
                             Verdict.REFUTED,
-                            "the rule that paged was still firing when the time "
+                            "the rule that fired was still firing when the time "
                             "it allows ran out"
                         )
+
+                    logger.warning("nothing was measured before the deadline")
+
+                    return (
+                        _NO_EVALUATION_SINCE_THE_CHANGE
                         if the_rule_was_read else
                         _Settled(
                             Verdict.ESCALATED,
-                            "the rule that paged could not be read once before "
+                            "the rule that fired could not be read once before "
                             "the time allowed ran out - so nothing was measured "
                             "either way"
                         )
@@ -886,6 +1017,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
 
                 sleep(_SECONDS_BETWEEN_METRIC_READS)
                 continue
+
+            if not still_wanted():
+                return _ENDED_DURING_THE_WAIT
 
             if not the_rule_was_read:
                 # Read off the rule once, as the metrics' deadline is read off
@@ -906,10 +1040,16 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             the_rule_was_read = True
             # Only an evaluation whose whole range followed the change says
             # anything about it; one that began before may have caught a lull the
-            # action had no part in.
-            resolved = standing.is_normal and (
+            # action had no part in. So a look at one that began before has judged
+            # nothing yet, firing or quiet. Said as still at the incident's level,
+            # a look a second after a revert was read as the verdict.
+            followed_the_change = (
                 standing.evaluated_at - timedelta(seconds=standing.range_seconds)
                 >= arrived_at
+            )
+            resolved = standing.is_normal and followed_the_change
+            an_evaluation_since_the_change_was_read = (
+                an_evaluation_since_the_change_was_read or followed_the_change
             )
             came_back_at = (
                 find_recovery(buckets, thresholds, since=incident_began)
@@ -921,24 +1061,26 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                     incident_id=incident_id,
                     minute=first_whole_minute,
                     recovered=resolved,
-                    recovered_minute=came_back_at
+                    recovered_minute=came_back_at,
+                    saw_no_minute=not followed_the_change
                 ))
 
             if not still_wanted():
-                return _Settled(
-                    Verdict.WITHDRAWN,
-                    "a person ended the incident before the service could answer"
-                )
+                return _ENDED_DURING_THE_WAIT
 
             if resolved:
                 return _Settled(
-                    Verdict.CONFIRMED, "the rule that paged stopped firing"
+                    Verdict.CONFIRMED, "the rule that fired stopped firing"
                 )
 
             if now() >= watch_until:
+                if not an_evaluation_since_the_change_was_read:
+                    logger.warning("nothing was measured before the deadline")
+                    return _NO_EVALUATION_SINCE_THE_CHANGE
+
                 return _Settled(
                     Verdict.REFUTED,
-                    "the rule that paged was still firing when the time it "
+                    "the rule that fired was still firing when the time it "
                     "allows ran out"
                 )
 
@@ -952,8 +1094,33 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             the_sight_was_absent = _nothing_was_seen_between(
                 buckets, onset, to_iso_minute(arrived_at)
             )
+            # What the wait waits for, said once this is known and before the
+            # wait is: on a blind spot, for the minutes to be published again -
+            # said as a level to come down from, it promised a reading nobody
+            # took.
+            if the_wait is not None and the_sight_was_absent:
+                the_wait = the_wait.model_copy(update={"until_read_again": True})
 
         if the_sight_was_absent and has_a_reading_since(buckets, first_whole_minute):
+            if the_wait is not None:
+                say(the_wait)
+
+            # The look that saw the rows back, said as every other look is: left
+            # unsaid, the page went from "no new minute read yet" straight to the
+            # verdict, and nothing recorded which minute came back. Dated by the
+            # first row after the onset rather than by the minute the verdict is
+            # read from - the rows returning is a fact about the service, and
+            # where the action restored them that is the minute it fell inside.
+            if incident_id is not None and onset is not None:
+                say(RecoveryChecked(
+                    incident_id=incident_id,
+                    minute=first_whole_minute,
+                    recovered=True,
+                    recovered_minute=min(bucket.bucket_id for bucket in buckets
+                                         if bucket.bucket_id >= to_iso_minute(onset)),
+                    read_again=True
+                ))
+
             return _Settled(
                 Verdict.CONFIRMED, "the service could be read again"
             )
@@ -1013,7 +1180,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             return _Settled(
                 Verdict.REFUTED,
                 "nothing in this window ever departed, so there was no "
-                "improvement for it to show and this action answered for nothing"
+                "improvement for it to show"
             )
 
         recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
@@ -1037,33 +1204,42 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             if recovered else None
         )
 
+        if the_wait is not None:
+            say(the_wait)
+            the_wait = None
+
         if incident_id is not None:
             say(RecoveryChecked(
                 incident_id=incident_id,
                 minute=first_whole_minute,
                 recovered=recovered,
-                recovered_minute=came_back_at
+                recovered_minute=came_back_at,
+                # Not recovered, and not still failing either: nothing since the
+                # change has been read to say which.
+                saw_no_minute=not any(bucket.bucket_id >= first_whole_minute
+                                      for bucket in buckets)
             ))
 
         # Asked before the recovery is acted on, and it outranks it: an incident
-        # somebody took back is over whichever way this minute reads, and
+        # somebody withdrew is over whichever way this minute reads, and
         # claiming a confirmation on the pass the walk was stopped would credit
         # Argus with an ending it did not reach.
         if not still_wanted():
-            return _Settled(
-                Verdict.WITHDRAWN,
-                "a person ended the incident before the service could answer"
-            )
+            return _ENDED_DURING_THE_WAIT
 
+        # What the looks judge, in their words: whether the service left the
+        # incident's level - never whether it was back at a baseline, which no
+        # look measures.
         if recovered:
             return _Settled(
-                Verdict.CONFIRMED, "the service returned to baseline"
+                Verdict.CONFIRMED, "the service was no longer at the incident's level"
             )
 
         if now() >= watch_until:
             return _Settled(
                 Verdict.REFUTED,
-                "it did not visibly help in the time it was given"
+                "the service was still at the incident's level when the verification "
+                "wait ran out"
             )
 
         sleep(_SECONDS_BETWEEN_METRIC_READS)
@@ -1184,16 +1360,24 @@ def _when_the_rule_would_have_resolved(arrived_at: datetime,
     """The moment past which a rule still firing is an answer.
 
     A change that worked has left the rule's range once the range has passed
-    since it arrived; the next evaluation sees that, and a rule that keeps firing
+    since it arrived, and the next evaluation sees that. A rule that keeps firing
     for a while after its condition clears says so that much later. The source's
     lag is added for the reason the metrics' deadline adds it: the minutes the
     rule reads arrive `reporting_lag_minutes` late from a source that reports
     them once they end.
 
+    The sum is then carried to the rule's next evaluation after it, because the
+    rule evaluates on its own ticks and not on the change's: a change arriving a
+    tenth of a second after a minute turned is first judged a whole interval
+    after its range has passed, and a deadline ending a tenth of a second after
+    that evaluation left one look to read it, which read the evaluation before -
+    and a revert that had worked was put back.
+
     Every term but the lag is the rule's own; the lag is the one setting, and
     the levels' deadline adds the same one.
     """
-    return arrived_at + timedelta(
+    interval = timedelta(seconds=standing.interval_seconds)
+    unrounded = arrived_at + timedelta(
         seconds=(
             standing.range_seconds
             + standing.interval_seconds
@@ -1201,6 +1385,12 @@ def _when_the_rule_would_have_resolved(arrived_at: datetime,
         ),
         minutes=reporting_lag_minutes
     )
+
+    # A rule with no interval has no next evaluation to carry the wait to.
+    if not interval:
+        return unrounded
+
+    return standing.evaluated_at + ((unrounded - standing.evaluated_at) // interval + 1) * interval
 
 
 def _nothing_was_seen_between(buckets: Sequence[MetricBucket],
@@ -1261,7 +1451,8 @@ def _why_nothing_was_put_back(action_type: ActionType) -> str:
 
 def _undone(performed: Performed,
             undo: UndoChange,
-            action_type: ActionType) -> Outcome:
+            action_type: ActionType,
+            because: str) -> Outcome:
     """Puts a refuted action back, and says so as a verdict.
 
     A refuted action was taken on a hypothesis the evidence has not borne out,
@@ -1281,10 +1472,15 @@ def _undone(performed: Performed,
     written to.
 
     The undo itself is `undo_change`; what this adds is what a *verdict* is
-    made of. A change left as found is still a refutation - the service did not
-    recover, which is what the verdict is about - while a change nobody could
-    account for escalates, because an environment Argus cannot describe is
-    precisely what a human needs paging for.
+    made of. A change left as found is still a refutation - the wait found
+    against it, which is what the verdict is about - while a change nobody
+    could account for escalates, because an environment Argus cannot describe
+    is precisely what a human needs paging for.
+
+    `because` is what the verification wait judged, said as it said it: the
+    rule still firing, the service still at the incident's level, or a window
+    that never showed the incident at all. Three findings that point a reader
+    three different ways, so no branch writes one sentence over all of them.
     """
     taken = performed.said
     undo_descriptor = performed.undo_descriptor
@@ -1292,8 +1488,10 @@ def _undone(performed: Performed,
     if undo_descriptor is None:
         return Outcome(
             verdict=Verdict.REFUTED,
+            left_behind_known=True,
+            because=because,
             detail=(
-                f"{taken}, the service did not recover, and "
+                f"{taken}, but {because}, and "
                 f"{_why_nothing_was_put_back(action_type)}"
             ),
         )
@@ -1315,23 +1513,35 @@ def _undone(performed: Performed,
 
             return Outcome(
                 verdict=Verdict.ESCALATED,
-                detail=f"{taken}, the service did not recover, and {attempt.detail}",
+                left_behind_known=True,
+                because=because,
+                detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
         case Undone.LEFT_AS_FOUND:
             return Outcome(
                 verdict=Verdict.REFUTED,
-                detail=f"{taken}, the service did not recover, and {attempt.detail}",
+                left_behind_known=True,
+                because=because,
+                detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
         case Undone.RESTORED:
             return Outcome(
                 verdict=Verdict.REFUTED,
+                left_behind_known=True,
+                because=because,
                 detail=(
-                    f"{taken}, the service did not recover, so it was put back "
+                    f"{taken}, but {because}, so it was put back "
                     f"{_how_it_was_put_back(undo_descriptor)}"
                 ),
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
         case Undone.NO_UNDO_WAS_OWED:
             # Reached by nothing today: this is what an *unwind* reports for a
@@ -1344,11 +1554,15 @@ def _undone(performed: Performed,
             # so a kind that ever does both says one thing twice.
             return Outcome(
                 verdict=Verdict.REFUTED,
+                left_behind_known=True,
+                because=because,
                 detail=(
-                    f"{taken}, the service did not recover, and "
+                    f"{taken}, but {because}, and "
                     f"{_why_nothing_was_put_back(action_type)}"
                 ),
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
 
     assert_never(attempt.outcome)

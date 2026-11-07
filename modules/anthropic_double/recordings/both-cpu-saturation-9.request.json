@@ -1,0 +1,56 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The causal chain of a postmortem, its steps numbered as written:\n1. Shop pages responded slowly. Response times for the slower requests rose well above their usual level, while no more requests failed than before.\n2. Pages were slow because requests queued: the CPU the service was using rose to its CPU limit and stayed near it while it was broken.\n3. CPU reached its limit because request volume rose sharply, peaking at 4.5 times its earlier rate. The service still ran the same replicas, and nothing about the service itself had changed.\n4. The rising load broke the service because it outgrew the fixed CPU the service's replicas had.\n\nPut the steps in the order in which each step answers why the step directly before it happened - the first and the last stay where they are. Call order_chain with the steps' numbers in that order.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Give the order the causal chain's steps should be read in, as their numbers. Change nothing else.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Every step's number, each once, in the order that makes each step answer why the step directly before it happened. The first and the last stay where they are.",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "name": "order_chain",
+      "strict": true
+    }
+  ]
+}

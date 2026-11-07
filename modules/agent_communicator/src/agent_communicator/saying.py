@@ -31,7 +31,14 @@ from argus_core.models import (
     the_place_of,
 )
 from argus_incidents.repository import events, references
-from argus_narration import NarrationLine, ShownRevision, shown, the_revisions
+from argus_narration import (
+    NarrationLine,
+    ShownRevision,
+    a_candidate_cause,
+    shown,
+    the_pull_requests,
+    the_revisions,
+)
 from chat_platform import ChatPlatformWrites, Line, Link, Offer
 
 from agent_communicator.policy import Register
@@ -160,7 +167,7 @@ def a_chat_destination(connections: Connections,
         # mid-incident, and a line in the wrong shape is worth more than
         # silence about an incident being worked.
         replying_to = thread if register is Register.FOLLOWED else None
-        said = _the_chat_line(line, link, _the_revisions_of(connections, incident_id))
+        said = _the_chat_line(line, link, *_the_names_read_by(connections, incident_id))
         about = line.asks_to_confirm
         ending = line.offers_to_end_as
         offer = (Offer(about=about, label=_CONFIRMING[ending])
@@ -215,26 +222,64 @@ def a_chat_destination(connections: Connections,
 
 def _the_chat_line(line: NarrationLine,
                    link: Link | None,
-                   revisions: Mapping[str, ShownRevision]) -> Line:
+                   revisions: Mapping[str, ShownRevision],
+                   pull_requests: Mapping[str, str]) -> Line:
     """One line of the account, as the chat platform is handed it: who said
     it, what they said, the word set apart, where to read more, and the words
     that open somewhere of their own.
 
     The split is the narration's, made once for every view, so that the page
-    and the chat mark the same word - and shown as the page shows it, without
-    the brackets the walk quotes a name in for its model, and each revision
-    the incident read said by its short form, leading to its commit
-    (`revisions`).
+    and the chat mark the same word - and shown as the page shows it, each name
+    the walk quotes in brackets for its model said as code, each revision the
+    incident read said by its short form, leading to its commit (`revisions`),
+    and each pull request it opened by its name, leading to it
+    (`pull_requests`).
+
+    A line carrying candidates says each by its number, as the walk page shows
+    it beneath the line, and what it is: a message that has only the sentence
+    ended on a colon promising a list that never came, one "Formed 1" message
+    per candidate. The number and not the rank: the rank restarts with each
+    round of the investigation, and the number counts across them as the
+    postmortem's C labels do - #3 here is C3 there.
     """
-    said = shown(line, revisions)
+    said = shown(_with_its_move(_with_its_candidates(line)), revisions, pull_requests)
 
     return Line(who=said.who,
                 text=said.text,
                 emphasis=said.emphasis,
                 before_emphasis=said.before_emphasis,
                 after_emphasis=said.after_emphasis,
+                aside=said.aside,
                 link=link,
-                links=said.links)
+                links=said.links,
+                emphasis_is_markdown=said.emphasis_is_markdown)
+
+
+def _with_its_candidates(line: NarrationLine) -> NarrationLine:
+    """The line said as the candidates it carries, each by its number and what
+    it is - or the line as it is, where it carries none."""
+    if not line.candidates:
+        return line
+
+    return line.model_copy(update={
+        "text": "; ".join(f"Formed {a_candidate_cause(candidate.number)}: {candidate.summary}"
+                          for candidate in line.candidates)})
+
+
+def _with_its_move(line: NarrationLine) -> NarrationLine:
+    """The line ending on what it moved from and to, as `said_in_full` says it
+    - or the line as it is, where it moved nothing. The page shows a move as
+    two states, one struck through; a message has only the sentence, which
+    ended on "moved" with nowhere it moved to."""
+    if not line.moved_to:
+        return line
+
+    move = f" from {line.moved_from} to {line.moved_to}"
+    # The move ends the sentence, so it joins whichever part is said last.
+    ending = ({"after_emphasis": line.after_emphasis.rstrip() + move} if line.emphasis
+              else {"before_emphasis": line.before_emphasis.rstrip() + move})
+
+    return line.model_copy(update={"text": line.text.rstrip() + move, **ending})
 
 
 def _the_offers_retired_by(line: NarrationLine) -> list[str]:
@@ -304,12 +349,15 @@ def _write_the_gap_down(connections: Connections,
         ))
 
 
-def _the_revisions_of(connections: Connections, incident_id: str) -> dict[str, ShownRevision]:
-    """Each revision the incident has read so far, and how a line says it -
-    read from the record each time, since the relay may be saying a line long
-    after the read that named its revision."""
+def _the_names_read_by(connections: Connections,
+                       incident_id: str) -> tuple[dict[str, ShownRevision], dict[str, str]]:
+    """Each revision the incident has read so far and each pull request it
+    has opened, and how a line says each - read from the record each time,
+    since the relay may be saying a line long after the event that named it."""
     with connections() as conn:
-        return the_revisions(events.get_by_incident(conn, incident_id))
+        recorded = events.get_by_incident(conn, incident_id)
+
+    return the_revisions(recorded), the_pull_requests(recorded)
 
 
 def _the_thread_of(connections: Connections,

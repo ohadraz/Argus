@@ -9,7 +9,7 @@ would be the beginning of a second opinion about what an incident is.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 import psycopg
 from argus_incidents.repository import (
@@ -19,6 +19,7 @@ from argus_incidents.repository import (
     postmortems,
     taken_actions,
 )
+from argus_narration import ShownRevision
 from postmortem_rendering import (
     RenderedPostmortem,
     ReportedResolution,
@@ -54,15 +55,22 @@ def read_history(conn: psycopg.Connection) -> list[IncidentSummary]:
     return [build_incident_summary(incident) for incident in incidents.get_recent(conn)]
 
 
-def read_incident(conn: psycopg.Connection, incident_id: str) -> IncidentDetail | None:
+def read_incident(conn: psycopg.Connection,
+                  incident_id: str,
+                  minutes: Sequence[str] = (),
+                  logged: Sequence[str] = (),
+                  revisions: Mapping[str, ShownRevision] | None = None
+                  ) -> IncidentDetail | None:
     """One incident's whole walk, or `None` where there is no such incident.
 
     `None` rather than an empty detail: an id that never existed has no walk to
     be empty, and the caller owes a reader that distinction.
 
-    Four reads rather than one join, because each is a repository's own
+    Five reads rather than one join, because each is a repository's own
     question and the join belongs to the view, which is where the answers are
-    arranged for somebody to look at.
+    arranged for somebody to look at. `minutes` and `logged` are the rows the
+    page beside the walk holds, for its findings to lead to, and `revisions`
+    the revisions it names short, for its candidates to say alike.
     """
     incident = incidents.get(conn, incident_id)
     if incident is None:
@@ -72,6 +80,10 @@ def read_incident(conn: psycopg.Connection, incident_id: str) -> IncidentDetail 
         incident,
         candidates=hypotheses.get_all_by_incident(conn, incident_id),
         attempts=taken_actions.get_by_incident(conn, incident_id),
+        account=events.get_by_incident(conn, incident_id),
+        minutes=minutes,
+        logged=logged,
+        revisions=revisions or {}
     )
 
 
@@ -103,19 +115,19 @@ def read_story(conn: psycopg.Connection, incident_id: str) -> Story:
 
 def read_postmortem(conn: psycopg.Connection,
                     incident: IncidentDetail,
-                    incident_address: str) -> RenderedPostmortem | None:
+                    address_of: Callable[[str], str]) -> RenderedPostmortem | None:
     """The postmortem as it is read, where one has been written.
 
     Rendered here, from the row and the incident's events, so the page and the
-    PDF are handed the same document. `incident_address` is the incident
-    page's full address, which only the request knows.
+    PDF are handed the same document. `address_of` gives an incident's page by
+    its full address, which only the request knows.
     """
     postmortem = postmortems.get_by_incident(conn, incident.id)
     if postmortem is None:
         return None
 
     return render(postmortem, incident.alert, events.get_by_incident(conn, incident.id),
-                  incident_address)
+                  address_of)
 
 
 def read_resolution(conn: psycopg.Connection, incident_id: str) -> ReportedResolution | None:

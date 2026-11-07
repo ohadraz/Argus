@@ -21,16 +21,16 @@ two things so that neither becomes the other by being nearby (§14, §15.1).
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import Any
+import time
+from typing import Any, Final
 
 import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import OpenedPullRequest
 
-logger = logging.getLogger(__name__)
+from write_mcp_server.github_writes import HttpGet, HttpPost, Sleep, said_of, with_retries
 
-HttpPost = Callable[..., httpx2.Response]
+logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -38,20 +38,24 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 # the spellings. `DRAFT_FIELD` is the guardrail's own word: the request says
 # `draft` and means "not mergeable by one click", and a later reader looking for
 # where §13 is enforced finds it by this name.
-DRAFT_FIELD = "draft"
-HEAD_FIELD = "head"
-BASE_FIELD = "base"
-TITLE_FIELD = "title"
-BODY_FIELD = "body"
-NUMBER_FIELD = "number"
-READABLE_AT_FIELD = "html_url"
+DRAFT_FIELD: Final = "draft"
+HEAD_FIELD: Final = "head"
+BASE_FIELD: Final = "base"
+TITLE_FIELD: Final = "title"
+BODY_FIELD: Final = "body"
+NUMBER_FIELD: Final = "number"
+READABLE_AT_FIELD: Final = "html_url"
 # What a refusal says, in the two places GitHub puts it. `message` is the
 # headline and is often only "Validation Failed"; `errors` is where the sentence
 # a person can act on lives - which field was wrong and why.
-MESSAGE_FIELD = "message"
-ERRORS_FIELD = "errors"
+MESSAGE_FIELD: Final = "message"
+ERRORS_FIELD: Final = "errors"
+# How the open pull requests are looked for, before a request GitHub failed
+# is made again: from a branch, said as `owner:branch`, onto a base.
+STATE_FIELD: Final = "state"
+OPEN_STATE: Final = "open"
 
-ACCEPT_HEADER = "application/vnd.github+json"
+ACCEPT_HEADER: Final = "application/vnd.github+json"
 
 
 class RepositoryWriteSettings(SettingsSlice):
@@ -62,11 +66,16 @@ class RepositoryWriteSettings(SettingsSlice):
     hand every flag call a token that can push code - and the argument for the
     tier split is exactly that a credential should not be somewhere it has no
     business being.
+
+    The retries are this tier's too: how often a write GitHub failed for a
+    moment is made again, and how long before each (`github_writes`).
     """
 
     github_api_url: str
     github_repository: str
     github_token: str
+    github_write_retries: int
+    github_write_retry_wait_ms: int
 
 
 class PullRequestNotOpened(Exception):
@@ -86,7 +95,9 @@ def open_pull_request(head_branch: str,
                       title: str,
                       body: str,
                       settings: RepositoryWriteSettings,
-                      post: HttpPost = httpx2.post) -> OpenedPullRequest:
+                      post: HttpPost = httpx2.post,
+                      get: HttpGet = httpx2.get,
+                      sleep: Sleep = time.sleep) -> OpenedPullRequest:
     """Opens a draft pull request from `head_branch` onto `base_branch`.
 
     `title` and `body` are the agent's own words and are passed through
@@ -99,16 +110,17 @@ def open_pull_request(head_branch: str,
 
     Raises `PullRequestNotOpened` unless the repository accepted the request
     *and* answered with a pull request that can be read back.
+
+    Asked again where GitHub failed it for a moment, as configured - and the
+    pull request open from the branch, where one is, taken instead: a 500 can
+    come back for one GitHub opened.
     """
     url = f"{settings.github_api_url}/repos/{settings.github_repository}/pulls"
 
-    try:
+    def asked() -> OpenedPullRequest:
         response = post(
             url,
-            headers={
-                "Authorization": f"Bearer {settings.github_token}",
-                "Accept": ACCEPT_HEADER
-            },
+            headers=_headers(settings),
             json={
                 TITLE_FIELD: title,
                 BODY_FIELD: body,
@@ -119,18 +131,70 @@ def open_pull_request(head_branch: str,
             timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
+
+        return _as_an_opened_pull_request(response, head_branch, url)
+
+    try:
+        opened = with_retries(
+            asked,
+            retries=settings.github_write_retries,
+            wait_ms=settings.github_write_retry_wait_ms,
+            landed=lambda: _the_one_open(head_branch, base_branch, url, settings, get),
+            sleep=sleep
+        )
+    except PullRequestNotOpened:
+        raise
     except Exception as error:
         raise PullRequestNotOpened(
             f"could not open a pull request from [{head_branch}] onto "
-            f"[{base_branch}] at [{url}]: {error}"
+            f"[{base_branch}] at [{url}]: {said_of(error)}"
             f"{_what_the_repository_said(error)}"
         ) from error
-
-    opened = _as_an_opened_pull_request(response, head_branch, url)
 
     logger.info("pull request opened", extra={"pull_request": opened.url})
 
     return opened
+
+
+def _the_one_open(head_branch: str,
+                  base_branch: str,
+                  url: str,
+                  settings: RepositoryWriteSettings,
+                  get: HttpGet) -> OpenedPullRequest | None:
+    """The pull request open from `head_branch` onto `base_branch`, or `None`
+    where there is none.
+
+    By the branch, said with its owner as GitHub filters on it: every open pull
+    request read back would pass another proposal off as this one.
+    """
+    owner = settings.github_repository.split("/")[0]
+    response = get(
+        url,
+        params={HEAD_FIELD: f"{owner}:{head_branch}", BASE_FIELD: base_branch,
+                STATE_FIELD: OPEN_STATE},
+        headers=_headers(settings),
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    open_now = response.json()
+
+    if not isinstance(open_now, list) or not open_now:
+        return None
+
+    number = open_now[0].get(NUMBER_FIELD)
+    readable_at = open_now[0].get(READABLE_AT_FIELD)
+
+    if not isinstance(number, int) or not isinstance(readable_at, str):
+        return None
+
+    return OpenedPullRequest(number=number, url=readable_at, branch=head_branch)
+
+
+def _headers(settings: RepositoryWriteSettings) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {settings.github_token}",
+        "Accept": ACCEPT_HEADER
+    }
 
 
 def _what_the_repository_said(error: Exception) -> str:

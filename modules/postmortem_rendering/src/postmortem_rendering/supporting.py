@@ -13,6 +13,7 @@ from typing import Final
 from argus_core import A_REVISION, parse_iso, said_short
 from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import (
+    NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ChangeEvent,
     ChangeKind,
     ChannelReading,
@@ -20,6 +21,8 @@ from argus_core.models import (
     CitedEvidence,
     PostmortemDocument,
     RevisionSource,
+    changes_not_listed,
+    no_logs_listed,
 )
 from pydantic import BaseModel, ConfigDict
 
@@ -29,22 +32,20 @@ from postmortem_rendering.lines import Line, Role, Run
 # of reading it was carried.
 _NONE_READ: Final = "None read."
 
-# Said in place of the log messages, by what came of reading them.
-_NO_LOG_MESSAGES: Final[dict[ChannelReading, str]] = {
-    ChannelReading.READ: "Read; none came back.",
-    ChannelReading.ONLY_SINCE_ARGUS_ACTED: "Read; none came back.",
-    ChannelReading.NOT_ASKED: "Not read.",
-    ChannelReading.UNANSWERED: "Asked for; no answer came back."
-}
+# What became of the proposed fix, as far as the record goes: Argus opens a pull
+# request and never reads it again, so whether anybody has merged it since is
+# not something the document knows. Said the same wherever the fix is.
+OPENED_AS_A_DRAFT: Final = "opened as a draft"
 
-# What came of reading one kind of change, as a clause after its name.
-_HOW_A_KIND_WAS_READ: Final[dict[ChannelReading, str]] = {
-    ChannelReading.READ: "read, none came back",
-    ChannelReading.ONLY_SINCE_ARGUS_ACTED:
-        "read, only changes made since Argus first acted came back",
-    ChannelReading.NOT_ASKED: "not read",
-    ChannelReading.UNANSWERED: "asked for, no answer came back"
-}
+# What Code-Fix read in the source, headed by what came of it: "and proposed"
+# only where a pull request holds what it proposed, "its fix" only where there
+# is one to have run, and "its test" only where the fix brought one - a fix to
+# configuration alone may come without.
+_CODE_READ_AND_PROPOSED: Final = ("What Code-Fix read in the source and proposed - "
+                                  "nothing ran its test or its fix")
+_CODE_READ_AND_PROPOSED_WITHOUT_A_TEST: Final = ("What Code-Fix read in the source and "
+                                                 "proposed - nothing ran its fix")
+_CODE_READ_ALONE: Final = "What Code-Fix read in the source - nothing ran to check it"
 
 # Who a change no one is named for was made by, as the model is told it too.
 _NOBODY_NAMED: Final = "someone unnamed"
@@ -69,7 +70,8 @@ class EvidenceRow(BaseModel):
 class SupportingSection(BaseModel):
     """The links, one line each; the changes and the log messages read, each a
     labelled row; the assumptions; and the word said in place of each list
-    where it is empty - `None` where it is not.
+    where it is empty - `None` where it is not. The changes' word is said
+    beneath their rows as well, of each kind of change that has none.
 
     The changes, the log messages and what each deployment looked into
     changed are the kinds of evidence no other section is a row for, so
@@ -78,15 +80,23 @@ class SupportingSection(BaseModel):
     where no deployment was looked into - most incidents look into none, and
     "none read" under a heading for them would say a read was missed. What
     Code-Fix read in the source is a row of its own for the same reason, and
-    headed as a reading nothing ran, which is how a cause resting on it is
-    weighed. The log messages' heading names the zone their times are in,
-    since each row says a time as the model was shown it; a change's row says
-    its moment with its zone.
+    headed as a reading nothing ran - which is how a cause resting on it is
+    weighed - and as proposed only where a pull request holds what it
+    proposed. Each file it names that ran as other text than it read is a row
+    too, named by its path at the revision and leading to the file there -
+    what settles a reading made on other text. And what the metrics show of a
+    cause confirmed to be the load, a series to a row, measured by Argus. The log
+    messages' heading names the zone their times are in, since each row says a
+    time as the model was shown it; a change's row says its moment with its
+    zone.
 
     `revision_addresses` is each revision the changes read name - short, as
     the prose writes one, and whole - and where it opens: the prose names a
     deploy by its revision as well as by its label, and a reader follows
-    either.
+    either. `prose_addresses` is those and the proposed fix, by the name the
+    document gives it: an action item naming "PR #7" leads where the fix
+    opens. Only the document's own - a pull request it holds nothing of has
+    nowhere true to lead.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -96,13 +106,22 @@ class SupportingSection(BaseModel):
     changes: tuple[EvidenceRow, ...]
     changes_absent: str | None
     revision_addresses: dict[str, str]
+    prose_addresses: dict[str, str]
     log_messages_heading: str = "Log messages read (UTC)"
     log_messages: tuple[EvidenceRow, ...]
     log_messages_absent: str | None
     deployment_changes_heading: str = "What each deployment looked into changed"
     deployment_changes: tuple[EvidenceRow, ...] = ()
-    code_read_heading: str = "What Code-Fix read in the source - a static reading, nothing ran it"
+    code_read_heading: str = _CODE_READ_AND_PROPOSED
     code_read: tuple[EvidenceRow, ...] = ()
+    as_it_ran_heading: str = "What ran, read at the revision running when the alert fired"
+    as_it_ran: tuple[EvidenceRow, ...] = ()
+    uses_outside_heading: str = ("How the code outside Code-Fix's patch uses what it changes, "
+                                 "read off the code")
+    uses_outside: tuple[EvidenceRow, ...] = ()
+    cause_measured_heading: str = ("What the metrics show of the confirmed cause, measured by "
+                                   "Argus")
+    cause_measured: tuple[EvidenceRow, ...] = ()
     assumptions_heading: str = "Assumptions"
     assumptions: tuple[Line, ...]
     assumptions_absent: str | None
@@ -120,11 +139,12 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                 # The name captions the address beside it, so
                                 # only the address is a link: two to one place
                                 # side by side are one too many.
-                                Run.a_pull_request(fix.number),
+                                Run.a_pull_request(fix),
                                 Run(text=" ("),
                                 Run.an_address(fix.url),
                                 Run(text=") "),
-                                Run(text="draft - nobody has merged it", role=Role.STATUS))))
+                                Run(text=OPENED_AS_A_DRAFT, role=Role.STATUS),
+                                Run(text=f". {NOTHING_RECORDED_AFTER_IT_WAS_OPENED}."))))
 
     changes = tuple(EvidenceRow(label=cited.label, said=_a_change(cited))
                     for cited in postmortem.changes_read)
@@ -138,37 +158,62 @@ def the_supporting_information(postmortem: PostmortemDocument,
 
     return SupportingSection(links=tuple(links),
                              changes=changes,
-                             changes_absent=None if changes else _no_changes(postmortem),
+                             changes_absent=_no_changes(postmortem),
                              revision_addresses=revision_addresses,
+                             prose_addresses={**revision_addresses,
+                                              **({fix.name: fix.url}
+                                                 if fix is not None else {})},
                              log_messages=log_messages,
                              log_messages_absent=(None if log_messages
                                                   else _no_log_messages(postmortem.logs_reading)),
                              deployment_changes=deployment_changes,
+                             code_read_heading=(_CODE_READ_ALONE if fix is None
+                                                else _CODE_READ_AND_PROPOSED if fix.brings_a_test
+                                                else _CODE_READ_AND_PROPOSED_WITHOUT_A_TEST),
                              code_read=tuple(EvidenceRow(label=cited.label,
-                                                         said=_with_code_set_apart(
+                                                         said=_as_its_markdown_sets_it(
                                                              cited.text, shorts,
                                                              revision_addresses))
                                              for cited in postmortem.code_read),
+                             as_it_ran=tuple(_a_file_row(cited, revision_addresses, shorts)
+                                             for cited in postmortem.as_it_ran_read),
+                             uses_outside_heading=_the_uses_outside_heading(
+                                 postmortem.fix_branch_read),
+                             uses_outside=_rows(postmortem.uses_outside_read),
+                             cause_measured=_rows(postmortem.cause_measured),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
 
 
-def _no_changes(postmortem: PostmortemDocument) -> str:
-    """What came of reading the deploys and the flags, each said apart: the
-    walk reads the flags every time and the deploys only when the
+def _the_uses_outside_heading(branch: str | None) -> str:
+    """What the lines outside Code-Fix's patch are headed by: the branch they
+    were read on, where it is known - not the revision that ran, which a reader
+    takes rows for unless the heading says otherwise."""
+    read = f"read on {branch}" if branch is not None else "read off the code"
+
+    return f"How the code outside Code-Fix's patch uses what it changes, {read}"
+
+
+def _no_changes(postmortem: PostmortemDocument) -> str | None:
+    """What came of reading each kind of change that has no row, each said
+    apart: the walk reads the flags every time and the deploys only when the
     investigation asks, so one word for both would say the deploys were read
-    whenever the flags were."""
+    whenever the flags were.
+
+    A document written before the readings were carried says "none read" where
+    nothing is listed, and nothing beneath rows it does list - what came of
+    reading the other kind is not known to it."""
+    listed = {cited.change.kind for cited in postmortem.changes_read}
     deploys, flags = postmortem.deploys_reading, postmortem.flags_reading
     if deploys is None or flags is None:
-        return _NONE_READ
+        return None if listed else _NONE_READ
 
-    return (f"Deploys {_HOW_A_KIND_WAS_READ[deploys]}; "
-            f"flags {_HOW_A_KIND_WAS_READ[flags]}.")
+    return changes_not_listed(deploys, flags, listed)
 
 
 def _no_log_messages(reading: ChannelReading | None) -> str:
     """What came of reading the logs, where none are listed."""
-    return _NONE_READ if reading is None else _NO_LOG_MESSAGES[reading]
+    return _NONE_READ if reading is None else no_logs_listed(reading)
 
 
 def _a_change(cited: CitedChange) -> Line:
@@ -297,6 +342,28 @@ def _a_diff_row(cited: CitedEvidence, addresses: dict[str, str],
                            {**shorts, **beside_short})))
 
 
+def _a_file_row(cited: CitedEvidence, addresses: dict[str, str],
+                shorts: dict[str, str]) -> EvidenceRow:
+    """A file as it ran, as its row says it: its path at the revision, the
+    path leading to the file there and the revision to its commit, where each
+    opens.
+
+    Named, not printed: the file's text is the model's to read, and printed
+    whole two files took six pages of a write-up's fourteen."""
+    named = cited.text.split("\n", 1)[0]
+    path = named.rsplit(_AT_THE_REVISION, 1)[0]
+    opens = {path: cited.address} if cited.address is not None else {}
+
+    return EvidenceRow(label=cited.label,
+                       said=Line(runs=_shortened(
+                           Run(text=named).with_links({**addresses, **opens}), shorts)))
+
+
+# What sits between a file's path and the revision it ran at, as its row is
+# named: "deploy/scrape.yaml at 53f02e9".
+_AT_THE_REVISION: Final = " at "
+
+
 def _the_revisions_beside(said: str, addresses: dict[str, str],
                           shorts: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
     """The revisions a diff's first line names that no change read is - the
@@ -331,27 +398,60 @@ def the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:
             for reference in (cited.short_reference, cited.change.reference)}
 
 
-def _with_code_set_apart(text: str, shorts: dict[str, str],
-                         addresses: dict[str, str]) -> Line:
-    """What Code-Fix read, the code it quotes between backticks set apart as
-    code and the backticks left out: it writes Markdown, and a mark printed is
-    one nobody reading the page or the paper was meant to see. Only at display -
-    the model is briefed in its words as written.
+def _as_its_markdown_sets_it(text: str, shorts: dict[str, str],
+                             addresses: dict[str, str]) -> Line:
+    """What Code-Fix read, set as its Markdown says and with the marks left
+    out: the code it quotes between backticks set apart as code, what it wrote
+    between double asterisks strong, and an item of a list after a bullet in
+    place of its dash. A mark printed is one nobody reading the page or the
+    paper was meant to see. Only at display - the model is briefed in its words
+    as written.
 
     Its own words name a revision as the rest of the document does - short,
     and leading to its commit - for one revision said two ways reads as two.
-    Code it quotes is quoted as it is."""
-    pieces = _A_CODE_SPAN.split(text)
-    # `split` puts what the group matched at every odd place.
-    return Line(runs=tuple(run
-                           for place, piece in enumerate(pieces) if piece
-                           for run in ((Run(text=piece, role=Role.CODE),) if place % 2
-                                       else Run(text=said_short(piece, shorts))
-                                       .with_links(addresses))))
+    Code it quotes is quoted as it is, inside strong words as anywhere.
+
+    Asterisks are strong in pairs. One left over has nothing to close it, and
+    stays in the words as it came."""
+    said = _A_LIST_ITEM.sub(_A_BULLET, text)
+    marks = list(_A_MARK.finditer(said))
+    strong_marks = [mark for mark in marks if mark.group(1) is None]
+    left_over = strong_marks[-1] if len(strong_marks) % 2 else None
+
+    runs: list[Run] = []
+    strong, written = False, 0
+    for mark in marks:
+        if mark is left_over:
+            continue
+
+        runs += _words(said[written:mark.start()], strong, shorts, addresses)
+        if mark.group(1) is not None:
+            runs.append(Run(text=mark.group(1), role=Role.CODE))
+        else:
+            strong = not strong
+        written = mark.end()
+
+    return Line(runs=(*runs, *_words(said[written:], strong, shorts, addresses)))
 
 
-# Code quoted inline in Markdown: between single backticks, on one line.
-_A_CODE_SPAN: Final = re.compile(r"`([^`\n]+)`")
+def _words(said: str, strong: bool, shorts: dict[str, str],
+           addresses: dict[str, str]) -> tuple[Run, ...]:
+    """Code-Fix's words between two marks, strong or not, each revision in them
+    said short and leading to its commit."""
+    if not said:
+        return ()
+
+    return Run(text=said_short(said, shorts),
+               role=Role.STRONG if strong else Role.PLAIN).with_links(addresses)
+
+
+# What Code-Fix's Markdown is set by: code quoted inline, between single
+# backticks on one line, and the double asterisk either side of strong words.
+_A_MARK: Final = re.compile(r"`([^`\n]+)`|\*\*")
+
+# An item of a list in Markdown, and what the paper sets one after instead.
+_A_LIST_ITEM: Final = re.compile(r"^- ", re.MULTILINE)
+_A_BULLET: Final = "• "
 
 
 def _rows(evidence: list[CitedEvidence]) -> tuple[EvidenceRow, ...]:

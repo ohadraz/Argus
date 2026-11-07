@@ -18,11 +18,12 @@ level is read belong to `metrics` and `logs`, and are tested there.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
-from decimal import Decimal
 
 import pytest
 from argus_core import new_id
+from argus_core.anomaly import THE_JUDGED_SIGNALS
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -30,6 +31,7 @@ from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     AwaitingRecovery,
     CandidateSelected,
     CandidatesReordered,
@@ -58,6 +60,8 @@ from argus_core.events import (
     ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
+    RolloutRead,
+    ServiceRegisterRead,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
@@ -72,12 +76,15 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    RULE_READING_FIELD,
     SCALE_OUT,
     ActionIdentity,
+    ActionType,
     Actor,
     Alert,
     ChangeEvent,
     ChangeKind,
+    DeploymentComparison,
     Evidence,
     FailureMode,
     FixOutcome,
@@ -86,30 +93,45 @@ from argus_core.models import (
     Meaning,
     MetricBucket,
     OpenedPullRequest,
+    Ownership,
     PodPlacement,
+    RecalledIncident,
     RecordedPlacement,
     Reference,
     Refusal,
     Report,
     ReportChannel,
     RetrievalChannel,
+    RolloutAccount,
+    RolloutProgress,
+    ServiceDependency,
     Standing,
     Undone,
     Verdict,
+    WhatWasTried,
     the_actions_through,
+    why_it_was_refused,
 )
 from argus_narration.narrating import (
+    CandidateNamed,
     NarrationLine,
     build_narration,
     each_wait_told_once,
+    said_as_meant,
     said_in_full,
+    what_to_do,
     what_was_done,
+    what_was_not_done,
 )
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 
 SOME_MINUTE = "2026-08-30T10:14:00Z"
+
+# What Code-Fix said of the code it read, where a fix is no pull request.
+SOME_EXPLANATION = ("The scrape selects the metrics port by its old name, so "
+                    "scrape.yaml would have to name http-metrics instead.")
 AN_EARLIER_MINUTE = "2026-08-30T10:13:00Z"
 SOME_FLAG = "some-ramped-flag"
 SOME_ONSET = datetime(2026, 8, 30, 10, 13, tzinfo=UTC)
@@ -198,7 +220,26 @@ def test_a_retrieval_line_dates_a_window_from_another_day() -> None:
     Scenario() \
         .given(some_request) \
         .when(lambda: build_narration([some_request])) \
-        .then(_the_only_line_mentions("30 Aug 10:14"))
+        .then(_the_only_line_mentions("Aug 30 10:14"))
+
+
+@pytest.mark.unit
+def test_a_change_retrieval_line_says_it_asked_for_flag_changes_too() -> None:
+    # The read takes in the flag provider's history beside deploys and
+    # releases. Said as deploys and releases alone, a read that found a flag
+    # change reads as one that could not have, and a write-up blames the read
+    # for missing what it never claimed to look for.
+    some_request = RetrievalRequested(
+        incident_id=new_id(),
+        channel=RetrievalChannel.CHANGES,
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE
+    )
+
+    Scenario() \
+        .given(some_request) \
+        .when(lambda: build_narration([some_request])) \
+        .then(_the_only_line_mentions("deploys, releases and flag changes"))
 
 
 @pytest.mark.unit
@@ -242,6 +283,29 @@ def test_a_metrics_read_whose_rows_stop_is_said_as_an_absence() -> None:
         .when(lambda: build_narration([some_read])) \
         .then(all_of(_the_only_line_mentions("stop"),
                      _the_only_line_mentions(SOME_MINUTE[11:16])))
+
+
+@pytest.mark.unit
+def test_a_metrics_read_whose_rows_stop_names_the_last_minute_they_cover_by_the_clock() -> None:
+    # The window's end is the start of the last minute read, so "they stop at
+    # 00:08" reads as nothing from 00:08 on, when 00:08 was read - and a
+    # postmortem retelling it said the metrics stopped at 00:08 in one place
+    # and 00:09 in another. Said by the clock, like every other line: the wire
+    # format is what the tools speak to each other.
+    some_read = MetricsRetrieved(
+        incident_id=new_id(),
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        buckets=[_a_bucket(AN_EARLIER_MINUTE), _a_bucket(SOME_MINUTE)],
+        stopped_before_the_alert=True
+    )
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("stop after the minute at"),
+                     _the_only_line_mentions(SOME_MINUTE[11:16]),
+                     _the_only_line_does_not_say(SOME_MINUTE)))
 
 
 @pytest.mark.unit
@@ -300,6 +364,49 @@ def test_a_flag_history_is_carried_as_the_changes_it_reported() -> None:
 
 
 @pytest.mark.unit
+def test_a_flag_history_read_is_credited_to_argus() -> None:
+    # The walk reads the flag history itself, every round, before any agent is
+    # called in to act on it. Credited to the Mitigation Agent, the line put a
+    # read by an agent ahead of the line calling that agent in - and on an
+    # incident that never called it in at all.
+    some_read = FlagChangesRetrieved(incident_id=new_id(), changes=[])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_lines_are_credited_to(["Argus"]))
+
+
+@pytest.mark.unit
+def test_a_flag_history_read_says_the_window_it_covered_and_whose_changes_it_counts() -> None:
+    # "Recent" has no span, so a write-up saying no flag moved lately ruled out
+    # a stretch nobody could see. And Argus's own toggles are left out of the
+    # read: over a window ending now, a count of none says nothing of one Argus
+    # made.
+    some_read = FlagChangesRetrieved(incident_id=new_id(), changes=[],
+                                     window_start=AN_EARLIER_MINUTE, window_end=SOME_MINUTE,
+                                     at=datetime(2026, 8, 30, 10, 14, 30, tzinfo=UTC))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_says("0 flag changes by anyone but Argus",
+                                  "1 minute before 10:14"))
+
+
+@pytest.mark.unit
+def test_a_flag_history_read_recorded_with_no_window_is_said_as_recent() -> None:
+    # Recorded before the window was carried: said as it always was, rather
+    # than with a span made up for it.
+    some_read = FlagChangesRetrieved(incident_id=new_id(), changes=[])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_says("0 recent flag changes"))
+
+
+@pytest.mark.unit
 def test_a_read_of_what_a_deployment_changed_names_the_deployment() -> None:
     # The read that tells a configuration change from a code change, and what a
     # reader of the page is given of it is which deployment was looked into.
@@ -313,15 +420,198 @@ def test_a_read_of_what_a_deployment_changed_names_the_deployment() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("comparison", "said"), [
+    (DeploymentComparison.NOTHING_BEFORE_IT,
+     "it is the earliest deployment of io-shop the history holds, so there was nothing "
+     "before it to compare it against"),
+    (DeploymentComparison.NOT_DEPLOYED, "no deployment of io-shop has that revision")
+], ids=["nothing-before-it", "not-deployed"])
+def test_a_read_with_no_comparison_behind_it_says_why_and_claims_no_diff_read(
+        comparison: DeploymentComparison, said: str) -> None:
+    # Nothing was compared, so "read what it changed" would be false: what came
+    # back is a fact about the history, and the line says which.
+    some_read = DeploymentChangesRead(incident_id=new_id(), revision="7c3ca00",
+                                      said=["dont care"], comparison=comparison,
+                                      service="io-shop")
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_says("Asked what the deployment of 7c3ca00 changed", said),
+                     _the_only_line_does_not_say("Read what the deployment")))
+
+
+@pytest.mark.unit
+def test_a_converged_rollout_names_the_revision_every_replica_runs_and_when_it_landed() -> None:
+    # The ordinary answer, and a finding: it rules out two revisions serving at
+    # once. Said from the read tier's value - by the clock, like every other
+    # line - rather than in the sentences the model was shown. To the second,
+    # since the line reaches a model, and what a model is given is exact.
+    some_instant = "2026-08-30T10:14:37Z"
+    some_deploy = ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=some_instant,
+                              reference="9c1f0ab2d4e6", summary="dont care")
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=6),
+        going_out=some_deploy, before_it=None))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("all 6 replicas run revision 9c1f0ab2d4e6"),
+                     _the_only_line_mentions("10:14:37"),
+                     _the_only_line_does_not_say(some_instant),
+                     _the_lines_are_credited_to(["Investigator Agent"])))
+
+
+@pytest.mark.unit
+def test_a_split_rollout_names_both_revisions_how_many_run_each_and_a_pause() -> None:
+    # The answer the mode turns on: neither revision is the subject while both
+    # are serving. The pause is a different fact from the split - a person
+    # stopped it, rather than the platform being slow.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=2,
+                                 is_paused=True),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-30T10:14:37Z",
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("2 of 6 replicas run revision 9c1f0ab2d4e6"),
+                     _the_only_line_mentions("10:14:37"),
+                     _the_only_line_mentions("4 still run revision 544cef36a8ea"),
+                     _the_only_line_mentions("paused")))
+
+
+@pytest.mark.unit
+def test_a_split_rollout_running_more_replicas_than_its_size_says_the_size() -> None:
+    # A rolling update surging past its size: "3 of 6" alone reads as a fleet
+    # of six the rollout finishes with, where it finishes with three.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=3, replicas_serving=6, replicas_updated=3),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("3 of 6 replicas run revision 9c1f0ab2d4e6"),
+                     _the_only_line_mentions("of a deployment sized for 3")))
+
+
+@pytest.mark.unit
+def test_a_split_rollout_running_its_size_says_no_size_beside_it() -> None:
+    # Where the counts agree, the size is the count already said.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=2),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_does_not_say("sized for"))
+
+
+@pytest.mark.unit
+def test_a_converged_rollout_of_one_replica_is_said_in_the_singular() -> None:
+    # "all 1 replicas run" is the line a reader stops at.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=1, replicas_serving=1, replicas_updated=1),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=None))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_mentions("its 1 replica runs revision 9c1f0ab2d4e6"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("serving", "updated", "said_of_the_new", "said_of_the_old"), [
+    (2, 1, "1 of 2 replicas runs revision 9c1f0ab2d4e6", "1 still runs revision 544cef36a8ea"),
+    (1, 0, "0 of 1 replica run revision 9c1f0ab2d4e6", "1 still runs revision 544cef36a8ea")
+], ids=["one-on-each-side", "one-serving"])
+def test_a_split_rollout_with_one_replica_on_a_side_says_that_side_in_the_singular(
+        serving: int, updated: int, said_of_the_new: str, said_of_the_old: str) -> None:
+    # Each count agrees with what it counts: "1 still run" is the line a
+    # reader stops at.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=1, replicas_serving=serving,
+                                 replicas_updated=updated),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions(said_of_the_new),
+                     _the_only_line_mentions(said_of_the_old)))
+
+
+@pytest.mark.unit
+def test_a_split_rollout_with_nothing_before_it_says_the_older_revision_is_not_named() -> None:
+    # The replicas not yet updated run *something*, and the history cannot say
+    # what - said, rather than left out, or the split reads as one revision.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=2),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=None))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_mentions("4 still run an earlier revision the history does not name"))
+
+
+@pytest.mark.unit
+def test_a_register_read_names_each_dependency_and_whose_it_is() -> None:
+    # A cause resting on a dependency rests on this read: whose it is decided
+    # whether anything could be done, and the account is owed the fact under
+    # the conclusion.
+    some_read = ServiceRegisterRead(incident_id=new_id(), dependencies=[
+        ServiceDependency(name="io-pricing", purpose="dont care", host="dont care",
+                          owner="checkout-platform", ownership=Ownership.INTERNAL)])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("io-pricing (internal, owned by checkout-platform)"),
+                     _the_lines_are_credited_to(["Investigator Agent"])))
+
+
+@pytest.mark.unit
+def test_an_empty_register_read_says_the_service_calls_nothing_it_knows_of() -> None:
+    # Read and empty is a finding, and a line saying nothing of it would read
+    # as a register nobody asked.
+    some_read = ServiceRegisterRead(incident_id=new_id(), dependencies=[])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_mentions("records nothing the service calls"))
+
+
+@pytest.mark.unit
 def test_a_candidate_is_the_hypothesis_that_was_recorded() -> None:
     # Not restated and not re-derived: the narration and the walk have to be
     # the same hypothesis seen twice, rather than two accounts to reconcile.
     some_cause = "legacy-checkout-fallback was enabled"
-    some_finding = _a_hypothesis(summary=some_cause, rank=1)
+    some_candidate = _a_hypothesis(summary=some_cause, rank=1)
 
     Scenario() \
-        .given(some_finding) \
-        .when(lambda: build_narration([some_finding])) \
+        .given(some_candidate) \
+        .when(lambda: build_narration([some_candidate])) \
         .then(_the_only_line_offers_the_causes([some_cause]))
 
 
@@ -329,26 +619,26 @@ def test_a_candidate_is_the_hypothesis_that_was_recorded() -> None:
 def test_a_candidate_carries_the_hypothesis_it_was_recorded_as() -> None:
     # So whatever lays the candidates out somewhere else - the write-up, under
     # labels of its own - can tell which line formed which.
-    some_finding = _a_hypothesis(summary="dont care", rank=1)
+    some_candidate = _a_hypothesis(summary="dont care", rank=1)
 
     Scenario() \
-        .given(some_finding) \
+        .given(some_candidate) \
         .when(lambda: [candidate.hypothesis_id
-                       for candidate in build_narration([some_finding])[0].candidates]) \
-        .then(the_answer_was([some_finding.hypothesis_id]))
+                       for candidate in build_narration([some_candidate])[0].candidates]) \
+        .then(the_answer_was([some_candidate.hypothesis_id]))
 
 
 @pytest.mark.unit
 def test_a_candidate_quoting_an_instant_on_another_day_keeps_its_date() -> None:
     # Said beside the line it was formed on: a deploy a week before that line,
     # written as a clock time alone, reads as one this morning.
-    some_finding = _a_hypothesis(summary="The deploy at 2026-08-23T10:14:00Z broke it",
+    some_candidate = _a_hypothesis(summary="The deploy at 2026-08-23T10:14:00Z broke it",
                                  rank=1).model_copy(update={"at": _OPENED_AT})
 
     Scenario() \
-        .given(some_finding) \
-        .when(lambda: build_narration([some_finding])) \
-        .then(_the_only_line_offers_the_causes(["The deploy at 23 Aug 10:14 broke it"]))
+        .given(some_candidate) \
+        .when(lambda: build_narration([some_candidate])) \
+        .then(_the_only_line_offers_the_causes(["The deploy at Aug 23 10:14 broke it"]))
 
 
 @pytest.mark.unit
@@ -361,7 +651,25 @@ def test_an_onset_on_another_day_is_placed_with_its_date() -> None:
     Scenario() \
         .given(some_onset) \
         .when(lambda: build_narration([some_onset])) \
-        .then(_the_only_line_mentions("at 23 Aug 10:14"))
+        .then(_the_only_line_mentions("at Aug 23 10:14"))
+
+
+@pytest.mark.unit
+def test_the_alarms_minute_is_said_as_where_the_investigation_looked_from_not_as_a_start(
+) -> None:
+    # Nothing dated the incident, and the minute is only where every window was
+    # anchored. Said as a start, the page and the postmortem dated the incident
+    # from the moment the alarm went off.
+    some_anchor = AnchoredOnTheAlarm(incident_id=new_id(), minute=SOME_MINUTE)
+
+    Scenario() \
+        .given(some_anchor) \
+        .when(lambda: build_narration([some_anchor])) \
+        .then(all_of(
+            _the_only_line_says("the minute the alarm fired in"),
+            _the_only_line_says("nothing dates when the incident began"),
+            _the_only_line_does_not_say("start")
+        ))
 
 
 @pytest.mark.unit
@@ -384,12 +692,14 @@ def test_a_candidate_shows_the_move_it_blamed_the_way_the_flag_table_does() -> N
 def test_the_candidates_formed_together_are_one_line() -> None:
     # An investigation forms its explanations in one breath, and a story that
     # spent a line on each would bury what it did next under a list. They are
-    # one finding with a ranking inside it.
+    # one finding with a ranking inside it - each said by its number, which a
+    # later round's carry on from the rounds before, where its rank starts at
+    # one again.
     some_incident = new_id()
 
     two_candidates_then_something_else: list[IncidentEvent] = [
-        _a_hypothesis(summary="the flag", rank=1, incident_id=some_incident),
-        _a_hypothesis(summary="the deploy", rank=2, incident_id=some_incident),
+        _a_hypothesis(summary="the flag", rank=1, incident_id=some_incident, number=3),
+        _a_hypothesis(summary="the deploy", rank=2, incident_id=some_incident, number=4),
         OnsetDetected(incident_id=some_incident, onset=SOME_MINUTE)
     ]
 
@@ -397,7 +707,7 @@ def test_the_candidates_formed_together_are_one_line() -> None:
         .given(two_candidates_then_something_else) \
         .when(lambda: build_narration(two_candidates_then_something_else)) \
         .then(all_of(_the_kinds_are(["hypothesis-formed", "onset-detected"]),
-                     _the_first_line_ranks_the_causes([1, 2])))
+                     _the_first_line_numbers_the_causes([3, 4])))
 
 
 @pytest.mark.unit
@@ -425,18 +735,51 @@ def test_candidates_formed_in_two_rounds_are_two_lines() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_is_said_as_never_judged() -> None:
+    # A person resolved or withdrew the incident while the service was watched,
+    # so nothing was judged. "Judged the action WITHDRAWN" read as a verdict
+    # reached, and as a withdrawal of an incident a person had resolved.
+    a_stopped_judgement = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.STOPPED
+    )
+
+    Scenario() \
+        .given(a_stopped_judgement) \
+        .when(lambda: build_narration([a_stopped_judgement])) \
+        .then(all_of(
+            _the_only_line_reads("Stopped before judging the action - a person ended the incident"),
+            _the_only_line_marks("Stopped before judging the action")
+        ))
+
+
+@pytest.mark.unit
 def test_a_candidate_shows_what_it_was_formed_from() -> None:
     # The findings are what make a claim checkable. Without them the page asks
     # an audience to take Argus's word for the whole investigation.
     what_it_rests_on = "monthly-spend-feature began evaluating ON at 10:05"
-    some_finding = _a_hypothesis(
+    some_candidate = _a_hypothesis(
         summary="dont care", rank=1, evidence=[what_it_rests_on]
     )
 
     Scenario() \
-        .given(some_finding) \
-        .when(lambda: build_narration([some_finding])) \
+        .given(some_candidate) \
+        .when(lambda: build_narration([some_candidate])) \
         .then(_the_only_line_cites([what_it_rests_on]))
+
+
+@pytest.mark.unit
+def test_a_finding_quoting_an_instant_on_another_day_keeps_its_date() -> None:
+    # Said beside the line its candidate was formed on, as the candidate's own
+    # summary is: a deploy a week before that line, written as a clock time
+    # alone, reads as one this morning.
+    a_candidate_citing_an_instant = _a_hypothesis(
+        summary="dont care", rank=1, evidence=["The deploy at 2026-08-23T10:14:00Z broke it"]
+    ).model_copy(update={"at": _OPENED_AT})
+
+    Scenario() \
+        .given(a_candidate_citing_an_instant) \
+        .when(lambda: build_narration([a_candidate_citing_an_instant])) \
+        .then(_the_only_line_cites(["The deploy at Aug 23 10:14 broke it"]))
 
 
 @pytest.mark.unit
@@ -518,8 +861,11 @@ def test_a_look_that_found_the_service_back_says_which_minute_it_came_back_at() 
     (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True),
      "no longer at the incident's level"),
     (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=False),
-     "still at the incident's level")
-], ids=["dated", "undated", "not-yet"])
+     "still at the incident's level"),
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=False,
+                     saw_no_minute=True),
+     "no new minute read yet")
+], ids=["dated", "undated", "not-yet", "nothing-to-judge"])
 def test_a_look_says_what_it_judged_rather_than_that_the_service_was_back_to_normal(
         look: RecoveryChecked, said: str) -> None:
     # A look judges whether the service fell off the incident's own level, which
@@ -537,6 +883,64 @@ def test_a_look_says_what_it_judged_rather_than_that_the_service_was_back_to_nor
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("look", "said"), [
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True,
+                     recovered_minute=AN_EARLIER_MINUTE, read_again=True),
+     "its metrics could be read again from 10:13"),
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True,
+                     read_again=True),
+     "its metrics could be read again")
+], ids=["dated", "undated"])
+def test_a_look_that_finds_a_blind_spot_read_again_says_so_rather_than_a_level(
+        look: RecoveryChecked, said: str) -> None:
+    # A blind spot had no level read while its minutes were missing, so it has
+    # none to leave: what came back is the metrics themselves. Said as a level,
+    # the page tells a reader the service was read at one the whole time.
+    Scenario() \
+        .given(look) \
+        .when(lambda: build_narration([look])) \
+        .then(all_of(
+            _the_only_line_says(said),
+            _the_only_line_does_not_say("level"),
+            _the_only_line_does_not_say("back to normal")
+        ))
+
+
+@pytest.mark.unit
+def test_a_wait_asks_what_its_looks_answer_rather_than_waiting_for_an_answer() -> None:
+    # "Waiting for the service to answer" reads as a service that had stopped
+    # answering - said of a latency incident in which it answered throughout,
+    # only slowly. The wait asks the question the looks after it answer, in
+    # their words.
+    Scenario() \
+        .given(
+            some_wait := AwaitingRecovery(incident_id=new_id(), from_minute=SOME_MINUTE,
+                                          seconds_allowed=180.0)
+        ) \
+        .when(lambda: build_narration([some_wait])) \
+        .then(all_of(
+            _the_only_line_says("whether the service is still at the incident's level"),
+            _the_only_line_does_not_say("answer")
+        ))
+
+
+@pytest.mark.unit
+def test_a_wait_on_a_blind_spot_asks_whether_its_metrics_can_be_read_again() -> None:
+    # No level was read while its minutes were missing, so there is none to be
+    # still at: the wait asks what the look after it answers.
+    Scenario() \
+        .given(
+            some_wait := AwaitingRecovery(incident_id=new_id(), from_minute=SOME_MINUTE,
+                                          seconds_allowed=63.0, until_read_again=True)
+        ) \
+        .when(lambda: build_narration([some_wait])) \
+        .then(all_of(
+            _the_only_line_says("Waiting to see whether its metrics can be read again, from "),
+            _the_only_line_does_not_say("level")
+        ))
+
+
+@pytest.mark.unit
 def test_the_onset_line_names_the_minute_it_placed() -> None:
     # It names one minute out of ninety, and the account carries which one so
     # that a reader is never left to find it by eye. What a page then does with
@@ -546,6 +950,18 @@ def test_the_onset_line_names_the_minute_it_placed() -> None:
     Scenario() \
         .given(some_onset) \
         .when(lambda: build_narration([some_onset])) \
+        .then(_the_only_line_names_the_minute(SOME_MINUTE))
+
+
+@pytest.mark.unit
+def test_the_line_saying_where_the_investigation_looked_from_names_that_minute() -> None:
+    # One minute out of ninety, as the onset's line names its own: a reader is
+    # never left to find it by eye.
+    some_anchor = AnchoredOnTheAlarm(incident_id=new_id(), minute=SOME_MINUTE)
+
+    Scenario() \
+        .given(some_anchor) \
+        .when(lambda: build_narration([some_anchor])) \
         .then(_the_only_line_names_the_minute(SOME_MINUTE))
 
 
@@ -599,11 +1015,11 @@ def test_the_candidates_said_in_full_are_named_after_the_count() -> None:
     # "best first:" introduces the list a page lays out beneath the line. Said
     # alone, the colon has to be followed by what it promised.
     some_cause = "legacy-checkout-fallback was enabled"
-    some_finding = _a_hypothesis(summary=some_cause, rank=1)
+    some_candidate = _a_hypothesis(summary=some_cause, rank=1)
 
     Scenario() \
         .given(
-            some_line := _the_only(build_narration([some_finding]))
+            some_line := _the_only(build_narration([some_candidate]))
         ) \
         .when(
             lambda: said_in_full(some_line)
@@ -663,6 +1079,270 @@ def test_an_action_done_is_said_in_words_rather_than_by_its_tag() -> None:
         ) \
         .then(
             _ends_with(f"Reverted the feature flag {SOME_FLAG}")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("action_type", "said"), [
+    (REVERT_FEATURE_FLAG, "Revert some-subject"),
+    (RESTART_SERVICE, "Restart some-subject"),
+    (ROLL_BACK_DEPLOYMENT, "Roll some-subject back"),
+    (SCALE_OUT, "Scale some-subject out"),
+    (PIN_AUTOSCALER, "Hold some-subject's autoscaler still"),
+    (DISCARD_CACHE_ENTRIES, "Discard some-subject's stale cached figures"),
+    (PIN_TO_ACCELERATOR, "Hold some-subject's pods to one accelerator card")
+])
+def test_an_action_left_to_do_is_said_as_an_instruction(action_type: ActionType,
+                                                         said: str) -> None:
+    # An action item is something a person does, and the list it sits in says
+    # the rest as instructions - "Review and merge the proposed fix". The
+    # gerund the account's own line uses, "rolling io-shop back", reads there
+    # as a phrase left unfinished. The same verb, so the item and the line
+    # read as one action.
+    some_subject = "some-subject"
+
+    Scenario() \
+        .given(some_subject) \
+        .when(lambda: what_to_do(action_type, some_subject)) \
+        .then(the_answer_was(said))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("action_type", "said"), [
+    (REVERT_FEATURE_FLAG, "Did not revert the feature flag some-subject"),
+    (RESTART_SERVICE, "Did not restart some-subject"),
+    (ROLL_BACK_DEPLOYMENT, "Did not roll back the deployment of some-subject"),
+    (SCALE_OUT, "Did not scale out the deployment of some-subject"),
+    (PIN_AUTOSCALER, "Did not raise the autoscaler floor of some-subject"),
+    (DISCARD_CACHE_ENTRIES, "Did not discard the stale cached figures of some-subject"),
+    (PIN_TO_ACCELERATOR, "Did not hold the pods of some-subject")
+])
+def test_an_action_never_performed_is_said_as_not_done(action_type: ActionType,
+                                                       said: str) -> None:
+    # An attempt that ended before its write - a platform that did not answer,
+    # an action with nowhere left to go. Said in the past tense, it tells a
+    # reader the service was changed when nothing was.
+    some_subject = "some-subject"
+
+    Scenario() \
+        .given(some_subject) \
+        .when(lambda: what_was_not_done(action_type, some_subject)) \
+        .then(the_answer_was(said))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_an_action_never_performed_says_what_was_not_done() -> None:
+    # Nothing announced the action - the announcement is made once a change is
+    # - so this is the one line saying what was reached for. "Judged the action"
+    # would claim a test that never ran.
+    some_application = "io-shop"
+    a_verdict_on_nothing_done = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.PLATFORM_UNREACHABLE,
+        action_type=ROLL_BACK_DEPLOYMENT, subject=some_application, performed=False
+    )
+
+    Scenario() \
+        .given(a_verdict_on_nothing_done) \
+        .when(lambda: build_narration([a_verdict_on_nothing_done])) \
+        .then(all_of(
+            _the_only_line_reads(f"Did not roll back the deployment of {some_application} "
+                                 f"- PLATFORM-UNREACHABLE"),
+            _the_only_line_marks("PLATFORM-UNREACHABLE")
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_an_action_never_performed_says_the_candidate_it_was_for() -> None:
+    # The one line saying what was reached for, so the one saying for which
+    # candidate: nothing else does, and a reader takes it for the leader's.
+    some_application = "io-shop"
+    a_verdict_on_nothing_done = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=ROLL_BACK_DEPLOYMENT, subject=some_application, performed=False,
+        candidate_number=3
+    )
+
+    Scenario() \
+        .given(a_verdict_on_nothing_done) \
+        .when(lambda: build_narration([a_verdict_on_nothing_done])) \
+        .then(
+            _the_only_line_reads(f"Did not roll back the deployment of {some_application} "
+                                 f"for candidate cause #3 - ESCALATED")
+        )
+
+
+@pytest.mark.unit
+def test_a_verdict_on_an_action_never_performed_says_why_in_the_tier_s_words() -> None:
+    # The only reason this line has for an explanation passed over untested,
+    # and nothing else live says it.
+    some_application = "io-shop"
+    some_reason = f"[{some_application}] has no revision before the one it is running"
+    a_verdict_on_nothing_done = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.NOT_ATTEMPTED,
+        action_type=ROLL_BACK_DEPLOYMENT, subject=some_application, performed=False,
+        candidate_number=3, not_performed_because=some_reason
+    )
+
+    Scenario() \
+        .given(a_verdict_on_nothing_done) \
+        .when(lambda: build_narration([a_verdict_on_nothing_done])) \
+        .then(all_of(
+            _the_only_line_reads(f"Did not roll back the deployment of {some_application} "
+                                 f"for candidate cause #3 - NOT-ATTEMPTED: {some_reason}"),
+            _the_only_line_marks("NOT-ATTEMPTED")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("undone, said", [
+    (Undone.RESTORED, "was put back ON"),
+    (Undone.LEFT_AS_FOUND,
+     "was left as found: it has been changed from outside since Argus set it")
+], ids=["restored", "left-as-found"])
+def test_a_refuted_change_says_what_putting_it_back_did(undone: Undone, said: str) -> None:
+    # Nothing else live says it: the cleanup's own line comes only when an
+    # incident is unwound, and a thread without it reads as the flag still off.
+    a_refutation_put_back = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.REFUTED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG,
+        undone=undone, undone_detail=said
+    )
+
+    Scenario() \
+        .given(a_refutation_put_back) \
+        .when(lambda: build_narration([a_refutation_put_back])) \
+        .then(all_of(
+            _the_only_line_reads(f"Judged the action REFUTED - {SOME_FLAG} {said}"),
+            _the_only_line_marks("REFUTED")
+        ))
+
+
+@pytest.mark.unit
+def test_an_escalated_undo_is_not_said_again_on_the_verdict_s_line() -> None:
+    # The undo could not be established, and the move to ESCALATED beside this
+    # line says it in the same words. Said here too, a reader reads it twice.
+    an_escalated_undo = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG,
+        undone=Undone.NOT_ESTABLISHED,
+        undone_detail=("was not written: whether anybody changed it since Argus "
+                       "set it could not be established")
+    )
+
+    Scenario() \
+        .given(an_escalated_undo) \
+        .when(lambda: build_narration([an_escalated_undo])) \
+        .then(
+            _the_only_line_reads("Judged the action ESCALATED")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_taken_says_the_candidate_it_was_for() -> None:
+    # By the number the line that formed it gave it. The move to mitigating
+    # names no candidate, so without this a reader takes every action for the
+    # leading candidate's - and an action for the third reads as the first's.
+    some_application = "io-shop"
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        candidate_number=3,
+        action_type=ROLL_BACK_DEPLOYMENT,
+        subject=some_application,
+        enabled=None
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(
+            _the_only_line_reads(f"Rolled back the deployment of {some_application} "
+                                 f"for candidate cause #3")
+        )
+
+
+@pytest.mark.unit
+def test_the_move_to_mitigating_names_no_candidate() -> None:
+    # Made once a round, as the walk first reaches for a candidate, and not
+    # again as it passes over one it has no action for - so the leading
+    # candidate it used to name was, as often as not, one nobody acted on.
+    the_move = StatusChanged(incident_id=new_id(), to_status=IncidentStatus.MITIGATING)
+
+    Scenario() \
+        .given(the_move) \
+        .when(lambda: build_narration([the_move])) \
+        .then(
+            _the_only_line_reads("Moved the incident to MITIGATING to act on a candidate")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_before_it_was_done_is_said_as_never_taken() -> None:
+    # A person ended the incident between the walk choosing the action and
+    # taking it. Nothing was judged, and nothing was done either.
+    a_stop_before_the_write = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.STOPPED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG, performed=False
+    )
+
+    Scenario() \
+        .given(a_stop_before_the_write) \
+        .when(lambda: build_narration([a_stop_before_the_write])) \
+        .then(all_of(
+            _the_only_line_reads("Stopped before taking the action - a person ended the incident"),
+            _the_only_line_marks("Stopped before taking the action")
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_a_change_nothing_could_read_says_it_could_not_be_judged() -> None:
+    # The change was made and every look at the service went unanswered.
+    # "Judged the action ESCALATED" says a judgement was reached, and the same
+    # word stands for a refutation whose undo failed - which was judged.
+    a_verdict_on_an_unread_wait = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG, judged=False
+    )
+
+    Scenario() \
+        .given(a_verdict_on_an_unread_wait) \
+        .when(lambda: build_narration([a_verdict_on_an_unread_wait])) \
+        .then(all_of(
+            _the_only_line_reads("Could not judge the action - ESCALATED"),
+            _the_only_line_marks("ESCALATED")
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_a_change_that_was_read_says_it_was_judged() -> None:
+    # A refutation whose undo failed escalates too, and it was judged.
+    a_judged_escalation = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG
+    )
+
+    Scenario() \
+        .given(a_judged_escalation) \
+        .when(lambda: build_narration([a_judged_escalation])) \
+        .then(
+            _the_only_line_reads("Judged the action ESCALATED")
+        )
+
+
+@pytest.mark.unit
+def test_a_verdict_an_older_version_wrote_on_an_action_never_performed_names_no_action() -> None:
+    # An event that says nothing was done and names no action: there is no
+    # action to name, and the line still says nothing was done.
+    an_older_verdict = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.NOT_ATTEMPTED,
+        performed=False
+    )
+
+    Scenario() \
+        .given(an_older_verdict) \
+        .when(lambda: build_narration([an_older_verdict])) \
+        .then(
+            _the_only_line_reads("Did not take the action - NOT-ATTEMPTED")
         )
 
 
@@ -754,38 +1434,21 @@ def test_a_report_without_a_note_says_nothing_in_its_place() -> None:
 
 
 @pytest.mark.unit
-def test_a_refusal_marks_why_the_action_was_not_taken() -> None:
+@pytest.mark.parametrize("refusal", list(Refusal), ids=lambda refusal: refusal.value)
+def test_a_refusal_marks_why_the_action_was_not_taken_in_the_sentence_every_reader_says(
+    refusal: Refusal
+) -> None:
     # The autonomy boundary holding, said as the one thing a reader can act on.
     # Which candidate went untested is on the candidate's own row; what a person
-    # scanning the account needs is which of the two refusals this was - an
-    # investigation with nothing to offer, or something to do that nobody has
-    # pre-authorised. Marked for the reason a refused message marks its
-    # refusal: the reason is the actionable half.
-    some_refusal = ActionRefused(
-        incident_id=new_id(),
-        hypothesis_id=new_id(),
-        refusal=Refusal.NOT_A_GENERIC_MITIGATION
-    )
-
-    Scenario() \
-        .given(some_refusal) \
-        .when(lambda: build_narration([some_refusal])) \
-        .then(all_of(
-            _the_only_line_marks("is not a mitigation Argus may take unasked"),
-            _the_lines_are_credited_to(["Argus"])))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("refusal", [
-    Refusal.NOT_A_GENERIC_MITIGATION,
-    Refusal.ALREADY_TRIED_ENOUGH,
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
-    Refusal.NOTHING_COULD_CONFIRM_IT
-])
-def test_a_refusal_said_of_the_action_names_the_action_as_its_subject(refusal: Refusal) -> None:
-    # These four reasons are about the action rather than the investigation,
-    # and each opens on its verb. After "Refused to act - " alone the sentence
-    # has no subject: "Refused to act - is sound, and nothing would have said".
+    # scanning the account needs is which refusal this was, since each sends
+    # them to somebody different. Marked for the reason a refused message marks
+    # its refusal: the reason is the actionable half. And in the kernel's own
+    # sentence, which the candidate's row and the review say too - three
+    # spellings of one reason read as three reasons.
+    #
+    # Over the whole enum: a refusal nobody wrote a sentence for raises while
+    # the incident is being narrated, in the one path that exists to say what
+    # happened.
     some_refusal = ActionRefused(
         incident_id=new_id(),
         hypothesis_id=new_id(),
@@ -795,7 +1458,10 @@ def test_a_refusal_said_of_the_action_names_the_action_as_its_subject(refusal: R
     Scenario() \
         .given(some_refusal) \
         .when(lambda: build_narration([some_refusal])) \
-        .then(_the_only_line_says("Refused to act - the action "))
+        .then(all_of(
+            _the_only_line_marks(why_it_was_refused(refusal)),
+            _the_only_line_says(f"Refused to act - {why_it_was_refused(refusal)}"),
+            _the_lines_are_credited_to(["Argus"])))
 
 
 @pytest.mark.unit
@@ -825,6 +1491,99 @@ def test_a_recommendation_names_the_action_somebody_should_take() -> None:
 
 
 @pytest.mark.unit
+def test_a_refusal_says_the_candidate_whose_action_it_refused() -> None:
+    # The move to mitigating names no candidate, and a chat has no candidate
+    # panel beside it: a later round's refusal reads as the first round's, and
+    # two candidates refused for one reason read as one.
+    some_refusal = ActionRefused(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        candidate_number=3,
+        refusal=Refusal.NOTHING_COULD_CONFIRM_IT
+    )
+
+    Scenario() \
+        .given(some_refusal) \
+        .when(lambda: build_narration([some_refusal])) \
+        .then(
+            _the_only_line_says(f"Refused to act on candidate cause #3 - "
+                                f"{why_it_was_refused(Refusal.NOTHING_COULD_CONFIRM_IT)}")
+        )
+
+
+@pytest.mark.unit
+def test_a_recommendation_says_the_candidate_it_answers() -> None:
+    # For the refusal's reason: the action left for a person is one cause's,
+    # and which is what tells a reader what it would settle.
+    some_recommendation = ActionRecommended(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        candidate_number=3,
+        action_type=ROLL_BACK_DEPLOYMENT,
+        subject="io-shop"
+    )
+
+    Scenario() \
+        .given(some_recommendation) \
+        .when(lambda: build_narration([some_recommendation])) \
+        .then(
+            _the_only_line_says("Left for a person to do - rolling io-shop back "
+                                "for candidate cause #3")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("a_line_acting_for_a_candidate", [
+    lambda hypothesis_id: ActionTaken(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                      candidate_number=3, action_type=ROLL_BACK_DEPLOYMENT,
+                                      subject="io-shop"),
+    lambda hypothesis_id: VerdictReached(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                         candidate_number=3, outcome=Verdict.ESCALATED,
+                                         action_type=ROLL_BACK_DEPLOYMENT, subject="io-shop",
+                                         performed=False),
+    lambda hypothesis_id: ActionRefused(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                        candidate_number=3,
+                                        refusal=Refusal.NOTHING_COULD_CONFIRM_IT),
+    lambda hypothesis_id: ActionRecommended(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                            candidate_number=3,
+                                            action_type=ROLL_BACK_DEPLOYMENT,
+                                            subject="io-shop")
+], ids=["taken", "not-performed", "refused", "recommended"])
+def test_a_line_acting_for_a_candidate_says_which_and_in_what_words(
+    a_line_acting_for_a_candidate: Callable[[str], IncidentEvent]
+) -> None:
+    # So a destination with labels of its own for the candidates - the
+    # write-up's C3 - can say it by the label: beside a row and a resolution
+    # saying C3, "candidate cause #3" reads as a second candidate.
+    some_hypothesis = new_id()
+    some_event = a_line_acting_for_a_candidate(some_hypothesis)
+
+    Scenario() \
+        .given(some_event) \
+        .when(lambda: build_narration([some_event])[0].names_candidate) \
+        .then(
+            the_answer_was(CandidateNamed(hypothesis_id=some_hypothesis,
+                                          said_as="candidate cause #3"))
+        )
+
+
+@pytest.mark.unit
+def test_a_verdict_on_an_action_performed_names_no_candidate() -> None:
+    # Its action's own line said which; "Judged the action REFUTED" does not
+    # name one, and a destination told it did would look for words that are
+    # not there.
+    some_verdict = VerdictReached(incident_id=new_id(), hypothesis_id=new_id(),
+                                  candidate_number=3, outcome=Verdict.REFUTED)
+
+    Scenario() \
+        .given(some_verdict) \
+        .when(lambda: build_narration([some_verdict])[0].names_candidate) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
 def test_a_disproven_alarm_says_what_was_ruled_out_and_over_what() -> None:
     # The only line on any timeline that reports the absence of an incident.
     # Everything else says what Argus found or did about something that was
@@ -840,6 +1599,10 @@ def test_a_disproven_alarm_says_what_was_ruled_out_and_over_what() -> None:
     # timeline is the last check there is. A window holding fewer minutes than
     # its ends suggest is exactly the one to doubt a disproof over, and that is
     # invisible unless both figures are said.
+    #
+    # Its ends as every other row says a minute, and its signals as the
+    # metrics table beside it heads them: `p95_ms` above a column headed `p95`
+    # is one signal said two ways.
     some_condition = "error rate above 5% for 5m"
     some_disproof = AlarmDisproven(
         incident_id=new_id(),
@@ -855,11 +1618,31 @@ def test_a_disproven_alarm_says_what_was_ruled_out_and_over_what() -> None:
         .when(lambda: build_narration([some_disproof])) \
         .then(all_of(
             _the_only_line_marks(some_condition),
-            _the_only_line_says(
-                "error_rate", "p95_ms", "30", "2026-10-03T09:00Z",
-                "2026-10-03T09:29Z"
-            ),
+            _the_only_line_says("in errors or p95,", "30", "between 09:00 and 09:29"),
+            _the_only_line_does_not_say("error_rate", "p95_ms", "2026-10-03"),
             _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_every_signal_a_window_is_judged_on_is_said_as_the_metrics_table_heads_it() -> None:
+    # Read off the kernel rather than listed here: a signal added to the
+    # judgement and not to the headings would be said by its field name, beside
+    # a table that calls it something else.
+    some_disproof = AlarmDisproven(
+        incident_id=new_id(),
+        condition="dont care",
+        signals_judged=(*THE_JUDGED_SIGNALS, RULE_READING_FIELD),
+        earliest_minute="2026-10-03T09:00Z",
+        latest_minute="2026-10-03T09:29Z",
+        minutes_judged=30
+    )
+
+    Scenario() \
+        .given(some_disproof) \
+        .when(lambda: build_narration([some_disproof])) \
+        .then(
+            _the_only_line_says("in errors, p50, p95, p99, memory or the alert rule's series,")
+        )
 
 
 @pytest.mark.unit
@@ -942,7 +1725,7 @@ def test_an_unavailable_platform_says_only_the_actions_it_actually_took() -> Non
     Scenario() \
         .given(some_outage) \
         .when(lambda: build_narration([some_outage])) \
-        .then(_the_only_line_does_not_say("putting"))
+        .then(_the_only_line_does_not_say("reverting"))
 
 
 @pytest.mark.unit
@@ -963,31 +1746,49 @@ def test_a_platform_that_took_one_action_says_that_one() -> None:
         .when(lambda: build_narration([some_outage])) \
         .then(all_of(
             _the_only_line_marks(FLAG_PROVIDER),
-            _the_only_line_says("putting"),
+            _the_only_line_says("reverting"),
             _the_only_line_does_not_say("restarting", "rolling", "scaling")))
 
 
 @pytest.mark.unit
-def test_moving_to_the_next_candidate_marks_the_explanation_now_under_test() -> None:
-    # The ranked list was published once, and the walk skips any candidate it
-    # cannot act on - so which explanation an attempt belongs to is not
-    # derivable from that list. The summary is marked because it is what the
-    # next few lines are about, and a reader who missed it reads an action on
-    # nothing in particular.
-    some_summary = "the checkout fallback flag was switched off"
+def test_moving_to_the_next_candidate_names_it_as_the_lines_acting_for_it_do() -> None:
+    # The walk skips any candidate it cannot act on, so which explanation the
+    # next few lines are about is not derivable from the ranked list. Named by
+    # its number, as every line acting for it is, and never in its own words:
+    # a summary is the Investigator's claims, and said on Argus's line they
+    # read as what happened.
+    some_hypothesis = new_id()
     some_move = CandidateSelected(
         incident_id=new_id(),
-        hypothesis_id=new_id(),
-        summary=some_summary,
-        confidence=0.72
+        hypothesis_id=some_hypothesis,
+        candidate_number=2
     )
 
     Scenario() \
         .given(some_move) \
         .when(lambda: build_narration([some_move])) \
         .then(all_of(
-            _the_only_line_marks(some_summary),
+            _the_only_line_reads("Moving on to candidate cause #2"),
+            _the_only_line_names_the_candidate(CandidateNamed(hypothesis_id=some_hypothesis,
+                                                              said_as="candidate cause #2")),
             _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_moving_to_a_candidate_whose_number_was_never_carried_names_none() -> None:
+    # An event written before the number travelled: the move is still said,
+    # and no candidate it cannot name is claimed for it.
+    some_move = CandidateSelected(
+        incident_id=new_id(),
+        hypothesis_id=new_id()
+    )
+
+    Scenario() \
+        .given(some_move) \
+        .when(lambda: build_narration([some_move])) \
+        .then(all_of(
+            _the_only_line_reads("Moving on to the next candidate cause"),
+            _the_only_line_names_the_candidate(None)))
 
 
 @pytest.mark.unit
@@ -1033,53 +1834,49 @@ def test_a_change_put_back_marks_the_flag_it_was_about() -> None:
 
 
 @pytest.mark.unit
-def test_a_flag_somebody_else_touched_is_said_to_have_been_left_alone() -> None:
-    # The distinction the outcome exists for. "Nothing was written" means two
-    # things here, and only one of them is Argus declining to overwrite
-    # somebody else's change - the other is a flag nobody could read. A
-    # withdrawal reported as complete when a flag was left as found would
-    # promise a world Argus did not restore.
-    some_untouched = ChangeUndone(
+def test_a_change_put_back_is_said_once_as_its_subject_and_what_became_of_it() -> None:
+    # The restore's own answer says what became of the change, verb and all, so
+    # the line is the subject followed by that answer. A verb of the line's own
+    # in front of it said the restore twice: "was put back - flag [X] was put
+    # back ON".
+    some_restore = ChangeUndone(
         incident_id=new_id(),
         subject=SOME_FLAG,
-        outcome=Undone.LEFT_AS_FOUND,
-        detail="somebody else has changed it since Argus did"
+        outcome=Undone.RESTORED,
+        detail="was put back ON"
     )
 
     Scenario() \
-        .given(some_untouched) \
-        .when(lambda: build_narration([some_untouched])) \
-        .then(_the_only_line_mentions("left as found"))
+        .given(some_restore) \
+        .when(lambda: build_narration([some_restore])) \
+        .then(_the_only_line_reads(f"{SOME_FLAG} was put back ON"))
 
 
 @pytest.mark.unit
-def test_figures_thrown_away_are_said_to_have_needed_nothing_put_back() -> None:
-    # The fourth answer, and the three phrases beside it are the reason it has
-    # one of its own. "Was put back" claims a restore nobody performed. "Could
-    # not be read" says an attempt was made and did not land, which would send
-    # somebody to look at a store that is exactly as it should be. "Was left as
-    # found" belongs to an action the gate refused, where nothing happened at
-    # all. Something did happen here - the figures are gone - and nothing was
-    # owed back for them.
-    #
-    # The second assertion is the one that costs something. Every other way of
-    # saying this reads as an undo that was attempted, and a reader of a
-    # withdrawn incident acts on which of those they think they are looking at.
-    some_shop = "io-shop"
-    some_withdrawn_discard = ChangeUndone(
+@pytest.mark.parametrize(("outcome", "detail"), [
+    (Undone.LEFT_AS_FOUND, "was left as found: somebody else has changed it since Argus did"),
+    (Undone.NOT_ESTABLISHED, "could not be put back ON: the provider would not answer"),
+    (Undone.NO_UNDO_WAS_OWED,
+     "needed nothing put back: what it removed was a copy of records it never touched")
+], ids=["left-as-found", "not-established", "no-undo-owed"])
+def test_every_answer_about_a_change_is_said_as_its_subject_and_what_became_of_it(
+        outcome: Undone, detail: str) -> None:
+    # As a restore is: the answer carries its own verb, because which one fits
+    # is the kind of change's to know - a write that failed could not be put
+    # back, one half done was only partly put back, a flag nobody could account
+    # for was not written. A heading of the line's own over all of them said
+    # "could not be read" over writes that were never a read.
+    some_answer = ChangeUndone(
         incident_id=new_id(),
-        subject=some_shop,
-        outcome=Undone.NO_UNDO_WAS_OWED,
-        detail="the figures it threw away were a copy of records it never touched"
+        subject=SOME_FLAG,
+        outcome=outcome,
+        detail=detail
     )
 
     Scenario() \
-        .given(some_withdrawn_discard) \
-        .when(lambda: build_narration([some_withdrawn_discard])) \
-        .then(all_of(
-            _the_only_line_mentions("needed nothing put back"),
-            _the_only_line_does_not_mention("could not")
-        ))
+        .given(some_answer) \
+        .when(lambda: build_narration([some_answer])) \
+        .then(_the_only_line_reads(f"{SOME_FLAG} {detail}"))
 
 
 @pytest.mark.unit
@@ -1144,6 +1941,64 @@ def test_what_a_person_wrote_is_said_in_their_own_words() -> None:
         .when(lambda: build_narration([some_message])) \
         .then(all_of(_the_only_line_marks(the_words),
                      _the_lines_are_credited_to(["A person"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("meaning", "said"), [
+    (Meaning.RESOLVE, "Reported the incident resolved"),
+    (Meaning.WITHDRAW, "Asked Argus to stand down")
+], ids=["resolve", "withdraw"])
+def test_a_message_that_ended_the_incident_is_said_as_the_report_it_was(meaning: Meaning,
+                                                                        said: str) -> None:
+    # Said as no more than something written, a report reads as one Argus was
+    # free to pass over. Their words stay the marked part, untouched, and the
+    # line is theirs by name.
+    the_words = "rolled it back, all fine"
+    some_line = build_narration([PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text=the_words
+    )])[0]
+
+    Scenario() \
+        .given(some_line) \
+        .when(lambda: [said_as_meant(some_line, meaning, "Some Person")]) \
+        .then(all_of(_the_only_line_marks(the_words),
+                     _the_lines_are_credited_to(["Some Person"]),
+                     _the_only_line_says(said)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("meaning", [Meaning.QUESTION, Meaning.INFORMATION, Meaning.OTHER])
+def test_a_message_that_ended_nothing_is_said_as_written(meaning: Meaning) -> None:
+    # What came of it is its own line, in the intent agent's voice.
+    some_line = build_narration([PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text="dont care"
+    )])[0]
+
+    Scenario() \
+        .given(some_line) \
+        .when(lambda: said_as_meant(some_line, meaning, "dont care")) \
+        .then(the_answer_was(some_line))
+
+
+@pytest.mark.unit
+def test_a_report_from_somebody_the_platform_could_not_name_is_said_by_a_person() -> None:
+    some_line = build_narration([PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text="dont care"
+    )])[0]
+
+    Scenario() \
+        .given(some_line) \
+        .when(lambda: [said_as_meant(some_line, Meaning.RESOLVE, None)]) \
+        .then(_the_lines_are_credited_to(["A person"]))
 
 
 @pytest.mark.unit
@@ -1301,7 +2156,7 @@ def test_an_offer_says_which_ending_its_press_brings_about(
                                     IncidentStatus.WITHDRAWN,
                                     IncidentStatus.DISPROVEN])
 def test_a_move_past_any_resolution_says_so(ending: IncidentStatus) -> None:
-    # Resolved, taken back, or found to be no incident: whatever was still
+    # Resolved, withdrawn, or found to be no incident: whatever was still
     # asking whether it is resolved has its answer. A destination holding an
     # offer to resolve closes it with this line.
     the_incident_ending = StatusChanged(incident_id=new_id(), to_status=ending)
@@ -1340,7 +2195,7 @@ def test_a_move_that_still_takes_a_resolution_does_not(move: IncidentStatus) -> 
                                     IncidentStatus.WITHDRAWN])
 def test_a_move_to_any_ending_leaves_nothing_to_withdraw(ending: IncidentStatus) -> None:
     # Mitigated among them, where a resolution is still taken: there is no work
-    # left to take back once Argus has stopped, and a withdrawal's unwind would
+    # left to take over once Argus has stopped, and a withdrawal's unwind would
     # put back the change holding the service up. A destination holding an
     # offer to withdraw closes it with this line.
     the_incident_ending = StatusChanged(incident_id=new_id(), to_status=ending)
@@ -1407,6 +2262,38 @@ def test_an_answer_to_a_question_is_said_whole_by_the_intent_agent() -> None:
         .when(lambda: build_narration([some_answering])) \
         .then(all_of(_the_only_line_marks(some_answer),
                      _the_lines_are_credited_to(["Intent Agent"])))
+
+
+@pytest.mark.unit
+def test_an_answer_is_marked_as_written_in_markdown() -> None:
+    # The model answers in Markdown. Said so rather than rendered here: each
+    # destination renders it in its own markup, and the record keeps what the
+    # model wrote.
+    some_answering = QuestionAnswered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        answer="**Investigation (14:15)**\n- Reverted the flag"
+    )
+
+    Scenario() \
+        .given(some_answering) \
+        .when(lambda: build_narration([some_answering])) \
+        .then(_the_only_line_is_in_markdown(True))
+
+
+@pytest.mark.unit
+def test_a_line_of_the_walk_s_own_is_not_marked_as_markdown() -> None:
+    some_restore = ChangeUndone(
+        incident_id=new_id(),
+        subject=SOME_FLAG,
+        outcome=Undone.RESTORED,
+        detail="was put back ON"
+    )
+
+    Scenario() \
+        .given(some_restore) \
+        .when(lambda: build_narration([some_restore])) \
+        .then(_the_only_line_is_in_markdown(False))
 
 
 @pytest.mark.unit
@@ -1588,21 +2475,20 @@ def test_each_wait_is_told_once_by_the_look_that_settled_it() -> None:
 
 
 @pytest.mark.unit
-def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
-    # The write-up in the few lines somebody reads first: what caused it, what
-    # it says, what it cost and how long people spent. The cause is the marked
-    # word - it is what a reader scanning a channel of endings is looking for -
-    # and the money is to the penny, because a figure rounded to the pound in
-    # one place and not in another reads as two different figures.
-    the_cause = "monthly-spend-feature divided by a month with no purchases"
-    the_summary = "Account pages failed for a third of shoppers."
+def test_a_postmortem_line_is_its_summary_with_the_cause_marked() -> None:
+    # The write-up in the few lines somebody reads first. The summary already
+    # says the cause in plain words, and what customers lost as the page says
+    # it - a floor so far where the service was not seen back - so the root
+    # cause and the loss said again beside it were the cause twice and the loss
+    # twice, the second as a final figure. The cause is the marked part: it is
+    # what a reader scanning a channel of endings is looking for.
+    the_cause = "A flag change turned off the fallback checkout relies on."
+    the_summary = f"The service broke at 12:00 UTC. {the_cause} What Argus did: reverted it."
 
     the_write_up = PostmortemWritten(
         incident_id=new_id(),
-        root_cause=the_cause,
+        cause_in_plain_words=the_cause,
         executive_summary=the_summary,
-        customer_loss_estimate=Decimal("1240.5"),
-        estimate_currency="USD",
         engineer_minutes=34
     )
 
@@ -1610,10 +2496,21 @@ def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
         .given(the_write_up) \
         .when(lambda: build_narration([the_write_up])) \
         .then(all_of(_the_only_line_marks(the_cause),
-                     _the_only_line_mentions(the_summary),
-                     _the_only_line_mentions("USD 1240.50"),
-                     _the_only_line_mentions("34 engineer minutes"),
+                     _the_only_line_says(f"Wrote the postmortem - {the_summary}",
+                                         "34 engineer minutes"),
                      _the_lines_are_credited_to(["Postmortem Agent"])))
+
+
+@pytest.mark.unit
+def test_a_postmortem_with_no_summary_is_said_to_have_been_written_and_no_more() -> None:
+    # "Naming no cause" spoke of a root cause the line no longer carries, and a
+    # summary nobody wrote is nothing to say.
+    the_write_up = PostmortemWritten(incident_id=new_id())
+
+    Scenario() \
+        .given(the_write_up) \
+        .when(lambda: build_narration([the_write_up])) \
+        .then(_the_only_line_reads("Wrote the postmortem"))
 
 
 @pytest.mark.unit
@@ -1649,8 +2546,13 @@ def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
         .given(what_memory_did) \
         .when(lambda: build_narration([what_memory_did])) \
         .then(all_of(
-            _the_only_line_marks(f"putting {the_flag_that_was_moved_down} back"),
+            _the_only_line_marks(f"reverting {the_flag_that_was_moved_down}"),
             _the_only_line_mentions(the_incident_that_moved_it),
+            # As the narration says a verdict - "Judged the action REFUTED" -
+            # and not as a service that "did not recover", which is one of
+            # three findings a refutation can rest on.
+            _the_only_line_mentions("refuted there"),
+            _the_only_line_does_not_say("did not recover"),
             _the_lines_are_credited_to(["Argus"])))
 
 
@@ -1668,7 +2570,7 @@ def test_what_memory_recalled_says_how_many_and_which_was_nearest() -> None:
 
     what_memory_found = SimilarIncidentsRecalled(
         incident_id=new_id(),
-        incident_ids=[the_nearest_incident, the_one_behind_it]
+        recalled=[_recalled(the_nearest_incident), _recalled(the_one_behind_it)]
     )
 
     Scenario() \
@@ -1681,6 +2583,25 @@ def test_what_memory_recalled_says_how_many_and_which_was_nearest() -> None:
 
 
 @pytest.mark.unit
+def test_a_recalled_line_names_the_nearest_incident_for_a_destination_to_link() -> None:
+    # Carried as the value it is rather than as a link, as the minute an onset
+    # names is: a destination with a page per incident leads there, and one
+    # without simply reads the sentence.
+    the_nearest_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+    some_incident_behind_it = "3f2b1a09-0000-4000-8000-00000000000b"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled(the_nearest_incident), _recalled(some_incident_behind_it)]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_the_only_line_names_the_incident(the_nearest_incident))
+
+
+@pytest.mark.unit
 def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
     # One match is the ordinary case - a service has usually had one incident
     # resembling this one rather than several - so the singular is the wording
@@ -1690,7 +2611,7 @@ def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
 
     what_memory_found = SimilarIncidentsRecalled(
         incident_id=new_id(),
-        incident_ids=[the_only_incident_like_it]
+        recalled=[_recalled(the_only_incident_like_it)]
     )
 
     Scenario() \
@@ -1702,10 +2623,88 @@ def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
 
 
 @pytest.mark.unit
+def test_what_memory_recalled_says_what_the_nearest_incident_tried_and_what_came_of_it() -> None:
+    # An id alone sends a reader off to look the incident up, and what they
+    # would find there is an action and whether it helped - here a revert this
+    # incident may be about to try again, refuted there. Said in the words the
+    # line that filed it used, so the two read as one fact.
+    the_nearest_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled(the_nearest_incident,
+                            (REVERT_FEATURE_FLAG, "checkout", Verdict.REFUTED))]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_the_only_line_mentions(
+            f"incident {the_nearest_incident}, which tried reverting checkout (refuted)"))
+
+
+@pytest.mark.unit
+def test_what_memory_recalled_says_each_action_the_nearest_incident_tried() -> None:
+    # Every action, in the order the record holds them, each with what it came
+    # to: one refuted and one confirmed are different evidence, and a reader
+    # needs both.
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled("3f2b1a09-0000-4000-8000-00000000000a",
+                            (REVERT_FEATURE_FLAG, "checkout", Verdict.REFUTED),
+                            (RESTART_SERVICE, "io-shop", Verdict.CONFIRMED))]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_the_only_line_mentions(
+            "which tried reverting checkout (refuted), restarting io-shop (confirmed)"))
+
+
+@pytest.mark.unit
+def test_what_memory_recalled_says_what_only_the_nearest_incident_tried() -> None:
+    # The line names the nearest incident alone, so it says what that one
+    # tried; another incident's actions beside it would read as the nearest's.
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled("3f2b1a09-0000-4000-8000-00000000000a",
+                            (REVERT_FEATURE_FLAG, "checkout", Verdict.REFUTED)),
+                  _recalled("3f2b1a09-0000-4000-8000-00000000000b",
+                            (RESTART_SERVICE, "io-shop", Verdict.CONFIRMED))]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_no_line_mentions("restarting io-shop"))
+
+
+@pytest.mark.unit
+def test_an_incident_recalled_with_nothing_tried_is_named_alone() -> None:
+    # A record is filed only for an incident that tried something, but the
+    # line is read back from rows, and one saying "which tried" of nothing
+    # would be a sentence with no end.
+    the_nearest_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled(the_nearest_incident)]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(all_of(
+            _the_only_line_mentions(f"the closest match being incident {the_nearest_incident}"),
+            _no_line_mentions("which tried")))
+
+
+@pytest.mark.unit
 def test_an_order_memory_changed_names_a_restart_as_a_restart() -> None:
     # Why the event carries a kind at all. Said as its subject alone the line
     # read "moved io-shop down the list" whether io-shop was a service
-    # somebody restarted or a flag somebody put back - and those are not the
+    # somebody restarted or a flag somebody reverted - and those are not the
     # same evidence about the candidate being moved. Said as a gerund, because
     # the action is the one thing on this line that did not happen here.
     the_service_that_was_moved_down = "io-shop"
@@ -1747,7 +2746,7 @@ def test_what_was_filed_about_this_incident_names_what_was_tried() -> None:
         .when(lambda: build_narration([what_was_filed])) \
         .then(all_of(
             _the_only_line_marks(
-                f"putting {a_flag_that_did_not_help} back, "
+                f"reverting {a_flag_that_did_not_help}, "
                 f"restarting {a_service_that_was_restarted}"
             ),
             _the_lines_are_credited_to(["Argus"])))
@@ -1860,6 +2859,23 @@ def test_a_model_that_declined_is_not_read_as_a_repository_that_refused() -> Non
 
 
 @pytest.mark.unit
+def test_a_model_that_declined_for_no_reason_given_says_nothing_after_it() -> None:
+    # A refusal comes with no words, so the attempt carries no reason - and a
+    # line that went on to one anyway would end on a dash with nothing after it.
+    declined = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.DECLINED,
+        pull_request=None,
+        detail=""
+    )
+
+    Scenario() \
+        .given(declined) \
+        .when(lambda: build_narration([declined])) \
+        .then(_the_only_line_reads("The model declined to propose a fix"))
+
+
+@pytest.mark.unit
 def test_a_fix_that_stopped_says_which_bound_stopped_it() -> None:
     # It said "ran out of turns" while turns were the only way to run out.
     # There are three now, they are widened in three different places, and a
@@ -1900,7 +2916,7 @@ def test_a_fix_that_was_not_warranted_reads_as_a_verdict_on_the_code() -> None:
 
 
 @pytest.mark.unit
-def test_a_fix_that_needs_code_outside_reads_as_written_and_not_opened() -> None:
+def test_a_fix_that_needs_code_outside_reads_as_written_and_not_kept() -> None:
     # Neither a proposal nor a verdict. The model wrote a fix and said it helps
     # nobody until code outside the repository changes too - so a reader told
     # "no code-level fix" would close the question the fix answers.
@@ -1914,7 +2930,7 @@ def test_a_fix_that_needs_code_outside_reads_as_written_and_not_opened() -> None
     Scenario() \
         .given(not_opened) \
         .when(lambda: build_narration([not_opened])) \
-        .then(all_of(_the_only_line_mentions("did not open it"),
+        .then(all_of(_the_only_line_mentions("kept none of it"),
                      _the_lines_are_credited_to(["Code-Fix Agent"])))
 
 
@@ -1938,6 +2954,88 @@ def test_a_fix_that_could_not_be_proposed_says_what_stopped_it() -> None:
         .when(lambda: build_narration([a_refusal])) \
         .then(all_of(_the_only_line_mentions(what_stopped_it),
                      _the_lines_are_credited_to(["Code-Fix Agent"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("outcome", [
+    FixOutcome.NOT_WARRANTED, FixOutcome.NOT_OPENED, FixOutcome.DECLINED
+])
+def test_what_code_fix_said_of_the_code_travels_beside_a_fix_no_pull_request_holds(
+        outcome: FixOutcome) -> None:
+    # What the model said would have to change somewhere else reached the
+    # postmortem alone: the page and the thread said "found no code-level fix"
+    # and nothing of where to look instead. Labelled as a reading nothing ran,
+    # so it is not taken for a plan of Argus's.
+    some_fix = FixAttempted(
+        incident_id=new_id(),
+        outcome=outcome,
+        pull_request=None,
+        detail="dont care what the node said",
+        explanation=SOME_EXPLANATION
+    )
+
+    Scenario() \
+        .given(some_fix) \
+        .when(lambda: build_narration([some_fix])) \
+        .then(_the_only_lines_aside_says(SOME_EXPLANATION, "nothing ran"))
+
+
+@pytest.mark.unit
+def test_a_proposed_fix_carries_no_aside_as_its_pull_request_holds_the_explanation() -> None:
+    some_proposal = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.PROPOSED,
+        pull_request=OpenedPullRequest(
+            number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"
+        ),
+        detail="dont care what the node said",
+        explanation=SOME_EXPLANATION
+    )
+
+    Scenario() \
+        .given(some_proposal) \
+        .when(lambda: build_narration([some_proposal])) \
+        .then(_the_only_line_carries_no_aside())
+
+
+@pytest.mark.unit
+def test_a_fix_attempt_that_said_nothing_of_the_code_carries_no_aside() -> None:
+    could_not = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_POSSIBLE,
+        pull_request=None,
+        detail="the repository refused the branch"
+    )
+
+    Scenario() \
+        .given(could_not) \
+        .when(lambda: build_narration([could_not])) \
+        .then(_the_only_line_carries_no_aside())
+
+
+@pytest.mark.unit
+def test_a_line_said_in_full_leaves_its_aside_out() -> None:
+    # Said in full is how the postmortem's model reads the timeline, and the
+    # document already carries what Code-Fix said in a finding of its own:
+    # said here as well, the same paragraph would reach it twice.
+    some_fix = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_WARRANTED,
+        pull_request=None,
+        detail="dont care what the node said",
+        explanation=SOME_EXPLANATION
+    )
+
+    Scenario() \
+        .given(
+            some_line := _the_only(build_narration([some_fix]))
+        ) \
+        .when(
+            lambda: said_in_full(some_line)
+        ) \
+        .then(
+            _does_not_say(SOME_EXPLANATION)
+        )
 
 
 @pytest.mark.unit
@@ -2031,47 +3129,6 @@ def test_a_restart_of_the_service_that_alerted_says_nothing_about_dependencies()
         .then(all_of(
             _the_only_line_marks(the_service_that_alerted),
             _the_only_line_does_not_mention("dependency")))
-
-
-@pytest.mark.unit
-def test_a_failure_nothing_answers_says_so_rather_than_saying_nothing_was_proposed() -> None:
-    # The line a person reads when Argus knew exactly what happened and could
-    # do nothing about it. "No mitigation was proposed" would read as an
-    # investigation that came up short, which is the opposite of this: the
-    # cause is named, and what it needs is somebody who can reach the thing
-    # that is broken.
-    some_refusal = ActionRefused(
-        incident_id=new_id(),
-        hypothesis_id=new_id(),
-        refusal=Refusal.NOTHING_ANSWERS_THIS_MODE
-    )
-
-    Scenario() \
-        .given(some_refusal) \
-        .when(lambda: build_narration([some_refusal])) \
-        .then(all_of(
-            _the_only_line_marks(
-                "nothing Argus can do answers this kind of failure"),
-            _the_lines_are_credited_to(["Argus"])))
-
-
-@pytest.mark.unit
-def test_every_refusal_reaches_a_reader_in_words() -> None:
-    # The lookup that renders a refusal is a subscript, not a `get`, so a value
-    # with no sentence does not degrade - it raises, while an incident is being
-    # narrated, in the one path that exists to tell somebody what happened.
-    #
-    # Asserted over the whole enum rather than per member for the reason the
-    # taxonomy's meanings are: what must hold is that no refusal reaches a page
-    # as a value nobody wrote a sentence for, and a test naming the three that
-    # exist today would say nothing about the fourth.
-    Scenario() \
-        .given(every_reason_to_refuse := list(Refusal)) \
-        .when(lambda: {
-            refusal: _what_a_reader_is_told_about(refusal)
-            for refusal in every_reason_to_refuse
-        }) \
-        .then(_every_refusal_was_put_into_words())
 
 
 @pytest.mark.unit
@@ -2262,6 +3319,33 @@ def test_a_placement_names_each_pods_card_and_marks_the_ones_placed_at_the_onset
 
 
 @pytest.mark.unit
+def test_a_placement_read_against_the_alarm_marks_its_pods_as_at_the_alarm_not_the_onset(
+) -> None:
+    # Nothing dated the incident, and the minute is the alarm's own: a pod placed
+    # then was placed as the alarm went off, and said as started at the
+    # onset it reads as the cause.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(
+                _a_pod("io-shop-a", "Tesla-V100-SXM2-16GB", SOME_TIME_LONG_BEFORE_THE_ONSET),
+                _a_pod("io-shop-b", "Tesla-T4", SOME_ONSET)
+            ),
+            against_the_alarm=True
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says("at the alarm: io-shop-b"),
+            _the_only_line_does_not_say("onset")
+        ))
+
+
+@pytest.mark.unit
 def test_a_pod_whose_node_reports_no_card_is_said_to_report_none() -> None:
     # Said as what the platform reported rather than as a card nobody named. A
     # pod with no card is the one thing that stops a pin, and a reader shown
@@ -2303,6 +3387,82 @@ def test_a_placement_with_no_pod_placed_at_the_onset_says_nothing_about_the_onse
         .given(some_placement) \
         .when(lambda: build_narration([some_placement])) \
         .then(_the_only_line_does_not_say("onset"))
+
+
+@pytest.mark.unit
+def test_a_placement_on_one_card_since_long_before_the_onset_is_said_in_a_line() -> None:
+    # Several pods, every one on the same card and serving long before the
+    # onset: listed pod by pod, the line is a paragraph telling nothing apart,
+    # and the brief, the dashboard and the channel all carry it. How many, and
+    # the card, is the whole of what it tells - that nothing moved.
+    the_card = "Tesla-V100-SXM2-16GB"
+    the_pods = ("io-shop-a", "io-shop-b", "io-shop-c")
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=tuple(_a_pod(pod, the_card, SOME_TIME_LONG_BEFORE_THE_ONSET)
+                       for pod in the_pods)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says(f"{len(the_pods)} replicas", f"all on {the_card}"),
+            _the_only_line_does_not_say(*the_pods)
+        ))
+
+
+@pytest.mark.unit
+def test_a_placement_on_one_card_all_started_together_after_the_onset_is_said_in_a_line() -> None:
+    # Restarted together well after the onset, every pod was said with the
+    # same card and the same moment - three times over, in the timeline, the
+    # evidence and the brief, telling nothing apart. How many, the card and
+    # when, once. The moment beside "started", not beside "the onset": said
+    # "started after the onset at Sep 05 10:13:07", it reads as when the onset
+    # was.
+    the_card = "Tesla-V100-SXM2-16GB"
+    the_pods = ("io-shop-a", "io-shop-b", "io-shop-c")
+    some_time_days_after_the_onset = datetime(2026, 9, 5, 10, 13, 7, tzinfo=UTC)
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=tuple(_a_pod(pod, the_card, some_time_days_after_the_onset)
+                       for pod in the_pods)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says(f"{len(the_pods)} replicas run - all on {the_card}, started "
+                                f"at Sep 05 10:13:07, after the onset"),
+            _the_only_line_does_not_say(*the_pods)
+        ))
+
+
+@pytest.mark.unit
+def test_pods_on_one_card_started_apart_after_the_onset_are_each_said_with_when() -> None:
+    # Started apart, each moment is something the line tells, and folded into
+    # one the others would be lost.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", "Tesla-T4", datetime(2026, 9, 5, 10, 13, 7, tzinfo=UTC)),
+                  _a_pod("io-shop-b", "Tesla-T4", datetime(2026, 9, 5, 10, 14, 2, tzinfo=UTC)))
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(_the_only_line_says("io-shop-a on Tesla-T4 at Sep 05 10:13:07",
+                                  "io-shop-b on Tesla-T4 at Sep 05 10:14:02"))
 
 
 @pytest.mark.unit
@@ -2362,7 +3522,26 @@ def test_a_pod_placed_after_the_onset_is_said_with_when_it_started() -> None:
     Scenario() \
         .given(some_placement) \
         .when(lambda: build_narration([some_placement])) \
-        .then(_the_only_line_says("io-shop-a on Tesla-T4 at 05 Sep 10:13:07"))
+        .then(_the_only_line_says("io-shop-a on Tesla-T4 at Sep 05 10:13:07"))
+
+
+@pytest.mark.unit
+def test_a_pod_placed_after_the_onset_on_the_onset_s_day_is_said_with_its_day() -> None:
+    # Hours after the onset, in a line recorded the day after: said against
+    # the onset, its time came out bare, and read as a time of the line's day.
+    some_time_hours_after_the_onset = datetime(2026, 8, 30, 19, 16, 7, tzinfo=UTC)
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", "Tesla-T4", some_time_hours_after_the_onset),)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(_the_only_line_says("io-shop-a on Tesla-T4 at Aug 30 19:16:07"))
 
 
 @pytest.mark.unit
@@ -2485,7 +3664,8 @@ def _a_hypothesis(summary: str,
                   evidence: list[str] | None = None,
                   incident_id: str | None = None,
                   from_state: str | None = None,
-                  to_state: str | None = None) -> HypothesisFormed:
+                  to_state: str | None = None,
+                  number: int = 1) -> HypothesisFormed:
     return HypothesisFormed(
         incident_id=incident_id or new_id(),
         hypothesis_id=new_id(),
@@ -2494,6 +3674,7 @@ def _a_hypothesis(summary: str,
         confidence=0.9,
         subject=SOME_FLAG,
         rank=rank,
+        number=number,
         from_state=from_state,
         to_state=to_state,
         evidence=[Evidence(claim=cited, at=None) for cited in evidence or []]
@@ -2601,12 +3782,12 @@ def _the_only_line_offers_the_causes(expected: list[str]) -> Assertion[list[Narr
     return assertion
 
 
-def _the_first_line_ranks_the_causes(expected: list[int]) -> Assertion[list[NarrationLine]]:
+def _the_first_line_numbers_the_causes(expected: list[int]) -> Assertion[list[NarrationLine]]:
     def assertion(narration: list[NarrationLine]) -> bool:
-        ranked = [candidate.rank for candidate in narration[0].candidates]
+        numbered = [candidate.number for candidate in narration[0].candidates]
 
-        if ranked != expected:
-            raise AssertionError(f"Expected the ranks {expected}, got {ranked}.")
+        if numbered != expected:
+            raise AssertionError(f"Expected the numbers {expected}, got {numbered}.")
 
         return True
 
@@ -2722,6 +3903,44 @@ def _the_only_line_names_the_address(expected: str) -> Assertion[list[NarrationL
     return assertion
 
 
+def _the_only_lines_aside_says(*expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+        missing = [one for one in expected if one not in line.aside]
+
+        if missing:
+            raise AssertionError(
+                f"Expected the line's aside to say {missing}, and it said [{line.aside}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_carries_no_aside() -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.aside:
+            raise AssertionError(f"Expected the line to carry no aside, and it carried "
+                                 f"[{line.aside}].")
+
+        return True
+
+    return assertion
+
+
+def _does_not_say(unwanted: str) -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        if unwanted in said:
+            raise AssertionError(f"Expected no [{unwanted}] in [{said}].")
+
+        return True
+
+    return assertion
+
+
 def _the_only_line_asks_to_confirm(expected: Reference | None) -> Assertion[list[NarrationLine]]:
     """The message a line asks its writer to confirm, or that it asks nothing.
 
@@ -2819,6 +4038,21 @@ def _the_only_line_is_outside_the_walk(expected: bool) -> Assertion[list[Narrati
     return assertion
 
 
+def _the_only_line_is_in_markdown(expected: bool) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.emphasis_is_markdown is not expected:
+            raise AssertionError(
+                f"Expected the marked part in Markdown to be [{expected}], got "
+                f"[{line.emphasis_is_markdown}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_only_line_marks(expected: str) -> Assertion[list[NarrationLine]]:
     """The word the page sets apart, and the sentence still reading as one.
 
@@ -2871,41 +4105,6 @@ def _the_only_candidate_moved(was: str, now: str) -> Assertion[list[NarrationLin
     return assertion
 
 
-def _what_a_reader_is_told_about(refusal: Refusal) -> str:
-    """The narrated line for one refusal, or the empty string where narrating it
-    fails.
-
-    Caught rather than allowed to raise, so the assertion below names every
-    refusal that has no sentence instead of the test ending on the first one.
-    """
-    try:
-        return build_narration([ActionRefused(
-            incident_id=new_id(),
-            hypothesis_id=new_id(),
-            refusal=refusal
-        )])[0].text
-    except KeyError:
-        return ""
-
-
-def _every_refusal_was_put_into_words() -> Assertion[dict[Refusal, str]]:
-    def assertion(narrated: dict[Refusal, str]) -> bool:
-        wordless = [
-            refusal.value for refusal, line in narrated.items() if not line
-        ]
-
-        if wordless:
-            raise AssertionError(
-                f"{sorted(wordless)} have no sentence, so an incident refused "
-                f"for one of those reasons fails while it is being narrated - "
-                f"in the one path whose whole job is to say what happened."
-            )
-
-        return True
-
-    return assertion
-
-
 def _the_only_line_does_not_mention(unwanted: str) -> Assertion[list[NarrationLine]]:
     """The ordinary restart, and the clause it must not acquire.
 
@@ -2919,6 +4118,48 @@ def _the_only_line_does_not_mention(unwanted: str) -> Assertion[list[NarrationLi
 
         if unwanted in line.text:
             raise AssertionError(f"Expected no [{unwanted}] in [{line.text}].")
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_names_the_incident(expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.names_incident != expected:
+            raise AssertionError(
+                f"Expected the line to name incident [{expected}], got "
+                f"[{line.names_incident}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_names_the_candidate(
+        expected: CandidateNamed | None) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.names_candidate != expected:
+            raise AssertionError(
+                f"Expected the line to name the candidate [{expected}], got "
+                f"[{line.names_candidate}].")
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_reads(expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.text != expected:
+            raise AssertionError(f"Expected the line to read [{expected}], got [{line.text}].")
 
         return True
 
@@ -2967,3 +4208,12 @@ def _the_only_line_does_not_say(*unwanted: str) -> Assertion[list[NarrationLine]
         return True
 
     return assertion
+
+
+def _recalled(incident_id: str,
+              *tried: tuple[ActionType, str, Verdict]) -> RecalledIncident:
+    """An incident memory found, with each action it tried and what that came to."""
+    return RecalledIncident(incident_id=incident_id, tried=[
+        WhatWasTried(identity=ActionIdentity(action_type=action_type, subject=subject),
+                     verdict=verdict)
+        for action_type, subject, verdict in tried])

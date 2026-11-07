@@ -174,6 +174,12 @@ class Settings(BaseSettings):
     # - a misconfigured write server should fail loudly rather than quietly
     # authenticate as nobody. It can never merge what it opens (§13).
     github_token: str = Field(default="")
+    # How many times a write to that repository is made again where GitHub
+    # failed it for a moment - never reached, or answered with a 5xx - and how
+    # long before each. Retries, tries after the first: two is three in all. A
+    # refusal, a 4xx, is never made again.
+    github_write_retries: int = Field(default=2, ge=0)
+    github_write_retry_wait_ms: int = Field(default=200, ge=0)
     # The secret GitHub signs its push deliveries with, so Argus can tell a
     # push from anybody who found the endpoint. Empty accepts nothing rather
     # than everything: with no secret configured no signature can match, which
@@ -226,11 +232,18 @@ class Settings(BaseSettings):
     # The same Qdrant as the index above, in a collection of its own - two
     # corpora with nothing to do with each other, and one server.
     incident_memory_collection: str = Field(default="incidents_remembered")
-    # Whether an incident is remembered at all, and whether what is remembered
-    # is consulted. Off is a real configuration rather than a way of disabling a
-    # broken feature: the §21 benchmark's whole question is what memory is
-    # worth, and two runs that differ in exactly one thing are how it is asked.
+    # Whether what incidents tried is searchable, and whether it is consulted.
+    # Off is a real configuration rather than a way of disabling a broken
+    # feature: the §21 benchmark's whole question is what memory is worth, and
+    # two runs that differ in exactly one thing are how it is asked. Every walk
+    # files its record either way - what is switched off is carrying the records
+    # to the store and reading them back - so a deployment that turns memory on
+    # later has every incident it walked in the meantime.
     incident_memory_enabled: bool = Field(default=True)
+    # How often the deliverer looks for filed records the store does not hold,
+    # in seconds. The longest a finished incident is filed and unsearchable
+    # while nothing is failing; a look that finds nothing is one query.
+    incident_memory_delivery_interval_seconds: float = Field(default=2.0, gt=0)
     # Which model turns an incident's description into the vector a later
     # incident is compared against. A different corpus from the index's, so a
     # setting of its own - and changing it, like changing the index's, means
@@ -319,6 +332,16 @@ class Settings(BaseSettings):
         default=_VERIFICATION_TIMEOUT_SECONDS * _LEASES_PER_LONGEST_WAIT, gt=0.0
     )
 
+    # How many times a run is tried where its walk could not get an answer from
+    # the model for now, and how long it waits before the second try. Each wait
+    # after that is five times the one before. Only a model that could not be
+    # reached for now is tried again - nothing else would be answered
+    # differently a minute later - and every try is paid for, which is why the
+    # count is small: three tries, each of which the model client retries twice
+    # itself, is nine requests at most.
+    run_attempts: int = Field(default=3, gt=0)
+    run_first_retry_wait_seconds: float = Field(default=60.0, gt=0.0)
+
     anthropic_api_key: str = Field(default="")
 
     # Where the Anthropic SDK sends its requests. Empty means the real API.
@@ -361,8 +384,9 @@ class Settings(BaseSettings):
     # Opus's, and the same six investigations billed 94,035 tokens against
     # 92,604, so the work costs 45% of what it did. A model that answers as
     # well for less is not a trade, and this is the one agent whose answers can
-    # be scored well enough to say so.
-    investigation_model: str = Field(default="claude-sonnet-5")
+    # be scored well enough to say so. Those runs were on Sonnet 5; it runs on
+    # its successor, Sonnet 5.5, at the same rates, which no eval has scored.
+    investigation_model: str = Field(default="claude-sonnet-5-5")
     investigation_effort: Effort = Field(default=DEFAULT_EFFORT)
     codefix_model: str = Field(default=DEFAULT_MODEL)
     codefix_effort: Effort = Field(default=DEFAULT_EFFORT)
@@ -378,11 +402,9 @@ class Settings(BaseSettings):
     # a ceiling is not a reservation, so asking for all of it costs nothing
     # for the fixes that turn out to be small.
     codefix_max_output_tokens: int = Field(default=128_000, gt=0)
-    # Sonnet rather than the shared default, at 40% of Opus's rates: the
-    # postmortem reads a finished record and answers once, and every claim it
-    # makes is checked by code before it is accepted. A cost decision, not yet
-    # measured against Opus the way the investigation's model was.
-    postmortem_model: str = Field(default="claude-sonnet-5-5")
+    # The shared default: asked to hold about forty rules at once, Sonnet kept a
+    # different few of them in each of three re-records of one incident.
+    postmortem_model: str = Field(default=DEFAULT_MODEL)
     postmortem_effort: Effort = Field(default=DEFAULT_EFFORT)
 
     # The model that classifies what a person wrote in an incident's thread, and

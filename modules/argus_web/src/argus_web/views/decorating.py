@@ -13,6 +13,7 @@ knows an event from another.
 from __future__ import annotations
 
 from argus_narration import NarrationLine
+from pydantic import BaseModel
 
 # How a marked word is dressed, by the kind of line it appears on. A status
 # wears the badge the header gives it and a verdict wears red or green; every
@@ -27,14 +28,26 @@ _DRESSED_AS = {
 # metrics takes a reader to a table they were going to scroll to anyway.
 _POINTS_AT = {
     "onset-detected": "show the minute",
+    "anchored-on-the-alarm": "show the minute",
     "action-taken": "the change it reverted"
 }
 
 # Which table a kind's row lives in, on the page below the account.
 _ANCHORS = {
     "onset-detected": "minute",
+    "anchored-on-the-alarm": "minute",
     "action-taken": "flag"
 }
+
+
+class RowsHeld(BaseModel):
+    """What a line or a finding on the page can lead to: the minutes its
+    metrics table holds, the minutes its log table holds lines for, and the
+    flags its flag history holds a row for."""
+
+    minutes: list[str]
+    logged: list[str]
+    flags: list[str]
 
 
 class DecoratedLine(NarrationLine):
@@ -61,12 +74,18 @@ class DecoratedLine(NarrationLine):
     emphasis_href: str = ""
 
 
-def decorated(line: NarrationLine) -> DecoratedLine:
-    """One line, with the class and the link this page would give it."""
-    target, label = _where_to_look(line)
+def decorated(line: NarrationLine, *, held: RowsHeld) -> DecoratedLine:
+    """One line, with the class and the link this page would give it.
+
+    `held` is the rows the page has. A line links to a row only where there is
+    one to land on, whatever kind of line it is: the metrics can stop before
+    the minute the onset names, the flag history can leave out the flag an
+    action moved, and a link that lands nowhere is worse than none.
+    """
+    target, label = _where_to_look(line, held)
 
     return DecoratedLine(
-        **line.model_dump(),
+        **(line.model_dump() | {"links": line.links | _the_incident_it_leads_to(line)}),
         emphasis_class=_dressed_as(line),
         link_target=target,
         link_label=label,
@@ -74,15 +93,30 @@ def decorated(line: NarrationLine) -> DecoratedLine:
     )
 
 
+def _the_incident_it_leads_to(line: NarrationLine) -> dict[str, str]:
+    """The other incident a line names, leading to that incident's page - or
+    nothing, where it names none.
+
+    Added to the links the shown line carries rather than in their place: a
+    revision the same line names still leads to its commit.
+    """
+    if not line.names_incident:
+        return {}
+
+    return {line.names_incident: f"/incidents/{line.names_incident}"}
+
+
 def _the_marked_word_goes_to(line: NarrationLine) -> str:
-    """The address behind the marked word, where the two are the same string.
+    """The address behind the marked word, where the word is that address or
+    the name a shown line says it by and leads there with ("PR #7").
 
     Both conditions, because either alone is wrong. A line naming an address
     but marking something else would put the link around the wrong word, and a
     marked word on a line naming no address is prose - the refusal a failed fix
     reports - which is exactly the thing a reader must not be invited to click.
     """
-    if not line.names_url or line.emphasis != line.names_url:
+    if not line.names_url or not line.emphasis or line.names_url not in (
+            line.emphasis, line.links.get(line.emphasis)):
         return ""
 
     return line.names_url
@@ -103,8 +137,9 @@ def _dressed_as(line: NarrationLine) -> str:
     return f"{dressed} {line.emphasis.lower()}"
 
 
-def _where_to_look(line: NarrationLine) -> tuple[str, str]:
-    """The row a line points at, and what the link says.
+def _where_to_look(line: NarrationLine, held: RowsHeld) -> tuple[str, str]:
+    """The row a line points at, and what the link says - or nothing, where
+    the page holds no such row.
 
     The onset names one minute out of ninety, and finding that minute by hand
     is the work the link saves. The action names one flag, so it points at that
@@ -115,20 +150,27 @@ def _where_to_look(line: NarrationLine) -> tuple[str, str]:
     label = _POINTS_AT.get(line.kind)
     row = _the_row_named_by(line)
 
-    if label is None or not row:
+    if label is None or not row or row not in _the_rows_of(_ANCHORS[line.kind], held):
         return "", ""
 
     return f"#{_ANCHORS[line.kind]}-{row}", label
 
 
+def _the_rows_of(table: str, held: RowsHeld) -> list[str]:
+    """The rows the page holds in the table a link's anchor names - named one
+    by one, so an anchor nobody mapped fails rather than reading another's."""
+    return {"minute": held.minutes, "flag": held.flags}[table]
+
+
 def _the_row_named_by(line: NarrationLine) -> str:
     """The value identifying the row this line is about, or nothing.
 
-    The onset carries its minute as a fact about the incident; the action marks
-    its flag as the word a reader scans for. Two fields because they are two
-    different things, and neither exists to be linked.
+    The onset carries its minute as a fact about the incident, and the anchor
+    the minute the investigation looked from; the action marks its flag as the
+    word a reader scans for. Two fields because they are two different things,
+    and neither exists to be linked.
     """
-    if line.kind == "onset-detected":
+    if line.kind in ("onset-detected", "anchored-on-the-alarm"):
         return line.names_minute
 
     return line.emphasis

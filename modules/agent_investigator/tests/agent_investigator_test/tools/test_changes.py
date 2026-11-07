@@ -29,11 +29,13 @@ from agent_investigator_test.framework.builders.dispatcher import (
 
 
 @pytest.mark.unit
-def test_a_change_call_naming_no_window_ends_at_the_onset() -> None:
+def test_a_change_call_naming_no_window_ends_with_the_onset_s_minute() -> None:
     # A change made after the incident began did not begin it, so the default
     # window stops there. Offering later changes invites attribution by mere
     # proximity, which is the one mistake this channel is most likely to
-    # produce.
+    # produce. With the minute the onset is dated to, not its first instant:
+    # a flag switched on a few seconds into a minute breaks that minute, so the
+    # onset is dated to its start and the change is after it.
     some_fetch_changes = create_autospec(ChangeFetcher, instance=True, return_value=[])
     the_default_start = to_iso(
         parse_iso(AN_ONSET)
@@ -48,7 +50,8 @@ def test_a_change_call_naming_no_window_ends_at_the_onset() -> None:
             lambda: some_dispatcher.dispatch(a_call_to(CHANGES_TOOL))
         ) \
         .then(
-            _the_changes_read_were(some_fetch_changes, the_default_start, AN_ONSET)
+            _the_changes_read_were(some_fetch_changes, the_default_start,
+                                   "2026-08-29T22:16:00Z")
         )
 
 

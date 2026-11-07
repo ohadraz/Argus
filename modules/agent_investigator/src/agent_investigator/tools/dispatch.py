@@ -13,7 +13,13 @@ import logging
 from collections.abc import Sequence
 
 from argus_core.events import Narrator, RetrievalUnanswered, nobody
-from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolResult
+from argus_core.models import (
+    DeploymentChanges,
+    Reading,
+    RetrievalChannel,
+    ToolCall,
+    ToolResult,
+)
 from argus_core.replay import CallType, Replay
 
 from agent_investigator.budget import InvestigationSettings
@@ -120,6 +126,18 @@ class Dispatcher:
         self._fetch_what_a_deployment_changed = fetch_what_a_deployment_changed
         self._fetch_rollout = fetch_rollout
         self._readings: list[Reading] = list(having_read)
+        self._deployment_changes: dict[str, DeploymentChanges] = {}
+
+    @property
+    def deployment_changes(self) -> dict[str, DeploymentChanges]:
+        """What each deployment this investigation looked into changed, by its
+        revision - the first answer about each, since a deployment asked about
+        twice changed one thing.
+
+        Kept for the walk, which answers a candidate blaming a file by the
+        deploy whose diff names it. A copy, for the reason `readings` is one.
+        """
+        return dict(self._deployment_changes)
 
     @property
     def channels_unread(self) -> list[RetrievalChannel]:
@@ -182,6 +200,10 @@ class Dispatcher:
             self._readings.append(answer.reading)
             self._record(call, answer.reading, answer.result)
 
+        if answer.deployment_read is not None:
+            self._deployment_changes.setdefault(answer.deployment_read.revision,
+                                                answer.deployment_read.changes)
+
         return answer.result
 
     def _record(self,
@@ -234,7 +256,8 @@ class Dispatcher:
             )
 
         if call.name == DEPENDENCIES_TOOL:
-            return read_dependencies(call, self._service, self._fetch_dependencies)
+            return read_dependencies(call, self._service, self._fetch_dependencies,
+                                     self._narrator)
 
         if call.name == DEPLOYMENT_DIFF_TOOL:
             return read_what_a_deployment_changed(
@@ -242,7 +265,7 @@ class Dispatcher:
             )
 
         if call.name == ROLLOUT_TOOL:
-            return read_the_rollout(call, self._service, self._fetch_rollout)
+            return read_the_rollout(call, self._service, self._fetch_rollout, self._narrator)
 
         logger.warning("unknown tool called", extra={"tool": call.name})
 

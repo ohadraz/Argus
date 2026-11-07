@@ -10,6 +10,11 @@ from pydantic import BaseModel, ConfigDict
 # all carry it, and four spellings of one fact are four places to drift.
 type WorseWhen = Literal["above", "below"]
 
+# A quantile of how long requests took, as a minute's reading carries each
+# (`p50_ms`, `p95_ms`, `p99_ms`). Named once, because the levels measured from
+# them and the document that shows those levels both say which.
+type Quantile = Literal["p50", "p95", "p99"]
+
 
 class RuleLine(BaseModel):
     """The threshold a paging rule compares its series with, and whether a

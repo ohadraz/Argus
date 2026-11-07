@@ -31,11 +31,16 @@ When rather than how long, and that is a limit rather than an omission. This
 tier has no clock, a duration computed from one would differ between two reads
 of the same state, and a reader holding an onset can do the arithmetic against
 the moment the deployment landed.
+
+Answered as a value, never in sentences. Two readers say it - an
+Investigator's model, and the account of the incident - and each in its own
+words; sentences written here would leave the second searching the first's for
+a revision and a moment.
 """
 
 from __future__ import annotations
 
-from argus_core.models import ChangeEvent, RolloutProgress
+from argus_core.models import RolloutAccount, RolloutProgress
 from deployment_platform import DeploymentPlatformError, DeploymentPlatformReads
 
 from read_mcp_server.deploy_history import the_revisions_deployed
@@ -54,9 +59,9 @@ class RolloutUnreadable(Exception):
 
 def how_the_rollout_is_going(service: str,
                              *,
-                             platform: DeploymentPlatformReads) -> list[str]:
-    """Whether the deployment of `service` finished arriving, as lines a model
-    reads.
+                             platform: DeploymentPlatformReads) -> RolloutAccount:
+    """Whether the deployment of `service` finished arriving, and the revisions
+    it is between - as a value, for each reader to say in its own words.
 
     The service is the only subject. Which revisions are involved is found here,
     in the deployment history, rather than asked of the caller: a caller naming
@@ -66,10 +71,9 @@ def how_the_rollout_is_going(service: str,
     progress = _the_rollout_of(service, platform)
     deployed = the_revisions_deployed(service, platform=platform)
 
-    if progress.replicas_updated >= progress.replicas_serving:
-        return _converged(service, progress.replicas_serving, deployed)
-
-    return _still_converging(service, progress, deployed)
+    return RolloutAccount(progress=progress,
+                          going_out=deployed[-1] if deployed else None,
+                          before_it=deployed[-2] if len(deployed) >= 2 else None)
 
 
 def how_far_the_rollout_has_got(service: str,
@@ -79,18 +83,15 @@ def how_far_the_rollout_has_got(service: str,
     """How many of `service`'s replicas have reached the revision being rolled
     out, as a value a caller can act on.
 
-    The same read as the lines above, answered for a different reader. Those
-    exist for a model - the Investigator hands them to one, and this channel
-    describes rather than judges - and they must keep existing. A caller wanting
-    the count would have to search that prose for a number, which is the mistake
-    this repo refuses at every other wire: a vendor's phrasing becoming a
-    dependency one layer in.
+    The counts of the account above, without the revisions. A caller waiting on
+    a change it made needs to know the change has arrived, and nothing about
+    which revisions a reader would name.
 
     Why a caller wants it. Until every replica is on the revision a rollback
     returned to, a minute of metrics is a minute the old code was still serving,
     so a recovery measured across those minutes is a recovery measured of the
     wrong deployment. This is what says when the measuring may begin, which is
-    the only thing Mitigation needs and strictly less than the lines say.
+    the only thing Mitigation needs and strictly less than the account says.
 
     No history is read, where `how_the_rollout_is_going` reads two things. Which
     revisions are involved is what a *reader* wants named; whether the change has
@@ -128,84 +129,3 @@ def _the_rollout_of(service: str,
             f"could not read what [{service}] is running: {error}"
         ) from error
 
-
-def _converged(service: str,
-               serving: int,
-               deployed: list[ChangeEvent]) -> list[str]:
-    """A deployment that finished arriving, said plainly.
-
-    Said at all, rather than answered with silence, because this is evidence: a
-    reader weighing a deploy at the onset has been told it is not half-applied,
-    which rules one mode out and leaves the revision itself as the subject.
-    """
-    if not deployed:
-        return [
-            f"Deployment of {service} has converged: all {serving} replicas are "
-            f"running the same revision. The deployment history holds no "
-            f"deployment at all, so nothing here names which."
-        ]
-
-    latest = deployed[-1]
-
-    return [
-        f"Deployment of {service} has converged: all {serving} replicas are "
-        f"running revision [{latest.reference}], deployed at "
-        f"{latest.occurred_at}."
-    ]
-
-
-def _still_converging(service: str,
-                      progress: RolloutProgress,
-                      deployed: list[ChangeEvent]) -> list[str]:
-    """A deployment part way through, and the two revisions that are serving.
-
-    Both named, because a count with one subject is a count a reader cannot use:
-    what is being asked is whether two versions are running at once, and one
-    revision and a number does not say what the other version is.
-    """
-    serving = progress.replicas_serving
-    updated = progress.replicas_updated
-    said = [
-        f"Deployment of {service} has not converged: {updated} of {serving} "
-        f"replicas are running {_the_revision_going_out(deployed)}, and "
-        f"{serving - updated} are still running "
-        f"{_the_revision_before_it(deployed)}."
-    ]
-
-    if progress.is_paused:
-        said.append(
-            "Its rolling update is paused, so the platform is not converging it "
-            "on its own."
-        )
-
-    if deployed:
-        said.append(
-            f"The revision it is converging on was deployed at "
-            f"{deployed[-1].occurred_at}, which is when the replicas first "
-            f"differed."
-        )
-
-    return said
-
-
-def _the_revision_going_out(deployed: list[ChangeEvent]) -> str:
-    if not deployed:
-        return "a revision the deployment history does not hold"
-
-    return f"revision [{deployed[-1].reference}]"
-
-
-def _the_revision_before_it(deployed: list[ChangeEvent]) -> str:
-    """What the replicas that have not updated are running.
-
-    Said as unknown rather than left out where the history has nothing earlier. A
-    reader told only about the new revision reads the split as a count with one
-    subject, which is the reading this channel exists to prevent.
-    """
-    if len(deployed) < 2:
-        return (
-            "whatever preceded it - there is no earlier deployment in the "
-            "history to name it by"
-        )
-
-    return f"revision [{deployed[-2].reference}]"

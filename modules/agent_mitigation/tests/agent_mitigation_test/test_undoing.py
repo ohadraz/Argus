@@ -11,8 +11,9 @@ would be overwritten.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import TypedDict, Unpack
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
@@ -25,9 +26,11 @@ from agent_mitigation.tools import (
     AcceleratorPinRestorer,
     AutoscalingRestorer,
     CapacityRestorer,
+    ChangedFromOutside,
     DeploymentRestorer,
     FlagSetter,
 )
+from argus_core import RunLost
 from argus_core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -40,7 +43,15 @@ from argus_core.models import (
     ReplicaUndo,
     UndoDescriptor,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 
 from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
@@ -69,6 +80,112 @@ THE_FLOOR_IT_WAS_HOLDING = 3
 THE_CEILING_IT_WAS_HELD_AT = 6
 # The card Argus held the deployment's pods to.
 THE_CARD_IT_WAS_HELD_TO = "Tesla-V100-SXM2-16GB"
+
+
+# Where putting a change back logs from.
+THE_UNDOING = "agent_mitigation.undoing"
+
+# The case lists below hold ways to build what a case is handed rather than the
+# things themselves. A lambda looks its names up when it is called, so the
+# builders it calls can be defined further down, and every case is handed
+# collaborators of its own rather than one mock shared with every other.
+
+# Every kind of change, with the collaborator that puts it back and what the
+# answer is about. One case each, because each kind's restore is its own branch.
+EVERY_KIND_OF_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 DeploymentRestorer, SOME_APPLICATION, id="rollback"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 CapacityRestorer, SOME_APPLICATION, id="scale-out"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 AutoscalingRestorer, SOME_APPLICATION, id="autoscaler-pin"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 AcceleratorPinRestorer, SOME_APPLICATION, id="card-pin"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
+                 FlagSetter, SOME_FLAG, id="flag")
+]
+
+# Every kind of change, with a collaborator that puts the whole of it back.
+EVERY_WHOLE_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 lambda: _a_restorer_that_puts_back(), id="rollback"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 lambda: _a_capacity_restorer_that_puts_back(), id="scale-out"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 lambda: _an_autoscaling_restorer_that_puts_back(), id="autoscaler-pin"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 lambda: _an_accelerator_pin_restorer_that_puts_back(), id="card-pin"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
+                 lambda: _a_flag_setter(), id="flag")
+]
+
+# Every kind that restores two things, answering that only the first went back.
+EVERY_HALF_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 lambda: _a_restorer_that_puts_back(revision=True, automated_sync=False),
+                 id="rollback"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 lambda: _a_capacity_restorer_that_puts_back(count=True, automated_sync=False),
+                 id="scale-out"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 lambda: _an_autoscaling_restorer_that_puts_back(floor=True,
+                                                                 automated_sync=False),
+                 id="autoscaler-pin"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 lambda: _an_accelerator_pin_restorer_that_puts_back(pin=True,
+                                                                     automated_sync=False),
+                 id="card-pin")
+]
+
+# Every answer but a restore, with the collaborators that bring it about.
+EVERY_ANSWER_BUT_A_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_deployment=_a_restorer_that_puts_back(automated_sync=False)),
+                 id="rollback-partly"),
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_deployment=_a_collaborator_raising(DeploymentRestorer)),
+                 id="rollback-refused"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_capacity=_a_capacity_restorer_that_puts_back(automated_sync=False)),
+                 id="scale-out-partly"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_capacity=_a_collaborator_raising(CapacityRestorer)),
+                 id="scale-out-refused"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_autoscaling=_an_autoscaling_restorer_that_puts_back(
+                         automated_sync=False)),
+                 id="autoscaler-pin-partly"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_autoscaling=_a_collaborator_raising(AutoscalingRestorer)),
+                 id="autoscaler-pin-refused"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_accelerator_pin=_an_accelerator_pin_restorer_that_puts_back(
+                         automated_sync=False)),
+                 id="card-pin-partly"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_accelerator_pin=_a_collaborator_raising(AcceleratorPinRestorer)),
+                 id="card-pin-refused"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                 lambda: _collaborators_with(changed_from_outside=somebody_changed_it()),
+                 id="flag-left-as-found"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                 lambda: _collaborators_with(changed_from_outside=nobody_can_say()),
+                 id="flag-unaccounted-for"),
+    pytest.param(lambda: FlagUndo(flag=SOME_FLAG, was_enabled=True, environment="production"),
+                 lambda: _collaborators_with(),
+                 id="flag-undated"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                 lambda: _collaborators_with(set_state=_a_collaborator_raising(FlagSetter)),
+                 id="flag-refused")
+]
 
 
 @pytest.mark.unit
@@ -121,7 +238,9 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
         ) \
         .then(all_of(
             _it_reports(Undone.LEFT_AS_FOUND),
-            _nothing_was_written(set_state)
+            _nothing_was_written(set_state),
+            _it_says_exactly("was left as found: it has been changed from outside since "
+                             "Argus set it")
         ))
 
 
@@ -214,106 +333,20 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
         )
     
 
-def _a_flag_setter() -> MagicMock:
-    setter: MagicMock = create_autospec(FlagSetter)
-    setter.return_value = an_undo_descriptor_for(SOME_FLAG)
-
-    return setter
-
-
-class _ARecordAskedAbout:
-    """The question the undo asked, kept so a test can assert on it."""
-
-    def __init__(self, answering: bool) -> None:
-        self.asked_about: tuple[str, datetime] | None = None
-        self._answer = answering
-
-    def record(self, flag: str, since: datetime) -> bool | None:
-        self.asked_about = (flag, since)
-
-        return self._answer
-
-
-def _a_record_asked_about(answering: bool) -> _ARecordAskedAbout:
-    return _ARecordAskedAbout(answering)
-
-
-def _it_reports(expected: Undone) -> Assertion[UndoAttempt]:
-    def assertion(attempt: UndoAttempt) -> bool:
-        if attempt.outcome is not expected:
-            raise AssertionError(
-                f"Expected the undo to report [{expected}], got "
-                f"[{attempt.outcome}]: {attempt.detail}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_flag_was_set_to(set_state: MagicMock,
-                         flag: str,
-                         enabled: bool) -> Assertion[UndoAttempt]:
-    def assertion(_attempt: UndoAttempt) -> bool:
-        set_state.assert_called_once_with(flag, enabled)
-
-        return True
-
-    return assertion
-
-
-def _nothing_was_written(set_state: MagicMock) -> Assertion[UndoAttempt]:
-    def assertion(_attempt: UndoAttempt) -> bool:
-        if set_state.called:
-            raise AssertionError(
-                f"Expected nothing to be written, and the flag was set: "
-                f"{set_state.call_args}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_was_asked_from(asked: _ARecordAskedAbout,
-                       moment: datetime) -> Assertion[UndoAttempt]:
-    def assertion(_attempt: UndoAttempt) -> bool:
-        if asked.asked_about != (SOME_FLAG, moment):
-            raise AssertionError(
-                f"Expected the record to be asked about [{SOME_FLAG}] from "
-                f"[{moment}], and it was asked {asked.asked_about}."
-            )
-
-        return True
-
-    return assertion
-
-
-def a_rollback_descriptor_for(application: str,
-                              was_syncing_itself: bool = True) -> DeploymentRollbackUndo:
-    return DeploymentRollbackUndo(
-        application=application,
-        was_on_history_id=2,
-        was_on_revision=THE_REVISION_IT_WAS_ON,
-        was_syncing_itself=was_syncing_itself
-    )
-
-
-def _a_restorer_that_puts_back(revision: bool = True,
-                               automated_sync: bool = True) -> MagicMock:
-    restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
-    restore.return_value = DeploymentRestored(
-        revision_put_back=revision, automated_sync_put_back=automated_sync
-    )
-
-    return restore
-
-
-def _a_restorer_that_cannot(why: str) -> MagicMock:
-    restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
-    restore.side_effect = RuntimeError(why)
-
-    return restore
+@pytest.mark.unit
+def test_a_flag_put_back_says_what_became_of_it_and_nothing_else() -> None:
+    # What the line says after the flag's name. The name is the subject the
+    # narration already leads with, and the state is the one fact left to say.
+    Scenario() \
+        .given(
+            descriptor := an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
+        ) \
+        .when(
+            lambda: undo_change(descriptor, **_collaborators_with())
+        ) \
+        .then(
+            _it_says_exactly("was put back ON")
+        )
 
 
 @pytest.mark.unit
@@ -339,7 +372,7 @@ def test_a_rollback_is_put_back_by_the_restorer_rather_than_the_flag_setter() ->
                 restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
-            .then(all_of(
+        .then(all_of(
             _it_reports(Undone.RESTORED),
             _nothing_was_written(set_state)
         ))
@@ -364,7 +397,7 @@ def test_a_rollback_put_back_reports_the_application_as_its_subject() -> None:
                 restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
-            .then(
+        .then(
             _it_is_about(SOME_APPLICATION)
         )
 
@@ -392,7 +425,7 @@ def test_a_rollback_whose_sync_could_not_be_restored_is_not_counted_as_undone() 
                 restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
-            .then(all_of(
+        .then(all_of(
             _it_reports(Undone.NOT_ESTABLISHED),
             _it_says_what_is_still_changed("automated sync")
         ))
@@ -420,7 +453,7 @@ def test_a_restorer_that_raises_leaves_the_rollback_not_established() -> None:
                 restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
         ) \
-            .then(all_of(
+        .then(all_of(
             _it_reports(Undone.NOT_ESTABLISHED),
             _it_says_what_is_still_changed(some_failure)
         ))
@@ -560,71 +593,47 @@ def test_a_capacity_restorer_that_raises_leaves_the_resize_not_established() -> 
         ))
 
 
-def _it_is_about(subject: str) -> Assertion[UndoAttempt]:
-    def assertion(attempt: UndoAttempt) -> bool:
-        if attempt.subject != subject:
-            raise AssertionError(
-                f"Expected the answer to be about [{subject}], and it was about "
-                f"[{attempt.subject}]."
+@pytest.mark.unit
+def test_a_scale_out_from_one_replica_put_back_says_one_replica() -> None:
+    # The count agrees with its noun: "[1] replicas" is the line a reader
+    # stops at.
+    Scenario() \
+        .given(descriptor := a_resize_descriptor_for(SOME_APPLICATION, was_replicas=1)) \
+        .when(
+            lambda: undo_change(
+                descriptor,
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=_a_capacity_restorer_that_puts_back(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
             )
-
-        return True
-
-    return assertion
+        ) \
+        .then(_it_says_what_is_still_changed("put back to [1] replica, and"))
 
 
-def _it_says_what_is_still_changed(mentioned: str) -> Assertion[UndoAttempt]:
-    def assertion(attempt: UndoAttempt) -> bool:
-        if mentioned not in attempt.detail:
-            raise AssertionError(
-                f"Expected the report to name [{mentioned}], and it said: "
-                f"{attempt.detail}"
-            )
-
-        return True
-
-    return assertion
-
-
-def a_resize_descriptor_for(application: str,
-                            was_syncing_itself: bool = True) -> ReplicaUndo:
-    return ReplicaUndo(
-        application=application,
-        was_replicas=THE_COUNT_IT_WAS_RUNNING,
-        was_syncing_itself=was_syncing_itself
-    )
-
-
-def a_pin_descriptor_for(application: str,
-                         was_syncing_itself: bool = True) -> AutoscalerUndo:
-    return AutoscalerUndo(
-        application=application,
-        was_min_replicas=THE_FLOOR_IT_WAS_HOLDING,
-        min_replicas_asked_for=THE_CEILING_IT_WAS_HELD_AT,
-        was_syncing_itself=was_syncing_itself
-    )
-
-
-def _an_autoscaling_restorer_that_puts_back(
-    floor: bool = True,
-    automated_sync: bool = True
-) -> MagicMock:
-    restore: MagicMock = create_autospec(AutoscalingRestorer, instance=True)
-    restore.return_value = AutoscalingRestored(
-        floor_put_back=floor, automated_sync_put_back=automated_sync
-    )
-
-    return restore
-
-
-def _a_capacity_restorer_that_puts_back(count: bool = True,
-                                        automated_sync: bool = True) -> MagicMock:
+@pytest.mark.unit
+def test_a_scale_out_from_one_replica_that_could_not_be_put_back_says_one_replica() -> None:
+    dont_care_failure = "the platform would not answer"
     restore: MagicMock = create_autospec(CapacityRestorer, instance=True)
-    restore.return_value = CapacityRestored(
-        count_put_back=count, automated_sync_put_back=automated_sync
-    )
+    restore.side_effect = RuntimeError(dont_care_failure)
 
-    return restore
+    Scenario() \
+        .given(descriptor := a_resize_descriptor_for(SOME_APPLICATION, was_replicas=1)) \
+        .when(
+            lambda: undo_change(
+                descriptor,
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=restore,
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
+            )
+        ) \
+        .then(_it_says_what_is_still_changed("put back to [1] replica:"))
+
 
 @pytest.mark.unit
 def test_a_pin_is_put_back_by_the_autoscaling_restorer_and_nothing_else() -> None:
@@ -735,27 +744,6 @@ def test_an_autoscaling_restorer_that_raises_leaves_the_pin_not_established() ->
         ))
 
 
-def a_card_pin_descriptor_for(application: str) -> AcceleratorPinUndo:
-    return AcceleratorPinUndo(
-        application=application,
-        was_pinned_to=None,
-        pinned_to=THE_CARD_IT_WAS_HELD_TO,
-        was_syncing_itself=True
-    )
-
-
-def _an_accelerator_pin_restorer_that_puts_back(
-    pin: bool = True,
-    automated_sync: bool = True
-) -> MagicMock:
-    restore: MagicMock = create_autospec(AcceleratorPinRestorer, instance=True)
-    restore.return_value = AcceleratorPinRestored(
-        pin_put_back=pin, automated_sync_put_back=automated_sync
-    )
-
-    return restore
-
-
 @pytest.mark.unit
 def test_a_pin_to_a_card_is_put_back_by_its_own_restorer_and_nothing_else() -> None:
     # The dispatch, for the fifth kind of change. A pin to a card sent to the
@@ -840,61 +828,54 @@ def test_an_accelerator_pin_restorer_that_raises_leaves_the_pin_not_established(
         ))
 
 
-def _the_autoscaling_restorer_was_not_asked(restore: MagicMock) -> Assertion[UndoAttempt]:
-    def assertion(dont_care_attempt: UndoAttempt) -> bool:
-        if restore.called:
-            raise AssertionError(
-                f"Expected a pin to a card to be put back by its own restorer, and "
-                f"the autoscaling restorer was asked {restore.call_args_list}."
-            )
+@pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborator", "a_whole_restore"),
+                         EVERY_WHOLE_RESTORE)
+def test_a_change_put_back_does_not_name_its_subject_again(
+    descriptor: Callable[[], UndoDescriptor], collaborator: str,
+    a_whole_restore: Callable[[], MagicMock]
+) -> None:
+    # The narration leads with the subject and follows it with this, so a
+    # detail that named it again said it twice on one line.
+    Scenario() \
+        .given(
+            collaborators := _collaborators_with(**{collaborator: a_whole_restore()})
+        ) \
+        .when(
+            lambda: undo_change(descriptor(), **collaborators)
+        ) \
+        .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _it_does_not_name_its_subject()
+        ))
 
-        return True
 
-    return assertion
-
-
-# ---- what it logs ----
-
-# Where putting a change back logs from.
-THE_UNDOING = "agent_mitigation.undoing"
-
-# Every kind of change, with the collaborator that puts it back and what the
-# answer is about. One case each, because each kind's restore is its own branch.
-EVERY_KIND_OF_RESTORE = [
-    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
-                 DeploymentRestorer, SOME_APPLICATION, id="rollback"),
-    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
-                 CapacityRestorer, SOME_APPLICATION, id="scale-out"),
-    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
-                 AutoscalingRestorer, SOME_APPLICATION, id="autoscaler-pin"),
-    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
-                 AcceleratorPinRestorer, SOME_APPLICATION, id="card-pin"),
-    pytest.param(an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
-                 FlagSetter, SOME_FLAG, id="flag")
-]
-
-# Every kind that restores two things, answering that only the first went back.
-EVERY_HALF_RESTORE = [
-    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
-                 _a_restorer_that_puts_back(revision=True, automated_sync=False),
-                 id="rollback"),
-    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
-                 _a_capacity_restorer_that_puts_back(count=True, automated_sync=False),
-                 id="scale-out"),
-    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
-                 _an_autoscaling_restorer_that_puts_back(floor=True, automated_sync=False),
-                 id="autoscaler-pin"),
-    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
-                 _an_accelerator_pin_restorer_that_puts_back(pin=True, automated_sync=False),
-                 id="card-pin")
-]
+@pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborators"), EVERY_ANSWER_BUT_A_RESTORE)
+def test_a_change_not_put_back_does_not_name_its_subject_again(
+    descriptor: Callable[[], UndoDescriptor], collaborators: Callable[[], _Collaborators]
+) -> None:
+    # Said as a restore is: the narration leads with the subject and follows it
+    # with this, verb and all - a write that failed could not be put back, one
+    # half done was only partly put back - so a detail naming the subject again
+    # said it twice on one line.
+    Scenario() \
+        .given(
+            handed := collaborators()
+        ) \
+        .when(
+            lambda: undo_change(descriptor(), **handed)
+        ) \
+        .then(
+            _it_does_not_name_its_subject()
+        )
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("descriptor", "collaborator", "spec", "subject"),
                          EVERY_KIND_OF_RESTORE)
 def test_a_restore_that_raised_is_logged_as_a_warning(
-    descriptor: UndoDescriptor, collaborator: str, spec: type, subject: str,
+    descriptor: Callable[[], UndoDescriptor], collaborator: str, spec: type, subject: str,
     caplog: pytest.LogCaptureFixture
 ) -> None:
     # The answer says not established and whoever asked escalates on it, and
@@ -905,7 +886,7 @@ def test_a_restore_that_raised_is_logged_as_a_warning(
         ) \
         .when(
             lambda: undo_change(
-                descriptor, **_collaborators_with(**{collaborator: the_restore_raises})
+                descriptor(), **_collaborators_with(**{collaborator: the_restore_raises})
             )
         ) \
         .then(
@@ -915,20 +896,46 @@ def test_a_restore_that_raised_is_logged_as_a_warning(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborator", "spec", "dont_care_subject"),
+                         EVERY_KIND_OF_RESTORE)
+def test_a_restore_refused_because_the_run_was_lost_is_raised_rather_than_answered(
+    descriptor: Callable[[], UndoDescriptor], collaborator: str, spec: type,
+    dont_care_subject: str
+) -> None:
+    # Not established would have whoever asked escalate an incident another
+    # claim is walking - and a change put back from here would be put back
+    # under the walk that holds it now.
+    Scenario() \
+        .given(
+            the_run_was_lost := _a_collaborator_raising(
+                spec, RunLost("a newer claim holds this run"))
+        ) \
+        .when(attempting(
+            lambda: undo_change(
+                descriptor(), **_collaborators_with(**{collaborator: the_run_was_lost})
+            )
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("descriptor", "collaborator", "half_a_restore"),
                          EVERY_HALF_RESTORE)
 def test_a_change_only_partly_put_back_is_logged_as_a_warning(
-    descriptor: UndoDescriptor, collaborator: str, half_a_restore: MagicMock,
+    descriptor: Callable[[], UndoDescriptor], collaborator: str,
+    half_a_restore: Callable[[], MagicMock],
     caplog: pytest.LogCaptureFixture
 ) -> None:
     # A deployment that looks right and receives nothing anybody ships to it,
     # which nobody looking at it would notice.
     Scenario() \
         .given(
-            collaborators := _collaborators_with(**{collaborator: half_a_restore})
+            collaborators := _collaborators_with(**{collaborator: half_a_restore()})
         ) \
         .when(
-            lambda: undo_change(descriptor, **collaborators)
+            lambda: undo_change(descriptor(), **collaborators)
         ) \
         .then(
             one_record_was_logged(caplog, THE_UNDOING, logging.WARNING,
@@ -999,21 +1006,272 @@ def test_a_flag_left_as_found_is_logged(caplog: pytest.LogCaptureFixture) -> Non
         )
 
 
-def _collaborators_with(**chosen: Any) -> dict[str, Any]:
+class _ARecordAskedAbout:
+    """The question the undo asked, kept so a test can assert on it."""
+
+    def __init__(self, answering: bool) -> None:
+        self.asked_about: tuple[str, datetime] | None = None
+        self._answer = answering
+
+    def record(self, flag: str, since: datetime) -> bool | None:
+        self.asked_about = (flag, since)
+
+        return self._answer
+
+
+class _Collaborators(TypedDict, total=False):
+    """What an undo is handed, each typed as `undo_change` takes it.
+
+    Typed rather than `Any`, so mypy checks every name and value a case passes
+    against this list, and this list against the model's own constructor: a
+    field renamed in the model fails the typecheck here rather than being
+    dropped while the case goes on asserting against the default.
+    """
+
+    changed_from_outside: ChangedFromOutside
+    set_state: FlagSetter
+    restore_deployment: DeploymentRestorer
+    restore_capacity: CapacityRestorer
+    restore_autoscaling: AutoscalingRestorer
+    restore_accelerator_pin: AcceleratorPinRestorer
+
+
+def _a_flag_setter() -> MagicMock:
+    setter: MagicMock = create_autospec(FlagSetter)
+    setter.return_value = an_undo_descriptor_for(SOME_FLAG)
+
+    return setter
+
+
+def _a_record_asked_about(answering: bool) -> _ARecordAskedAbout:
+    return _ARecordAskedAbout(answering)
+
+
+def _it_reports(expected: Undone) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.outcome is not expected:
+            raise AssertionError(
+                f"Expected the undo to report [{expected}], got "
+                f"[{attempt.outcome}]: {attempt.detail}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_flag_was_set_to(set_state: MagicMock,
+                         flag: str,
+                         enabled: bool) -> Assertion[UndoAttempt]:
+    def assertion(_attempt: UndoAttempt) -> bool:
+        set_state.assert_called_once_with(flag, enabled)
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_written(set_state: MagicMock) -> Assertion[UndoAttempt]:
+    def assertion(_attempt: UndoAttempt) -> bool:
+        if set_state.called:
+            raise AssertionError(
+                f"Expected nothing to be written, and the flag was set: "
+                f"{set_state.call_args}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_asked_from(asked: _ARecordAskedAbout,
+                       moment: datetime) -> Assertion[UndoAttempt]:
+    def assertion(_attempt: UndoAttempt) -> bool:
+        if asked.asked_about != (SOME_FLAG, moment):
+            raise AssertionError(
+                f"Expected the record to be asked about [{SOME_FLAG}] from "
+                f"[{moment}], and it was asked {asked.asked_about}."
+            )
+
+        return True
+
+    return assertion
+
+
+def a_rollback_descriptor_for(application: str,
+                              was_syncing_itself: bool = True) -> DeploymentRollbackUndo:
+    return DeploymentRollbackUndo(
+        application=application,
+        was_on_history_id=2,
+        was_on_revision=THE_REVISION_IT_WAS_ON,
+        was_syncing_itself=was_syncing_itself
+    )
+
+
+def _a_restorer_that_puts_back(revision: bool = True,
+                               automated_sync: bool = True) -> MagicMock:
+    restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
+    restore.return_value = DeploymentRestored(
+        revision_put_back=revision, automated_sync_put_back=automated_sync
+    )
+
+    return restore
+
+
+def _a_restorer_that_cannot(why: str) -> MagicMock:
+    restore: MagicMock = create_autospec(DeploymentRestorer, instance=True)
+    restore.side_effect = RuntimeError(why)
+
+    return restore
+
+
+def _it_is_about(subject: str) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.subject != subject:
+            raise AssertionError(
+                f"Expected the answer to be about [{subject}], and it was about "
+                f"[{attempt.subject}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_what_is_still_changed(mentioned: str) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if mentioned not in attempt.detail:
+            raise AssertionError(
+                f"Expected the report to name [{mentioned}], and it said: "
+                f"{attempt.detail}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_exactly(expected: str) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.detail != expected:
+            raise AssertionError(
+                f"Expected the report to say [{expected}], and it said "
+                f"[{attempt.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_does_not_name_its_subject() -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.subject in attempt.detail:
+            raise AssertionError(
+                f"Expected the report not to name [{attempt.subject}] again, and "
+                f"it said [{attempt.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def a_resize_descriptor_for(application: str,
+                            was_syncing_itself: bool = True,
+                            was_replicas: int = THE_COUNT_IT_WAS_RUNNING) -> ReplicaUndo:
+    return ReplicaUndo(
+        application=application,
+        was_replicas=was_replicas,
+        was_syncing_itself=was_syncing_itself
+    )
+
+
+def a_pin_descriptor_for(application: str,
+                         was_syncing_itself: bool = True) -> AutoscalerUndo:
+    return AutoscalerUndo(
+        application=application,
+        was_min_replicas=THE_FLOOR_IT_WAS_HOLDING,
+        min_replicas_asked_for=THE_CEILING_IT_WAS_HELD_AT,
+        was_syncing_itself=was_syncing_itself
+    )
+
+
+def _an_autoscaling_restorer_that_puts_back(
+    floor: bool = True,
+    automated_sync: bool = True
+) -> MagicMock:
+    restore: MagicMock = create_autospec(AutoscalingRestorer, instance=True)
+    restore.return_value = AutoscalingRestored(
+        floor_put_back=floor, automated_sync_put_back=automated_sync
+    )
+
+    return restore
+
+
+def _a_capacity_restorer_that_puts_back(count: bool = True,
+                                        automated_sync: bool = True) -> MagicMock:
+    restore: MagicMock = create_autospec(CapacityRestorer, instance=True)
+    restore.return_value = CapacityRestored(
+        count_put_back=count, automated_sync_put_back=automated_sync
+    )
+
+    return restore
+
+
+def a_card_pin_descriptor_for(application: str) -> AcceleratorPinUndo:
+    return AcceleratorPinUndo(
+        application=application,
+        was_pinned_to=None,
+        pinned_to=THE_CARD_IT_WAS_HELD_TO,
+        was_syncing_itself=True
+    )
+
+
+def _an_accelerator_pin_restorer_that_puts_back(
+    pin: bool = True,
+    automated_sync: bool = True
+) -> MagicMock:
+    restore: MagicMock = create_autospec(AcceleratorPinRestorer, instance=True)
+    restore.return_value = AcceleratorPinRestored(
+        pin_put_back=pin, automated_sync_put_back=automated_sync
+    )
+
+    return restore
+
+
+def _the_autoscaling_restorer_was_not_asked(restore: MagicMock) -> Assertion[UndoAttempt]:
+    def assertion(dont_care_attempt: UndoAttempt) -> bool:
+        if restore.called:
+            raise AssertionError(
+                f"Expected a pin to a card to be put back by its own restorer, and "
+                f"the autoscaling restorer was asked {restore.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _collaborators_with(**chosen: Unpack[_Collaborators]) -> _Collaborators:
     """Every collaborator an undo is handed, none of them asked, but those named."""
-    return {
+    nobody_asked: _Collaborators = {
         "changed_from_outside": nobody_changed_it(),
         "set_state": _a_flag_setter(),
         "restore_deployment": a_restorer_nobody_calls(),
         "restore_capacity": a_capacity_restorer_nobody_calls(),
         "restore_autoscaling": an_autoscaling_restorer_nobody_calls(),
-        "restore_accelerator_pin": an_accelerator_pin_restorer_nobody_calls(),
-        **chosen
+        "restore_accelerator_pin": an_accelerator_pin_restorer_nobody_calls()
     }
 
+    return nobody_asked | chosen
 
-def _a_collaborator_raising(spec: type) -> MagicMock:
+
+def _a_collaborator_raising(spec: type, failure: Exception | None = None) -> MagicMock:
+    """`spec`, raising `failure` - a platform that would not answer, by default."""
     collaborator: MagicMock = create_autospec(spec, instance=True)
-    collaborator.side_effect = RuntimeError("the platform would not answer")
+    collaborator.side_effect = (
+        failure if failure is not None else RuntimeError("the platform would not answer")
+    )
 
     return collaborator

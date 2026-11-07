@@ -46,7 +46,7 @@ class Reordering:
     #
     # The identity rather than its subject, because the subject is what the
     # reader cannot check. "Moved checkout down the list" is true of a service
-    # somebody restarted and of a flag somebody put back, and the two are not
+    # somebody restarted and of a flag somebody reverted, and the two are not
     # the same evidence.
     moved: ActionIdentity | None
     on_the_strength_of: str | None

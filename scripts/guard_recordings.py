@@ -43,12 +43,17 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Final
 
+from anthropic_double.recordings import is_a_question
+
 # The tools that say which stage a walk got to. Spelled here rather than
 # imported: neither `agent_postmortem` nor `agent_codefix` exports its submit
 # tool, and a guard over committed data has no business reaching past a
 # package's front door to read a name. A rename fails this loudly on every
 # recording at once, which is the cheapest possible way to find out.
 THE_LAST_ANSWER: Final = "submit_postmortem"
+# Asked about the write-up once it is kept, for the order its causal chain is
+# read in - so a finished walk may end on it, and only straight after the above.
+THE_ORDER_ASKED_AFTER: Final = "order_chain"
 # Code-Fix's opening move, and nothing else's - so its presence in a corpus is
 # how a reader of the answers alone can tell that Code-Fix ran at all. The
 # walks that escalate before reaching it have no business submitting a fix,
@@ -102,7 +107,10 @@ def every_corpus() -> Iterator[tuple[str, list[Path]]]:
     tonight, and nothing here has to be edited for it. Only a walk is one,
     which is what its mode prefix says.
     """
-    stored = sorted(RECORDINGS_DIR.glob("*.json"))
+    # A question is no answer, so no walk is made of it - told apart by the
+    # store's own rule (`anthropic_double.recordings`), which is public where
+    # the submit tools' names are not.
+    stored = sorted(path for path in RECORDINGS_DIR.glob("*.json") if not is_a_question(path))
     openings = [
         path.stem for path in stored
         if path.stem.startswith(WALK_PREFIXES)
@@ -135,7 +143,9 @@ def what_gave_up(corpus: str, answers: list[Path]) -> str | None:
     said only "bad" would send a reader to the wrong bound.
     """
     asked_for = [called for answer in answers for called in what_it_asked_for(answer)]
-    ended_on = asked_for[-1] if asked_for else None
+    written_up = (asked_for[:-1] if asked_for[-1:] == [THE_ORDER_ASKED_AFTER]
+                  else asked_for)
+    ended_on = written_up[-1] if written_up else None
 
     if ended_on != THE_LAST_ANSWER:
         return (f"{corpus}: {len(answers)} answers ending on "

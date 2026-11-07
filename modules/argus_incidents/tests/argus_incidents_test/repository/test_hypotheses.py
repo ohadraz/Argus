@@ -168,6 +168,29 @@ def test_a_hypothesis_comes_back_at_the_rank_it_was_recorded_at() -> None:
 
 
 @pytest.mark.integration
+def test_a_hypothesis_comes_back_at_the_number_it_was_recorded_at() -> None:
+    # The number the chat said the candidate by when it was formed, and the
+    # walk page reads. Lost in the table, the page would count again - and a
+    # count can say a number the chat never did.
+    a_second_rounds_first = 3
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        some_hypothesis = _a_determined_hypothesis(
+            incident_id, ["some log line"], number=a_second_rounds_first
+        )
+        the_stored_hypothesis_is = partial(_the_stored_hypothesis_is, conn, incident_id)
+
+        Scenario() \
+            .when(
+                lambda: hypotheses.record(conn, some_hypothesis)
+            ) \
+            .then(
+                the_stored_hypothesis_is(some_hypothesis)
+            )
+
+
+@pytest.mark.integration
 def test_a_candidate_the_walk_reached_comes_back_carrying_what_happened_to_it() -> None:
     # A candidate is written down when the investigation forms it, before
     # anyone knows whether it holds. What the walk found out arrives later and
@@ -300,24 +323,30 @@ def test_an_incident_with_no_hypothesis_has_none_to_return() -> None:
 
 
 @pytest.mark.integration
-def test_every_candidate_of_an_incident_comes_back_in_rank_order() -> None:
+def test_every_candidate_of_an_incident_comes_back_in_the_order_it_was_formed() -> None:
     # `get_latest_by_incident` answers with one hypothesis, which is exactly the
     # shape that hides a walk: an incident resolved on its second candidate
     # looks, through that lens, like an incident with one candidate.
+    #
+    # By number, the order formed across rounds, and not by rank: a second
+    # round's first ranks with the first round's first, and read by rank it
+    # sits between the first round's own - so the number the chat said when it
+    # was formed would name another candidate on the page. Not by when each was
+    # written either: memory may put a round's runner-up first.
     with connect_from_env() as conn:
         a_candidate_recorded_for = partial(_a_candidate_recorded_for, conn)
         the_candidates_read_back_are = partial(_the_candidates_read_back_are, conn)
 
         incident_id = an_incident_created_for(conn, _an_alert())
 
-        def three_candidates_are_recorded_out_of_order() -> None:
-            a_candidate_recorded_for(incident_id, subject="third", rank=3)
-            a_candidate_recorded_for(incident_id, subject="first", rank=1)
-            a_candidate_recorded_for(incident_id, subject="second", rank=2)
+        def two_rounds_are_recorded_out_of_order() -> None:
+            a_candidate_recorded_for(incident_id, subject="third", rank=1, number=3)
+            a_candidate_recorded_for(incident_id, subject="second", rank=2, number=2)
+            a_candidate_recorded_for(incident_id, subject="first", rank=1, number=1)
 
         Scenario() \
             .when(
-                three_candidates_are_recorded_out_of_order
+                two_rounds_are_recorded_out_of_order
             ) \
             .then(
                 the_candidates_read_back_are(incident_id, ["first", "second", "third"])
@@ -432,6 +461,7 @@ def _a_determined_hypothesis(incident_id: str,
                              evidence: list[str],
                              subject: str | None = None,
                              rank: int = 1,
+                             number: int = 1,
                              from_state: str | None = None,
                              to_state: str | None = None,
                              faulting_service: str | None = None) -> Hypothesis:
@@ -443,6 +473,7 @@ def _a_determined_hypothesis(incident_id: str,
         supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence],
         subject=subject,
         rank=rank,
+        number=number,
         from_state=from_state,
         to_state=to_state,
         faulting_service=faulting_service
@@ -527,7 +558,8 @@ def _the_stored_hypothesis_names_no_cause(
 def _a_candidate_recorded_for(conn: psycopg.Connection,
                               incident_id: str,
                               subject: str,
-                              rank: int) -> str:
+                              rank: int,
+                              number: int = 1) -> str:
     """One candidate of a verdict, written down and identified by its id.
 
     Built from the same hypothesis the rest of this file uses, with no evidence
@@ -535,7 +567,8 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
     was recorded at and what became of it, and evidence would be a second thing
     the assertions could accidentally be reading.
     """
-    candidate = _a_determined_hypothesis(incident_id, evidence=[], subject=subject, rank=rank)
+    candidate = _a_determined_hypothesis(incident_id, evidence=[], subject=subject, rank=rank,
+                                         number=number)
     hypotheses.record(conn, candidate)
 
     return candidate.id

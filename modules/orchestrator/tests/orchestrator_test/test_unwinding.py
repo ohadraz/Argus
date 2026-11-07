@@ -5,11 +5,12 @@ what makes stopping honest - a walk halted mid-flight has production in a state
 it chose for a reason that no longer applies, and nobody but Argus knows what
 that state replaced.
 
-Every recorded change goes through the same conditional undo, and none of them
-is filtered by what the walk made of it. A change already put back reads as one
-somebody else changed, so it is left alone - which makes running this twice cost
-nothing, and makes it safe over an incident whose walk had already tidied up
-after itself.
+Every recorded change goes through the same conditional undo, except one the
+walk already settled after refuting it - put back, or left as somebody else had
+since set it - which its verdict's line has already said. What the unwind did is
+kept on the change's row as well, so a second pass passes over what the first
+settled; where it puts a change back again, it finds only Argus's own restore
+since Argus wrote, and restores to the state the flag is already in.
 
 What became of each change is published rather than written as a note. There is
 one event per change, because an incident that moved three flags and restored
@@ -30,6 +31,7 @@ from agent_mitigation import UndoAttempt
 from argus_core import new_id
 from argus_core.events import ChangeUndone, IncidentEvent
 from argus_core.models import (
+    ActionProgress,
     FlagUndo,
     TakenAction,
     UndoDescriptor,
@@ -42,6 +44,7 @@ from orchestrator.unwinding import unwind_incident
 
 _DONT_CARE_INCIDENT_ID = "buki-123"
 _DONT_CARE_VERDICT = Verdict.CONFIRMED
+_DONT_CARE_FLAG = "dont-care-flag"
 
 # Where the unwind's own lines are logged from.
 _THE_UNWIND = "orchestrator.unwinding"
@@ -75,11 +78,71 @@ def test_every_change_the_incident_recorded_is_put_back(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
-                publisher=published.append,
+                record_undone=_saying_into(published)
             )
         ) \
         .then(
             _the_changes_put_back(undo, a_first_change, a_second_change)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("settled_as", [Undone.RESTORED, Undone.LEFT_AS_FOUND],
+                         ids=["restored", "left-as-found"])
+def test_a_change_the_walk_already_settled_is_passed_over(
+    settled_as: Undone, undo: MagicMock, published: list[IncidentEvent]
+) -> None:
+    # The walk put it back after refuting it, or left it as somebody else had
+    # since set it, and its verdict's line said so. Put back again it is said
+    # again; the change beside it, which nothing settled, is still put back.
+    a_settled_change = _a_taken_action_carrying(
+        _an_undo_descriptor_for("monthly-spend-feature"), undone=settled_as
+    )
+    an_unsettled_change = _an_undo_descriptor_for("checkout-kill-switch")
+    undo.return_value = _restored("checkout-kill-switch")
+
+    Scenario() \
+        .given(
+            an_incident := [a_settled_change, _a_taken_action_carrying(an_unsettled_change)]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident),
+                undo=undo,
+                record_undone=_saying_into(published)
+            )
+        ) \
+        .then(all_of(
+            _the_changes_put_back(undo, an_unsettled_change),
+            _one_change_was_reported(published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_the_walk_could_not_establish_is_tried_again(
+    undo: MagicMock, published: list[IncidentEvent]
+) -> None:
+    # The walk's own undo could not say what the flag holds, so the change may
+    # still be out there - and this is the last thing that happens to it.
+    a_change_left_unestablished = _an_undo_descriptor_for("monthly-spend-feature")
+    undo.return_value = _restored("monthly-spend-feature")
+
+    Scenario() \
+        .given(
+            an_incident := [_a_taken_action_carrying(a_change_left_unestablished,
+                                                     undone=Undone.NOT_ESTABLISHED)]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident),
+                undo=undo,
+                record_undone=_saying_into(published)
+            )
+        ) \
+        .then(
+            _the_changes_put_back(undo, a_change_left_unestablished)
         )
 
 
@@ -101,12 +164,60 @@ def test_an_action_that_changed_nothing_has_nothing_to_put_back(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed_nothing),
                 undo=undo,
-                publisher=published.append,
+                record_undone=_saying_into(published)
             )
         ) \
         .then(all_of(
             _nothing_was_undone(undo),
             _nothing_was_reported(published)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("progress", "said"),
+    [
+        (ActionProgress.PERFORMED, "was changed, and nothing was kept to put it back"),
+        (ActionProgress.CLAIMED, "may have been changed, and nothing was kept to put it back"),
+        (ActionProgress.UNKNOWN, "may have been changed, and nothing was kept to put it back")
+    ],
+    ids=["performed", "claimed", "unknown"]
+)
+def test_a_change_made_or_maybe_made_with_nothing_kept_to_undo_it_is_said(
+    progress: ActionProgress,
+    said: str,
+    undo: MagicMock,
+    published: list[IncidentEvent],
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A resumed walk that found a dead worker's change landed knows it was
+    # made and not what it replaced; a claim nobody answered may have been
+    # made. Either is a change perhaps out there with nothing kept to put it
+    # back - and passed over in silence, the withdrawal would read as tidy to
+    # a person who has to go and look. Said as not established, the answer an
+    # undo gives where it cannot say what the subject holds, and logged as one.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            an_incident_that_kept_nothing := [_a_taken_action_carrying(None, progress=progress)]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_that_kept_nothing),
+                undo=undo,
+                record_undone=_saying_into(published)
+            )
+        ) \
+        .then(all_of(
+            _nothing_was_undone(undo),
+            _one_change_was_reported(published),
+            _the_report_names(published, Undone.NOT_ESTABLISHED),
+            _the_report_is_about(published, _DONT_CARE_FLAG),
+            _the_report_says(published, detail=said),
+            one_record_was_logged(caplog, _THE_UNWIND, logging.ERROR,
+                                  "change could not be put back",
+                                  values={"subject": _DONT_CARE_FLAG, "detail": said})
         ))
 
 
@@ -136,7 +247,7 @@ def test_what_each_undo_found_is_published_on_the_incident(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
-                publisher=published.append,
+                record_undone=_saying_into(published)
             )
         ) \
         .then(all_of(
@@ -174,7 +285,7 @@ def test_one_change_that_cannot_be_read_does_not_stop_the_others(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
-                publisher=published.append,
+                record_undone=_saying_into(published)
             )
         ) \
         .then(all_of(
@@ -218,14 +329,15 @@ def test_withdrawing_an_incident_that_discarded_figures_says_none_was_owed(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_discarded),
                 undo=undo,
-                publisher=published.append,
+                record_undone=_saying_into(published)
             )
         ) \
         .then(all_of(
             _nothing_was_undone(undo),
             _one_change_was_reported(published),
             _the_report_names(published, Undone.NO_UNDO_WAS_OWED),
-            _the_report_is_about(published, some_shop)
+            _the_report_is_about(published, some_shop),
+            _the_report_begins(published, "needed nothing put back")
         ))
 
 
@@ -249,7 +361,8 @@ def test_a_change_settled_by_the_unwind_is_logged(
             lambda: unwind_incident(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
-                undo=undo
+                undo=undo,
+                record_undone=_kept_nowhere
             )
         ) \
         .then(
@@ -279,7 +392,8 @@ def test_a_change_the_unwind_could_not_settle_is_logged_as_an_error(
             lambda: unwind_incident(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
-                undo=undo
+                undo=undo,
+                record_undone=_kept_nowhere
             )
         ) \
         .then(
@@ -287,6 +401,153 @@ def test_a_change_the_unwind_could_not_settle_is_logged_as_an_error(
                                   "change could not be put back",
                                   values={"subject": some_flag, "detail": some_detail})
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("outcome",
+                         [Undone.RESTORED, Undone.LEFT_AS_FOUND, Undone.NOT_ESTABLISHED],
+                         ids=["restored", "left-as-found", "not-established"])
+def test_what_the_unwind_did_with_a_change_is_kept_on_its_row(
+    outcome: Undone, undo: MagicMock
+) -> None:
+    # The walk page shows a change by its row. Said only on the timeline, a
+    # change a withdrawal put back read on the list of candidates as the step
+    # that stopped. And a second pass asks the row before putting a change back.
+    kept: list[tuple[str, Undone]] = []
+    undo.return_value = UndoAttempt(subject=_DONT_CARE_FLAG, outcome=outcome,
+                                    detail="dont care")
+
+    Scenario() \
+        .given(
+            a_change := _a_taken_action_carrying(_an_undo_descriptor_for(_DONT_CARE_FLAG))
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading([a_change]),
+                undo=undo,
+                record_undone=_keeping(kept)
+            )
+        ) \
+        .then(
+            _what_was_kept_is(kept, [(a_change.id, outcome)])
+        )
+
+
+@pytest.mark.unit
+def test_a_change_owing_nothing_back_is_kept_as_owing_nothing() -> None:
+    kept: list[tuple[str, Undone]] = []
+
+    Scenario() \
+        .given(
+            an_incident_that_discarded := (
+                _an_incident_that_discarded_cached_figures("io-shop")
+            )
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_that_discarded),
+                undo=_an_undo_never_asked(),
+                record_undone=_keeping(kept)
+            )
+        ) \
+        .then(
+            _what_was_kept_is(kept, [(an_incident_that_discarded[0].id,
+                                      Undone.NO_UNDO_WAS_OWED)])
+        )
+
+
+@pytest.mark.unit
+def test_a_change_with_nothing_kept_to_undo_it_is_kept_as_not_established() -> None:
+    kept: list[tuple[str, Undone]] = []
+
+    Scenario() \
+        .given(
+            a_change_that_kept_nothing := _a_taken_action_carrying(None)
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading([a_change_that_kept_nothing]),
+                undo=_an_undo_never_asked(),
+                record_undone=_keeping(kept)
+            )
+        ) \
+        .then(
+            _what_was_kept_is(kept, [(a_change_that_kept_nothing.id, Undone.NOT_ESTABLISHED)])
+        )
+
+
+@pytest.mark.unit
+def test_a_row_the_unwind_passes_over_is_left_as_it_was() -> None:
+    # One the walk settled already says what became of it, and one that
+    # changed nothing has nothing to say: writing either would put an answer
+    # on a row that no undo here gave.
+    kept: list[tuple[str, Undone]] = []
+
+    Scenario() \
+        .given(
+            rows_passed_over := [
+                _a_taken_action_carrying(_an_undo_descriptor_for(_DONT_CARE_FLAG),
+                                         undone=Undone.RESTORED),
+                _a_taken_action_carrying(None, progress=ActionProgress.NOT_PERFORMED)
+            ]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(rows_passed_over),
+                undo=_an_undo_never_asked(),
+                record_undone=_keeping(kept)
+            )
+        ) \
+        .then(
+            _what_was_kept_is(kept, [])
+        )
+
+
+def _kept_nowhere(dont_care_action_id: str, dont_care_said: ChangeUndone) -> None:
+    """Where a case about neither the row nor the line keeps what the unwind
+    did."""
+
+
+def _saying_into(published: list[IncidentEvent]) -> unwinding.RecordUndone:
+    """Where a case about what is said keeps the line, and nothing else."""
+    def record_undone(dont_care_action_id: str, said: ChangeUndone) -> None:
+        published.append(said)
+
+    return record_undone
+
+
+def _keeping(kept: list[tuple[str, Undone]]) -> unwinding.RecordUndone:
+    """Where a case about the row keeps which row, and what it was kept as."""
+    def record_undone(action_id: str, said: ChangeUndone) -> None:
+        kept.append((action_id, said.outcome))
+
+    return record_undone
+
+
+def _an_undo_never_asked() -> unwinding.UndoChange:
+    """For the rows no undo is asked of: a call is a question about a change
+    there is nothing to act on."""
+    def undo(undo_descriptor: UndoDescriptor, /) -> UndoAttempt:
+        raise AssertionError(f"Expected no undo to be asked, got [{undo_descriptor}].")
+
+    return undo
+
+
+def _what_was_kept_is(kept: list[tuple[str, Undone]],
+                      expected: list[tuple[str, Undone]]) -> Assertion[None]:
+    def assertion(_unwound: None) -> bool:
+        if kept != expected:
+            raise AssertionError(
+                f"Expected the rows to keep {expected}, they kept {kept}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_changes_put_back(undo: MagicMock,
@@ -353,6 +614,20 @@ def _the_report_says(published: list[IncidentEvent], detail: str) -> Assertion[N
         if said != detail:
             raise AssertionError(
                 f"Expected the report to read [{detail!r}], got [{said!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_report_begins(published: list[IncidentEvent], words: str) -> Assertion[None]:
+    def assertion(_unwound: None) -> bool:
+        said = _the_changes_undone_in(published)[0].detail
+
+        if not said.startswith(words):
+            raise AssertionError(
+                f"Expected the report to begin [{words}], got [{said}]."
             )
 
         return True
@@ -447,7 +722,8 @@ def _an_incident_that_changed(*descriptors: UndoDescriptor) -> list[TakenAction]
 
 
 def _an_incident_whose_taken_action_carries_no_descriptor() -> list[TakenAction]:
-    return [_a_taken_action_carrying(None)]
+    """An attempt that ended before its action was done - so nothing to keep."""
+    return [_a_taken_action_carrying(None, progress=ActionProgress.NOT_PERFORMED)]
 
 
 def _an_incident_that_discarded_cached_figures(service: str) -> list[TakenAction]:
@@ -483,15 +759,20 @@ def _reading(recorded: list[TakenAction]) -> Callable[[str], list[TakenAction]]:
     return taken_actions_of
 
 
-def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None) -> TakenAction:
+def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None,
+                             progress: ActionProgress = ActionProgress.PERFORMED,
+                             undone: Undone | None = None
+                             ) -> TakenAction:
     return TakenAction(
         id=new_id(),
         incident_id=_DONT_CARE_INCIDENT_ID,
         hypothesis_id=new_id(),
         type="revert-feature-flag",
-        subject="dont-care-flag",
+        subject=_DONT_CARE_FLAG,
         has_a_way_back=True,
         undo_descriptor=undo_descriptor,
         outcome=_DONT_CARE_VERDICT,
-        taken_at=datetime.now(UTC)
+        taken_at=datetime.now(UTC),
+        progress=progress,
+        undone=undone
     )

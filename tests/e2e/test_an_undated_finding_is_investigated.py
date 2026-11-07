@@ -8,9 +8,10 @@ page it sends carries a finding and no onset.
 No series departs in this incident, so nothing can be measured to date it either,
 and the walk has to be anchored on something. The only minute anybody recorded is
 the one the alarm went off in: that is where to look from, and not when this
-began. Nothing in the window contradicts a finding that no series carries, so the
-investigation goes on rather than closing the alarm as disproven - and it ends
-where the dated walk does, with the stale entries discarded.
+began - and it is published as that, never as an onset. Nothing in the window
+contradicts a finding that no series carries, so the investigation goes on rather
+than closing the alarm as disproven - and it ends where the dated walk does, with
+the stale entries discarded.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from __future__ import annotations
 import httpx2
 import pytest
 from argus_core import parse_iso
-from argus_core.events import ActionTaken, AlertAcknowledged, OnsetDetected
+from argus_core.events import ActionTaken, AlertAcknowledged, AnchoredOnTheAlarm, OnsetDetected
 from argus_core.models import DISCARD_CACHE_ENTRIES, FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
@@ -69,7 +70,9 @@ def _the_walk_was_dated_from_the_minute_the_undated_alert_fired(
     """Two things Argus holds, compared against each other.
 
     Both halves are asserted, because the comparison alone would pass for a dated
-    alert whose stated onset happened to fall in the minute it fired.
+    alert whose stated onset happened to fall in the minute it fired. And no
+    onset beside it: published as one, the minute dates the incident from the
+    moment the alarm went off.
     """
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
@@ -78,8 +81,9 @@ def _the_walk_was_dated_from_the_minute_the_undated_alert_fired(
             event.alert for event in recorded if isinstance(event, AlertAcknowledged)
         ]
         published = [
-            event.onset for event in recorded if isinstance(event, OnsetDetected)
+            event.minute for event in recorded if isinstance(event, AnchoredOnTheAlarm)
         ]
+        onsets = [event.onset for event in recorded if isinstance(event, OnsetDetected)]
 
         if not alerts:
             raise AssertionError(
@@ -102,8 +106,16 @@ def _the_walk_was_dated_from_the_minute_the_undated_alert_fired(
 
         if not published:
             raise AssertionError(
-                f"Incident [{incident_id}] published no onset, so the walk never "
-                f"anchored itself - every window it read was anchored on nothing."
+                f"Incident [{incident_id}] said nowhere where it looked from, so the "
+                f"walk never anchored itself - every window it read was anchored on "
+                f"nothing."
+            )
+
+        if onsets:
+            raise AssertionError(
+                f"Incident [{incident_id}] published {onsets} as when it began, of an "
+                f"incident nothing dates - so its record dates it from the moment "
+                f"the alarm went off."
             )
 
         fired = alerts[0].started_at.replace(second=0, microsecond=0)

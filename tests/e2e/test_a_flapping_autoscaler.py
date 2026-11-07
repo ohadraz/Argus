@@ -9,7 +9,7 @@ wrong here is not the size but that the size will not settle.
 Four things this case pins that no other one can.
 
 **A mitigation that stops rather than adds or restores.** The three before the
-scale-out put something back and the scale-out added something; this takes away a
+scale-out returned something and the scale-out added something; this takes away a
 controller's room to shrink, by raising the floor it may fall to until it meets
 the ceiling a human declared. What admits it unasked is membership of the declared
 set (spec §13) and nothing about the kind of change it makes, which is the second

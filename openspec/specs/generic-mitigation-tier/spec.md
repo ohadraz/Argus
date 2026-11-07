@@ -84,37 +84,60 @@ approval step.
   incident
 - **THEN** it is allowed
 
-### Requirement: A determined mode that nothing in the set answers is refused in its own words
-The system SHALL distinguish three silences at the gate. An incident whose
+### Requirement: A determined mode Argus takes nothing for is refused for its own reason
+The system SHALL distinguish four silences at the gate. An incident whose
 hypothesis names no mode, or whose mode names no action anything could
-identify, SHALL be refused as a mitigation nobody could propose. An incident
-whose mode *is* determined, and which no member of the closed set of generic
-mitigations answers, SHALL be refused as a failure this system has no
-mitigation for. An incident with an action that was proposed and addressed
-outside what Argus may touch SHALL be refused as an action outside its reach.
+identify, SHALL be refused as evidence that did not say what to act on. An
+incident whose hypothesis names the change it blames, under a mitigation that
+undoes a recorded change, where the record that was read holds no such change,
+SHALL be refused as a named change the record does not hold. An incident whose
+mode *is* determined, and for which Argus takes no member of the closed set of
+generic mitigations, SHALL be refused for the reason it takes none: the fault
+is in a service another company runs, which nothing Argus may do reaches; or
+the one action that reaches it would undo a change somebody meant. An incident
+with an action that was proposed and addressed outside what Argus may touch
+SHALL be refused as an action outside its reach.
 
 The distinction SHALL be published on the refusal and SHALL reach the candidate's
 own row, the timeline and the postmortem in words a reader can act on: the first
-says somebody has to work out what to do, the second says somebody outside this
-system has to do it, and the third says Argus knew what to do and was not
-permitted to do it there.
+says somebody has to work out what to do, the second says undoing the named
+change is left to a person, the third says somebody outside this system has to
+do it and why, and the fourth says Argus knew what to do and was not permitted
+to do it there.
 
-Which of the three a refusal is SHALL be answered by the policy that holds the
-set of mitigations and the bound on what may be addressed, not by the gate
-keeping a second copy of either.
+Which of the four a refusal is, and which reason a mode carries, SHALL be
+answered by the policy that holds the set of mitigations and the bound on what
+may be addressed, not by the gate keeping a second copy of either. Every mode
+SHALL have either a mitigation or a reason it has none, and never both.
 
-#### Scenario: A mode with no mitigation is refused as such
-- **GIVEN** a hypothesis naming a mode that no generic mitigation answers
+#### Scenario: A mode with no mitigation is refused for its reason
+- **GIVEN** a hypothesis naming a mode Argus takes no generic mitigation for
 - **WHEN** the gate is reached with no proposed action
-- **THEN** the refusal recorded and published is that nothing in the set answers
-  this kind of failure, and no mutating call is made
+- **THEN** the refusal recorded and published says why - another company's
+  service, or an action that would undo a meant change - and no mutating call
+  is made
+
+#### Scenario: A meant change is not said to be beyond Argus's reach
+- **GIVEN** a hypothesis naming `monitoring-configuration-drift`, with a
+  revision at the onset that a rollback would return
+- **WHEN** the gate is reached with no proposed action
+- **THEN** the refusal says the one action that would answer it undoes a change
+  made on purpose, and nothing says no action of Argus's could reach it
 
 #### Scenario: An unidentifiable action is still refused as unproposed
 - **GIVEN** a hypothesis naming a mode a generic mitigation does answer, but
   whose action could not be identified from the evidence
 - **WHEN** the gate is reached with no proposed action
-- **THEN** the refusal recorded is that no mitigation was proposed for this
-  cause
+- **THEN** the refusal recorded is that nothing in the evidence said what to act
+  on
+
+#### Scenario: A named change the record does not hold is left to a person
+- **GIVEN** a hypothesis naming `feature-flag-toggle` and the flag it blames,
+  with the provider's record read and holding no change to that flag
+- **WHEN** the gate is reached with no proposed action
+- **THEN** the refusal says the change the candidate names is not in the record
+  of what changed and undoing it is left to a person, and nothing says Argus
+  has no mitigation for a flag
 
 #### Scenario: An action outside the estate is refused in its own words
 - **GIVEN** a proposed action of an admitted kind, addressed to a service outside

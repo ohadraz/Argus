@@ -18,13 +18,20 @@ on a branch nobody runs, and that a person has to merge it.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.assertions import (
+    Assertion,
+    all_of,
+    an_error_was_raised,
+    the_answer_was,
+    the_error_mentioned,
+)
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
 from write_mcp_server.branching import (
@@ -32,6 +39,7 @@ from write_mcp_server.branching import (
     commit_to_new_branch,
 )
 
+from write_mcp_server_test.framework.assertions import the_error_did_not_mention
 from write_mcp_server_test.framework.settings import some_repository_settings
 
 DONT_CARE_BRANCH = "argus/dont-care"
@@ -337,6 +345,62 @@ def test_a_base_whose_commit_cannot_be_read_is_not_reported_as_written() -> None
 
 
 @pytest.mark.unit
+def test_a_write_github_failed_for_a_moment_is_made_on_the_next_try() -> None:
+    # A tree and a commit are objects nothing points at until the branch does,
+    # so one written twice is one more object nobody reads.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _failing_once(TREES, status_code=502)
+
+    Scenario() \
+        .when(lambda: _writing_to(repository, retries=2)) \
+        .then(
+            all_of(
+                _a_branch_was_created(repository, DONT_CARE_BRANCH, at=SOME_WRITTEN_COMMIT),
+                _written_times(repository, TREES, 2)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_github_created_while_answering_500_is_not_created_again() -> None:
+    # A 500 can come back for a ref the server created. Asked for again, it is
+    # refused as one that already exists - so the branch is looked for first,
+    # and one pointing at the fix's commit is the branch written.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _failing_once(REFS, status_code=500)
+    repository.get.side_effect = _reading_and_finding(DONT_CARE_BRANCH, at=SOME_WRITTEN_COMMIT)
+
+    Scenario() \
+        .when(lambda: _writing_to(repository, retries=2)) \
+        .then(
+            all_of(
+                the_answer_was(DONT_CARE_BRANCH),
+                _written_times(repository, REFS, 1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_write_github_failed_is_said_in_github_s_own_terms() -> None:
+    # The HTTP library's own sentence named the address a second time and sent
+    # a reader to a Mozilla page about status codes. What failed is GitHub's
+    # answer, and that is what the error says.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _refusing(TREES, status_code=500, saying="")
+
+    Scenario() \
+        .when(attempting(lambda: _writing_to(repository))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten),
+                the_error_mentioned("GitHub answered 500 Internal Server Error"),
+                the_error_did_not_mention("for url"),
+                the_error_did_not_mention("developer.mozilla.org")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_branch_written_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # Not a change to anything running, but the one thing this tier leaves in
     # somebody else's repository - so where it is, and what it points at.
@@ -560,16 +624,17 @@ def _the_one(written: list[dict[str, Any]], what: str) -> dict[str, Any]:
     return written[0]
 
 
-def _writing_to(repository: _Repository) -> Any:
+def _writing_to(repository: _Repository, retries: int = 0) -> Any:
     """One call, for the tests about how it fails rather than what it sent."""
     return commit_to_new_branch(
         branch=DONT_CARE_BRANCH,
         base_branch=DONT_CARE_BASE,
         files=DONT_CARE_FILES,
         message=DONT_CARE_MESSAGE,
-        settings=some_repository_settings(),
+        settings=some_repository_settings(retries=retries),
         get=repository.get,
-        post=repository.post
+        post=repository.post,
+        sleep=repository.sleep
     )
 
 
@@ -644,10 +709,54 @@ def _refusing(endpoint: str, *, status_code: int, saying: str) -> _Answering:
     return answer
 
 
+def _failing_once(endpoint: str, *, status_code: int) -> _Answering:
+    """A repository whose first write to the endpoint named fails, and which
+    answers every write after it."""
+    answering = _writing()
+    failed: list[str] = []
+
+    def answer(url: str, **called: Any) -> httpx2.Response:
+        if url.endswith(endpoint) and not failed:
+            failed.append(url)
+            return _an_answer({}, status_code=status_code)
+
+        return answering(url, **called)
+
+    return answer
+
+
+def _reading_and_finding(branch: str, *, at: str) -> _Answering:
+    """The two reads, and the branch named found pointing at `at`."""
+    answering = _reading(SOME_BASE_HEAD)
+
+    def answer(url: str, **called: Any) -> httpx2.Response:
+        if url.endswith(f"/git/ref/heads/{branch}"):
+            return _an_answer({"object": {"sha": at}})
+
+        return answering(url, **called)
+
+    return answer
+
+
+def _written_times(repository: _Repository, to: str, times: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        written = _posted(repository, to)
+
+        if len(written) != times:
+            raise AssertionError(
+                f"Expected [{to}] written {times} times, it was written {len(written)}."
+            )
+
+        return True
+
+    return assertion
+
+
 class _Repository:
     def __init__(self) -> None:
         self.get: Any = create_autospec(httpx2.get)
         self.post: Any = create_autospec(httpx2.post)
+        self.sleep: Any = create_autospec(time.sleep)
 
 
 def a_repository_whose_head_is(head: str) -> _Repository:

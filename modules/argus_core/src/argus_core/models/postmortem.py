@@ -32,9 +32,11 @@ from argus_core.models.postmortem_sections import (
     CitedEvidence,
     ContributingFactor,
     Detection,
+    DetectionLesson,
     HypothesisConsidered,
     Impact,
     Lessons,
+    NoTrigger,
     ResolutionStep,
     ReviewCriterion,
     TimelineEntry,
@@ -88,6 +90,11 @@ class PostmortemDocument(BaseModel):
     """
 
     root_cause: str | None
+    # The cause as the summary says it, in the model's one sentence for a
+    # reader who does not work on the service. Kept on its own as well as
+    # inside the summary: a line that sets it apart there has nothing else to
+    # find it by. `None` where the model gave none.
+    cause_in_plain_words: str | None = None
     executive_summary: str | None
     # What a reader saw go wrong, in the model's words and no more - "Account
     # pages failed". The page puts the change it began with beside it from
@@ -118,6 +125,11 @@ class PostmortemDocument(BaseModel):
     # `estimate_currency` is: a figure relabelled from settings would rewrite
     # documents already published.
     responder_cost_currency: str | None = None
+    # How that cost was arrived at - the working year, the band each title was
+    # priced at, or what stopped it. Kept beside the figure for whoever is shown
+    # the figure, and apart from `assumptions`: the postmortem says nothing of
+    # pay, since its readers are the people it would price.
+    response_cost_basis: list[str] = []
     tokens_spent: int | None
     assumptions: list[str]
     # Where the permanent fix can be read, for the incidents that produced one.
@@ -141,6 +153,13 @@ class PostmortemDocument(BaseModel):
     # and watched. Prose here would send somebody to repeat a change already
     # made.
     recommended_action: str | None = None
+    # When Argus closed the incident as disproven - the ending for an incident
+    # there was none of: the window held none of what the alarm claimed. Every
+    # part that says how an incident ended reads it, since measured as an
+    # incident, a disproven alarm reads as a service broken from the alert and
+    # never back. `None` on every other ending, and on a document written
+    # before it was carried.
+    disproven_at: datetime | None = None
     # What people told the incident in its thread, and what each changed. Empty
     # where nobody wrote, which is an answer: the question of what people said
     # was asked of the record, and the record held nothing.
@@ -151,12 +170,21 @@ class PostmortemDocument(BaseModel):
     impact: Impact | None = None
     detection: Detection | None = None
     trigger: Trigger | None = None
+    # Why a confirmed cause came to no trigger - `None` where there is one,
+    # where nothing was confirmed, and on a document written before it was
+    # carried.
+    no_trigger: NoTrigger | None = None
     resolution: list[ResolutionStep] = []
     causal_chain: list[ChainStep] = []
     contributing_factors: list[ContributingFactor] = []
     hypotheses: list[HypothesisConsidered] = []
     action_items: list[ActionItem] = []
     lessons: Lessons | None = None
+    # The lesson on detection, which code writes from what was measured and
+    # the page puts first in the list it belongs in. `None` where the gap
+    # cannot be weighed - no onset, no rule read, an alert before the onset or
+    # sooner than the wait - which Detection already says.
+    detection_lesson: DetectionLesson | None = None
     timeline: list[TimelineEntry] = []
     # The changes to production, the log messages and what each deployment it
     # looked into changed, as the model was shown them, each under the label it
@@ -165,11 +193,23 @@ class PostmortemDocument(BaseModel):
     # nowhere to find out what P2 was. A change is kept whole, so its row can
     # name where it can be opened; a deployment's diff is its lines, one to a
     # line of `text`. And what Code-Fix read in the source, which is a
-    # reading nothing ran.
+    # reading nothing ran - and each file it names that ran as other text than
+    # it read, named by its path at the revision on its first line, then the
+    # file as it ran. And how the code outside its patch uses what the patch
+    # changes, one line of it to a row, read off the code rather than said by
+    # Code-Fix. And what the metrics show of a cause confirmed to be the load,
+    # measured by Argus - empty for any other cause, and on a document written
+    # before it was carried.
     changes_read: list[CitedChange] = []
     log_messages_read: list[CitedEvidence] = []
     deployment_changes_read: list[CitedEvidence] = []
     code_read: list[CitedEvidence] = []
+    as_it_ran_read: list[CitedEvidence] = []
+    uses_outside_read: list[CitedEvidence] = []
+    cause_measured: list[CitedEvidence] = []
+    # The branch Code-Fix read, which the uses outside its patch were read on -
+    # not the revision that ran, as a reader takes rows for unless told.
+    fix_branch_read: str | None = None
     # What came of reading the deploys, the flags and the logs, for a list of
     # them that is empty: read and found nothing, never asked, and asked with
     # nothing back are three things to know, and an empty list is all three.

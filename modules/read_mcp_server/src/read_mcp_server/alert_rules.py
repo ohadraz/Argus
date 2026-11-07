@@ -1,10 +1,11 @@
 """Where the alert rule that paged stands, read from Grafana.
 
-Where the rule stands is a channel offered to no model: Mitigation reads it,
-and nothing else does. Mitigation judges an action on a series alert by whether the rule that
-paged has stopped firing - the rule is what defines "acceptable" for the
-service, as it would for a responder - so this says what the rule says, as of
-an evaluation that can be dated, and how long the rule looks back.
+Where the rule stands is offered to no model as a tool: Mitigation reads it,
+and the postmortem reads how long the rule waits and the series it watches.
+Mitigation judges an action on a series alert by whether the rule that paged
+has stopped firing - the rule is what defines "acceptable" for the service, as
+it would for a responder - so this says what the rule says, as of an
+evaluation that can be dated, and how long the rule looks back.
 
 Three of Grafana's reads meet here and none leaves the tier: the rule's
 definition (its queries' ranges, `keep_firing_for` and `for`), its group (the interval
@@ -16,6 +17,14 @@ condition is evaluated over, and which side of the threshold is worse - so the
 metrics read for an alert can carry the series that paged. That is followed only
 where the rule's shape leaves no doubt what the series is; anywhere else the
 answer is none, which costs a window its sixth series and never invents one.
+
+And for the unit that series is in. Grafana's rule has no field for one; its
+route to a unit is the panel the rule names in two annotations, whose field
+defaults carry it. Where the rule names no panel, the panel no unit - a unit set
+only in an override, or in a library panel, is not in the defaults - or the
+dashboard cannot be read, the metric's name is asked instead (`units`), and past
+that the unit is unknown. A dashboard out of reach costs the unit and nothing
+else: how a level is said is no reason to judge a mitigation by nothing.
 
 Nothing here judges. Whether an evaluation came late enough after an action to
 say anything about it is the caller's question, and the caller holds the action.
@@ -32,14 +41,34 @@ from typing import Any, Final, Protocol
 import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import AlertRuleStanding, RuleLine, WorseWhen
-from metrics_source import RuleSeries
+from metrics_source import RuleSeries, is_a_latency, is_the_error_rate
+
+from read_mcp_server.units import the_unit_its_name_carries
 
 logger = logging.getLogger(__name__)
 
-# Where each of the three reads is asked.
+# Where each of the three reads is asked, and the dashboard a rule's panel is on.
 RULE_DEFINITION_PATH: Final = "/api/v1/provisioning/alert-rules/{rule}"
 RULE_GROUP_PATH: Final = "/api/v1/provisioning/folder/{folder}/rule-groups/{group}"
 RULE_STATE_PATH: Final = "/api/prometheus/grafana/api/v1/rules?rule_uid={rule}"
+DASHBOARD_PATH: Final = "/api/dashboards/uid/{uid}"
+
+# How a rule names its panel - two annotations, both strings - and the parts of
+# a dashboard read for that panel's unit. A panel's `id` is a number, so the two
+# are compared as text.
+ANNOTATIONS: Final = "annotations"
+DASHBOARD_UID_ANNOTATION: Final = "__dashboardUid__"
+PANEL_ID_ANNOTATION: Final = "__panelId__"
+DASHBOARD: Final = "dashboard"
+PANELS: Final = "panels"
+ID: Final = "id"
+FIELD_CONFIG: Final = "fieldConfig"
+DEFAULTS: Final = "defaults"
+UNIT: Final = "unit"
+# Grafana's two plain-number formats: ways to show a number, not units of one -
+# "850 none" says no level. A panel set to either names no unit, and the
+# metric's name is asked instead.
+_PLAIN_NUMBER_FORMATS: Final = frozenset({"none", "short"})
 
 # Grafana's wire vocabulary for the parts of its answers read here, named once
 # because a typo in one is a silent `None`.
@@ -174,7 +203,8 @@ def fetch_from_grafana(path: str,
 
 
 def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStanding:
-    """Where `rule` stands now, and how it reads its service."""
+    """Where `rule` stands now, and how it reads its service - the query of
+    its series among it, followed as the metrics read follows it."""
     definition = fetch(RULE_DEFINITION_PATH.format(rule=rule))
 
     try:
@@ -195,6 +225,8 @@ def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStand
                 f"[{state.get(HEALTH)}]"
             )
 
+        series = _the_series_followed_in(definition)
+
         return AlertRuleStanding(
             rule=rule,
             is_normal=state[STATE] == INACTIVE,
@@ -209,7 +241,11 @@ def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStand
             ),
             interval_seconds=int(group[INTERVAL]),
             keep_firing_for_seconds=_seconds_in(definition.get(KEEP_FIRING_FOR)),
-            pending_seconds=_seconds_in(definition.get(FOR))
+            pending_seconds=_seconds_in(definition.get(FOR)),
+            series_query=series.query if series is not None else None,
+            series_unit=_the_unit_of(rule, definition, series, fetch),
+            series_is_the_error_rate=series is not None and is_the_error_rate(series.query),
+            series_is_a_latency=series is not None and is_a_latency(series.query)
         )
     except AlertRuleUnreadable:
         raise
@@ -244,6 +280,13 @@ refused by the metrics backend, which answers it with no reading.
 
         return None
 
+    return _the_series_followed_in(definition)
+
+
+def _the_series_followed_in(definition: dict[str, Any]) -> RuleSeries | None:
+    """The series a definition's condition reads, or `None` where its shape is
+    not one this follows - the one rule for which series a rule watches, for
+    the metrics read and the standing alike."""
     try:
         return _the_series_in(definition)
     except (KeyError, IndexError, TypeError):
@@ -308,6 +351,71 @@ def _the_series_in(definition: dict[str, Any]) -> RuleSeries | None:
     expr = query.get(MODEL, {}).get(EXPR)
 
     return RuleSeries(query=expr, worse_when=worse_when, line=line) if expr else None
+
+
+def _the_unit_of(rule: str,
+                 definition: dict[str, Any],
+                 series: RuleSeries | None,
+                 fetch: FetchFromGrafana) -> str | None:
+    """The unit the rule's series is in: its panel's, else its metric's name's,
+    else unknown."""
+    if series is None:
+        return None
+
+    return _the_panels_unit(rule, definition, fetch) or the_unit_its_name_carries(series.query)
+
+
+def _the_panels_unit(rule: str,
+                     definition: dict[str, Any],
+                     fetch: FetchFromGrafana) -> str | None:
+    """The unit the panel the rule names shows its values in, or `None` where
+    the rule names no panel, the panel names no unit or only a plain-number
+    format, or the dashboard could not be read.
+
+    Every step of the dashboard is checked for its shape rather than trusted:
+    an answer in a shape this does not read costs the unit, and an exception
+    out of here would cost the rule's whole standing."""
+    annotations = _an_object(definition.get(ANNOTATIONS))
+    dashboard_uid = annotations.get(DASHBOARD_UID_ANNOTATION)
+    panel_id = annotations.get(PANEL_ID_ANNOTATION)
+
+    if not dashboard_uid or not panel_id:
+        return None
+
+    try:
+        dashboard = _an_object(_an_object(fetch(DASHBOARD_PATH.format(uid=dashboard_uid)))
+                               .get(DASHBOARD))
+    except AlertRuleUnreadable:
+        logger.warning("the rule's dashboard could not be read", exc_info=True,
+                       extra={"rule": rule, "dashboard": dashboard_uid})
+
+        return None
+
+    # A collapsed row keeps its panels inside it; an expanded one beside it.
+    tops = [top for top in _a_list(dashboard.get(PANELS)) if isinstance(top, dict)]
+    panels = [
+        panel
+        for top in tops
+        for panel in (top, *_a_list(top.get(PANELS)))
+        if isinstance(panel, dict)
+    ]
+    found = next((panel for panel in panels if str(panel.get(ID)) == str(panel_id)), {})
+    unit = _an_object(_an_object(found.get(FIELD_CONFIG)).get(DEFAULTS)).get(UNIT)
+
+    if not isinstance(unit, str) or not unit or unit in _PLAIN_NUMBER_FORMATS:
+        return None
+
+    return unit
+
+
+def _an_object(value: Any) -> dict[str, Any]:
+    """`value` where it is a JSON object, and an empty one where it is not."""
+    return value if isinstance(value, dict) else {}
+
+
+def _a_list(value: Any) -> list[Any]:
+    """`value` where it is a JSON array, and an empty one where it is not."""
+    return value if isinstance(value, list) else []
 
 
 def _the_line_of(evaluator: dict[str, Any]) -> RuleLine | None:

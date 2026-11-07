@@ -1,0 +1,278 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: At 2026-11-07T20:34:00Z the replica io-shop-7d9c4f8b6-x2k9p was placed on gpu-a100-0 (NVIDIA-A100-SXM4-40GB). The other replicas run on Tesla-V100 cards. The fraud-hold share rose from about 0.05 to 0.18 with nothing deployed. Errors, latency, memory and CPU stayed flat, so the fraud model is deciding differently on the new card.\n\nWhat that rests on:\n  - io-shop-7d9c4f8b6-x2k9p on gpu-a100-0 (NVIDIA-A100-SXM4-40GB), started 2026-11-07T20:34:22Z - started at the onset; the other two pods run on Tesla-V100-SXM2-16GB\n  - rule_reading stepped from 0.041 to 0.1302, then stayed at about 0.18 to 0.19, while error_rate, p50/p95/p99 and request_volume stayed at baseline\n  - get_changes reported nothing changed from 2026-11-06T20:34:00Z to 2026-11-07T20:35:00Z, and the rollout has converged with no deployment history\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01Wxferaud7KimxFuA9H72kG",
+          "input": {
+            "path": "src/io_shop/fraud_scoring.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01UZp2VzMdW8nvBPBdo3zsN1",
+          "input": {
+            "path": "tests/io_shop/test_fraud_scoring.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"Deciding whether a purchase is held for review before it is charged.\n\nA purchase reaches the scorer as its price and nothing else, and a small linear\nmodel turns that into a logit: above zero, the purchase is held for somebody to\nlook at; at or below it, it goes straight through. Most purchases go through -\nthe model holds the dearest few, which is where a stolen card is spent.\n\nThe model was trained on two features that are the same number twice: what the\npurchase charges in pounds, and what it settles at in euros. Collinear features\nare an ordinary accident of a feature pipeline, and what training makes of them\nis an ordinary consequence - two large weights of opposite sign that almost\ncancel, with the model's whole opinion of a purchase in the small difference\nbetween them. In full precision the cancellation is exact enough to leave that\ndifference intact.\n\nIt runs on a GPU, as the rest of the shop's models do, and which GPU is the\nnode's business rather than this module's: the accelerator is handed in. On\nAmpere and later, matrix arithmetic may run in TF32 - an eight-bit exponent\nand a ten-bit mantissa - which rounds every operand to about three significant\ndecimal digits. That is harmless for a well-conditioned model and is the end of\nthis one: rounding two products in the thousands that were meant to cancel to\nwithin a few units leaves a logit that is mostly rounding error, and about half\nof all purchases are held.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport math\nfrom typing import Final\n\n# Whether the scorer lets the accelerator run its arithmetic in TF32 where the\n# accelerator can. The frameworks' own switch, under the frameworks' own name,\n# and on for the reason it is on in most deployments: it is several times faster\n# on the hardware that supports it.\nALLOW_TF32 = True\n\n# The accelerators that run matrix arithmetic in TF32 when allowed to, by the\n# product name a node advertises its GPU under. Ampere introduced the format;\n# the Volta cards the shop's fleet was bought with predate it.\nTF32_ACCELERATORS: Final = frozenset({\"NVIDIA-A100-SXM4-40GB\"})\n\n# What a pound settles at in euros. A constant rather than the day's rate,\n# because the model was trained against one and scores against the same.\nEUROS_PER_POUND: Final = 1.17\n\n# The model's parameters, as training left them. The first two are the\n# collinear pair described above: their difference is about one twentieth of a\n# unit per pound, which with the bias holds purchases of about eighty-six pounds\n# and over.\nWEIGHT_ON_THE_CHARGE: Final = 4680.05\nWEIGHT_ON_THE_SETTLEMENT: Final = -4000.0\nBIAS: Final = -4.3\n\n# Bits of significand TF32 keeps, counting the implicit leading one.\n_TF32_SIGNIFICAND_BITS: Final = 11\n\n_PENCE_PER_POUND: Final = 100\n\n\ndef runs_in_tf32(accelerator: str) -> bool:\n    \"\"\"Whether the scorer's arithmetic is rounded to TF32 on this accelerator.\"\"\"\n    return ALLOW_TF32 and accelerator in TF32_ACCELERATORS\n\n\ndef fraud_logit(price_cents: int, accelerator: str) -> float:\n    \"\"\"The model's opinion of a purchase at this price, scored on this\n    accelerator - positive is suspicious.\"\"\"\n    charge = price_cents / _PENCE_PER_POUND\n    settlement = charge * EUROS_PER_POUND\n    rounded = _to_tf32 if runs_in_tf32(accelerator) else _as_given\n\n    return (\n        rounded(WEIGHT_ON_THE_CHARGE) * rounded(charge)\n        + rounded(WEIGHT_ON_THE_SETTLEMENT) * rounded(settlement)\n        + BIAS\n    )\n\n\ndef held_for_review(price_cents: int, accelerator: str) -> bool:\n    \"\"\"Whether a purchase at this price, scored on this accelerator, is held.\"\"\"\n    return fraud_logit(price_cents, accelerator) > 0.0\n\n\ndef _to_tf32(value: float) -> float:\n    \"\"\"`value` rounded to the nearest number TF32 can hold.\"\"\"\n    if value == 0.0:\n        return value\n\n    significand, exponent = math.frexp(value)\n    scale = 2**_TF32_SIGNIFICAND_BITS\n\n    return math.ldexp(round(significand * scale) / scale, exponent)\n\n\ndef _as_given(value: float) -> float:\n    return value\n",
+          "tool_use_id": "toolu_01Wxferaud7KimxFuA9H72kG",
+          "type": "tool_result"
+        },
+        {
+          "content": "from __future__ import annotations\n\nfrom io_shop.fraud_scoring import fraud_logit, held_for_review, runs_in_tf32\n\n\"\"\"Which purchases the fraud scorer holds for review.\n\nA regression net for the shop's own scorer, written after it, on the cards the\nshop's fleet was bought with. What it does on an Ampere card with TF32 allowed\nis a planted fault and is nobody's test here - `tests/target_app` asserts it is\nstill there.\n\"\"\"\n\nON_A_V100 = \"Tesla-V100-SXM2-16GB\"\n\n\ndef test_a_cheap_purchase_goes_straight_through() -> None:\n    assert not held_for_review(1_250, ON_A_V100)\n\n\ndef test_the_dearest_purchases_are_held() -> None:\n    assert held_for_review(8_950, ON_A_V100)\n\n\ndef test_the_line_falls_at_about_eighty_six_pounds() -> None:\n    assert not held_for_review(8_500, ON_A_V100)\n    assert held_for_review(8_700, ON_A_V100)\n\n\ndef test_a_purchase_scores_the_same_every_time() -> None:\n    assert fraud_logit(4_321, ON_A_V100) == fraud_logit(4_321, ON_A_V100)\n\n\ndef test_a_volta_card_never_runs_the_scorer_in_tf32() -> None:\n    assert not runs_in_tf32(ON_A_V100)\n\n\ndef test_most_purchases_go_through() -> None:\n    held = sum(1 for price in range(500, 9_000) if held_for_review(price, ON_A_V100))\n\n    assert held / 8_500 < 0.1\n",
+          "tool_use_id": "toolu_01UZp2VzMdW8nvBPBdo3zsN1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_011ReHMfjZZWGCoiJCsqUvvQ",
+          "input": {
+            "query": "fraud_scoring"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "tests/io_shop/test_fraud_scoring.py:3: from io_shop.fraud_scoring import fraud_logit, held_for_review, runs_in_tf32",
+          "tool_use_id": "toolu_011ReHMfjZZWGCoiJCsqUvvQ",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01PBjjhJNTMmEiVdPuzUxkXF",
+          "input": {
+            "explanation": "The fault is in src/io_shop/fraud_scoring.py. The model's logit is the small difference between two products of about the same size and opposite sign (WEIGHT_ON_THE_CHARGE \u00d7 charge and WEIGHT_ON_THE_SETTLEMENT \u00d7 settlement, with the weights at 4680.05 and -4000.0). `fraud_logit` passes every operand through `_to_tf32` when `runs_in_tf32(accelerator)` is true. That happens when `ALLOW_TF32` is True and the accelerator is in `TF32_ACCELERATORS`, which holds \"NVIDIA-A100-SXM4-40GB\". With only 11 significand bits kept, rounding the weights and features changes each product by more than the difference the decision depends on, so the logit on an A100 is mostly rounding error. Nothing in the code checks whether the model can tolerate that rounding. It turns on whenever the node happens to have an Ampere card, which is how one replica started holding many more purchases than its V100 peers without any deploy.\n\nThe fix sets `ALLOW_TF32 = False` and says why in the comment: this model's opinion lives in a cancellation that TF32 destroys, so the speed-up costs correctness here. As a result `runs_in_tf32` returns False for every accelerator, and `fraud_logit` uses `_as_given` everywhere. That makes the score on an A100 the same as on a V100, and makes the scorer safe to land on any node. `TF32_ACCELERATORS`, `_to_tf32` and the function signatures are unchanged. The repository has no other callers of this module; the only reference is the test file.\n\ntests/io_shop/test_fraud_scoring.py adds three tests on \"NVIDIA-A100-SXM4-40GB\". The first checks that `runs_in_tf32` is false there. The second checks that `held_for_review` makes the same decision as on the V100 for every price from 500 to 8,999 pence. The third checks that fewer than 10% of those prices are held on the A100. Against the current code the A100 decisions are made with TF32-rounded operands, so the tests are written to fail there. With the change they should pass. I also updated the test file's docstring, which said Ampere behaviour was deliberately left untested.",
+            "files": [
+              {
+                "content": "\"\"\"Deciding whether a purchase is held for review before it is charged.\n\nA purchase reaches the scorer as its price and nothing else, and a small linear\nmodel turns that into a logit: above zero, the purchase is held for somebody to\nlook at; at or below it, it goes straight through. Most purchases go through -\nthe model holds the dearest few, which is where a stolen card is spent.\n\nThe model was trained on two features that are the same number twice: what the\npurchase charges in pounds, and what it settles at in euros. Collinear features\nare an ordinary accident of a feature pipeline, and what training makes of them\nis an ordinary consequence - two large weights of opposite sign that almost\ncancel, with the model's whole opinion of a purchase in the small difference\nbetween them. In full precision the cancellation is exact enough to leave that\ndifference intact.\n\nIt runs on a GPU, as the rest of the shop's models do, and which GPU is the\nnode's business rather than this module's: the accelerator is handed in. On\nAmpere and later, matrix arithmetic may run in TF32 - an eight-bit exponent\nand a ten-bit mantissa - which rounds every operand to about three significant\ndecimal digits. That is harmless for a well-conditioned model and is the end of\nthis one: rounding two products in the thousands that were meant to cancel to\nwithin a few units leaves a logit that is mostly rounding error, and about half\nof all purchases are held.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport math\nfrom typing import Final\n\n# Whether the scorer lets the accelerator run its arithmetic in TF32 where the\n# accelerator can. The frameworks' own switch, under the frameworks' own name.\n# Off for this model: its decision lives in the small difference between two\n# large products that TF32's rounding swamps, so allowing it makes the scorer's\n# decisions depend on which card a replica lands on. Full precision everywhere.\nALLOW_TF32 = False\n\n# The accelerators that run matrix arithmetic in TF32 when allowed to, by the\n# product name a node advertises its GPU under. Ampere introduced the format;\n# the Volta cards the shop's fleet was bought with predate it.\nTF32_ACCELERATORS: Final = frozenset({\"NVIDIA-A100-SXM4-40GB\"})\n\n# What a pound settles at in euros. A constant rather than the day's rate,\n# because the model was trained against one and scores against the same.\nEUROS_PER_POUND: Final = 1.17\n\n# The model's parameters, as training left them. The first two are the\n# collinear pair described above: their difference is about one twentieth of a\n# unit per pound, which with the bias holds purchases of about eighty-six pounds\n# and over.\nWEIGHT_ON_THE_CHARGE: Final = 4680.05\nWEIGHT_ON_THE_SETTLEMENT: Final = -4000.0\nBIAS: Final = -4.3\n\n# Bits of significand TF32 keeps, counting the implicit leading one.\n_TF32_SIGNIFICAND_BITS: Final = 11\n\n_PENCE_PER_POUND: Final = 100\n\n\ndef runs_in_tf32(accelerator: str) -> bool:\n    \"\"\"Whether the scorer's arithmetic is rounded to TF32 on this accelerator.\"\"\"\n    return ALLOW_TF32 and accelerator in TF32_ACCELERATORS\n\n\ndef fraud_logit(price_cents: int, accelerator: str) -> float:\n    \"\"\"The model's opinion of a purchase at this price, scored on this\n    accelerator - positive is suspicious.\"\"\"\n    charge = price_cents / _PENCE_PER_POUND\n    settlement = charge * EUROS_PER_POUND\n    rounded = _to_tf32 if runs_in_tf32(accelerator) else _as_given\n\n    return (\n        rounded(WEIGHT_ON_THE_CHARGE) * rounded(charge)\n        + rounded(WEIGHT_ON_THE_SETTLEMENT) * rounded(settlement)\n        + BIAS\n    )\n\n\ndef held_for_review(price_cents: int, accelerator: str) -> bool:\n    \"\"\"Whether a purchase at this price, scored on this accelerator, is held.\"\"\"\n    return fraud_logit(price_cents, accelerator) > 0.0\n\n\ndef _to_tf32(value: float) -> float:\n    \"\"\"`value` rounded to the nearest number TF32 can hold.\"\"\"\n    if value == 0.0:\n        return value\n\n    significand, exponent = math.frexp(value)\n    scale = 2**_TF32_SIGNIFICAND_BITS\n\n    return math.ldexp(round(significand * scale) / scale, exponent)\n\n\ndef _as_given(value: float) -> float:\n    return value\n",
+                "path": "src/io_shop/fraud_scoring.py"
+              },
+              {
+                "content": "from __future__ import annotations\n\nfrom io_shop.fraud_scoring import fraud_logit, held_for_review, runs_in_tf32\n\n\"\"\"Which purchases the fraud scorer holds for review.\n\nA regression net for the shop's own scorer, on the cards the shop's fleet was\nbought with and on the Ampere cards a replica can be scheduled onto: the\nscorer must decide the same way whichever card it lands on.\n\"\"\"\n\nON_A_V100 = \"Tesla-V100-SXM2-16GB\"\nON_AN_A100 = \"NVIDIA-A100-SXM4-40GB\"\n\n\ndef test_a_cheap_purchase_goes_straight_through() -> None:\n    assert not held_for_review(1_250, ON_A_V100)\n\n\ndef test_the_dearest_purchases_are_held() -> None:\n    assert held_for_review(8_950, ON_A_V100)\n\n\ndef test_the_line_falls_at_about_eighty_six_pounds() -> None:\n    assert not held_for_review(8_500, ON_A_V100)\n    assert held_for_review(8_700, ON_A_V100)\n\n\ndef test_a_purchase_scores_the_same_every_time() -> None:\n    assert fraud_logit(4_321, ON_A_V100) == fraud_logit(4_321, ON_A_V100)\n\n\ndef test_a_volta_card_never_runs_the_scorer_in_tf32() -> None:\n    assert not runs_in_tf32(ON_A_V100)\n\n\ndef test_most_purchases_go_through() -> None:\n    held = sum(1 for price in range(500, 9_000) if held_for_review(price, ON_A_V100))\n\n    assert held / 8_500 < 0.1\n\n\ndef test_an_ampere_card_does_not_run_the_scorer_in_tf32() -> None:\n    assert not runs_in_tf32(ON_AN_A100)\n\n\ndef test_an_ampere_card_decides_every_purchase_as_a_volta_card_does() -> None:\n    differing = [\n        price\n        for price in range(500, 9_000)\n        if held_for_review(price, ON_AN_A100) != held_for_review(price, ON_A_V100)\n    ]\n\n    assert differing == []\n\n\ndef test_most_purchases_go_through_on_an_ampere_card() -> None:\n    held = sum(1 for price in range(500, 9_000) if held_for_review(price, ON_AN_A100))\n\n    assert held / 8_500 < 0.1\n",
+                "path": "tests/io_shop/test_fraud_scoring.py"
+              }
+            ],
+            "summary": "Score fraud in full precision on every card: stop allowing TF32 for the ill-conditioned fraud model"
+          },
+          "name": "submit_fix",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your patch has arrived. One question before it is opened: does this change help this incident's users only once code outside this repository changes as well? If yes, it is not opened - say in the explanation what would have to change there. Answer with answer_question.",
+          "tool_use_id": "toolu_01PBjjhJNTMmEiVdPuzUxkXF",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
+      "strict": true
+    }
+  ]
+}

@@ -23,17 +23,22 @@ from unittest.mock import MagicMock
 
 import pytest
 from agent_investigator import Findings
-from agent_mitigation import Action, Outcome, Verdict
-from argus_core import get_settings
+from agent_mitigation import Action, ChangeMade, Outcome, Verdict
+from argus_core import RunLost, get_settings
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
+    ActionProgress,
     Alert,
     Attempt,
     EstablishedOnset,
     Evidence,
     FailureMode,
     FlagChange,
+    FlagHistory,
+    FlagUndo,
     Hypothesis,
     IncidentStatus,
     Leads,
@@ -44,13 +49,15 @@ from argus_core.models import (
     RollBackDeployment,
     Standing,
     ThreadMessage,
+    UndoDescriptor,
     Weighing,
+    WhatArgusDid,
     no_leads,
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from argus_incidents import EndedByAPerson, WaitForPeople
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from langgraph.checkpoint.memory import MemorySaver
 from orchestrator.walk import ports
 from orchestrator.walk.assembling import Collaborators
@@ -112,6 +119,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         record_action=lambda *dont_care_args, **dont_care_keywords: True,
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
+        advance_action=lambda *dont_care_args, **dont_care_keywords: None,
         change_landed=_a_change_that_never_landed(),
         propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: (
             ProposedFix(pull_request=None, explanation=None)),
@@ -124,8 +132,10 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         publisher=nobody,
         recorder=records_nothing,
         ended_by_a_person=nobody_ended_the_incident(),
+        still_held=lambda: True,
         wait_for_people=lambda dont_care_incident_id, /: False,
         leads_of=lambda dont_care_incident_id, /: [],
+        what_argus_did=lambda dont_care_incident_id, /: [],
         record_weighing=lambda dont_care_lead, /: None
     )
 
@@ -150,6 +160,30 @@ def test_an_action_that_helps_ends_the_incident_in_a_postmortem(
                            REMEMBERING_NODE,
                            POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.MITIGATED)))
+
+
+@pytest.mark.component
+def test_the_change_the_agent_tells_of_is_put_on_the_claim_the_walk_holds(
+    collaborators: Collaborators
+) -> None:
+    # The wiring, whole: the graph hands its mitigation node the collaborator
+    # the deployment supplied, so the change reaches the row before the wait
+    # rather than a stand-in nobody reads.
+    advanced: list[tuple[ActionProgress, UndoDescriptor | None]] = []
+
+    def advance_action(incident_id: str, hypothesis_id: str, to: ActionProgress,
+                       undo_descriptor: UndoDescriptor | None) -> None:
+        advanced.append((to, undo_descriptor))
+
+    Scenario() \
+        .given(
+            a_walk_recording_its_claims := replace(collaborators,
+                                                   advance_action=advance_action)
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_recording_its_claims)) \
+        .then(
+            _one_claim_was_moved_on_to_performed_carrying_a_way_back_for(advanced, SOME_FLAG)
+        )
 
 
 @pytest.mark.component
@@ -238,6 +272,34 @@ def test_a_walk_with_no_action_left_to_try_ends_at_code_fix_and_a_human(
 
 
 @pytest.mark.component
+def test_a_round_naming_only_what_was_refuted_ends_at_code_fix_and_a_human(
+    collaborators: Collaborators
+) -> None:
+    # The second round is told the flag was reverted and did not help, and names
+    # it again anyway. Changing it again would run an experiment already run, so
+    # the walk passes over it - and a round with nothing new on it has spent the
+    # list rather than found nothing. What remains is a permanent fix, as for any
+    # spent list, and when Code-Fix has none either, a person.
+    Scenario() \
+        .given(
+            the_same_answer_twice := replace(collaborators,
+                                             take=_an_action_that(Verdict.REFUTED))
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), the_same_answer_twice)) \
+        .then(all_of(
+            _the_walk_went(INVESTIGATOR_NODE,
+                           MITIGATION_PROPOSAL_NODE,
+                           TIER_GATE_NODE,
+                           MITIGATION_NODE,
+                           NEXT_CANDIDATE_NODE,
+                           INVESTIGATOR_NODE,
+                           CODEFIX_NODE,
+                           REMEMBERING_NODE,
+                           POSTMORTEM_NODE),
+            _the_incident_ended(IncidentStatus.ESCALATED)))
+
+
+@pytest.mark.component
 def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
     collaborators: Collaborators,
     transition_incident: MagicMock
@@ -280,6 +342,30 @@ def test_the_investigation_is_handed_the_walks_own_question(
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_traced_walk)) \
         .then(_the_question_reached_the_walk(reached))
+
+
+@pytest.mark.component
+def test_an_investigation_whose_run_was_taken_back_stops_at_its_next_turn(
+    collaborators: Collaborators
+) -> None:
+    # Between two turns of a model, a walk paused past its lease wakes and asks
+    # whether to go on. The answer is not the incident's: the run is another
+    # claim's now, and the walk is stopped there rather than after every turn
+    # left in its budget has been paid for.
+    Scenario() \
+        .given(
+            a_walk_whose_run_was_taken_back := replace(
+                collaborators,
+                investigate=_an_investigation_asking_between_its_turns(),
+                still_held=lambda: False
+            )
+        ) \
+        .when(attempting(
+            lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_whose_run_was_taken_back)
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
 
 
 @pytest.mark.component
@@ -344,6 +430,32 @@ def test_code_fix_is_handed_what_people_told_the_incident(
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_with_a_thread)) \
         .then(_the_fix_was_told(told, some_leads))
+
+
+@pytest.mark.component
+def test_code_fix_is_handed_what_argus_did(
+    collaborators: Collaborators
+) -> None:
+    # The same wiring for what was done about the incident. The node's own
+    # default reads nothing, so a graph that never handed the record down would
+    # leave Code-Fix told what the leads were weighed as and nothing of what
+    # the actions then showed.
+    some_done = [WhatArgusDid(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                                                      subject=SOME_FLAG),
+                              verdict=Verdict.CONFIRMED,
+                              standing="still in place")]
+    handed: list[list[WhatArgusDid]] = []
+
+    Scenario() \
+        .given(
+            a_walk_with_a_record := replace(
+                collaborators,
+                propose_fix=_a_fix_channel_noting_what_argus_did(handed),
+                what_argus_did=lambda dont_care_incident_id, /: some_done
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_with_a_record)) \
+        .then(_the_fix_was_handed(handed, some_done))
 
 
 @pytest.mark.component
@@ -515,8 +627,8 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
     collaborators: Collaborators
 ) -> None:
     # The same damage as the flag case above, left by the other kind of change.
-    # The flag history is quiet and the platform recorded a deployment, so the
-    # change to undo is the deployment - and it is recommended rather than
+    # The candidate blames a revision the platform recorded deploying, so the
+    # change to undo is that deployment - and it is recommended rather than
     # taken for the same reason: the readings already cover the incident, and a
     # rollback reports nothing of its own that would say whether it worked.
     Scenario() \
@@ -524,7 +636,7 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
             a_deployment_behind_the_damage := replace(
                 collaborators,
                 investigate=_an_investigation_offering(
-                    a_corruption_blamed_on("dont-care", "some prose")
+                    a_corruption_blamed_on("dont-care", a_deployment().reference)
                 ),
                 fetch_flag_changes=_a_provider_reporting(),
                 fetch_deployments=lambda **dont_care_question: [a_deployment()]
@@ -663,6 +775,27 @@ def _an_enabling_of(flag: str) -> FlagChange:
     return FlagChange(flag=flag, enabled=True, occurred_at="2026-08-20T11:05:00Z")
 
 
+def _an_investigation_asking_between_its_turns() -> ports.Investigate:
+    """An investigation that asks the walk's question before its first turn,
+    as the real one does, and finds nothing if it is let go on."""
+    def investigate(alert: Alert,
+                    incident_id: str,
+                    *,
+                    already_read: Sequence[Reading] | None = None,
+                    already_refuted: Sequence[Attempt] | None = None,
+                    publisher: Publisher = nobody,
+                    recorder: Recorder = records_nothing,
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
+        still_wanted()
+
+        return Findings(candidates=[], already_read=[])
+
+    return investigate
+
+
 def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
     def investigate(alert: Alert,
                     incident_id: str,
@@ -673,7 +806,8 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         return Findings(
             candidates=[candidate.model_copy(update={"incident_id": incident_id})
                         for candidate in candidates],
@@ -681,6 +815,11 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
         )
 
     return investigate
+
+
+# The window a provider double says it was read over, which no case here reads.
+DONT_CARE_HISTORY_START = datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
+DONT_CARE_HISTORY_END = datetime(2026, 8, 20, 10, 30, tzinfo=UTC)
 
 
 def _a_provider_reporting(*changes: FlagChange) -> ports.FetchFlagChanges:
@@ -692,8 +831,9 @@ def _a_provider_reporting(*changes: FlagChange) -> ports.FetchFlagChanges:
     starred, so that a caller passing it positionally stops here instead of
     landing on a parameter this does not have.
     """
-    def fetch_flag_changes(*, onset: datetime | None) -> list[FlagChange]:
-        return list(changes)
+    def fetch_flag_changes(*, onset: datetime | None) -> FlagHistory:
+        return FlagHistory(changes=list(changes), since=DONT_CARE_HISTORY_START,
+                           until=DONT_CARE_HISTORY_END)
 
     return fetch_flag_changes
 
@@ -716,18 +856,37 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
              publisher: Publisher = nobody,
              onset: datetime | None = None,
              incident_began: str | None = None,
-             rule: str | None = None) -> Outcome:
+             rule: str | None = None,
+             change_made: ChangeMade = lambda dont_care_undo_descriptor: None) -> Outcome:
         # Only one kind of action leaves anything behind, and the stand-in
-        # hands back exactly what the real one would.
+        # hands back exactly what the real one would - and tells of it as the
+        # change is made, as the real one does.
         the_way_back = (
             action.undo_descriptor if isinstance(action, RevertFeatureFlag) else None
         )
+        change_made(the_way_back)
 
         return Outcome(verdict=next(answers, last),
                        detail="dont care",
-                       undo_descriptor=the_way_back)
+                       undo_descriptor=the_way_back,
+                       left_behind_known=True)
 
     return take
+
+
+def _one_claim_was_moved_on_to_performed_carrying_a_way_back_for(
+        advanced: list[tuple[ActionProgress, UndoDescriptor | None]],
+        flag: str) -> Assertion[Walked]:
+    def assertion(_walked: Walked) -> bool:
+        found = [(to, undo.flag if isinstance(undo, FlagUndo) else undo)
+                 for to, undo in advanced]
+        if found != [(ActionProgress.PERFORMED, flag)]:
+            raise AssertionError(f"Expected one claim moved on to [performed], carrying "
+                                 f"the way back for [{flag}], got {advanced}.")
+
+        return True
+
+    return assertion
 
 
 def _a_change_that_never_landed() -> ports.ChangeLanded:
@@ -827,7 +986,7 @@ def _the_action_recommended_was(flag: str) -> Assertion[Walked]:
 
         if not isinstance(final.recommended_action, RevertFeatureFlag):
             raise AssertionError(
-                f"Expected the incident to recommend putting a flag back, it "
+                f"Expected the incident to recommend reverting a flag, it "
                 f"recommends [{final.recommended_action!r}]."
             )
 
@@ -929,7 +1088,8 @@ def _an_investigation_whose_question_is_traced(asked: list[str],
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
@@ -957,7 +1117,8 @@ def _an_investigation_noting_what_it_was_told(told: list[list[ThreadMessage]]
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         told.append(leads())
 
         return Findings(
@@ -981,7 +1142,8 @@ def _an_investigation_weighing(weighed: list[ThreadMessage]) -> ports.Investigat
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         return Findings(
             candidates=[a_candidate_blaming(SOME_FLAG).model_copy(
                 update={"incident_id": incident_id}
@@ -1021,6 +1183,20 @@ def _the_fix_was_told(told: list[list[ThreadMessage]],
     return assertion
 
 
+def _the_fix_was_handed(handed: list[list[WhatArgusDid]],
+                        expected: list[WhatArgusDid]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if handed != [expected]:
+            raise AssertionError(
+                f"Expected Code-Fix to be handed the {len(expected)} action(s) the "
+                f"record holds, once, and it was handed {handed}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_weighings_kept_were(kept: list[ThreadMessage],
                              expected: list[ThreadMessage]) -> Assertion[Walked]:
     def assertion(dont_care_walked: Walked) -> bool:
@@ -1043,7 +1219,9 @@ def _a_fix_channel_whose_question_is_traced(asked: list[str],
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
@@ -1061,8 +1239,27 @@ def _a_fix_channel_noting_what_it_was_told(told: list[list[ThreadMessage]]
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
         told.append(leads())
+
+        return ProposedFix(pull_request=None, explanation=None)
+
+    return propose
+
+
+def _a_fix_channel_noting_what_argus_did(handed: list[list[WhatArgusDid]]
+                                         ) -> ports.ProposeFix:
+    """Code-Fix that notes what it was told Argus did."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
+        handed.append(list(done))
 
         return ProposedFix(pull_request=None, explanation=None)
 

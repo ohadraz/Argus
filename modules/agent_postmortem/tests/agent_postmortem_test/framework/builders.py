@@ -23,18 +23,26 @@ from agent_postmortem import (
     CandidateRecord,
     DeploymentChangesRecord,
     IncidentEvidence,
+    ResolutionRecord,
     write_postmortem,
 )
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
+from agent_postmortem.estimate import (
+    DemandLevels,
+    ErrorRates,
+    LatencyLevels,
+    RuleSeriesLevels,
+    RuleSeriesSpan,
+)
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     ASSUMPTIONS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
     CITES_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     EFFECT_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
     GOT_LUCKY_FIELD,
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
@@ -42,6 +50,7 @@ from agent_postmortem.prompting import (
     REACHES_A_CAUSE_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
+    STILL_AT_RISK_FIELD,
     SYMPTOM_FIELD,
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
@@ -49,6 +58,7 @@ from agent_postmortem.prompting import (
 )
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import (
+    AlertRule,
     EngagedResponder,
     Engagement,
     EngagementAnswer,
@@ -58,13 +68,15 @@ from agent_postmortem.sources import (
     Rates,
     RateTable,
     Revenue,
-    RuleWait,
     Sources,
 )
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import LLMClient
 from argus_core.models import (
+    ActionProgress,
+    AlertRuleStanding,
     ChangeEvent,
+    ChannelReading,
     Meaning,
     MetricBucket,
     OpenedPullRequest,
@@ -77,6 +89,7 @@ from argus_core.models import (
     ToolDefinition,
     Transcript,
     Turn,
+    Verdict,
     Weighing,
     WorseWhen,
     a_chat_message,
@@ -164,6 +177,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        ended_at: datetime = ENDED_AT,
                        onset_at: datetime | None = ONSET,
                        recorded_recovery_at: datetime | None = None,
+                       resolution: ResolutionRecord | None = None,
+                       people_wrote: bool = False,
                        alert_title: str = "dont care",
                        timeline: list[TimelineEntry] | None = None,
                        candidates: list[CandidateRecord] | None = None,
@@ -177,7 +192,14 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        rule: str | None = None,
                        leads: list[ThreadMessage] | None = None,
                        watched_and_never_recovered: bool = False,
-                       alerted_at: datetime | None = None
+                       alerted_at: datetime | None = None,
+                       log_reading_ended: datetime | None = None,
+                       escalated: bool = False,
+                       onset_stated_by_the_alert: datetime | None = None,
+                       disproven: bool = False,
+                       service: str = "io-shop",
+                       deploys_reading: ChannelReading = ChannelReading.NOT_ASKED,
+                       flags_reading: ChannelReading = ChannelReading.NOT_ASKED
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -185,7 +207,7 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     the only one that can be costed. The tests about its absence say so.
 
     No pull request by default, because most incidents end without one - a flag
-    put back is the whole fix as often as not, and a bundle that always carried
+    reverted is the whole fix as often as not, and a bundle that always carried
     a proposal would make the exception look like the rule.
 
     Nothing recommended by default either, and for the stronger version of that
@@ -202,6 +224,13 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     one whose request must not change because the field exists. No change was
     read by default either: a change is evidence of a cause, and a bundle
     carrying one as standard would hand every test a trigger.
+
+    Not disproven by default: an alarm the window contradicts is the
+    exception, and a bundle closed as one would measure no incident at all.
+
+    Neither the deploys nor the flags asked for by default, as the record
+    says of a channel it holds nothing about - a test about a reading says
+    what came of it.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -209,6 +238,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         ended_at=ended_at,
         onset_at=onset_at,
         recorded_recovery_at=recorded_recovery_at,
+        resolution=resolution,
+        people_wrote=people_wrote,
         alert_title=alert_title,
         timeline=timeline if timeline is not None else [a_timeline_entry("dont care")],
         candidates=candidates if candidates is not None else [a_candidate("dont care")],
@@ -224,7 +255,14 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         watched_and_never_recovered=watched_and_never_recovered,
         # When the alert says it fired - when the incident opened, unless a
         # test says the two differ.
-        alerted_at=alerted_at if alerted_at is not None else started_at
+        alerted_at=alerted_at if alerted_at is not None else started_at,
+        log_reading_ended=log_reading_ended,
+        escalated=escalated,
+        onset_stated_by_the_alert=onset_stated_by_the_alert,
+        disproven=disproven,
+        service=service,
+        deploys_reading=deploys_reading,
+        flags_reading=flags_reading
     )
 
 
@@ -244,9 +282,11 @@ def a_candidate(summary: str,
                 tested: bool = False,
                 result: str | None = None,
                 confidence: float | None = 0.8,
-                failure_mode: str = "feature-flag-toggle") -> CandidateRecord:
+                failure_mode: str = "feature-flag-toggle",
+                faulting_service: str | None = None) -> CandidateRecord:
     """One candidate the investigation ranked - never tried, unless a test
-    says what became of it."""
+    says what became of it, and blaming no other service, unless a test
+    names the one it blames."""
     return CandidateRecord(summary=summary,
                            failure_mode=failure_mode,
                            confidence=confidence,
@@ -254,25 +294,46 @@ def a_candidate(summary: str,
                            from_state=from_state,
                            to_state=to_state,
                            tested=tested,
-                           result=result)
+                           result=result,
+                           faulting_service=faulting_service)
 
 
 def an_action(action: str,
               verdict: str | None = None,
               standing: str = "still in place",
-              reversible: bool = True,
+              has_a_way_back: bool = True,
               taken_at: datetime = STARTED_AT + timedelta(minutes=2),
               paused_sync_of: str | None = None,
-              line: int | None = None) -> ActionRecord:
-    """One action Argus took - with no verdict, unless a test names one, and
-    no line of the account saying it, unless a test says where it sits."""
+              line: int | None = None,
+              left_behind_known: bool = True,
+              progress: ActionProgress = ActionProgress.PERFORMED,
+              tried_before: list[Verdict] | None = None,
+              put_back: bool = False) -> ActionRecord:
+    """One action Argus took - with no verdict, unless a test names one, no
+    line of the account saying it, unless a test says where it sits, known
+    to have left what it says, unless a test says nobody can tell, performed,
+    unless a test says how far it got, tried on no earlier incident, unless
+    a test says what it came to on each, and not put back, unless a test says
+    the walk put it back."""
     return ActionRecord(taken_at=taken_at,
                         action=action,
-                        reversible=reversible,
+                        has_a_way_back=has_a_way_back,
                         verdict=verdict,
                         standing=standing,
                         paused_sync_of=paused_sync_of,
-                        line=line)
+                        line=line,
+                        left_behind_known=left_behind_known,
+                        progress=progress,
+                        tried_before=tried_before or [],
+                        put_back=put_back)
+
+
+def a_resolution(at: datetime,
+                 by: str = "dont care",
+                 line: int | None = None) -> ResolutionRecord:
+    """A person reporting the incident resolved at `at` - with no line of the
+    account saying it, unless a test says where it sits."""
+    return ResolutionRecord(at=at, by=by, line=line)
 
 
 def a_lead(words: str,
@@ -291,6 +352,7 @@ def a_lead(words: str,
 
 def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         back_to_normal_at: datetime | None = RECOVERED_AT,
+                        reported_by: str | None = None,
                         time_to_close_in_hours: float = DONT_CARE_TIME_TO_CLOSE,
                         error_rates: ErrorRates | None = None,
                         loss: Decimal | None = DONT_CARE_LOSS,
@@ -302,11 +364,24 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         engaged: EngagementAnswer | None = NOBODY_RESPONDED,
                         cost: ResponderCost | None = None,
                         bands: Mapping[str, PayBand] | None = NO_BANDS_NEEDED,
-                        unobserved_from: datetime | None = None,
+                        metrics_stopped_at: datetime | None = None,
+                        metrics_resumed_at: datetime | None = None,
                         rule_series: RuleSeriesLevels | None = None,
                         back_before_the_action: bool = False,
                         rule_waits: timedelta | None = None,
-                        rule_wait_unread: bool = False) -> Measurements:
+                        rule_wait_unread: bool = False,
+                        rule_held_before_the_onset: bool | None = None,
+                        rule_series_unit: str | None = None,
+                        rule_series_is_the_error_rate: bool = False,
+                        rule_series_is_a_latency: bool = False,
+                        latency: list[LatencyLevels] | None = None,
+                        demand: DemandLevels | None = None,
+                        rule_looks_back: timedelta | None = None,
+                        rule_evaluated_every: timedelta | None = None,
+                        rule_past_its_line_at: datetime | None = None,
+                        rule_line_read: bool = False,
+                        rule_series_before_the_alert: RuleSeriesSpan | None = None
+                        ) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -322,11 +397,15 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
     state anything can produce.
 
     No rule series by default, which is an incident paged by a rule watching
-    none of its own - every incident measured before one could be read.
+    none of its own - every incident measured before one could be read. Nor
+    one before the alert, which only a disproven alarm is measured for. And no
+    latency, which is an incident whose metrics carried no quantile. Nor any
+    demand, which is an incident with no minute read before it began.
     """
     return Measurements(
         duration_in_hours=duration_in_hours,
         back_to_normal_at=back_to_normal_at,
+        reported_by=reported_by,
         time_to_close_in_hours=time_to_close_in_hours,
         error_rates=error_rates,
         loss=loss if baseline_revenue is not None else None,
@@ -339,11 +418,23 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         engaged=engaged,
         cost=cost,
         bands=bands,
-        unobserved_from=unobserved_from,
+        metrics_stopped_at=metrics_stopped_at,
+        metrics_resumed_at=metrics_resumed_at,
         rule_series=rule_series,
         back_before_the_action=back_before_the_action,
         rule_waits=rule_waits,
-        rule_wait_unread=rule_wait_unread
+        rule_wait_unread=rule_wait_unread,
+        rule_held_before_the_onset=rule_held_before_the_onset,
+        rule_series_unit=rule_series_unit,
+        rule_series_is_the_error_rate=rule_series_is_the_error_rate,
+        rule_series_is_a_latency=rule_series_is_a_latency,
+        latency=latency if latency is not None else [],
+        demand=demand,
+        rule_looks_back=rule_looks_back,
+        rule_evaluated_every=rule_evaluated_every,
+        rule_past_its_line_at=rule_past_its_line_at,
+        rule_line_read=rule_line_read,
+        rule_series_before_the_alert=rule_series_before_the_alert
     )
 
 
@@ -356,7 +447,7 @@ def some_sources(revenue: Revenue | None = None,
                  working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
                  reporting_currency: str = SOME_CURRENCY,
                  metrics_reporting_lag_minutes: int = DONT_CARE_REPORTING_LAG_MINUTES,
-                 rule_wait: RuleWait | None = None) -> Sources:
+                 alert_rule: AlertRule | None = None) -> Sources:
     """Everything the postmortem reads, with each source answering plainly.
 
     A test names only the source it is about and leaves the other five alone,
@@ -380,7 +471,7 @@ def some_sources(revenue: Revenue | None = None,
         working_hours_a_year=working_hours_a_year,
         reporting_currency=reporting_currency,
         metrics_reporting_lag_minutes=metrics_reporting_lag_minutes,
-        rule_wait=rule_wait if rule_wait is not None else a_rule_waiting(300)
+        alert_rule=alert_rule if alert_rule is not None else an_alert_rule(300)
     )
 
 
@@ -700,38 +791,59 @@ def metrics_recording_the_rule_into(rules: Kept[str | None]) -> Metrics:
     return metrics_between
 
 
-def a_rule_waiting(seconds: int | None, asked: Kept[str] | None = None) -> RuleWait:
-    """A rule source answering how long the paging rule waits before it fires -
-    `None` where it could not be read - and noting each rule it was asked about."""
-    def waits(rule: str) -> int | None:
+def an_alert_rule(waits_seconds: int | None,
+                  series_query: str | None = None,
+                  asked: Kept[str] | None = None,
+                  series_unit: str | None = None,
+                  looks_back_seconds: int = 0,
+                  evaluated_every_seconds: int = 60,
+                  series_is_the_error_rate: bool = False,
+                  series_is_a_latency: bool = False) -> AlertRule:
+    """A rule source answering for the rule that paged: how long it waits before
+    it fires, how far back its condition looks, how often it is evaluated, and
+    the query of the series it watches - nothing at all where the rule could not
+    be read - and noting each rule it was asked about."""
+    def standing(rule: str) -> AlertRuleStanding | None:
         if asked is not None:
             asked.take(rule)
 
-        return seconds
+        if waits_seconds is None:
+            return None
 
-    return waits
+        return AlertRuleStanding(rule=rule, is_normal=False, evaluated_at=ONSET,
+                                 range_seconds=looks_back_seconds,
+                                 interval_seconds=evaluated_every_seconds,
+                                 keep_firing_for_seconds=0, pending_seconds=waits_seconds,
+                                 series_query=series_query, series_unit=series_unit,
+                                 series_is_the_error_rate=series_is_the_error_rate,
+                                 series_is_a_latency=series_is_a_latency)
+
+    return standing
 
 
 def a_bucket(at: datetime,
              error_rate: float,
-             rule_reading: RuleReading | None = None) -> MetricBucket:
+             rule_reading: RuleReading | None = None,
+             p95_ms: int = 40,
+             request_volume: int = 1_000,
+             cpu_used_cores: float = 0.77) -> MetricBucket:
     return MetricBucket(
         bucket_id=at.strftime("%Y-%m-%dT%H:%M"),
         error_rate=error_rate,
         p50_ms=20,
-        p95_ms=40,
+        p95_ms=p95_ms,
         p99_ms=90,
-        request_volume=1_000,
+        request_volume=request_volume,
         memory_used_bytes=440 * 1024**2,
         process_start_time_seconds=1_756_000_000.0,
-        cpu_used_cores=0.77,
+        cpu_used_cores=cpu_used_cores,
         cpu_limit_cores=3.0,
         rule_reading=rule_reading
     )
 
 
 def an_answer(root_cause: str = "dont care",
-              executive_summary: str = "dont care",
+              cause_in_plain_words: str = "dont care",
               assumptions: list[str] | None = None,
               lead_effects: Mapping[str, str] | None = None,
               causal_chain: list[dict[str, Any]] | None = None,
@@ -739,7 +851,9 @@ def an_answer(root_cause: str = "dont care",
               action_items: list[dict[str, Any]] | None = None,
               lessons: dict[str, Any] | None = None,
               symptom: str = "dont care",
-              reaches_a_cause: bool = True) -> dict[str, Any]:
+              reaches_a_cause: bool = True,
+              cause_rests_on_an_unrun_reading: bool = False,
+              still_at_risk: str = "") -> dict[str, Any]:
     """The arguments of a submission that would be accepted as it stands.
 
     Saying what each lead changed only where a test hands it leads to say it
@@ -748,12 +862,14 @@ def an_answer(root_cause: str = "dont care",
     A chain of one step citing the first label by default, because every
     bundle carries at least one line of narration and a chain citing nothing
     is refused. No factors and no proposals, which is an answer: the record's
-    own items stand alone. Three empty lessons, which is an answer too.
+    own items stand alone. Three empty lessons, and nothing still at risk,
+    which are answers too.
     """
     answer: dict[str, Any] = {
         SYMPTOM_FIELD: symptom,
         ROOT_CAUSE_FIELD: root_cause,
-        EXECUTIVE_SUMMARY_FIELD: executive_summary,
+        CAUSE_IN_PLAIN_WORDS_FIELD: cause_in_plain_words,
+        STILL_AT_RISK_FIELD: still_at_risk,
         ASSUMPTIONS_FIELD: assumptions if assumptions is not None else [],
         CAUSAL_CHAIN_FIELD: (causal_chain if causal_chain is not None
                              else [{STEP_FIELD: "dont care", CITES_FIELD: ["T1"]}]),
@@ -762,7 +878,8 @@ def an_answer(root_cause: str = "dont care",
         ACTION_ITEMS_FIELD: action_items if action_items is not None else [],
         LESSONS_FIELD: (lessons if lessons is not None
                         else {WENT_WELL_FIELD: [], WENT_WRONG_FIELD: [], GOT_LUCKY_FIELD: []}),
-        REACHES_A_CAUSE_FIELD: reaches_a_cause
+        REACHES_A_CAUSE_FIELD: reaches_a_cause,
+        CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD: cause_rests_on_an_unrun_reading
     }
 
     if lead_effects is not None:
@@ -780,10 +897,12 @@ def an_answer_without(field: str) -> dict[str, Any]:
 
 
 def a_submitted_answer(root_cause: str = "dont care",
-                       executive_summary: str = "dont care",
+                       cause_in_plain_words: str = "dont care",
                        assumptions: list[str] | None = None,
                        lead_effects: Mapping[str, str] | None = None,
-                       reaches_a_cause: bool = True
+                       reaches_a_cause: bool = True,
+                       cause_rests_on_an_unrun_reading: bool = False,
+                       still_at_risk: str = ""
                        ) -> SubmittedPostmortem:
     """The same submission, once it has been read out of the call.
 
@@ -792,12 +911,13 @@ def a_submitted_answer(root_cause: str = "dont care",
     the whole reason the answer became a model.
     """
     return SubmittedPostmortem.model_validate(
-        an_answer(root_cause, executive_summary, assumptions, lead_effects,
-                  reaches_a_cause=reaches_a_cause))
+        an_answer(root_cause, cause_in_plain_words, assumptions, lead_effects,
+                  reaches_a_cause=reaches_a_cause, still_at_risk=still_at_risk,
+                  cause_rests_on_an_unrun_reading=cause_rests_on_an_unrun_reading))
 
 
 def a_model_answering(root_cause: str = "dont care",
-                      executive_summary: str = "dont care",
+                      cause_in_plain_words: str = "dont care",
                       assumptions: list[str] | None = None) -> LLMClient:
     """A model that answers, once, by calling the tool it was offered.
 
@@ -807,14 +927,15 @@ def a_model_answering(root_cause: str = "dont care",
     answered in either shape.
     """
     return a_model_answering_in_turn(
-        an_answer(root_cause, executive_summary, assumptions))
+        an_answer(root_cause, cause_in_plain_words, assumptions))
 
 
-def a_model_answering_in_turn(*answers: dict[str, Any],
+def a_model_answering_in_turn(*answers: dict[str, Any] | None,
                               recording_into: Kept[Transcript] | None = None,
                               offered_tools: Kept[list[ToolDefinition]] | None = None
                               ) -> LLMClient:
-    """Answers each call from the list in turn, keeping what it was asked.
+    """Answers each call from the list in turn, keeping what it was asked -
+    `None` being a turn that wrote a paragraph instead of calling the tool.
 
     A model that ran out of answers has been called more times than the test
     allows for, which is itself a failure - so it says so rather than repeating
@@ -839,7 +960,11 @@ def a_model_answering_in_turn(*answers: dict[str, Any],
                 raise AssertionError(
                     "The model was called more times than the test expected.")
 
-            return a_submission_of(self._remaining.pop(0), tools[0].name)
+            answer = self._remaining.pop(0)
+            if answer is None:
+                return _prose("The incident was caused by a feature flag.")
+
+            return a_submission_of(answer, tools[0].name)
 
     return InTurn()
 
@@ -900,10 +1025,35 @@ def a_model_calling(tool_name: str,
 
             return a_submission_of(
                 an_answer(root_cause="a root cause from the wrong call",
-                          executive_summary="a summary from the wrong call"),
+                          cause_in_plain_words="a cause from the wrong call"),
                 tool_name)
 
     return WrongTool()
+
+
+def a_model_submitting_two_answers_at_once(real: dict[str, Any],
+                                           placeholder: dict[str, Any],
+                                           recording_into: Kept[Transcript] | None = None
+                                           ) -> LLMClient:
+    """A model that called the tool twice in one turn - its answer, and then a
+    placeholder - and does it again however often it is asked."""
+    class Twice:
+        def converse(self,
+                     transcript: Transcript,
+                     tools: list[ToolDefinition],
+                     max_tokens: int | None = None) -> Turn:
+            if recording_into is not None:
+                recording_into.take(transcript)
+
+            return Turn(
+                text="",
+                tool_calls=[ToolCall(id="call_1", name=tools[0].name, arguments=real),
+                            ToolCall(id="call_2", name=tools[0].name, arguments=placeholder)],
+                input_tokens=0,
+                output_tokens=0
+            )
+
+    return Twice()
 
 
 def a_submission_of(arguments: dict[str, Any], tool_name: str) -> Turn:

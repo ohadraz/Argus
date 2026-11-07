@@ -11,10 +11,13 @@ from metrics_source.minutes import (
     MetricsUnavailable,
     RuleSeries,
 )
+from metrics_source.prometheus_adapter import is_a_latency, is_the_error_rate
 
 __all__ = [
     "MetricsSettings",
     "MetricsSource",
     "MetricsUnavailable",
     "RuleSeries",
+    "is_a_latency",
+    "is_the_error_rate",
 ]

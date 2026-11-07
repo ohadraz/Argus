@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from argus_core import parse_iso
+from argus_core import parse_iso, said_as_a_day, said_as_a_time
 from argus_core.models import Evidence
 from pydantic import BaseModel
 
@@ -40,24 +40,45 @@ class Finding(BaseModel):
     # different questions - what the numbers did, and what the service said -
     # and a reader checking a claim usually wants the second.
     links_to_lines: str = ""
+    # The minute both links open, said with its day - which is what they are
+    # named by. Named "the minute", a link after a claim naming another moment
+    # read as that one, and dated it is never read as the claim's day.
+    minute_said: str = ""
 
 
 def a_finding(cited: Evidence,
               minutes: Sequence[str] = (),
-              logged: Sequence[str] = ()) -> Finding:
+              logged: Sequence[str] = (),
+              beside: str | None = None) -> Finding:
     """One cited fact, pointed at the minute it names where it names one.
 
     Pointed at rows that exist and nothing else: the minute has to be one the
     metrics window covers, and the lines have to be lines the page holds. A
     finding whose moment nobody retrieved gets no link rather than a link into
     an empty table.
+
+    `beside` is the moment its candidate's summary is said beside, and an
+    instant in the claim on another day comes back dated. Said beside nothing,
+    a finding's times were never dated, and one a week before the incident
+    read as the day it opened.
     """
     return Finding(
-        text=said_plainly(cited.claim),
+        text=said_plainly(cited.claim, beside=beside),
         at=cited.at,
         links_to_minute=_the_minute_of(cited.at, minutes),
-        links_to_lines=_the_minute_of(cited.at, logged)
+        links_to_lines=_the_minute_of(cited.at, logged),
+        minute_said=_said_with_its_day(cited.at)
     )
+
+
+def _said_with_its_day(at: datetime | None) -> str:
+    """The minute `at` falls in, said with its day: "Oct 24 20:35"."""
+    if at is None:
+        return ""
+
+    minute = at.replace(second=0, microsecond=0)
+
+    return f"{said_as_a_day(minute)} {said_as_a_time(minute)}"
 
 
 def pointed_at(finding: Finding,

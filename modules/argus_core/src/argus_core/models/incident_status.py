@@ -50,7 +50,7 @@ class IncidentStatus(StrEnum):
     # evidence undid. One word for both would make every later reader work out
     # which was meant.
     DISPROVEN = "disproven"
-    # A human took the incident back: they had it in hand, and Argus was told to
+    # A human withdrew the incident: they had it in hand, and Argus was told to
     # stop. Its own status rather than a kind of escalation, because escalation
     # is Argus running out of moves and handing over, and this is a handover
     # nobody asked Argus for - the difference a reader of an incident's outcome
@@ -67,10 +67,11 @@ class IncidentStatus(StrEnum):
         machine grows a state.
 
         `fixing` reads like an ending and is not one: it is where an incident
-        sits while Code-Fix looks for a permanent fix - reached once no
-        mitigation is left to try, and reached again by a mitigation that
-        worked, since the fault outlives the symptom either way. Argus is still
-        working on it.
+        sits while Code-Fix looks for a permanent fix for a symptom nothing
+        stopped - reached once no mitigation is left to try, or once Argus
+        takes none for the cause in hand. Argus is still working on it. A
+        mitigation that worked goes to Code-Fix as `mitigated` instead, which
+        is an ending: the symptom is stopped, and Code-Fix only proposes.
 
         `acknowledged` is not one either, for the opposite reason: nothing has
         started rather than nothing is left. An incident sitting there is one a
@@ -131,7 +132,7 @@ class IncidentStatus(StrEnum):
         by the time they press, the report is accepted.
 
         The three it refuses are the endings a resolution would contradict.
-        `resolved` already is. `withdrawn` was taken back, and resolving it
+        `resolved` already is. `withdrawn` was handed to a person, and resolving it
         would rewrite why it ended after its changes were put back. `disproven`
         had no incident to resolve.
 
@@ -146,11 +147,11 @@ class IncidentStatus(StrEnum):
         )
 
     def accepts_withdrawal(self) -> bool:
-        """Whether a person may take the incident back from here.
+        """Whether a person may withdraw the incident from here.
 
         Every status Argus is still working in, and none it has stopped in.
-        Withdrawing is taking the work back, and once the incident has ended
-        there is no work left to take - only the unwind a withdrawal starts,
+        Withdrawing is taking the work over from Argus, and once the incident
+        has ended there is no work left to take - only the unwind a withdrawal starts,
         which on a mitigated incident would put the failure back.
 
         Named rather than left as `not is_terminal()` at each caller, because

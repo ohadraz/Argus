@@ -2,40 +2,35 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSuQYKEAgSGAI4AUIIdGhpbmtpbmcSDNUymW0fHFQ6wNrRZRoMW+51jAC7boENdcr6IjB63pN/xDp+TELEeMx8YairEY0+pGHi9JlKhKl+pNYFjYgJMJ8l3Y4y7zvsozqtlK0q1gW+5vPHz7WTBfw0XTGsSUAOYBGhNK4rePq6X7miBSfRknVcQIomVxZlqY4zoitEvZFEyp7ObI/HONvD8Dsn6cRumbl+tdoIDEbqcofXXaX9dvqBxRvkvZlEERUJGNVn7tXGKbXiQs1Oq01ZGYAc0dEvydqqVy2LL5C2O7oR6JiO/0m1Tv463BLijMsouKRFFPrtwaIQP8nSdyTMPn8jkLALkI4g4kzZb/4WopSPwSslpwqjpW94k4l/9tFL+kIU7MiG//g/mFeCusMH3PNnxZ7e7h05pR4Pva+FLEt5QdQC3UmLXRCwbLmdg+E9EpDDOEAytSFETPXEFB4kSIYk2RrYaa4X0HvbrkmQRdoEAjKSl5FGLrTHeYPp1FiY+BZ/n51VOKFZUQHSgAUp+dQOyCMYLV/GH/CJWYkQkwxwf/t9Zsg1XC7wgXwrZegH/bNV1blyBBX+U8fsdj+4X1SsMPBlWA1W7QWejZ8eIDTP78AhCCB5pAuccMYYPO34qh+v7yKUqjrgQmCmxoMiyinpYy80FxJYcRSHH0IonYVwsTNYuOcv2+RN3B7pgP5dUZyyjlhK80SFa/Prk48x6/mmzVkfCPS2Y636zmZr96MSX1CBfATPQzWRtBhOT1NknbOINR8CcXbASPeYIETz+jjYA10RxioWBcQmvZTk+nuG35YR0tJ1i0H8F77NxFzS9BlVm2YB/Xv1JGkW9xp98GDav+V76ScKijyw9hq5L6wGsNy56f/ukibjdmYUU+KsNJpn+9jwLgtbbN4ks0PQJC+dankKLl2vhBQtgnvGfYrD+33tf1FTr6KX4MxiY8Zidh37AJDWVf0GcYnhhElPHbhwbFV+oYstgMNK+8pYrsr60N4B9K93ZszHdqDNg0/PzhgpQKmvH0Kfle0B2FtIGtNcIwEH0IU2QUva3CUDwVAETVJyqnWbUTNZ2PmBcg/o12aSHux5w/FU9C4YAQ==",
-      "thinking": "The monthly-spend-feature flag flipped on right at the onset, lining up with the p99 latency spike while p50 stays flat \u2014 that timing points to the flag toggle as the likely cause, though I should keep the optional io-summary-cache dependency in mind too. Still, feature-flag-toggle looks like the best explanation.\n\n",
-      "type": "thinking"
-    },
-    {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01AKesUhLBBksdPyK9SWEoDe",
+      "id": "toolu_016pyqnCP6LaNsM92j2UFvdT",
       "input": {
         "hypotheses": [
           {
-            "confidence": 0.8,
+            "confidence": 0.88,
             "failure_mode": "feature-flag-toggle",
             "faulting_service": null,
             "from_state": "off",
-            "subject": "monthly-spend-feature",
-            "summary": "The feature flag monthly-spend-feature was switched from off to on at the onset (a 3/200 split at 15:50, fully on from 15:51). p99 latency rose from about 200ms to 1.1\u20132.3s from that minute. p50, p95, error rate, traffic and resources stayed flat. No deployment or config change was recorded, so the flag is the only change.",
+            "subject": "typical-purchase-feature",
+            "summary": "The feature flag typical-purchase-feature was switched from off to on at 2026-11-03T18:21:00Z. From that minute p99 latency jumped from about 200ms to 1100-1900ms. The error rate, p50 and p95 stayed flat, and no deploy was recorded.",
             "supporting_evidence": [
               {
-                "at": "2026-10-18T15:50:00Z",
-                "claim": "monthly-spend-feature=off 197 / on 3 - 200 evaluations"
+                "at": "2026-11-03T18:21:00Z",
+                "claim": "feature flag typical-purchase-feature was switched on (actor: admin)"
               },
               {
-                "at": "2026-10-18T15:51:00Z",
-                "claim": "monthly-spend-feature=on - 200 evaluations"
+                "at": "2026-11-03T18:21:00Z",
+                "claim": "typical-purchase-feature=off 16 / on 184 - 200 evaluations"
               },
               {
-                "at": "2026-10-18T15:51:00Z",
-                "claim": "p99_ms 1711 (baseline ~200), p50 27, error_rate 0.02 flat"
+                "at": "2026-11-03T18:21:00Z",
+                "claim": "p99_ms 1333 (previous minute 201); p50 and p95 flat, error_rate 0.01"
               },
               {
-                "at": null,
-                "claim": "get_changes: nothing changed in the 24h before the onset; replicas all on the same V100 nodes, started 03:55"
+                "at": "2026-11-03T18:27:00Z",
+                "claim": "p99_ms 1901 while typical-purchase-feature=on; cpu_limit_cores 3.0 throughout, volume steady at 1200"
               }
             ],
             "to_state": "on"
@@ -47,7 +42,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cg9yYiLgCdP9RwiytaPLE",
+  "id": "msg_011CggU1Ecw7pE7tG9suwf61",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -57,15 +52,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 5987
+      "ephemeral_5m_input_tokens": 6495
     },
-    "cache_creation_input_tokens": 5987,
-    "cache_read_input_tokens": 31693,
+    "cache_creation_input_tokens": 6495,
+    "cache_read_input_tokens": 31519,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 562,
+    "output_tokens": 465,
     "output_tokens_details": {
-      "thinking_tokens": 102
+      "thinking_tokens": 0
     },
     "service_tier": "standard",
     "speed": "standard"

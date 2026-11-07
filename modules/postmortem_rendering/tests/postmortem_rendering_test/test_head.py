@@ -2,14 +2,15 @@
 asks about before reading any of it.
 
 Which incident, when it was broken, how finished the document is, who wrote it
-and when, and who ended the incident. Each case is one postmortem and the words
-one of these comes out as - read as said, since the words are what the page and
-the PDF must agree on, and the parts each plays only how each shows them.
+and when, when Argus first posted about it, and who ended the incident. Each
+case is one postmortem and the words one of these comes out as - read as said,
+since the words are what the page and the PDF must agree on, and the parts each
+plays only how each shows them.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from argus_core.models import (
@@ -17,16 +18,20 @@ from argus_core.models import (
     ActionItemStatus,
     ActionItemType,
     ChangeKind,
+    Detection,
+    FirstTold,
     Impact,
     ImpactExtent,
     OpenedPullRequest,
+    Refusal,
+    ReportChannel,
     ResolutionStep,
     ReviewCriterion,
     TimelineMarker,
     Trigger,
 )
 from argus_testkit import Assertion, Scenario, the_answer_was
-from postmortem_rendering.head import a_head, a_title
+from postmortem_rendering.head import Head, a_head, a_title, the_day_it_is_dated_by
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
 
@@ -76,6 +81,22 @@ def test_a_title_names_a_deployment_as_the_service_running_the_revision() -> Non
                                       Run(text="io-shop", role=Role.CODE),
                                       Run(text=" ran "),
                                       Run(text="26f1d7e", role=Role.CODE)))))
+
+
+@pytest.mark.unit
+def test_code_a_symptom_quotes_is_set_as_code_in_the_title() -> None:
+    # The symptom is the model's words, and Markdown like the rest of them.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(symptom="The `metrics` port went unscraped")
+        ) \
+        .when(
+            lambda: a_title(some_postmortem, an_alert())
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The "),
+                                      Run(text="metrics", role=Role.CODE),
+                                      Run(text=" port went unscraped")))))
 
 
 @pytest.mark.unit
@@ -136,6 +157,49 @@ def test_the_head_s_rows_are_labelled_in_the_order_a_reader_asks() -> None:
 
 
 @pytest.mark.unit
+def test_a_post_argus_made_about_the_incident_is_read_before_who_ended_it() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=_detected_and_posted_at(SOME_ONSET))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).labels
+        ) \
+        .then(
+            the_answer_was(("Incident", "Date", "Status", "Written by", "First told",
+                            "Ended by")))
+
+
+@pytest.mark.unit
+def test_the_head_says_where_and_when_argus_first_posted_about_the_incident() -> None:
+    # Said as the post, never as who read it: the record shows the platform
+    # took the line, not that anybody saw it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=_detected_and_posted_at(datetime(2026, 10, 11, 14, 5, 2, tzinfo=UTC)))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).first_told
+        ) \
+        .then(
+            _it_reads("Argus posted in Slack, Oct 11, 2026, 14:05:02 UTC"))
+
+
+@pytest.mark.unit
+def test_an_incident_argus_never_posted_about_has_no_row_for_it() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=None)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None)
+        ) \
+        .then(
+            _has_no_first_told_row())
+
+
+@pytest.mark.unit
 def test_the_head_names_the_incident_by_its_alert_and_service() -> None:
     Scenario() \
         .given(
@@ -164,6 +228,25 @@ def test_the_head_dates_the_incident_from_onset_to_recovery_saying_the_day_once(
         ) \
         .then(
             _it_reads("Oct 11, 2026, 14:03 to 14:12 UTC"))
+
+
+@pytest.mark.unit
+def test_the_head_dates_the_incident_to_the_second_where_its_ends_have_one() -> None:
+    # As every other moment on the page is said.
+    some_onset_with_seconds = datetime(2026, 10, 11, 14, 3, 7, tzinfo=UTC)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                a_marker(TimelineMarker.IMPACT_BEGINS, some_onset_with_seconds),
+                a_marker(TimelineMarker.IMPACT_ENDS,
+                         some_onset_with_seconds + timedelta(minutes=9))])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("Oct 11, 2026, 14:03:07 to 14:12:07 UTC"))
 
 
 @pytest.mark.unit
@@ -237,6 +320,47 @@ def test_an_incident_with_no_impact_measured_says_it_was_not_seen_back_to_normal
 
 
 @pytest.mark.unit
+def test_an_incident_whose_metrics_stopped_is_dated_from_where_they_stopped() -> None:
+    # Not "not seen back to normal": a service nobody measured from there on
+    # may never have left normal.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET)])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("Oct 11, 2026, 14:03 UTC, metrics missing from then"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("extent", "said"), [
+    (ImpactExtent.METRICS_RESUMED, "Oct 11, 2026, 14:03 to 14:09 UTC, metrics missing until then"),
+    (ImpactExtent.METRICS_MISSING, "Oct 11, 2026, 14:03 to 14:09 UTC")
+], ids=["resumed", "never-resumed"])
+def test_an_incident_whose_metrics_resumed_is_dated_to_then_with_them_missing_until_then(
+        extent: ImpactExtent, said: str) -> None:
+    # A window alone reads as a stretch the service was broken through, of one
+    # nobody measured. Said only of metrics that resumed: an end marked beside
+    # metrics that never did was not where they came back.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET),
+                          a_marker(TimelineMarker.IMPACT_ENDS, SOME_ONSET + timedelta(minutes=6))],
+                impact=Impact(duration=timedelta(minutes=6), extent=extent,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads(said))
+
+
+@pytest.mark.unit
 def test_an_incident_with_no_onset_says_it_is_unknown() -> None:
     Scenario() \
         .given(
@@ -247,6 +371,90 @@ def test_an_incident_with_no_onset_says_it_is_unknown() -> None:
         ) \
         .then(
             _it_reads("onset unknown"))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_is_dated_by_its_alert() -> None:
+    # Below the head a moment of the incident's day says its time alone, so
+    # with no onset the head still has to say which day that is - the alert's,
+    # as the write-up dates the incident.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[], detection=Detection(
+                alerted_at=SOME_ONSET, rule="dont care", onset_at=None, gap=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("onset unknown, alerted Oct 11, 2026, 14:03 UTC"))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_is_dated_by_its_alert_and_when_argus_closed_it() -> None:
+    # Not "onset unknown": the window was read, and there was no onset to be
+    # unknown.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[], disproven_at=SOME_ONSET + timedelta(seconds=5),
+                detection=Detection(alerted_at=SOME_ONSET, rule="dont care", onset_at=None,
+                                    gap=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("alerted Oct 11, 2026, 14:03 UTC, disproven at 14:03:05 UTC"))
+
+
+@pytest.mark.unit
+def test_an_incident_is_dated_by_its_onset_s_day() -> None:
+    # The alert came past midnight; the incident began the day before.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)],
+                detection=Detection(alerted_at=SOME_ONSET + timedelta(hours=11),
+                                    rule="dont care", onset_at=SOME_ONSET,
+                                    gap=timedelta(hours=11)))
+        ) \
+        .when(
+            lambda: the_day_it_is_dated_by(some_postmortem)
+        ) \
+        .then(
+            the_answer_was(date(2026, 10, 11)))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_is_dated_by_its_alert_s_day() -> None:
+    # Every moment below the head of the day named here says its time alone,
+    # so with no onset it is the alert's day, which the head then says.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[], detection=Detection(
+                alerted_at=SOME_ONSET + timedelta(hours=11), rule="dont care",
+                onset_at=None, gap=None))
+        ) \
+        .when(
+            lambda: the_day_it_is_dated_by(some_postmortem)
+        ) \
+        .then(
+            the_answer_was(date(2026, 10, 12)))
+
+
+@pytest.mark.unit
+def test_an_incident_with_neither_onset_nor_alert_is_dated_by_no_day() -> None:
+    # With no day named in the head, no moment below may leave its date out.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[])
+        ) \
+        .when(
+            lambda: the_day_it_is_dated_by(some_postmortem)
+        ) \
+        .then(
+            the_answer_was(None))
 
 
 @pytest.mark.unit
@@ -282,7 +490,12 @@ def test_a_document_with_nothing_left_for_a_person_is_final() -> None:
 
 
 @pytest.mark.unit
-def test_the_head_says_who_wrote_the_document_when_and_whether_anybody_reviewed_it() -> None:
+def test_the_head_says_who_wrote_the_document_when_whether_anybody_reviewed_it_and_as_of_when(
+) -> None:
+    # A postmortem is a snapshot: each part holds as of the end of the work it
+    # reports, which the timeline dates, and read as of the writing, a part a
+    # person's later resolution overtook read as false. Who ended it is the
+    # one part read afresh each time it is shown.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -293,7 +506,9 @@ def test_the_head_says_who_wrote_the_document_when_and_whether_anybody_reviewed_
             lambda: a_head(some_postmortem, an_alert(), resolution=None).written_by
         ) \
         .then(
-            _it_reads("Argus Postmortem agent, Oct 11, 2026, 14:30 UTC. Not reviewed yet."))
+            _it_reads("Argus Postmortem agent, Oct 11, 2026, 14:30 UTC. Not reviewed yet. Each "
+                      "part is as of when the work it reports ended, which the timeline dates; "
+                      "who ended the incident is as of now."))
 
 
 @pytest.mark.unit
@@ -319,8 +534,30 @@ def test_an_incident_argus_ended_was_ended_by_its_last_step() -> None:
         .given(
             some_postmortem := a_postmortem(resolution=[
                 ResolutionStep(at=SOME_ONSET, action="Turned monthly-spend-feature off",
-                               by="Argus", reversible=True,
+                               by="Argus", has_a_way_back=True,
                                outcome="recovered, still in place", label="M1")])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: turned monthly-spend-feature off - recovered, still in place"))
+
+
+@pytest.mark.unit
+def test_a_refusal_after_the_last_action_is_not_what_ended_the_incident() -> None:
+    # Nothing was done in a refusal, so it ended nothing: the step that did is
+    # the last action taken, wherever a refusal falls after it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_ONSET, action="Turned monthly-spend-feature off",
+                               by="Argus", has_a_way_back=True,
+                               outcome="recovered, still in place", label="M1"),
+                ResolutionStep(at=SOME_ONSET + timedelta(minutes=5),
+                               action="Refused to act - dont care", by="Argus",
+                               has_a_way_back=False, outcome="not taken", label=None,
+                               refused=Refusal.WOULD_UNDO_A_MEANT_CHANGE)])
         ) \
         .when(
             lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
@@ -358,7 +595,35 @@ def test_an_incident_nobody_is_recorded_ending_says_so() -> None:
 
 
 @pytest.mark.unit
-def test_an_incident_argus_escalated_with_a_fix_waiting_was_ended_by_the_escalation() -> None:
+def test_a_disproven_alarm_was_ended_by_argus_closing_it() -> None:
+    # Said "Not recorded.", though the record holds Argus ending it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[], disproven_at=SOME_ONSET)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: closed it as disproven, Oct 11, 2026, 14:03 UTC - the alarm's own "
+                      "claim was not in the window"))
+
+
+@pytest.mark.unit
+def test_argus_is_named_as_who_ended_a_disproven_alarm() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[], disproven_at=SOME_ONSET)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by_whom
+        ) \
+        .then(
+            the_answer_was("Argus"))
+
+
+@pytest.mark.unit
+def test_an_incident_argus_escalated_with_a_draft_fix_opened_was_ended_by_the_escalation() -> None:
     # Nothing was done to the service and nobody resolved it, but how it ended
     # is on the record: Argus handed it to a person, with a fix to merge.
     some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
@@ -377,8 +642,8 @@ def test_an_incident_argus_escalated_with_a_fix_waiting_was_ended_by_the_escalat
                                       Run(text=": escalated to a person, "),
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=" - "),
-                                      Run.a_pull_request(7).linked_to(some_fix.url),
-                                      Run(text=", a draft, waits for a person to merge")))))
+                                      Run.a_pull_request(some_fix).linked_to(some_fix.url),
+                                      Run(text=", opened as a draft")))))
 
 
 @pytest.mark.unit
@@ -408,7 +673,7 @@ def test_whichever_of_an_escalation_and_a_step_came_later_ended_the_incident(
     # then walked again, by a refire or a re-run, ended by what it did then.
     some_postmortem = a_postmortem(resolution=[
         ResolutionStep(at=SOME_ONSET, action="Rolled back the deployment", by="Argus",
-                       reversible=True, outcome="confirmed, still in place", label="M1")])
+                       has_a_way_back=True, outcome="confirmed, still in place", label="M1")])
 
     Scenario() \
         .given(
@@ -438,9 +703,70 @@ def test_a_person_s_resolution_ends_the_incident_whatever_argus_did() -> None:
             the_answer_was("Kuki Buki"))
 
 
+@pytest.mark.unit
+def test_an_incident_argus_recommended_a_move_for_was_ended_by_the_recommendation() -> None:
+    # The refusal that recommended what it refused hands the incident to a
+    # person, as an escalation does: nothing was done to the service, nobody
+    # resolved it, and the step taken before it did not end it either.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                recommended_action="Revert monthly-spend-feature",
+                resolution=[
+                    ResolutionStep(at=SOME_ONSET - timedelta(minutes=5),
+                                   action="Restarted io-shop", by="Argus",
+                                   has_a_way_back=False, outcome="refuted", label="M1"),
+                    ResolutionStep(at=SOME_ONSET, action="Refused to act - dont care",
+                                   by="Argus", has_a_way_back=False, outcome="not taken",
+                                   label=None, refused=Refusal.NOTHING_COULD_CONFIRM_IT)])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: recommended to a person, Oct 11, 2026, 14:03 UTC - revert "
+                      "monthly-spend-feature"))
+
+
+@pytest.mark.unit
+def test_an_escalation_after_a_recommendation_ended_the_incident() -> None:
+    some_postmortem = a_postmortem(
+        recommended_action="dont care",
+        resolution=[ResolutionStep(at=SOME_ONSET, action="Refused to act - dont care",
+                                   by="Argus", has_a_way_back=False, outcome="not taken",
+                                   label=None, refused=Refusal.NOTHING_COULD_CONFIRM_IT)])
+
+    Scenario() \
+        .given(
+            some_escalation := Escalation(at=SOME_ONSET + timedelta(minutes=5), detail=None)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None,
+                           escalation=some_escalation).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: escalated to a person, Oct 11, 2026, 14:08 UTC"))
+
+
 def _an_action_item(number: str, status: ActionItemStatus) -> ActionItem:
     return ActionItem(number=number, text="dont care", type=ActionItemType.MITIGATE,
                       owner=None, tracking=None, status=status)
+
+
+def _detected_and_posted_at(at: datetime) -> Detection:
+    return Detection(alerted_at=at, rule=None, onset_at=None, gap=None,
+                     first_told=FirstTold(channel=ReportChannel.SLACK, at=at))
+
+
+def _has_no_first_told_row() -> Assertion[Head]:
+    def assertion(head: Head) -> bool:
+        if head.first_told is not None or "First told" in head.labels:
+            raise AssertionError(f"Expected no row saying who was first told, got "
+                                 f"{head.labels} with [{head.first_told}].")
+
+        return True
+
+    return assertion
 
 
 def _it_reads(expected: str) -> Assertion[Line]:

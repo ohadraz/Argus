@@ -24,6 +24,8 @@ from argus_core import Connections, ReadMcpEndpoint
 from argus_core.models import CodeSearch
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from deployment_platform import DeploymentPlatformReads
+from mcp.server.fastmcp import FastMCP
+from mcp.types import Tool
 from metrics_source import MetricsSettings
 from read_mcp_server.alert_rules import AlertRuleReadSettings
 from read_mcp_server.flags import FlagReadSettings
@@ -49,6 +51,30 @@ THE_ALERT_RULE = "get_alert_rule"
 # Where each replica runs, which the Investigator reads on every incident before
 # its model is asked anything.
 THE_PLACEMENT = "get_placements"
+# Whether the branch Code-Fix reads contains the revision that ran, which Code-Fix
+# is told before it reads anything.
+THE_BRANCH_CONTAINING = "branch_contains_revision"
+THE_FILE_READER = "read_repository_file"
+# How the code a patch does not change uses what it changes, which Code-Fix's
+# submission is held to before it is asked anything.
+THE_CODE_OUTSIDE_A_PATCH = "get_code_outside_the_patch"
+
+# The tools a model is offered as this tier declares them (MCP, `tools/list`),
+# each with the arguments its caller fills in itself rather than asking the
+# model for. The search by meaning is one of them, and absent here only because
+# a tier that serves it loads an embedding model to build.
+OFFERED_TO_A_MODEL = {
+    "get_service_dependencies": {"service"},
+    "get_what_a_deployment_changed": {"service"},
+    "get_rollout_state": {"service"},
+    "search_repository": {"ref"},
+    "list_repository_files": {"ref"},
+    "read_repository_file": {"ref"}
+}
+
+# Anthropic's floor for a tool's description ("Define tools": at least three
+# to four sentences, more for a complex tool).
+FEWEST_SENTENCES = 3
 
 
 @pytest.mark.unit
@@ -123,6 +149,33 @@ def test_every_deployment_offers_where_the_replicas_run() -> None:
 
 
 @pytest.mark.unit
+def test_every_deployment_offers_whether_the_branch_read_contains_what_ran() -> None:
+    # Above the index guard for the rollout counts' reason: whether a revision
+    # is on the branch Code-Fix reads is not a search, and a tier offering it
+    # under one mode only would leave Code-Fix told on half the deployments and
+    # silent on the rest.
+    Scenario() \
+        .given(a_deployment_that_keeps_no_index := _a_read_tier_searching(
+            SEARCHING_BY_GREP_ALONE
+        )) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(_the_tools_include(THE_BRANCH_CONTAINING))
+
+
+@pytest.mark.unit
+def test_every_deployment_offers_what_the_code_outside_a_patch_does_with_it() -> None:
+    # Above the index guard for the rollout counts' reason: what the code a
+    # patch does not change does with what it changes is read off the syntax
+    # tree, not searched, and Code-Fix is held to it on every deployment.
+    Scenario() \
+        .given(a_deployment_that_keeps_no_index := _a_read_tier_searching(
+            SEARCHING_BY_GREP_ALONE
+        )) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(_the_tools_include(THE_CODE_OUTSIDE_A_PATCH))
+
+
+@pytest.mark.unit
 def test_a_deployment_with_no_index_says_so_when_it_starts(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -143,6 +196,138 @@ def test_a_deployment_with_no_index_says_so_when_it_starts(
         )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("tool", sorted(OFFERED_TO_A_MODEL))
+def test_a_tool_a_model_is_offered_describes_each_argument_the_model_is_asked_for(
+    tool: str
+) -> None:
+    # What an argument means, and what it changes, is said beside it rather
+    # than in the tool's prose - which is also what keeps the prose from
+    # describing an argument the model is never shown.
+    Scenario() \
+        .when(lambda: _the_tool_listed(SEARCHING_BY_GREP_ALONE, tool)) \
+        .then(_every_argument_but(OFFERED_TO_A_MODEL[tool]).is_described())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("tool", sorted(OFFERED_TO_A_MODEL))
+def test_a_tool_a_model_is_offered_is_described_for_the_model(tool: str) -> None:
+    # The description a tool is listed with is the one a model reads. A
+    # docstring written for whoever maintains the server - where the behaviour
+    # lives, what is not acted on yet - would reach every prompt as it stands,
+    # and an argument its caller fills in has no place in it.
+    Scenario() \
+        .when(lambda: _the_tool_listed(SEARCHING_BY_GREP_ALONE, tool)) \
+        .then(all_of(
+            _it_is_described_in_at_least(FEWEST_SENTENCES),
+            _its_description_does_not_say("registration only"),
+            *(_its_description_does_not_say(f"`{argument}`")
+              for argument in OFFERED_TO_A_MODEL[tool])))
+
+
+@pytest.mark.unit
+def test_the_file_reader_tells_a_model_to_read_several_files_in_one_turn() -> None:
+    # Measured over Code-Fix's recorded corpus rather than supposed: the model
+    # asked for exactly one file in 59 of 88 turns, and its widest turn was two
+    # in most walks and four in two of them. Nothing in its loop was holding it
+    # to one - every parallel call is answered in a single reply - so what did
+    # was this tool's own first sentence, "Read one file's entire contents",
+    # which reads as a limit where a unit was meant.
+    #
+    # Worth correcting because turns are what the resend is quadratic in, and
+    # said in the tool rather than in a brief, because the sentence that reads
+    # as the constraint is the sentence that has to stop reading that way.
+    Scenario() \
+        .when(lambda: _the_tool_listed(SEARCHING_BY_GREP_ALONE, THE_FILE_READER)) \
+        .then(_its_description_says("several files"))
+
+
+def _the_tool_listed(mode: CodeSearch, name: str) -> Tool:
+    """One tool as one deployment's read tier lists it."""
+    found = [tool for tool in asyncio.run(_a_read_tier(mode).list_tools())
+             if tool.name == name]
+
+    if len(found) != 1:
+        raise AssertionError(f"Expected one tool listed as [{name}], got {len(found)}.")
+
+    return found[0]
+
+
+def _every_argument_but(bound: set[str]) -> _Arguments:
+    return _Arguments(bound)
+
+
+class _Arguments:
+    """The arguments of a listed tool its caller does not fill in."""
+
+    def __init__(self, bound: set[str]) -> None:
+        self._bound = bound
+
+    def is_described(self) -> Assertion[Tool]:
+        def assertion(tool: Tool) -> bool:
+            undescribed = [
+                argument
+                for argument, schema in tool.inputSchema.get("properties", {}).items()
+                if argument not in self._bound and not schema.get("description")
+            ]
+
+            if undescribed:
+                raise AssertionError(
+                    f"Expected every argument [{tool.name}] asks a model for to be "
+                    f"described, and {undescribed} are not."
+                )
+
+            return True
+
+        return assertion
+
+
+def _it_is_described_in_at_least(sentences: int) -> Assertion[Tool]:
+    def assertion(tool: Tool) -> bool:
+        said = (tool.description or "").strip()
+        counted = said.count(". ") + (1 if said.endswith(".") else 0)
+
+        if counted < sentences:
+            raise AssertionError(
+                f"Expected [{tool.name}] described in at least {sentences} sentences, "
+                f"and it is described in {counted}: [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _its_description_says(wanted: str) -> Assertion[Tool]:
+    def assertion(tool: Tool) -> bool:
+        said = tool.description or ""
+
+        if wanted not in said:
+            raise AssertionError(
+                f"Expected [{tool.name}]'s description to say [{wanted}], and it says "
+                f"[{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _its_description_does_not_say(unwanted: str) -> Assertion[Tool]:
+    def assertion(tool: Tool) -> bool:
+        said = tool.description or ""
+
+        if unwanted in said:
+            raise AssertionError(
+                f"Expected [{tool.name}]'s description not to say [{unwanted}], and it "
+                f"says [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
     """Every tool one deployment's read tier registers, by name.
 
@@ -150,7 +335,16 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
     offers is the thing under test, and a second copy of the list would be a
     second place to forget a tool.
     """
-    server = build_server(
+    # `asyncio.run` rather than an async test. Listing what a server offers is
+    # the only asynchronous thing this file touches, nothing else in the
+    # workspace is an async test, and `asyncio_mode` is unconfigured - so a
+    # coroutine here would be a new convention bought for one call.
+    return [tool.name for tool in asyncio.run(_a_read_tier(mode).list_tools())]
+
+
+def _a_read_tier(mode: CodeSearch) -> FastMCP:
+    """One deployment's read tier, reaching nothing."""
+    return build_server(
         ReadMcpEndpoint(read_mcp_host="127.0.0.1",
                         read_mcp_port=8090,
                         read_mcp_url="http://127.0.0.1:8090/mcp"),
@@ -178,12 +372,6 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
                               grafana_auth_token="dont-care-token"),
         create_autospec(Connections, instance=True)
     )
-
-    # `asyncio.run` rather than an async test. Listing what a server offers is
-    # the only asynchronous thing this file touches, nothing else in the
-    # workspace is an async test, and `asyncio_mode` is unconfigured - so a
-    # coroutine here would be a new convention bought for one call.
-    return [tool.name for tool in asyncio.run(server.list_tools())]
 
 
 def _a_read_tier_searching(mode: CodeSearch) -> CodeSearch:

@@ -18,9 +18,10 @@ the incident ends at `recommended` rather than `escalated`, which is the
 difference between "somebody work out what to do" and "somebody go and do this".
 
 Two cases, one per kind of change that writes wrong data. The mode names the
-damage rather than its cause, so which change to undo is read off the record: a
-flag that moved at the onset is put back, and a revision that went out at the
-onset is rolled back. Both end the same way, which is why they are one file.
+damage rather than its cause, so the change to undo is the one the candidate
+named, as the record holds it: a flag it named that moved at the onset is
+reverted, and a revision it named that went out at the onset is rolled back.
+Both end the same way, which is why they are one file.
 """
 
 from __future__ import annotations
@@ -90,7 +91,7 @@ def test_an_incident_nothing_could_confirm_is_recommended_rather_than_acted_on()
                     cause_identified_as(FailureMode.SILENT_DATA_CORRUPTION),
                     argus_ended_with_status(IncidentStatus.RECOMMENDED),
                     argus_wrote_a_postmortem(),
-                    # The teeth. Argus proposed putting this flag back, the
+                    # The teeth. Argus proposed reverting this flag, the
                     # gate declined to let it, and the world is as it found it
                     # - which is what "recommended" has to mean or the status
                     # is a label on an action that quietly happened anyway.
@@ -106,9 +107,10 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
     # The same damage by the other kind of change. No flag moved: a revision
     # went out at the instant the oldest short total was written, and the
     # platform's deploy history is the only place that says so. The mode names
-    # the damage rather than its cause, so which change to undo is read off the
-    # record - and an empty flag history beside a deploy at the onset is a
-    # rollback, recommended for the reason the revert above is.
+    # the damage rather than its cause, so the change to undo is the one the
+    # candidate named, as the record holds it - and a candidate naming the
+    # revision the platform recorded at the onset is answered by a rollback,
+    # recommended for the reason the revert above is.
     #
     # The change channel is load-bearing rather than corroborating: a walk that
     # never read the deploy history has nothing to recommend and ends
@@ -142,7 +144,7 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
 def _argus_recommended_a_rollback_of(application: str) -> Assertion[httpx2.Response]:
     """What the incident hands on, read from its own account.
 
-    The status alone would pass on a walk that recommended putting back a flag
+    The status alone would pass on a walk that recommended reverting a flag
     that never moved - the same ending, addressed to a change that did not
     happen. What a reader is told to go and do is the whole of this ending, so
     the kind and the subject are what is asserted.

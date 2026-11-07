@@ -7,9 +7,10 @@ face in the PDF. Each case is one line and what it says.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
+from argus_core.models import OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 
@@ -51,6 +52,82 @@ def test_a_moment_is_said_in_utc_and_keeps_the_instant_it_names() -> None:
 
 
 @pytest.mark.unit
+def test_a_moment_on_the_day_given_is_said_by_its_time_alone() -> None:
+    # The head says the incident's day once. A moment of that day said again
+    # with its date reads as though the day might be another.
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant).said_on(date(2026, 10, 14))
+        ) \
+        .then(
+            the_answer_was(Run(text="14:03 UTC", role=Role.MOMENT, at=some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_with_seconds_is_said_to_the_second() -> None:
+    # As the write-up's own figures say it. Cut to its minute, a moment beside a
+    # span read a minute out: "fired at 19:12 UTC, 5m 55s later", where the
+    # timeline said 19:12:55.
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, 7, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant)
+        ) \
+        .then(
+            the_answer_was(Run(text="Oct 14, 2026, 14:03:07 UTC", role=Role.MOMENT,
+                               at=some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_with_seconds_on_the_day_given_keeps_them() -> None:
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, 7, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant).said_on(date(2026, 10, 14))
+        ) \
+        .then(
+            the_answer_was(Run(text="14:03:07 UTC", role=Role.MOMENT, at=some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_on_another_day_keeps_its_date() -> None:
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant).said_on(date(2026, 10, 13))
+        ) \
+        .then(
+            the_answer_was(Run.a_moment(some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_run_that_is_no_moment_is_said_as_it_was() -> None:
+    Scenario() \
+        .given(
+            some_run := Run(text="io-shop", role=Role.CODE)
+        ) \
+        .when(
+            lambda: some_run.said_on(date(2026, 10, 14))
+        ) \
+        .then(
+            the_answer_was(some_run)
+        )
+
+
+@pytest.mark.unit
 def test_an_address_is_said_in_full_and_links_to_itself() -> None:
     # Read away from the screen it came from, an address relative to nothing
     # leads nowhere - so the words are the address, whole.
@@ -72,10 +149,12 @@ def test_a_pull_request_is_named_by_its_number() -> None:
     # written out once, where a reader of paper looks for addresses.
     Scenario() \
         .given(
-            some_number := 42
+            some_pull_request := OpenedPullRequest(number=42,
+                                                   url="https://github.com/acme/shop/pull/42",
+                                                   branch="dont care")
         ) \
         .when(
-            lambda: Run.a_pull_request(some_number)
+            lambda: Run.a_pull_request(some_pull_request)
         ) \
         .then(
             the_answer_was(Run(text="PR #42"))
@@ -198,6 +277,80 @@ def test_prose_cites_each_label_and_links_each_name_with_an_address() -> None:
                             Run(text=" (", role=Role.PROSE),
                             Run(text="P2", role=Role.CITATION, address="P2"),
                             Run(text=") broke it.", role=Role.PROSE)))
+        )
+
+
+@pytest.mark.unit
+def test_code_prose_quotes_between_backticks_is_code_without_its_backticks() -> None:
+    # The write-up and the Investigator write Markdown, and a backtick printed
+    # is a mark nobody reading the page or the paper was meant to see: a root
+    # cause read "`http-metrics`".
+    Scenario() \
+        .given(
+            some_prose := Run(text="The port `http-metrics` is gone (C1).", role=Role.PROSE)
+        ) \
+        .when(
+            lambda: some_prose.with_references({"C1"}, {})
+        ) \
+        .then(
+            the_answer_was((Run(text="The port ", role=Role.PROSE),
+                            Run(text="http-metrics", role=Role.CODE),
+                            Run(text=" is gone (", role=Role.PROSE),
+                            Run(text="C1", role=Role.CITATION, address="C1"),
+                            Run(text=").", role=Role.PROSE)))
+        )
+
+
+@pytest.mark.unit
+def test_a_label_or_a_name_quoted_as_code_is_neither_cited_nor_linked() -> None:
+    # Between backticks it is the code's text, quoted as it was written.
+    commit = "https://github.com/acme/shop/commit/7c3ca00"
+
+    Scenario() \
+        .given(
+            some_prose := Run(text="It reads `C1` and `7c3ca00`.", role=Role.PROSE)
+        ) \
+        .when(
+            lambda: some_prose.with_references({"C1"}, {"7c3ca00": commit})
+        ) \
+        .then(
+            the_answer_was((Run(text="It reads ", role=Role.PROSE),
+                            Run(text="C1", role=Role.CODE),
+                            Run(text=" and ", role=Role.PROSE),
+                            Run(text="7c3ca00", role=Role.CODE),
+                            Run(text=".", role=Role.PROSE)))
+        )
+
+
+@pytest.mark.unit
+def test_code_quoted_in_a_run_is_cut_out_as_code_and_the_rest_keeps_the_runs_part() -> None:
+    # The model's words set as the record's are Markdown too - a candidate, a
+    # symptom, a lead's weighing - and their backticks were printed.
+    Scenario() \
+        .given(
+            some_words := Run(text="the `metrics` port is gone", role=Role.QUOTE)
+        ) \
+        .when(
+            lambda: some_words.with_code_set_apart()
+        ) \
+        .then(
+            the_answer_was((Run(text="the ", role=Role.QUOTE),
+                            Run(text="metrics", role=Role.CODE),
+                            Run(text=" port is gone", role=Role.QUOTE)))
+        )
+
+
+@pytest.mark.unit
+def test_a_run_quoting_no_code_comes_back_as_it_was() -> None:
+    Scenario() \
+        .given(
+            some_words := Run(text="the port is gone")
+        ) \
+        .when(
+            lambda: some_words.with_code_set_apart()
+        ) \
+        .then(
+            the_answer_was((some_words,))
         )
 
 

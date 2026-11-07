@@ -99,11 +99,24 @@ def typecheck(session: nox.Session) -> None:
     plain `uv sync`/`uv run` happened to resolve (without it, mypy can spuriously
     report "Cannot find implementation or library stub" for a dependency that's
     declared but wasn't actually installed into the shared venv yet).
+
+    Then runs the suite of the mypy plugin `[tool.mypy]` loads
+    (`scripts/mypy_model_copy.py`). Here rather than anywhere else because what
+    it proves is that this session's check is still a check: a plugin whose hook
+    stopped firing leaves mypy green and every `model_copy` update unchecked, and
+    only running mypy over a known-bad line says so. The plugin's suite alone:
+    the other guards' suites beside it are run by those guards' own sessions,
+    for the same reason.
     """
     if not MODULES:
         session.skip("no modules/ yet - nothing to type-check")
     session.run(
         "uv", "run", "--all-packages", "python", "-m", "mypy", "modules", "tests",
+        external=True
+    )
+    session.run(
+        "uv", "run", "--all-packages", "python", "-m", "pytest",
+        "tests/scripts/test_mypy_model_copy.py",
         external=True
     )
 
@@ -366,13 +379,25 @@ def guard_layering(session: nox.Session) -> None:
     It also holds the suites to the last two rules, which the contracts cannot:
     import-linter analyzes the packages named in `root_packages`, and a test
     package is not one of them - which is how one agent's suite came to build
-    a double out of another agent's code while every contract held.
+    a double out of another agent's code while every contract held. And it
+    holds the walk to the SDK half of its own contract: no package that walks
+    an incident reaches a vendor's store the fence cannot reach.
 
     A guard rather than a note in `CLAUDE.md`, because the note was there while
     `argus_incidents` depended on an agent - a documented invariant nothing
     checks is one nobody finds out about.
+
+    Then runs the guard's own suite, which builds the import graphs the SDK
+    rule is about and asks it what it makes of them. Here, because what it
+    proves is that this session's check is still a check: a rule that stopped
+    matching passes every build while the import it was written against comes
+    back.
     """
     session.run("uv", "run", "python", "scripts/guard_layering.py", external=True)
+    session.run(
+        "uv", "run", "python", "-m", "pytest", "tests/scripts/test_guard_layering.py",
+        external=True
+    )
 
 @nox.session
 def guard_e2e_boundary(session: nox.Session) -> None:
@@ -435,8 +460,17 @@ def guard_written_columns(session: nox.Session) -> None:
     exemption list on purpose, and a statement whose columns it cannot resolve
     fails rather than passes - a guard that waves through what it cannot read
     rebuilds the hole it was written to close.
+
+    Then runs the guard's own suite, over a schema and a source tree it builds:
+    the one table it does not look for writers of - a dependency's, as the
+    revision names it - is the half of it that could quietly wave through a
+    column of Argus's.
     """
     session.run("uv", "run", "python", "scripts/guard_written_columns.py", external=True)
+    session.run(
+        "uv", "run", "python", "-m", "pytest", "tests/scripts/test_guard_written_columns.py",
+        external=True
+    )
 
 @nox.session
 def guard_exports(session: nox.Session) -> None:
@@ -514,6 +548,25 @@ def paid_contract(session: nox.Session) -> None:
 _CONTRACT_PROJECT: Final = ("-p", "argus-contract")
 
 
+def _by_default(*paths: str) -> list[str]:
+    """`paths` as what pytest collects when nothing after `--` names a path -
+    a file, or one test in it by node id - and set aside, by pytest, when
+    something does.
+
+    Pytest decides, because only pytest knows its own grammar: which argument
+    is an option's value (`--deselect x.py::y`, `--splits 2`, `-k fallback`)
+    and which a path. Passed as paths, the defaults ran beside the one case
+    asked for - the whole suite at its wall clock, and under `eval` at its
+    price. A guess here at which argument names a case read an option's value
+    as one, dropped the defaults, and left pytest collecting from the
+    repository root: every module's suite, and `tests/integration`, which
+    empties the stack's own database. A path named outright is never
+    `--ignore`d either, so an `--ignore` beside these leaves out only what the
+    defaults would have collected.
+    """
+    return ["-o", f"testpaths={' '.join(paths)}"]
+
+
 def _contract_against(session: nox.Session,
                       doubles: list[tuple[str, list[str], str]],
                       tests: list[str],
@@ -536,7 +589,7 @@ def _contract_against(session: nox.Session,
                 *compose_services, external=True
             )
         session.run(
-            "uv", "run", "python", "-m", "pytest", *tests, "-v",
+            "uv", "run", "python", "-m", "pytest", *_by_default(*tests), "-v",
             *session.posargs, external=True
         )
     finally:
@@ -652,7 +705,7 @@ def grade_fixes(session: nox.Session) -> None:
     overwriting files there and putting them back with git.
     """
     session.run(
-        "uv", "run", "python", "-m", "pytest", _THE_FREE_EVAL, "-v",
+        "uv", "run", "python", "-m", "pytest", *_by_default(_THE_FREE_EVAL), "-v",
         *session.posargs, external=True
     )
 
@@ -683,7 +736,7 @@ def eval_(session: nox.Session) -> None:
     # case that was asked for, which it did once, at five times the intended
     # price.
     session.run(
-        "uv", "run", "python", "-m", "pytest", "tests/eval",
+        "uv", "run", "python", "-m", "pytest", *_by_default("tests/eval"),
         f"--ignore={_THE_FREE_EVAL}", "-v", *session.posargs, external=True
     )
 
@@ -1731,6 +1784,19 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         None
     ),
     (
+        # What fills long-term memory. The walk only files what an incident
+        # tried, as a row the fence can refuse; this carries the rows into the
+        # store a later walk searches. A stack without it remembers every
+        # incident and recalls none of them.
+        #
+        # No readiness URL: it listens on nothing. What it is ready for is a
+        # record arriving in the store, which is what a case about memory asks
+        # for - and waits for, since it comes a pass after the walk filed it.
+        "memory",
+        ["-m", "incident_memory.delivering"],
+        None
+    ),
+    (
         # What keeps the index describing what is deployed. The stack has
         # already made one pass to completion before any service started, so
         # this is only ever catching up with what happens during the run - a
@@ -1862,6 +1928,14 @@ def _start_each_of(services: list[tuple[str, list[str], str | None]],
         # worker's readiness shows up in the queue it drains, not on a port.
         if ready_url is not None:
             _wait_for_http(name, ready_url)
+
+
+# Given after `--` to `e2e` or `e2e_replay`, holds each case's world open once
+# the case is done and before it is put back - `scripts/hold_the_stack.py` says
+# how it is let go - so what the case left can be looked at. Told to the suite
+# through the variable, which `tests/e2e/conftest.py` names too.
+_HOLD: Final = "--hold"
+_THE_HOLD_VARIABLE: Final = "ARGUS_E2E_HOLD"
 
 
 def _run_against_the_stack(
@@ -1998,10 +2072,21 @@ def _run_against_the_stack(
         # Anything after `--` goes to pytest, so a single failing case can be
         # re-run against the stack (`-- -k fallback`) instead of the whole
         # suite. Bringing the stack up is the slow part of a green run and the
-        # cheap part of a debugging one.
+        # cheap part of a debugging one. All but `--hold`, which is this
+        # function's own and not pytest's: it is told to the suite instead,
+        # which holds each case before putting its world back - after pytest
+        # exits, the case's tables are already empty. In its place pytest is
+        # given `-s`, because the holder's banner saying how to let the stack go
+        # is otherwise captured until the case ends, which is after it is let go.
+        # A command of its own - the recording script - is no suite: it takes
+        # `--hold` itself, and given `-s` in its place it refused to start.
+        holds_the_suite = command is None and _HOLD in session.posargs
+        if holds_the_suite:
+            os.environ[_THE_HOLD_VARIABLE] = "1"
         session.run(
             *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
-            *session.posargs, external=True
+            *("-s" if holds_the_suite and given == _HOLD else given for given in session.posargs),
+            external=True
         )
     except Exception:
         # What the containers said, and only when something went wrong. The
@@ -2094,11 +2179,11 @@ def e2e(session: nox.Session) -> None:
     Runs the end-to-end suite against the full local stack, with the worker
     talking to the **real Anthropic API**.
 
-    This is the paid, manual, pre-merge run: it needs `ANTHROPIC_API_KEY` and
-    spends tokens on every incident it drives. It is the only suite in which a
-    real model reads real retrieved evidence and reaches a conclusion end to
-    end, which is what makes it worth the money before a merge that changes the
-    investigation path.
+    This is the paid, manual run: it needs `ANTHROPIC_API_KEY` and spends
+    tokens on every incident it drives. It is the only suite in which a real
+    model reads real retrieved evidence and reaches a conclusion end to end,
+    which is what makes it worth the money after a change to the investigation
+    path.
 
     `tests/integration` used to run here too, in the same pytest process. It
     does not any more, and the reason is the database: that suite brings
@@ -2116,24 +2201,15 @@ def e2e(session: nox.Session) -> None:
     A subset of the suite is run against the real API by naming it -
     `nox -s e2e -- tests/e2e/<case>.py`.
     """
-    # Nothing at all when a case was named: `_run_against_the_stack` appends
-    # `session.posargs` to pytest itself, so naming the suite here as well would
-    # collect the whole of it beside the case somebody asked for by name.
     # Against the real repository, because this is the run that reaches the
     # real model. What Code-Fix proposes is decided by the source in front of
     # it, so a paid run reading a fixture is paying to watch the agent work on
     # a stand-in - and the pull request it opens, which is the deliverable a
     # person is handed (spec §13), would be one nobody can open. Cleaned up on
     # the way down by `_put_the_repository_back`.
-    # A named case is a path, as in `e2e_replay`: an option's own value is not
-    # one, and treating it as one would leave this run collecting the whole
-    # repository against the real model - the one session where that is also
-    # billed.
-    named_cases = [given for given in session.posargs if given.endswith(".py")]
-
     _run_against_the_stack(
         session,
-        [] if named_cases else ["tests/e2e"],
+        _by_default("tests/e2e"),
         # Both real, because both are the deliverable. This run exists to show
         # the whole thing working against the real world, and an incident that
         # reached a person is half of what it has to show - a message posted at
@@ -2242,30 +2318,10 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     # pytest process that seeds the double all have to agree about which mode
     # this run is, and only an inherited setting cannot disagree.
     os.environ["CODE_SEARCH"] = mode
-    # A case named after `--` has to mean *only* that case. What follows `--` is
-    # appended to pytest by `_run_against_the_stack`, so passing the whole
-    # directory as well collects the named file on top of everything else and
-    # runs the entire suite regardless - which is what a narrowed replay
-    # silently did, at a full suite's wall clock, while reporting itself as the
-    # cases that were asked for.
-    #
-    # Told apart by whether the argument names a file: `-- -k fallback` narrows
-    # the default selection and needs the directory left in place, where
-    # `-- tests/e2e/test_x.py` replaces it. `e2e` draws the same line, and both
-    # leave the mode's `--ignore`s behind with the default - somebody who named
-    # a case has already decided it is the one to run.
-    #
-    # A path, rather than anything without a leading dash. An option carries
-    # values of its own - `--splits 2 --group 1` from CI, `-k fallback` from a
-    # hand - and reading those as filenames drops the suite's own paths,
-    # leaving pytest to collect from the repository root:
-    # every module's tests and the contract suite, run against a stack none of
-    # them asked for.
-    named_cases = [given for given in session.posargs if given.endswith(".py")]
 
     _run_against_the_stack(
         session,
-        [] if named_cases else _the_cases_for(mode),
+        _the_cases_for(mode),
         service_env=_THE_MODEL_AT_ITS_DOUBLES,
         model_stands_in=True,
         # A recorded answer cites the world it was recorded in, so the shop
@@ -2307,11 +2363,12 @@ _THE_CATEGORISER_CASE: Final = "tests/e2e/test_a_categoriser_upgrade_is_rolled_b
 # which tool found a file.
 _THE_RESCHEDULED_SCORER_CASE: Final = "tests/e2e/test_a_rescheduled_scorer_is_pinned_back.py"
 
-# The two endings settled before the model is asked anything: a window nobody
-# could read, escalated, and a flat one, disproven. A decision, and a stronger
-# one than the categoriser's - neither walk offers the model a tool at all, so
-# no mode's tool list can reach them. One file, since the pair is written to be
-# read together.
+# The two endings reached without a cause: a window with no minute in it,
+# investigated and escalated, and a flat one, disproven. A decision, and a
+# stronger one than the categoriser's - before its write-up the disproven walk
+# asks nothing, and the other asks only the Investigator, whose tools carry no
+# code search, so no mode's tool list can reach either. One file, since the
+# pair is written to be read together.
 _THE_ENDINGS_WITHOUT_A_CAUSE_CASES: Final = "tests/e2e/test_incident_lifecycle.py"
 
 # A person reporting the incident over, from its page, the on-call platform and
@@ -2340,9 +2397,9 @@ def _the_cases_for(mode: str) -> list[str]:
     platform still answering; the fourth that a finding nobody can date is walked
     from the minute it paged; the fifth that a walk dates and judges an incident
     on the rule's own series; the sixth that a walk pins a deployment to the card
-    its record says the fleet ran on; the next two that a window nobody could
-    read escalates and a flat one is disproven, both before the model is offered
-    a tool at all; the last three that a person reporting the incident over
+    its record says the fleet ran on; the next two that a window with no minute
+    in it escalates and a flat one is disproven, neither offering the model a
+    tool that searches code; the last three that a person reporting the incident over
     leaves Argus's changes in place and is written up.
     Nothing in any of those varies by which tool the model found a file with, and
     the walks that do
@@ -2379,7 +2436,7 @@ def _the_cases_for(mode: str) -> list[str]:
     if mode == _SEARCHING_BY_GREP_ALONE:
         left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")
 
-    return ["tests/e2e", *left_out]
+    return [*_by_default("tests/e2e"), *left_out]
 
 
 # The recorder's flag for a write-up captured over a walk already on disk.

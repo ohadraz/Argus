@@ -193,6 +193,53 @@ def test_the_text_of_a_finding_is_said_the_way_the_page_says_things() -> None:
         .then(_it_reads(f"Errors climbed sharply at {the_clock_time_it_reads_as}."))
 
 
+@pytest.mark.unit
+def test_a_finding_on_another_day_than_the_moment_it_is_read_beside_is_dated() -> None:
+    # Said as a time of day alone, a finding read as the day of whatever it sat
+    # beside: "deploy at 10:47" under a candidate saying "Oct 17 10:47", on a
+    # page whose incident opened on Oct 24.
+    some_instant = "2026-08-23T10:14:00Z"
+    some_moment_a_week_later = "2026-08-30T10:14:00Z"
+    claim_naming_an_instant = f"The deploy at {some_instant} broke it."
+
+    Scenario() \
+        .given(
+            cited := Evidence(claim=claim_naming_an_instant, at=parse_iso(some_instant))
+        ) \
+        .when(lambda: a_finding(cited, beside=some_moment_a_week_later)) \
+        .then(_it_reads("The deploy at Aug 23 10:14 broke it."))
+
+
+@pytest.mark.unit
+def test_a_finding_says_the_minute_it_rests_on_with_its_day() -> None:
+    # What its links are named by. Named "the minute", a link after a claim
+    # naming another moment read as that one: an alert whose oldest purchase
+    # was Oct 17 20:36 led to Oct 24 20:35, the minute it fired.
+    some_moment_partway_through_a_minute = "2026-08-30T10:14:42Z"
+    dont_care_claim = "The oldest affected purchase was recorded 2026-08-23T10:15:00Z."
+
+    Scenario() \
+        .given(
+            cited := Evidence(claim=dont_care_claim,
+                              at=parse_iso(some_moment_partway_through_a_minute))
+        ) \
+        .when(lambda: a_finding(cited)) \
+        .then(_it_names_its_minute("Aug 30 10:14"))
+
+
+def _it_names_its_minute(expected: str) -> Assertion[Finding]:
+    def assertion(finding: Finding) -> bool:
+        if finding.minute_said != expected:
+            raise AssertionError(
+                f"Expected the finding to say its minute as [{expected}], "
+                f"got [{finding.minute_said}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_links_to_the_minute(expected: str) -> Assertion[Finding]:
     def assertion(finding: Finding) -> bool:
         if finding.links_to_minute != expected:

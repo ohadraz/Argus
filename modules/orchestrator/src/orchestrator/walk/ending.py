@@ -22,7 +22,7 @@ def stopping_when_a_person_ended_it(
     decision that is the same wherever in the walk it is asked.
 
     Two endings, two destinations. A withdrawn incident has nowhere to go - the
-    person took it back, and its changes are put back on the way out. A resolved
+    person withdrew it, and its changes are put back on the way out. A resolved
     one goes on to be remembered and written up, because the person who
     reported it over is owed the postmortem and the next incident is owed what
     this one tried.

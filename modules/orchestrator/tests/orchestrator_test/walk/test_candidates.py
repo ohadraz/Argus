@@ -7,7 +7,7 @@ their own subject; this is only about which candidate comes back.
 
 Two things disqualify one, and neither is confidence. A candidate that named no
 cause has nothing to change on its account, and a candidate the walk would
-answer with an action it has already taken and undone would be the same
+answer with an action it has already taken would be the same
 experiment run twice. Everything else on the list is worth trying, however far
 down it sits.
 
@@ -24,6 +24,8 @@ at all where the flag history could not be read.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
@@ -32,7 +34,10 @@ from argus_core.models import (
     Attempt,
     ChangeEvent,
     Circumstances,
+    DeploymentChanges,
+    EstablishedOnset,
     FlagChange,
+    HowTheMinuteIsKnown,
     Hypothesis,
     RecordedPlacement,
     WhatWouldBeTried,
@@ -55,8 +60,8 @@ from orchestrator_test.framework.builders import (
     a_random_id,
     an_undetermined_hypothesis,
     discarding,
-    putting_back,
     restarting,
+    reverting,
     rolling_back,
 )
 
@@ -66,6 +71,7 @@ SOME_SERVICE = "io-shop"
 ANOTHER_SERVICE = "io-shop-payments"
 DONT_CARE_MOMENT = "2026-09-10T09:12:00+00:00"
 DONT_CARE_ALERT_NAME = "HighErrorRate"
+SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 
 type Chosen = tuple[int, Hypothesis] | None
 
@@ -116,7 +122,7 @@ def test_a_candidate_naming_no_cause_is_passed_over() -> None:
 
 @pytest.mark.unit
 def test_an_action_already_taken_disqualifies_the_candidate_that_would_repeat_it() -> None:
-    # The same flag was put back earlier in this incident and the service did
+    # The same flag was reverted earlier in this incident and the service did
     # not recover. Doing it again would be running the experiment that has
     # already been run, against a world that answered once.
     some_incident_id = a_random_id()
@@ -128,15 +134,15 @@ def test_an_action_already_taken_disqualifies_the_candidate_that_would_repeat_it
             some_candidates := [
                 _a_candidate_answered_by(
                     a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 ),
                 _a_candidate_answered_by(some_candidate_blaming_something_else,
-                                         putting_back(ANOTHER_FLAG))
+                                         reverting(ANOTHER_FLAG))
             ]
         ) \
         .when(
             lambda: the_next_worth_trying(some_candidates,
-                                          [_an_attempt_to(putting_back(SOME_FLAG))],
+                                          [_an_attempt_to(reverting(SOME_FLAG))],
                                           start=0)
         ) \
         .then(all_of(
@@ -176,7 +182,7 @@ def test_a_restart_already_taken_disqualifies_a_candidate_worded_nothing_like_it
 def test_the_same_subject_done_a_different_way_is_still_worth_trying() -> None:
     # Both halves of the identity, or the cap answers a question nobody asked.
     # Restarting io-shop says nothing about whether a flag of the same name may
-    # be put back: they are different experiments about the same cause.
+    # be reverted: they are different experiments about the same cause.
     some_incident_id = a_random_id()
     some_only_candidate = a_candidate_blaming(some_incident_id, SOME_SERVICE)
 
@@ -184,7 +190,7 @@ def test_the_same_subject_done_a_different_way_is_still_worth_trying() -> None:
         .given(
             some_candidates := [
                 _a_candidate_answered_by(some_only_candidate,
-                                         putting_back(SOME_SERVICE))
+                                         reverting(SOME_SERVICE))
             ]
         ) \
         .when(
@@ -205,11 +211,11 @@ def test_an_attempt_on_something_nobody_proposed_disqualifies_nothing() -> None:
     Scenario() \
         .given(
             some_candidates := [
-                _a_candidate_answered_by(some_only_candidate, putting_back(SOME_FLAG))
+                _a_candidate_answered_by(some_only_candidate, reverting(SOME_FLAG))
             ]
         ) \
         .when(lambda: the_next_worth_trying(
-            some_candidates, [_an_attempt_to(putting_back(ANOTHER_FLAG))], start=0
+            some_candidates, [_an_attempt_to(reverting(ANOTHER_FLAG))], start=0
         )) \
         .then(_the_candidate_taken_up_is(some_only_candidate))
 
@@ -226,7 +232,7 @@ def test_a_candidate_nothing_would_be_done_about_is_still_offered() -> None:
     Scenario() \
         .given(some_candidates := [_a_candidate_answered_by(some_only_candidate, None)]) \
         .when(lambda: the_next_worth_trying(
-            some_candidates, [_an_attempt_to(putting_back(SOME_FLAG))], start=0
+            some_candidates, [_an_attempt_to(reverting(SOME_FLAG))], start=0
         )) \
         .then(_the_candidate_taken_up_is(some_only_candidate))
 
@@ -283,7 +289,7 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
             every_candidate_tried := [
                 _a_candidate_answered_by(
                     a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 ),
                 _a_candidate_answered_by(
                     an_undetermined_hypothesis(some_incident_id), None
@@ -291,7 +297,7 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
             ]
         ) \
         .when(lambda: the_next_worth_trying(
-            every_candidate_tried, [_an_attempt_to(putting_back(SOME_FLAG))], start=0
+            every_candidate_tried, [_an_attempt_to(reverting(SOME_FLAG))], start=0
         )) \
         .then(_nothing_is_worth_trying())
 
@@ -317,7 +323,7 @@ def test_a_candidate_whose_platform_is_unreachable_is_passed_over() -> None:
                     rolling_back(SOME_SERVICE)
                 ),
                 _a_candidate_answered_by(
-                    the_flag_is_still_revertible, putting_back(SOME_FLAG)
+                    the_flag_is_still_revertible, reverting(SOME_FLAG)
                 )
             ]
         ) \
@@ -374,7 +380,7 @@ def test_a_candidate_is_not_passed_over_while_its_platform_answers() -> None:
                 ),
                 _a_candidate_answered_by(
                     a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 )
             ]
         ) \
@@ -429,7 +435,7 @@ def test_a_walk_past_the_end_of_the_list_is_spent() -> None:
 
 
 @pytest.mark.unit
-def test_a_flag_candidate_is_answered_by_putting_that_flag_back() -> None:
+def test_a_flag_candidate_is_answered_by_reverting_that_flag() -> None:
     # Asked of Mitigation rather than guessed at, because which action answers
     # which cause is Mitigation's to say - and the flag has to be one the
     # provider actually recorded moving, not one the model named alone.
@@ -441,7 +447,7 @@ def test_a_flag_candidate_is_answered_by_putting_that_flag_back() -> None:
             [a_candidate_blaming(some_incident_id, SOME_FLAG)],
             Circumstances(service=SOME_SERVICE, flag_changes=the_flag_that_moved)
         )) \
-        .then(_each_would_do([putting_back(SOME_FLAG)]))
+        .then(_each_would_do([reverting(SOME_FLAG)]))
 
 
 @pytest.mark.unit
@@ -521,18 +527,17 @@ def test_a_divergence_candidate_is_answered_by_discarding_the_keys_handed_in() -
 
 @pytest.mark.unit
 def test_a_corruption_candidate_is_answered_by_the_deployment_recorded() -> None:
-    # The other candidate whose answer the candidate cannot give. It names the
-    # damage and not the change, so what is undone is whichever change the
-    # histories hold - and asked without the deploy history, a corruption a
-    # revision caused would come back answered by nothing, and the walk would
-    # pass over the one explanation it had.
+    # The other candidate whose answer is checked against a history. It names
+    # the damage and not the change, so what is undone is the revision it
+    # blamed, as the platform recorded it - and asked without the deploy
+    # history, a corruption a revision caused would come back answered by
+    # nothing, and the walk would pass over the one explanation it had.
     some_incident_id = a_random_id()
 
     Scenario() \
         .given(the_revision_that_went_out := [a_deployment()]) \
         .when(lambda: what_each_would_do(
-            [a_corruption_blamed_on(some_incident_id,
-                                    "monthly totals fall behind the purchases")],
+            [a_corruption_blamed_on(some_incident_id, a_deployment().reference)],
             Circumstances(service=SOME_SERVICE,
                           flag_changes=[],
                           deployments=the_revision_that_went_out)
@@ -623,6 +628,26 @@ def test_the_circumstances_carry_the_placement_the_round_recorded() -> None:
 
 
 @pytest.mark.unit
+def test_the_circumstances_carry_the_diffs_read_and_when_the_incident_began() -> None:
+    # What the deploy that carried a blamed file is found by: the diffs the
+    # investigation read, and the minute a change has to come by to have begun
+    # the incident.
+    what_was_read = {SOME_REVISION: DeploymentChanges(
+        said=["modified src/io_shop/purchase_ledger.py"], lists_every_file=True)}
+
+    Scenario() \
+        .given(
+            the_onset := EstablishedOnset(minute="2026-09-10T09:12:00Z",
+                                          how_known=HowTheMinuteIsKnown.MEASURED)
+        ) \
+        .when(lambda: the_circumstances(
+            Alert(service=SOME_SERVICE, alert_name=DONT_CARE_ALERT_NAME), [], None, None,
+            deployment_changes=what_was_read, onset=the_onset
+        )) \
+        .then(_the_circumstances_hold(what_was_read, datetime(2026, 9, 10, 9, 12, tzinfo=UTC)))
+
+
+@pytest.mark.unit
 def test_a_placement_nobody_could_read_is_carried_as_none() -> None:
     # Unlike the deploy history, never as empty. An empty placement says the
     # service runs on no pod, and a strategy deciding from it finds no replica
@@ -636,6 +661,27 @@ def test_a_placement_nobody_could_read_is_carried_as_none() -> None:
         ) \
         .when(lambda: the_circumstances(dont_care_alert, [], None, None)) \
         .then(_the_circumstances_hold_the_placement(None))
+
+
+def _the_circumstances_hold(deployment_changes: dict[str, DeploymentChanges],
+                            onset: datetime | None) -> Assertion[Circumstances | None]:
+    def assertion(built: Circumstances | None) -> bool:
+        if built is None:
+            raise AssertionError(
+                "Expected circumstances to be built from a readable flag history, "
+                "and there were none."
+            )
+
+        if (built.deployment_changes, built.onset) != (deployment_changes, onset):
+            raise AssertionError(
+                f"Expected the circumstances to hold what each deployment changed, "
+                f"{deployment_changes!r}, and the onset [{onset}], and they hold "
+                f"{built.deployment_changes!r} and [{built.onset}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_circumstances_hold_the_placement(
@@ -673,18 +719,18 @@ def _a_candidate_answered_by(candidate: Hypothesis,
 def _answered_by_a_flag_each(candidates: list[Hypothesis]) -> list[WhatWouldBeTried]:
     """Candidates whose actions are all distinct, for a case about neither.
 
-    Each is answered by putting back a flag named after where it sits, so no
+    Each is answered by reverting a flag named after where it sits, so no
     two of them collide and nothing is skipped for a reason the case is not
     about.
     """
     return [
-        _a_candidate_answered_by(candidate, putting_back(f"some-flag-{index}"))
+        _a_candidate_answered_by(candidate, reverting(f"some-flag-{index}"))
         for index, candidate in enumerate(candidates)
     ]
 
 
 def _an_attempt_to(identity: ActionIdentity) -> Attempt:
-    """A mitigation this incident already took, and undid again.
+    """A mitigation this incident already took, and saw refuted.
 
     Everything but the identity is arbitrary: only the identity is read here,
     and an attempt exists on the list at all only because it failed.

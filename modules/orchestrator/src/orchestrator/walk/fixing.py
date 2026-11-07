@@ -5,13 +5,21 @@ from __future__ import annotations
 import logging
 from functools import partial
 
-from agent_codefix import FixDeclined, FixNotAnswered, FixStopped
+from agent_codefix import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
+from argus_core import parse_iso, was_lost
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
-from argus_core.models import FixOutcome, OpenedPullRequest, ThreadMessage
+from argus_core.models import (
+    ChangeKind,
+    FixOutcome,
+    OpenedPullRequest,
+    ProposedFix,
+    ThreadMessage,
+    WhatArgusDid,
+)
 from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
-from orchestrator.walk.ports import LeadsOf, ProposeFix
+from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -30,11 +38,18 @@ def _nobody_wrote(incident_id: str, /) -> list[ThreadMessage]:
     return []
 
 
+def _nothing_on_record(incident_id: str, /) -> list[WhatArgusDid]:
+    """What was done for a caller with no record to read - a test about
+    something else - whose Code-Fix is told nothing of it, as it always was."""
+    return []
+
+
 def codefix_node(state: IncidentState,
                  propose_fix: ProposeFix,
                  publisher: Publisher = nobody,
                  still_wanted: IsStillWanted = _nobody_stops_it,
-                 leads_of: LeadsOf = _nobody_wrote) -> StateDelta:
+                 leads_of: LeadsOf = _nobody_wrote,
+                 what_argus_did: WhatArgusDidIn = _nothing_on_record) -> StateDelta:
     """Looks for a permanent fix, once mitigation has done what it can (spec §7.4).
 
     What the agent answered is what this reports, and where the proposal can be
@@ -70,6 +85,11 @@ def codefix_node(state: IncidentState,
     agent asks without knowing which incident it is fixing. What it is told
     carries the standing the investigation gave each lead, read back from the
     record, and a lead written since the investigation answered as unweighed.
+
+    `what_argus_did` is read once, before the agent is asked: every action is
+    settled by the time a fix is looked for, so nothing it answers changes
+    while the fix is worked out. Off the record rather than the state, because the
+    record is what says whether each change still stands.
     """
     narrator = Narrator(state.incident_id, publisher)
 
@@ -78,7 +98,9 @@ def codefix_node(state: IncidentState,
             state.hypothesis,
             state.incident_id,
             still_wanted=partial(still_wanted, state.incident_id),
-            leads=partial(leads_of, state.incident_id)
+            leads=partial(leads_of, state.incident_id),
+            done=what_argus_did(state.incident_id),
+            deployed=_what_was_running(state)
         )
     except FixStopped:
         # Logged by the agent where it stopped, which is the one place that
@@ -96,21 +118,46 @@ def codefix_node(state: IncidentState,
             outcome=FixOutcome.NOT_ANSWERED,
             proposal=None,
             action="no code-level fix was proposed",
-            detail=f"the agent did not finish looking: {error}",
+            detail=str(error),
+            lead_in="the agent did not finish looking"
         )
-    except FixDeclined as declined:
+    except FixDeclined:
         # Above the broad clause for the same reason as the one above it,
         # and for a different failure: this one says nothing about the
         # repository. The model was asked and said no, which is neither an
         # outage to repair nor a budget to widen, and it read as the first
         # of those for as long as it fell through to the clause below.
+        #
+        # With no reason after it: a refusal comes with none, and the
+        # sentence that it declined is the whole of what there is to say.
         return _said(
             narrator,
             found=False,
             outcome=FixOutcome.DECLINED,
             proposal=None,
             action="no code-level fix was proposed",
-            detail=f"the model declined to write one: {declined}",
+            detail="",
+            lead_in="the model declined to write one"
+        )
+    except FixNotProposed as error:
+        # A fix the model wrote that the repository would not take a proposal
+        # of. Not possible, as any refusal is, and with what came before the
+        # refusal kept: what Code-Fix said of the code, and the branch the fix
+        # sits on where that write landed - both went with the failure once,
+        # when GitHub answered a pull request 500.
+        logger.warning("fix could not be proposed", exc_info=True)
+
+        return _said(
+            narrator,
+            found=False,
+            outcome=FixOutcome.NOT_POSSIBLE,
+            proposal=None,
+            action="no code-level fix could be proposed",
+            detail=_what_went_wrong(error),
+            lead_in="the fix could not be proposed",
+            read=error.reading,
+            unproposed=True,
+            branch_written=error.branch
         )
     except Exception as error:
         # Caught deliberately, and caught broadly. What opens a pull request is
@@ -122,6 +169,12 @@ def codefix_node(state: IncidentState,
         # Swallowed from the walk, not from the reader: what stopped it is the
         # whole value of this branch, and the one outcome somebody can act on
         # before asking again.
+        #
+        # Except a lost run, which is neither: the incident is another claim's
+        # walk, and anything said of the fix here would be said for it.
+        if was_lost(error):
+            raise
+
         logger.warning("fix could not be proposed", exc_info=True)
 
         return _said(
@@ -130,31 +183,36 @@ def codefix_node(state: IncidentState,
             outcome=FixOutcome.NOT_POSSIBLE,
             proposal=None,
             action="no code-level fix could be proposed",
-            detail=f"the fix could not be proposed: {_what_went_wrong(error)}",
+            detail=_what_went_wrong(error),
+            lead_in="the fix could not be proposed"
         )
 
     if proposed.needs_code_outside:
-        # Written and held back. Not "no fix found": the model found one and
+        # Written and not kept. Not "no fix found": the model found one and
         # said what else it needs, and that is what the explanation carries.
         return _said(
             narrator,
             found=False,
             outcome=FixOutcome.NOT_OPENED,
             proposal=None,
-            action="a code-level fix was written but not opened",
-            detail="it helps only once code outside the repository changes as well",
-            explanation=proposed.explanation
+            action="a code-level fix was written and not kept",
+            detail="the fix Code-Fix wrote helps only once code outside the repository "
+                   "changes as well",
+            read=proposed
         )
 
     if proposed.pull_request is None:
+        # The reason alone. The move it explains is the hand-over, and every
+        # place that reads it - the move's line, the postmortem's "Ended by" -
+        # has said a person has it before the reason starts.
         return _said(
             narrator,
             found=False,
             outcome=FixOutcome.NOT_WARRANTED,
             proposal=None,
             action="no code-level fix found",
-            detail="no code-level fix found, so the incident goes to a human",
-            explanation=proposed.explanation
+            detail="no code-level fix found",
+            read=proposed
         )
 
     return _said(
@@ -164,8 +222,36 @@ def codefix_node(state: IncidentState,
         proposal=proposed.pull_request,
         action="a code-level fix was proposed",
         detail=f"a draft pull request is open at {proposed.pull_request.url}",
-        explanation=proposed.explanation
+        read=proposed
     )
+
+
+def _what_was_running(state: IncidentState) -> str | None:
+    """The revision that was running when the alert fired: the newest deploy
+    the alert came after, or `None` where none is known.
+
+    Bounded by the alert rather than by the onset. A deploy that stopped a
+    series' rows lands after the last row, so the onset would name the
+    revision before it; and anything deployed since the alert - a rollback of
+    Argus's own among them - is not what the incident is about.
+
+    `None` where the alert dated nothing, as well as where no deploy was read:
+    with no instant to bound it, the newest deploy could be the walk's own
+    rollback, and Code-Fix would be told something about a revision that
+    never caused anything.
+    """
+    fired_at = state.alert.started_at
+
+    if fired_at is None or not state.deployments:
+        return None
+
+    before = [deploy for deploy in state.deployments
+              if deploy.kind is ChangeKind.DEPLOY and parse_iso(deploy.occurred_at) <= fired_at]
+
+    if not before:
+        return None
+
+    return max(before, key=lambda deploy: parse_iso(deploy.occurred_at)).reference
 
 
 def _what_went_wrong(error: Exception) -> str:
@@ -189,24 +275,46 @@ def _said(narrator: Narrator,
           proposal: OpenedPullRequest | None,
           action: str,
           detail: str,
-          explanation: str | None = None) -> StateDelta:
+          lead_in: str | None = None,
+          read: ProposedFix | None = None,
+          unproposed: bool = False,
+          branch_written: str | None = None) -> StateDelta:
     """The one account of this step, published and handed up in one place -
-    with what Code-Fix said of the code, where it said anything.
+    with what Code-Fix answered, where it answered at all: what it said of the
+    code, the branch it read, and whether that held what ran. Taken off the
+    answer whole, so the three cannot come from two different answers.
 
     Both, rather than either. The narration is what a transition would say if
     this step moved the incident, and on the road here from a refuted walk it
     does; the event is what says so when it does not. Written once so the two
     cannot disagree about what happened - which is the failure that would be
     hardest to see, because each would look right on its own.
+
+    `lead_in` is what the move needs said before the reason and the event's
+    own line already says: "Could not propose a fix" is the event's sentence,
+    and handed the lead-in as well it read "Could not propose a fix - the fix
+    could not be proposed: ...". So the event carries the reason alone, and
+    the move the two together - or the lead-in alone, where there is no
+    reason to give.
+
+    `unproposed` is a fix written and proposed nowhere, and `branch_written`
+    the branch it is on - `None` where it is on none.
     """
     narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail,
-                 explanation=explanation)
+                 explanation=read.explanation if read is not None else None,
+                 branch_read=read.branch_read if read is not None else None,
+                 holds_what_ran=read.holds_what_ran if read is not None else None,
+                 as_it_ran=read.as_it_ran if read is not None else [],
+                 uses_outside=read.uses_outside if read is not None else [],
+                 unproposed=unproposed, branch_written=branch_written)
     logger.info("fix attempted", extra={
         "outcome": outcome, "pull_request": proposal.url if proposal is not None else None
     })
 
     return StateDelta(
-        fix_found=found, narration=Narration(action=action, detail=detail)
+        fix_found=found,
+        narration=Narration(action=action,
+                            detail=": ".join(part for part in (lead_in, detail) if part))
     )
 
 

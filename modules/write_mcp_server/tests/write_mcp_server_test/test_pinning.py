@@ -49,6 +49,7 @@ from argus_testkit import (
     attempting,
     calling,
     one_record_was_logged,
+    the_error_mentioned,
 )
 from deployment_platform import (
     Autoscaler,
@@ -65,6 +66,13 @@ from write_mcp_server.pinning import (
 )
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 
+from write_mcp_server_test.framework.refusals import (
+    it_is_marked_unreachable,
+    it_left_behind,
+    it_was_refused_as,
+    what_it_left_is_known,
+)
+
 SOME_APPLICATION = "io-shop"
 
 # What the autoscaler is called and where it lives, as the platform reports them.
@@ -77,6 +85,16 @@ SOME_AUTOSCALER = Autoscaler(name="io-shop-cpu", namespace="shopping")
 # between three replicas and six, which is what makes a flap possible at all.
 THE_FLOOR = 3
 THE_CEILING = 6
+
+# What a pin leaves where it suspended the sync and the floor never moved.
+# `min_replicas_asked_for` is the ceiling only while the ceiling is at or below
+# the most replicas Argus may ask for, which six is.
+THE_SUSPENSION = AutoscalerUndo(
+    application=SOME_APPLICATION,
+    was_min_replicas=THE_FLOOR,
+    min_replicas_asked_for=THE_CEILING,
+    was_syncing_itself=True
+)
 
 
 def a_platform(floor: int = THE_FLOOR,
@@ -267,6 +285,20 @@ def test_an_autoscaler_already_held_still_is_refused_before_anything_changes() -
 
 
 @pytest.mark.unit
+def test_an_autoscaler_held_at_one_replica_is_refused_in_the_singular() -> None:
+    # A floor and a ceiling of one: "[1] replicas" is the line a reader stops at.
+    platform = a_platform(floor=1, ceiling=1)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            an_error_was_raised(AlreadyHeldStill),
+            the_error_mentioned("may fall to [1] replica and")
+        ))
+
+
+@pytest.mark.unit
 def test_a_floor_already_past_what_argus_may_ask_for_is_refused() -> None:
     # The clamp and the refusal are one question asked once: where the floor is
     # already at or above the most Argus may pin it at, a pin would lower it - and
@@ -443,10 +475,10 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
 
 @pytest.mark.unit
 def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachable() -> None:
-    # The suspension is the first thing a pin changes, so a platform that will
-    # not take it has left the estate as it found it.
+    # The suspension is the first thing a pin changes, so a platform that said
+    # it did not handle it has left the estate as it found it.
     platform = a_platform()
-    platform.suspend_sync.side_effect = PlatformUnreachable("503")
+    platform.suspend_sync.side_effect = PlatformUnreachable("503", known_not_applied=True)
 
     Scenario() \
         .given(platform) \
@@ -460,7 +492,9 @@ def test_a_platform_that_died_before_a_pin_that_changed_nothing_is_unreachable()
     # the first write - and a platform that stopped answering before it took
     # nothing with it.
     platform = a_platform(reconciling_itself=False)
-    platform.set_autoscaler_floor.side_effect = PlatformUnreachable("no route to host")
+    platform.set_autoscaler_floor.side_effect = PlatformUnreachable(
+        "no route to host", known_not_applied=True
+    )
 
     Scenario() \
         .given(platform) \
@@ -480,19 +514,104 @@ def test_a_pin_that_left_sync_suspended_says_so_and_still_reports_the_platform()
     # so the two coincide; a case that raised the ceiling past that cap would
     # have to name the cap instead.
     platform = a_platform(reconciling_itself=True)
-    platform.set_autoscaler_floor.side_effect = PlatformUnreachable("no route to host")
+    platform.set_autoscaler_floor.side_effect = PlatformUnreachable(
+        "no route to host", known_not_applied=True
+    )
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _pinning(platform))) \
         .then(all_of(
             _it_is_reported_as_an_unreachable_platform(),
-            _it_says_what_it_left_behind(AutoscalerUndo(
-                application=SOME_APPLICATION,
-                was_min_replicas=THE_FLOOR,
-                min_replicas_asked_for=THE_CEILING,
-                was_syncing_itself=True
-            ))
+            _it_says_what_it_left_behind(THE_SUSPENSION)
+        ))
+
+
+@pytest.mark.unit
+def test_bounds_the_platform_would_not_give_are_known_to_have_changed_nothing() -> None:
+    # Nothing had been asked to change, so however the read failed, nothing did.
+    platform = a_platform()
+    platform.autoscaler_bounds.side_effect = PlatformRefused("not found")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
+    platform = a_platform()
+    platform.is_syncing_itself.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(True),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing() -> None:
+    platform = a_platform()
+    platform.suspend_sync.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_rejected_after_sync_was_suspended_says_the_suspension_is_left() -> None:
+    platform = a_platform(reconciling_itself=True)
+    platform.set_autoscaler_floor.side_effect = PlatformRefused(
+        "400", known_not_applied=True
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(THE_SUSPENSION)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_whose_answer_was_lost_carries_the_suspension_and_no_more() -> None:
+    # The floor may be rising this second. The suspension is carried, and
+    # nothing is said to be all of it.
+    platform = a_platform(reconciling_itself=True)
+    platform.set_autoscaler_floor.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False),
+            it_left_behind(THE_SUSPENSION)
         ))
 
 

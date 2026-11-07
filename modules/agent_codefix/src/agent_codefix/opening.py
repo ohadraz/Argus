@@ -20,12 +20,13 @@ from collections.abc import Sequence
 from typing import Final
 
 from argus_core import to_iso
-from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage
+from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage, WhatArgusDid
+from argus_narration import what_was_done
 
 from agent_codefix.budget import FixSettings
 from agent_codefix.naming import files_named_in
 from agent_codefix.prompting import SUBMIT_TOOL_NAME
-from agent_codefix.retrieval import FileLister, IndexNotice
+from agent_codefix.retrieval import BranchMembership, FileLister, IndexNotice
 from agent_codefix.tools import SEARCH_BY_MEANING_TOOL, SEARCH_TOOL
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,12 @@ _HOW_A_LEAD_IS_TAKEN: Final = (
 
 # What a lead the investigation never weighed is said to be.
 _UNWEIGHED: Final = "never weighed by the investigation"
+
+# What heads the actions Argus took, below the leads they are the later word on.
+_WHAT_ARGUS_DID: Final = (
+    "What Argus did about the incident, what the service's metrics showed of each "
+    "action, and whether its change still stands:"
+)
 
 
 def what_it_concluded(hypothesis: Hypothesis | None) -> str:
@@ -71,13 +78,18 @@ def the_opening_message(hypothesis: Hypothesis | None,
                         settings: FixSettings,
                         index_notice: IndexNotice,
                         list_files: FileLister,
-                        leads: Sequence[ThreadMessage] = ()) -> str:
+                        leads: Sequence[ThreadMessage] = (),
+                        done: Sequence[WhatArgusDid] = (),
+                        *,
+                        deployed: str | None,
+                        holds_what_ran: bool | None) -> str:
     """The first thing the model is sent, built for this incident alone.
 
-    Assembled rather than templated, because four of its paragraphs are
+    Assembled rather than templated, because five of its paragraphs are
     conditional on what this deployment can do, what the investigation
-    actually found and whether anybody wrote in the incident's thread - and an
-    empty heading tells a model there is something it has failed to see.
+    actually found, whether anybody wrote in the incident's thread and whether
+    the branch read contains what ran - and an empty heading tells a model there
+    is something it has failed to see.
 
     The repository is listed once, for the two paragraphs that read it: the
     files the evidence names are checked against the same listing the model
@@ -94,8 +106,9 @@ def the_opening_message(hypothesis: Hypothesis | None,
         *_and_what_it_rests_on(hypothesis),
         *_and_the_files_it_names(hypothesis, listing),
         *_and_what_it_already_wrote(hypothesis),
-        *_and_what_people_wrote(leads),
+        *_and_what_people_wrote(leads, done),
         *_what_the_repository_holds(listing),
+        *_whether_it_contains_what_ran(settings, deployed, holds_what_ran),
         *_what_is_known_about_the_index(settings, index_notice),
         "",
         f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
@@ -121,17 +134,26 @@ def what_people_wrote_since(written: Sequence[ThreadMessage]) -> str:
     ])
 
 
-def _and_what_people_wrote(leads: Sequence[ThreadMessage]) -> list[str]:
+def _and_what_people_wrote(leads: Sequence[ThreadMessage],
+                           done: Sequence[WhatArgusDid]) -> list[str]:
     """What people working the incident wrote in its thread, with what the
-    investigation made of each.
+    investigation made of each - and then what Argus did about it.
 
     The standing travels with the words because it changes what the words are
     worth: a lead the investigation refuted is one the fix must not be built
     on, and Code-Fix reads code, not telemetry, so it is in no position to
     weigh one again.
 
+    What Argus did comes after, because it is the later word: a lead weighed
+    before anything was tried can say the reads do not tell two flags apart,
+    and told the weighing alone a recorded fix said the investigation had left
+    the flag open when one revert had refuted it and the other confirmed it.
+    Each action carries whether its change still stands, since a revert said
+    as refuted and no more reads as a flag still off when it was put back.
+
     Only where somebody wrote: a section saying nobody did would be a prompt
-    that changed for every incident nobody talked about.
+    that changed for every incident nobody talked about. And the actions only
+    where there are some, for the reason a heading over nothing is never said.
     """
     if not leads:
         return []
@@ -141,8 +163,19 @@ def _and_what_people_wrote(leads: Sequence[ThreadMessage]) -> list[str]:
         "## What people in the incident's thread wrote",
         "People working this incident wrote these in its thread.",
         _HOW_A_LEAD_IS_TAKEN,
-        *(_a_lead_as_a_line(lead) for lead in leads)
+        *(_a_lead_as_a_line(lead) for lead in leads),
+        *(["", _WHAT_ARGUS_DID, *(_an_action_as_a_line(action) for action in done)]
+          if done else [])
     ]
+
+
+def _an_action_as_a_line(action: WhatArgusDid) -> str:
+    """One action, in the words the incident's own account uses for it, with
+    its verdict and whether its change still stands - as the write-up says
+    them."""
+    said = what_was_done(action.identity.action_type, action.identity.subject)
+
+    return f"- {said}: {action.verdict.value}, {action.standing}"
 
 
 def _a_lead_as_a_line(lead: ThreadMessage) -> str:
@@ -257,10 +290,8 @@ def _and_the_files_it_names(hypothesis: Hypothesis | None,
 
     The evidence carries the file and the line inside a sentence the model has
     to parse; this says them where they cannot be missed. Called what they
-    are - named in the evidence - rather than the files to fix: the list is
-    every file the evidence's words name, down to a word that happens to be a
-    file's stem, and a list that reads as authoritative is one a model stops
-    looking past.
+    are - named in the evidence - rather than the files to fix: a list that
+    reads as authoritative is one a model stops looking past.
 
     A name the repository does not hold is said rather than dropped. Dropped, a
     stale path is invisible, and the model spends turns finding out what this
@@ -334,6 +365,58 @@ def _what_the_repository_holds(listing: Sequence[str]) -> list[str]:
         return []
 
     return ["", "The repository holds:", *(f"  {path}" for path in listing)]
+
+
+def whether_it_holds_what_ran(settings: FixSettings,
+                              deployed: str | None,
+                              contains: BranchMembership) -> bool | None:
+    """Whether the branch read contains the revision that ran, or `None` where
+    that cannot be established.
+
+    Asked once, before the conversation, for the opening and for the answer
+    alike. `None` where no revision is known to have run, since there is
+    nothing to ask about; and `None` where the branch could not be asked, for
+    the listing's reason - a raise here spends the whole attempt on one call -
+    and because either answer would then be a claim nobody established.
+    """
+    if deployed is None:
+        return None
+
+    try:
+        return contains(settings.github_base_branch, deployed)
+    except Exception:
+        logger.warning("could not tell whether the branch contains what ran", exc_info=True)
+
+        return None
+
+
+def _whether_it_contains_what_ran(settings: FixSettings,
+                                  deployed: str | None,
+                                  holds_what_ran: bool | None) -> list[str]:
+    """That the branch read does not contain the revision that ran, or nothing.
+
+    The revision may have been deployed from a branch never merged into the one
+    read, and then the files the model opens are not the files that ran - a
+    layout it describes from them is one that was never running. Told, it can
+    say which of the two a claim is about.
+
+    Nothing where the branch contains it, which is the ordinary case: a caveat on
+    every incident is one nobody reads on the incident it is true of. And
+    nothing where it was not established, since the caveat would then be a
+    claim nobody made good.
+    """
+    if deployed is None or holds_what_ran is not False:
+        return []
+
+    branch = settings.github_base_branch
+
+    return [
+        "",
+        f"You are reading {branch}. The revision that was running when the alert "
+        f"fired, {deployed}, is not in {branch}'s history - it was deployed from "
+        f"another branch - so what {branch} holds may differ from what ran. Say "
+        f"which of the two each claim about the code is about."
+    ]
 
 
 def _what_is_known_about_the_index(settings: FixSettings,

@@ -1,4 +1,4 @@
-"""Taking an incident back while Argus is in the middle of it.
+"""Withdrawing an incident while Argus is in the middle of it.
 
 The one thing a person can do to a running response, and the only case in the
 suite where the interesting moment is mid-walk rather than at the end: an
@@ -221,7 +221,7 @@ def test_a_withdrawn_rollback_puts_the_deployment_back_and_resumes_reconciliatio
     # The other kind of change an incident can make, and the one with two halves
     # to put back. A flag is a value: Argus writes it and a withdrawal writes it
     # again. A rollback is a revision *and* a suspended reconciliation, and the
-    # person taking the incident back gets neither half or both.
+    # person withdrawing the incident gets neither half or both.
     #
     # The shop is left slow, as the flag case leaves the flag broken. An unwind
     # restores what Argus changed, not what a healthy shop looks like, and a
@@ -308,7 +308,7 @@ def test_a_withdrawn_pin_puts_the_floor_back_and_resumes_reconciliation() -> Non
     #
     # What it restores the shop to is flapping, which is the point. Argus is not
     # putting the world right; it is removing what it did, and the incident goes to
-    # whoever took it back.
+    # whoever withdrew it.
     some_alert_name = "HighLatency"
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
@@ -379,7 +379,7 @@ def _argus_is_withdrawn_after_somebody_else_changed_the_flag(
     """The same walk, with a person reaching in between the change and the undo.
 
     The order is the whole case: Argus turns the flag off, somebody turns it
-    back on under it, and only then is the incident taken back. The withdrawal
+    back on under it, and only then is the incident withdrawn. The withdrawal
     follows the outside change immediately, so what the unwind finds is that
     person's doing rather than a refutation the walk had already put back.
 
@@ -418,7 +418,7 @@ def _argus_is_withdrawn_after_somebody_else_changed_the_flag(
 def _argus_is_withdrawn_once_it_has_acted_on(
     alert: dict[str, object]
 ) -> Callable[[], httpx2.Response]:
-    """Fires the alert, waits for Argus to change something, and takes it back.
+    """Fires the alert, waits for Argus to change something, and withdraws it.
 
     The wait is what makes this a withdrawal mid-walk rather than a withdrawal
     of an incident nothing had happened to yet. Argus turning the flag off is
@@ -444,7 +444,7 @@ def _argus_is_withdrawn_once_it_has_acted_on(
             raise AssertionError(
                 f"Withdrawing incident [{incident_id}] mid-walk answered "
                 f"[{withdrawn.status_code}]: {withdrawn.text}. Nothing below is "
-                f"about an incident that was never taken back."
+                f"about an incident that was never withdrawn."
             )
 
         return response
@@ -482,7 +482,7 @@ def _argus_is_withdrawn_from_the_slack_thread_before_it_acts(
         if pressed.status_code not in (HttpStatus.OK, HttpStatus.ACCEPTED):
             raise AssertionError(
                 f"The press on the offer answered [{pressed.status_code}]: {pressed.text}. "
-                f"Nothing below is about an incident a person took back."
+                f"Nothing below is about an incident a person withdrew."
             )
 
         return response
@@ -491,7 +491,7 @@ def _argus_is_withdrawn_from_the_slack_thread_before_it_acts(
 
 
 def _the_account_says_it_was_withdrawn(expected: Report) -> Assertion[httpx2.Response]:
-    """One withdrawal on the account: who took it back, where, and what they wrote."""
+    """One withdrawal on the account: who withdrew it, where, and what they wrote."""
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
@@ -667,7 +667,7 @@ def _argus_is_withdrawn_once_it_has_stopped_the_shop_reconciling(
             raise AssertionError(
                 f"Withdrawing incident [{incident_id}] mid-walk answered "
                 f"[{withdrawn.status_code}]: {withdrawn.text}. Nothing below is "
-                f"about an incident that was never taken back."
+                f"about an incident that was never withdrawn."
             )
 
         return response
@@ -719,7 +719,7 @@ def _the_shop_is_slow_again() -> Assertion[httpx2.Response]:
 
     A revision is nowhere in the platform's answers, so the deployment being put
     back is read where it shows: in what every request costs. Slow again is the
-    honest end of a withdrawal - Argus took its mitigation back, and the incident
+    honest end of a withdrawal - Argus undid its mitigation, and the incident
     is with whoever took it.
     """
     def assertion(dont_care_response: httpx2.Response) -> bool:
@@ -804,7 +804,7 @@ def _the_autoscaler_may_fall_as_far_as_it_could_before(
     The second restore in this file that can be checked against the world, and it
     asserts the shop is back to *flapping* - which is the honest end of a
     withdrawal and not a state anybody would call fixed. A withdrawal restores what
-    Argus changed and hands the incident to whoever took it back; a run that left
+    Argus changed and hands the incident to whoever withdrew it; a run that left
     the count held still would be keeping a mitigation alive under an incident that
     has ended, and nobody would be watching it.
     """

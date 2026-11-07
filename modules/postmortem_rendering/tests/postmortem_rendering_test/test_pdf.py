@@ -17,33 +17,40 @@ from importlib.resources import files
 from typing import Any, NamedTuple
 
 import pytest
+from argus_core import said_as_a_day, said_as_a_time
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
     ChainStep,
     ChangeKind,
+    ChannelReading,
     CitedEvidence,
     ContributingFactor,
     Detection,
+    FirstTold,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
     Lessons,
+    NoTrigger,
     OpenedPullRequest,
     Postmortem,
     PostmortemLead,
+    ReportChannel,
     ResolutionStep,
     ReviewCriterion,
+    RuledOut,
     RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    WhyNoTrigger,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from fpdf import FPDF
 from postmortem_rendering.pdf import as_pdf
-from postmortem_rendering.rendering import render
+from postmortem_rendering.rendering import RenderedPostmortem, render
 from pypdf import PageObject, PdfReader
 from pypdf.generic import ContentStream
 
@@ -56,9 +63,9 @@ from postmortem_rendering_test.framework.builders import (
     a_person_resolved_it,
     a_postmortem,
     an_alert,
+    the_page_of,
 )
 
-SOME_ADDRESS = "http://argus.example/incidents/0b1c"
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
 # The page's side margins, 18 mm each, in the points a PDF measures in.
@@ -72,7 +79,7 @@ def test_the_title_comes_first_then_every_section_in_the_page_s_order() -> None:
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(symptom=None, leads=[_a_lead("dont care")]),
-                                    an_alert("HighErrorRate", "io-shop"), [], SOME_ADDRESS)
+                                    an_alert("HighErrorRate", "io-shop"), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -82,7 +89,7 @@ def test_the_title_comes_first_then_every_section_in_the_page_s_order() -> None:
                                "Root cause and contributing factors", "Hypotheses considered",
                                "Trigger", "Resolution", "Detection", "Action items",
                                "Lessons learned", "Timeline", "What people told Argus",
-                               "Cost of the response", "Supporting information",
+                               "Response effort", "Supporting information",
                                "Review checklist"))
 
 
@@ -90,7 +97,7 @@ def test_the_title_comes_first_then_every_section_in_the_page_s_order() -> None:
 def test_every_section_says_what_the_document_holds() -> None:
     Scenario() \
         .given(
-            some_rendered := render(_every_section_filled(), an_alert(), [], SOME_ADDRESS)
+            some_rendered := render(_every_section_filled(), an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -99,6 +106,7 @@ def test_every_section_says_what_the_document_holds() -> None:
             _it_reads_in_order("The divisor was never guarded.",
                                "Requests failed on the account page.", "Evidence:",
                                "The flag went on.",
+                               "Ruled out:", "The earlier deploy was healthy.",
                                "Nothing reviewed the divisor.",
                                "monthly-spend flag went from OFF to ON",
                                "Turned the flag off",
@@ -128,11 +136,53 @@ def test_a_person_s_resolution_is_carried_into_the_head_and_the_resolution() -> 
             some_events := [a_person_resolved_it("Kuki Buki", note="Turned it off by hand.")]
         ) \
         .when(
-            lambda: as_pdf(render(a_postmortem(), an_alert(), some_events, SOME_ADDRESS))
+            lambda: as_pdf(render(a_postmortem(), an_alert(), some_events, the_page_of))
         ) \
         .then(
             _it_reads_in_order("Ended by Kuki Buki", "Turned it off by hand.",
                                "Resolved by Kuki Buki", "Turned it off by hand."))
+
+
+@pytest.mark.unit
+def test_a_confirmed_cause_with_no_trigger_is_printed_saying_why() -> None:
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(trigger=None, no_trigger=NoTrigger(
+                    why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD, candidate="C1",
+                    service="io-pricing")),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_reads_in_order("Trigger",
+                               "C1 was confirmed; it blames io-pricing, whose deploys Argus "
+                               "did not read.",
+                               "Resolution"))
+
+
+@pytest.mark.unit
+def test_the_head_says_when_argus_first_posted_below_the_rule_before_who_ended_it() -> None:
+    # Under the title sit the two times a reader most easily takes for each
+    # other; the post is neither, so it sits below the rule.
+    some_post = FirstTold(channel=ReportChannel.SLACK, at=SOME_ONSET + timedelta(minutes=2))
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(detection=Detection(alerted_at=SOME_ONSET, rule=None,
+                                                 onset_at=None, gap=None,
+                                                 first_told=some_post)),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_reads_in_order("Written by", "Status", "First told",
+                               "Argus posted in Slack, Oct 11, 2026, 14:05 UTC", "Ended by"))
 
 
 @pytest.mark.unit
@@ -143,7 +193,7 @@ def test_the_head_says_the_incident_s_window_in_utc() -> None:
                 a_postmortem(timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET),
                                        a_marker(TimelineMarker.IMPACT_ENDS,
                                                 SOME_ONSET + timedelta(minutes=9))]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -159,7 +209,7 @@ def test_the_timeline_names_the_zone_its_times_are_in() -> None:
         .given(
             some_rendered := render(
                 a_postmortem(timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -177,7 +227,7 @@ def test_every_marker_is_printed_on_one_line(marker: TimelineMarker) -> None:
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(timeline=[a_marker(marker, SOME_ONSET)]),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -187,22 +237,76 @@ def test_every_marker_is_printed_on_one_line(marker: TimelineMarker) -> None:
 
 
 @pytest.mark.unit
-def test_the_proposed_fix_and_the_incident_are_written_with_their_full_addresses() -> None:
-    # Written out, for a reader of paper; and links, for a reader of the file.
-    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
-                                 branch="dont care")
+def test_each_cell_of_a_step_is_printed_on_one_line() -> None:
+    # The columns share the page's width, so widening one narrows another,
+    # and a value broken over two lines was found only by reading a PDF by
+    # hand. Each value here is the widest its column holds on one line: a time
+    # off the head's day, the fix row's author, the kind with no way back, and
+    # the longest outcome that fits.
+    widest_step = ResolutionStep(at=SOME_ONSET + timedelta(days=7, minutes=42, seconds=44),
+                                 action="dont care", by="Code-Fix Agent", has_a_way_back=False,
+                                 outcome="withdrawn, still in place", label="M1")
 
     Scenario() \
         .given(
-            some_rendered := render(a_postmortem(pull_request=some_fix), an_alert(), [],
-                                    SOME_ADDRESS)
+            some_rendered := render(
+                a_postmortem(resolution=[widest_step],
+                             timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)]),
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
         ) \
         .then(all_of(
-            _it_says_all(some_fix.url, SOME_ADDRESS),
-            _it_links_out_to(some_fix.url, SOME_ADDRESS)))
+            _a_cell_reads(f"{said_as_a_day(widest_step.at)} {said_as_a_time(widest_step.at)}"),
+            _a_cell_reads(widest_step.by),
+            _a_cell_reads("nothing to put back"),
+            _a_cell_reads(widest_step.outcome)))
+
+
+@pytest.mark.unit
+def test_a_flag_revert_keeps_reverted_the_feature_flag_on_one_line() -> None:
+    # The action is the column that gives way to the others, and wraps anyway
+    # - but a flag's revert keeps "Reverted the feature flag" on its first
+    # line: narrowed to make room for the others, it broke over three, with
+    # "flag" alone.
+    first_line = "Reverted the feature flag"
+    revert = ResolutionStep(at=SOME_ONSET, action=f"{first_line} monthly-spend-feature",
+                            by="dont care", has_a_way_back=True, outcome="dont care",
+                            label="M1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(resolution=[revert],
+                             timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)]),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_cell_reads(first_line))
+
+
+@pytest.mark.unit
+def test_the_proposed_fix_and_the_incident_are_written_with_their_full_addresses() -> None:
+    # Written out, for a reader of paper; and links, for a reader of the file.
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+    some_postmortem = a_postmortem(pull_request=some_fix)
+    its_page = the_page_of(some_postmortem.incident_id)
+
+    Scenario() \
+        .given(
+            some_rendered := render(some_postmortem, an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _it_says_all(some_fix.url, its_page),
+            _it_links_out_to(some_fix.url, its_page)))
 
 
 @pytest.mark.unit
@@ -212,7 +316,7 @@ def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory(
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(changes_read=[a_deploy_read()]), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -234,12 +338,12 @@ def test_a_revision_the_prose_names_links_out_to_its_commit() -> None:
         .given(
             unnamed := as_pdf(render(a_postmortem(root_cause="A deploy broke it.",
                                                   changes_read=[a_deploy_read()]),
-                                     an_alert(), [], SOME_ADDRESS)),
+                                     an_alert(), [], the_page_of)),
             some_rendered := render(
                 a_postmortem(root_cause=f"The deploy of revision {SOME_DEPLOYED_REVISION[:7]} "
                                         f"broke it.",
                              changes_read=[a_deploy_read()]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -260,12 +364,12 @@ def test_a_revision_a_hypothesis_names_links_out_to_its_commit() -> None:
             unnamed := as_pdf(render(
                 a_postmortem(hypotheses=[_a_hypothesis("a deploy made every page slow")],
                              changes_read=[a_deploy_read()]),
-                an_alert(), [], SOME_ADDRESS)),
+                an_alert(), [], the_page_of)),
             some_rendered := render(
                 a_postmortem(hypotheses=[_a_hypothesis(
                                  f"{SOME_DEPLOYED_REVISION} made every page slow")],
                              changes_read=[a_deploy_read()]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -283,7 +387,7 @@ def test_a_citation_of_what_the_alert_said_leads_to_its_row() -> None:
         .given(
             some_rendered := render(a_postmortem(root_cause="AL1 tells it.",
                                                  detection=some_detection),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -302,7 +406,7 @@ def test_a_label_the_prose_cites_leads_to_the_row_it_names() -> None:
             some_rendered := render(
                 a_postmortem(executive_summary="Account pages failed, as C7 says.",
                              hypotheses=[some_hypothesis]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -320,7 +424,7 @@ def test_a_citation_lands_on_its_row_in_every_table_that_has_one() -> None:
                              status=ActionItemStatus.OPEN)
                   for number in range(1, 81)]
     some_step = ResolutionStep(at=SOME_ONSET, action="Turned the flag off", by="Argus",
-                               reversible=True, outcome="dont care", label="M1")
+                               has_a_way_back=True, outcome="dont care", label="M1")
     some_line = TimelineEntry(at=SOME_ONSET, who=None, text="The flag went on.", label="T1")
 
     Scenario() \
@@ -329,7 +433,7 @@ def test_a_citation_lands_on_its_row_in_every_table_that_has_one() -> None:
                 a_postmortem(executive_summary="M1, AI-80 and T1 tell it.",
                              resolution=[some_step], action_items=some_items,
                              timeline=[some_line]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -354,7 +458,7 @@ def test_a_change_a_log_message_and_a_lead_the_prose_cites_lead_to_their_rows() 
                 a_postmortem(root_cause="P2, G3fa2 and L1 tell it.",
                              changes_read=[some_change], log_messages_read=[some_message],
                              leads=[_a_lead("dont care", text="The flag was flipped.")]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -363,6 +467,26 @@ def test_a_change_a_log_message_and_a_lead_the_prose_cites_lead_to_their_rows() 
             _a_link_lands_on("A deploy switched the model."),
             _a_link_lands_on("G3fa2 The divisor was zero."),
             _a_link_lands_on("The flag was flipped.")))
+
+
+@pytest.mark.unit
+def test_a_kind_of_change_with_no_row_is_said_beneath_the_rows_there_are() -> None:
+    # A flag row alone says nothing of the deploys, and a reader takes them as
+    # read and ruled out. What came of reading them follows the rows.
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(changes_read=[a_change_read("P1", summary="The flag went on.")],
+                             deploys_reading=ChannelReading.NOT_ASKED,
+                             flags_reading=ChannelReading.READ),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_reads_in_order("Changes to production read", "The flag went on.",
+                               "Deploys not read.", "Log messages read"))
 
 
 @pytest.mark.unit
@@ -377,7 +501,7 @@ def test_what_a_deployment_changed_the_prose_cites_leads_to_its_row() -> None:
         .given(
             some_rendered := render(
                 a_postmortem(root_cause="D1 tells it.", deployment_changes_read=[some_diff]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -394,13 +518,86 @@ def test_what_code_fix_read_the_prose_cites_leads_to_its_row() -> None:
         .given(
             some_rendered := render(
                 a_postmortem(root_cause="F1 tells it.", code_read=[some_reading]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
         ) \
         .then(
             _a_link_lands_on("F1 The categoriser does not lowercase."))
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_the_prose_cites_leads_to_its_row() -> None:
+    some_file = CitedEvidence(label="S1", text="deploy/scrape.yaml at 53f02e9\n"
+                                               "selector:\n"
+                                               "  port: metrics")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="S1 tells it.", as_it_ran_read=[some_file]),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("S1 deploy/scrape.yaml at 53f02e9"))
+
+
+@pytest.mark.unit
+def test_a_use_outside_the_patch_the_prose_cites_leads_to_its_row() -> None:
+    some_use = CitedEvidence(label="U1",
+                             text="total_this_month_cents at src/io_shop/spend_reconciliation.py"
+                                  ":109, in reconcile_monthly_totals: compares it with "
+                                  "_bought_this_month(account)")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="U1 tells it.", uses_outside_read=[some_use]),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("U1 total_this_month_cents at src/io_shop/spend_reconciliation.py"))
+
+
+@pytest.mark.unit
+def test_a_measurement_of_the_confirmed_cause_the_prose_cites_leads_to_its_row() -> None:
+    some_load = CitedEvidence(label="R1",
+                              text="Requests a minute: 1200 before it began, 4200 on average "
+                                   "while it was broken, 5400 at its highest.")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="R1 tells it.", cause_measured=[some_load]),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("R1 Requests a minute: 1200 before it began"))
+
+
+@pytest.mark.unit
+def test_a_postmortem_that_measured_no_cause_has_no_heading_for_one_in_its_pdf() -> None:
+    # A heading over nothing would say a measurement was missed.
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(cause_measured=[]), an_alert(), [],
+                                    the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_does_not_say("What the metrics show of the confirmed cause"))
 
 
 @pytest.mark.unit
@@ -416,7 +613,7 @@ def test_a_row_taller_than_a_page_goes_on_onto_the_next_and_still_lands() -> Non
         .given(
             some_rendered := render(
                 a_postmortem(root_cause="F1 tells it.", code_read=[some_reading]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -436,7 +633,7 @@ def test_a_hypothesis_taller_than_a_page_goes_on_onto_the_next_and_still_lands()
         .given(
             some_rendered := render(
                 a_postmortem(root_cause="C1 was right.", hypotheses=[some_hypothesis]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -455,14 +652,14 @@ def test_a_row_taller_than_a_page_keeps_every_line_and_every_link_it_had() -> No
         *(f"  +  key{line}: value" for line in range(150)),
         f"End of {SOME_DEPLOYED_REVISION}."]))
     without_the_diff = as_pdf(render(a_postmortem(changes_read=[a_deploy_read("P2")]),
-                                     an_alert(), [], SOME_ADDRESS))
+                                     an_alert(), [], the_page_of))
 
     Scenario() \
         .given(
             some_rendered := render(
                 a_postmortem(changes_read=[a_deploy_read("P2")],
                              deployment_changes_read=[some_diff]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -485,7 +682,7 @@ def test_a_row_taller_than_a_page_keeps_each_word_once_however_it_is_spaced() ->
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(code_read=[some_reading]),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -504,7 +701,7 @@ def test_a_soft_hyphen_in_a_cited_line_is_not_printed() -> None:
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(code_read=[some_reading]),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -525,7 +722,7 @@ def test_an_item_the_chain_rests_on_leads_to_its_row() -> None:
                 a_postmortem(hypotheses=[some_hypothesis],
                              causal_chain=[ChainStep(text="dont care", cites=[
                                  CitedEvidence(label="C1", text="as briefed")])]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -541,7 +738,7 @@ def test_a_revision_in_an_item_the_chain_rests_on_opens_its_commit() -> None:
     # it came from rather than naming the revision a second time.
     commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
     without_the_chain = as_pdf(render(a_postmortem(changes_read=[a_deploy_read("P2")]),
-                                      an_alert(), [], SOME_ADDRESS))
+                                      an_alert(), [], the_page_of))
 
     Scenario() \
         .given(
@@ -549,7 +746,7 @@ def test_a_revision_in_an_item_the_chain_rests_on_opens_its_commit() -> None:
                 a_postmortem(changes_read=[a_deploy_read("P2")],
                              causal_chain=[ChainStep(text="dont care", cites=[
                                  CitedEvidence(label="P2", text="as briefed")])]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -571,7 +768,7 @@ def test_a_candidate_a_line_of_the_timeline_names_leads_to_its_row() -> None:
         .given(
             some_rendered := render(
                 a_postmortem(hypotheses=[some_hypothesis], timeline=[some_line]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -594,7 +791,7 @@ def test_a_candidate_named_by_a_label_its_row_also_goes_by_leads_to_that_row() -
         .given(
             some_rendered := render(
                 a_postmortem(hypotheses=[some_hypothesis], timeline=[some_line]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -613,7 +810,7 @@ def test_the_items_a_contributing_factor_names_lead_to_their_rows() -> None:
         .given(
             some_rendered := render(
                 a_postmortem(contributing_factors=[some_factor], action_items=[some_item]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -636,7 +833,7 @@ def test_a_label_an_action_item_cites_leads_to_the_row_it_names() -> None:
         .given(
             some_rendered := render(
                 a_postmortem(hypotheses=[some_hypothesis], action_items=[some_item]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -663,7 +860,7 @@ def test_an_action_item_too_long_for_one_line_wraps_inside_its_cell() -> None:
         .given(
             some_rendered := render(
                 a_postmortem(hypotheses=[some_hypothesis], action_items=[some_item]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -674,13 +871,35 @@ def test_an_action_item_too_long_for_one_line_wraps_inside_its_cell() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_item_quoting_code_is_printed_whole_without_its_backticks() -> None:
+    # The quote is set apart as code with its backticks left out, and the item
+    # is measured and written from those words - measured with the backticks
+    # still in, each one cost a character off the item's end.
+    some_item = ActionItem(number="AI-1",
+                           text="Pin `categoriser.model` to v1 until purchases recover.",
+                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN)
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(action_items=[some_item]),
+                                    an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_says("AI-1 Pin categoriser.model to v1 until purchases recover."))
+
+
+@pytest.mark.unit
 def test_no_cell_is_painted_over_the_words_written_into_it() -> None:
     # An action item's text is written into the cell the table leaves for it;
     # a table that then fills the cell paints the words out, and the column
     # reads empty while the file still holds every word of it.
     Scenario() \
         .given(
-            some_rendered := render(_every_section_filled(), an_alert(), [], SOME_ADDRESS)
+            some_rendered := render(_every_section_filled(), an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -696,7 +915,7 @@ def test_no_text_is_set_over_other_text_or_past_the_margins() -> None:
     # word of it, so only where it is set can show it.
     Scenario() \
         .given(
-            some_rendered := render(_every_section_filled(), an_alert(), [], SOME_ADDRESS)
+            some_rendered := render(_every_section_filled(), an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -719,7 +938,7 @@ def test_a_card_prints_its_figure_its_label_and_its_note_inside_the_card() -> No
                 a_postmortem(impact=Impact(duration=timedelta(minutes=29),
                                            extent=ImpactExtent.MEASURED, peak_error_rate=None,
                                            rule_series_harm=some_harm)),
-                an_alert("CategorisationConfidenceLow"), [], SOME_ADDRESS)
+                an_alert("CategorisationConfidenceLow"), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -746,13 +965,37 @@ def test_a_card_s_figure_is_printed_whole_on_one_line_however_many_cards_share_t
                                            extent=ImpactExtent.MEASURED, peak_error_rate=0.339,
                                            requests_failed=4210, rule_series_harm=some_harm),
                              customer_loss_estimate=Decimal("1736.68"), estimate_currency="usd"),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
         ) \
         .then(
             _set_on_one_line("0.899 to 0.459"))
+
+
+@pytest.mark.unit
+def test_a_span_too_wide_for_its_tile_beside_at_least_breaks_after_at_least() -> None:
+    # "at least 7d 0h 0m 33s" was too wide for the first of five tiles at the
+    # figures' smallest size, and broke before its seconds: "at least 7d 0h 0m"
+    # over "33s" reads as two spans.
+    some_harm = RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
+                               worse_when="below")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(impact=Impact(duration=timedelta(days=7, seconds=33),
+                                           extent=ImpactExtent.AT_LEAST, peak_error_rate=0.339,
+                                           requests_failed=4210, rule_series_harm=some_harm),
+                             customer_loss_estimate=Decimal("1736.68"), estimate_currency="usd"),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_cell_reads("7d 0h 0m 33s"))
 
 
 @pytest.mark.unit
@@ -765,7 +1008,7 @@ def test_a_page_breaking_inside_an_indented_block_keeps_its_header_and_footer_in
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(causal_chain=[some_step]), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -783,7 +1026,7 @@ def test_money_is_printed_to_the_cent_with_its_currency() -> None:
                                            extent=ImpactExtent.MEASURED, peak_error_rate=0.2),
                              customer_loss_estimate=Decimal("1736.68485900091116011163646"),
                              estimate_currency="usd"),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -799,7 +1042,7 @@ def test_an_em_dash_and_a_name_in_cyrillic_are_printed_as_written() -> None:
             some_rendered := render(
                 a_postmortem(executive_summary="Account pages failed — all of them.",
                              leads=[_a_lead("Иван Петров")]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -814,7 +1057,7 @@ def test_a_character_no_font_carries_does_not_stop_the_rest_being_printed() -> N
         .given(
             some_rendered := render(
                 a_postmortem(leads=[_a_lead("dont care", text="看 the checkout flag")]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -828,7 +1071,7 @@ def test_a_table_running_onto_another_page_names_its_columns_there_too() -> None
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(action_items=_eighty_items()), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -844,7 +1087,7 @@ def test_every_page_names_the_incident_it_belongs_to() -> None:
 
     Scenario() \
         .given(
-            some_rendered := render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            some_rendered := render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -858,7 +1101,7 @@ def test_every_page_says_which_page_of_how_many_it_is() -> None:
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(action_items=_eighty_items()), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -878,7 +1121,7 @@ def test_a_title_too_long_for_the_running_header_is_shortened_there() -> None:
 
     Scenario() \
         .given(
-            some_rendered := render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            some_rendered := render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -892,7 +1135,7 @@ def test_the_first_page_carries_argus_s_mark_and_no_other_does() -> None:
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(action_items=_eighty_items()), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -918,7 +1161,7 @@ def test_the_three_lessons_lists_are_set_side_by_side_on_one_page(items: int) ->
         .given(
             some_rendered := render(a_postmortem(action_items=_eighty_items()[:items],
                                                  lessons=some_lessons),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -938,7 +1181,7 @@ def test_a_section_opening_with_a_table_has_its_heading_on_the_page_its_first_ro
     Scenario() \
         .given(
             some_rendered := render(_a_table_under_every_heading(root_cause_words),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -962,7 +1205,7 @@ def test_a_first_row_too_tall_to_follow_its_heading_on_any_page_begins_under_it(
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(hypotheses=[some_hypothesis]), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -976,7 +1219,7 @@ def test_a_resolution_a_person_reported_keeps_its_heading_with_their_line_alone(
     # The section opens with who resolved it, not with the table of steps, and
     # a heading kept with a first row of forty lines went to the next page
     # with half of this one still empty.
-    some_step = ResolutionStep(at=SOME_ONSET, action="Zstep", by="Argus", reversible=True,
+    some_step = ResolutionStep(at=SOME_ONSET, action="Zstep", by="Argus", has_a_way_back=True,
                                outcome="\n".join(f"step{line}" for line in range(40)),
                                label="M1")
 
@@ -985,7 +1228,7 @@ def test_a_resolution_a_person_reported_keeps_its_heading_with_their_line_alone(
             some_rendered := render(a_postmortem(executive_summary="Zsummary",
                                                  resolution=[some_step]),
                                     an_alert(), [a_person_resolved_it("Kuki Buki")],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1008,7 +1251,7 @@ def test_the_assumptions_are_set_on_one_page_where_they_fit_one(root_cause_words
         .given(
             some_rendered := render(a_postmortem(root_cause=" ".join(["word"] * root_cause_words),
                                                  assumptions=some_assumptions),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1018,18 +1261,44 @@ def test_the_assumptions_are_set_on_one_page_where_they_fit_one(root_cause_words
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("root_cause_words", range(270, 380, 12))
+def test_a_review_row_at_the_foot_of_a_page_is_set_whole_on_one_page(
+        root_cause_words: int) -> None:
+    # A check at the foot of a page set its status first, which broke the
+    # page, then went back up for its mark and broke it again: a page holding
+    # "for a person" and nothing else, and the check itself on the one after.
+    # A root cause of every length here puts the check at every height near
+    # the foot of a page.
+    some_checks = [*(ReviewCriterion(criterion=f"Zmet check {number}", met=True)
+                     for number in range(5)),
+                   ReviewCriterion(criterion="Zlast check", met=None)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(root_cause=" ".join(["word"] * root_cause_words),
+                                                 review=some_checks),
+                                    an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _on_one_page("Zlast check", "for a person"))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("root_cause_words", "item_words", "subheading"), [
-    pytest.param(468, 80, "Causal chain", id="causal-chain"),
-    pytest.param(288, 80, "Contributing factors", id="contributing-factors"),
+    pytest.param(428, 80, "Causal chain", id="causal-chain"),
+    pytest.param(248, 80, "Contributing factors", id="contributing-factors"),
     pytest.param(600, 80, "What the alert said", id="what-the-alert-said"),
-    pytest.param(906, 80, "Changes to production read", id="changes-read"),
-    pytest.param(870, 80, "Log messages read (UTC)", id="log-messages-read"),
-    pytest.param(432, 40, "What each deployment looked into changed", id="deployments"),
-    pytest.param(492, 80, "What Code-Fix read in the source - a static reading, nothing ran it",
+    pytest.param(866, 80, "Changes to production read", id="changes-read"),
+    pytest.param(818, 80, "Log messages read (UTC)", id="log-messages-read"),
+    pytest.param(376, 40, "What each deployment looked into changed", id="deployments"),
+    pytest.param(492, 80, "What Code-Fix read in the source - nothing ran to check it",
                  id="code-fix-read"),
-    pytest.param(348, 80, "What went wrong", id="what-went-wrong"),
-    pytest.param(318, 80, "Where it got lucky", id="where-it-got-lucky"),
-    pytest.param(372, 80, "Lessons learned", id="lessons-set-one-under-another")
+    pytest.param(316, 80, "What went wrong", id="what-went-wrong"),
+    pytest.param(278, 80, "Where it got lucky", id="where-it-got-lucky"),
+    pytest.param(364, 80, "Lessons learned", id="lessons-set-one-under-another")
 ])
 def test_a_subheading_is_set_on_the_page_what_it_heads_begins_on(
         root_cause_words: int, item_words: int, subheading: str) -> None:
@@ -1040,7 +1309,7 @@ def test_a_subheading_is_set_on_the_page_what_it_heads_begins_on(
     Scenario() \
         .given(
             some_rendered := render(_every_subsection_filled(root_cause_words, item_words),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1073,7 +1342,7 @@ def test_a_label_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
         .given(
             some_rendered := render(a_postmortem(contributing_factors=some_factors,
                                                  action_items=_eighty_items()[:1]),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1094,13 +1363,78 @@ def test_a_word_running_into_a_label_through_a_non_breaking_space_goes_on_with_i
         .given(
             some_rendered := render(a_postmortem(contributing_factors=some_factors,
                                                  action_items=_eighty_items()[:1]),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
         ) \
         .then(
             _never_cut_across_lines("see\u00a0AI-1"))
+
+
+@pytest.mark.unit
+def test_a_label_that_fits_the_end_of_a_line_only_in_its_margins_starts_the_next() -> None:
+    # fpdf2 keeps a margin inside each side of what it writes, so a label with
+    # room left for it and less than those two margins over was cut: "P" at
+    # the end of a line and "R #1" on the next. Words a letter wide put the
+    # label at every place along a line, finer than the margins.
+    some_factors = [ContributingFactor(text=" ".join(["word"] * length) + " " + "i" * narrow,
+                                       addressed_by=["AI-1"])
+                    for length in range(1, 30) for narrow in range(1, 8)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(contributing_factors=some_factors,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("AI-1"))
+
+
+@pytest.mark.unit
+def test_a_label_under_a_check_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
+    # The line under a check was written piece by piece with nothing measuring
+    # a piece's first word, so a label there was cut: "AI-" / "1".
+    some_checks = [ReviewCriterion(criterion="Root-cause analysis complete", met=None,
+                                   because=" ".join(["word"] * length) + " " + "i" * narrow
+                                           + " AI-1 now")
+                   for length in range(1, 30) for narrow in range(1, 8)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(review=some_checks,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("AI-1"))
+
+
+@pytest.mark.unit
+def test_a_label_in_an_assumption_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
+    # The reference list was written piece by piece with nothing measuring a
+    # piece's first word, so a label in an assumption was cut: "A" / "I-1".
+    some_assumptions = [" ".join(["word"] * length) + " " + "i" * narrow + " AI-1 now"
+                        for length in range(1, 30) for narrow in range(1, 8)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(assumptions=some_assumptions,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("AI-1"))
 
 
 @pytest.mark.unit
@@ -1119,13 +1453,124 @@ def test_a_word_going_on_into_the_next_piece_breaks_a_line_only_where_it_does_no
         .given(
             some_rendered := render(a_postmortem(contributing_factors=some_factors,
                                                  action_items=_eighty_items()[:1]),
-                                    an_alert(), [], SOME_ADDRESS)
+                                    an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
         ) \
         .then(
             all_of(*(_set_level_with("AI-1", f"Before{length:02d}") for length in some_lengths)))
+
+
+@pytest.mark.unit
+def test_a_name_too_wide_for_its_column_breaks_only_after_an_underscore() -> None:
+    # A lessons column is a third of the page wide, and a name wider than it
+    # was cut wherever the line ran out: "record_purchase_deriving_the_mon" /
+    # "th". Words of every length before it put the name at every place along
+    # a line.
+    some_name = "record_purchase_deriving_the_month_from_every_account_history"
+    some_lengths = range(1, 12)
+    some_lessons = Lessons(went_well=[" ".join(["word"] * length) + f" {some_name} now"
+                                      for length in some_lengths],
+                           went_wrong=["dont care"],
+                           got_lucky=["dont care"])
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(lessons=some_lessons), an_alert(), [],
+                                    the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_name, "_", times=len(some_lengths)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_word, joints", [
+    ("src/" + "/".join(["io_shop_reconciliation"] * 4) + "/spend_summary.py:47", ("/",)),
+    ("-".join(["9c1d4e7a"] * 10), ("-",)),
+    ("tests/io_shop/test_" + "_".join(["spend_summary"] * 9) + ".py", ("/", "_"))
+], ids=["path", "id", "path-whose-file-is-too-wide"])
+def test_a_path_or_an_id_too_wide_for_its_column_breaks_only_at_its_own_joint(
+        some_word: str, joints: tuple[str, ...]) -> None:
+    # As a cell does. A path cut after an underscore splits a directory's or a
+    # file's name, and an id cut wherever the line ran out splits a group - and
+    # a reader copying either gets a token nobody has. A file's name wider than
+    # a whole line is cut again, at the next joint it holds.
+    some_lengths = range(1, 12)
+    some_lessons = Lessons(went_well=[" ".join(["word"] * length) + f" {some_word} now"
+                                      for length in some_lengths],
+                           went_wrong=["dont care"],
+                           got_lucky=["dont care"])
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(lessons=some_lessons), an_alert(), [],
+                                    the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_word, *joints, times=len(some_lengths)))
+
+
+@pytest.mark.unit
+def test_a_name_too_wide_for_its_cell_breaks_only_at_its_joints() -> None:
+    # As one in running text does. A table's cell cut a name wherever its line
+    # ran out: "tests/io_shop/test_spend_summ" / "ary.py against the merged fix".
+    # Words of every length before it put the name at every place along a line.
+    some_name = "tests/io_shop/test_" + "_".join(["spend_summary"] * 9) + ".py"
+    some_lengths = range(1, 12)
+
+    Scenario() \
+        .given(
+            some_rendered := _action_items_naming(some_name, some_lengths)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_name, "/", "_", times=len(some_lengths)))
+
+
+@pytest.mark.unit
+def test_a_path_too_wide_for_its_cell_keeps_its_file_s_name_whole() -> None:
+    # A cell cut "src/io_shop/spend_summary.py:47" after "spend_", and a reader
+    # copying it got a file nobody has. Cut after a "/", the file's name stays
+    # whole and the two pieces join where they visibly do.
+    some_path = "src/" + "/".join(["io_shop_reconciliation"] * 4) + "/spend_summary.py:47"
+    some_lengths = range(1, 12)
+
+    Scenario() \
+        .given(
+            some_rendered := _action_items_naming(some_path, some_lengths)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_path, "/", times=len(some_lengths)))
+
+
+@pytest.mark.unit
+def test_an_id_too_wide_for_its_cell_is_cut_between_its_groups() -> None:
+    # A cell cut an incident's id inside its last group: "...-8000-000" /
+    # "00000fee1". Cut at a hyphen, each group stays whole.
+    some_id = "-".join(["9c1d4e7a"] * 14)
+    some_lengths = range(1, 12)
+
+    Scenario() \
+        .given(
+            some_rendered := _action_items_naming(some_id, some_lengths)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_id, "-", times=len(some_lengths)))
 
 
 @pytest.mark.unit
@@ -1139,7 +1584,7 @@ def test_each_item_a_step_rests_on_is_set_on_a_line_of_its_own() -> None:
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(causal_chain=[some_step]), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1158,7 +1603,7 @@ def test_the_proposed_fix_s_row_links_its_name_alone() -> None:
     Scenario() \
         .given(
             some_rendered := render(a_postmortem(pull_request=some_fix), an_alert(), [],
-                                    SOME_ADDRESS)
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1173,7 +1618,7 @@ def test_a_cited_step_and_a_cited_line_of_the_timeline_show_their_labels() -> No
     # labels, and a row that answers to M1 without saying so is found only by
     # clicking.
     some_step = ResolutionStep(at=SOME_ONSET, action="Turned the flag off", by="Argus",
-                               reversible=True, outcome="dont care", label="M1")
+                               has_a_way_back=True, outcome="dont care", label="M1")
     some_line = TimelineEntry(at=SOME_ONSET, who=None, text="The flag went on.", label="T1")
 
     Scenario() \
@@ -1181,7 +1626,7 @@ def test_a_cited_step_and_a_cited_line_of_the_timeline_show_their_labels() -> No
             some_rendered := render(
                 a_postmortem(executive_summary="M1 and T1 tell it.",
                              resolution=[some_step], timeline=[some_line]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1206,7 +1651,7 @@ def test_a_label_a_check_left_for_a_person_cites_leads_to_the_row_it_names() -> 
         .given(
             some_rendered := render(
                 a_postmortem(action_items=[some_item], review=[some_check]),
-                an_alert(), [], SOME_ADDRESS)
+                an_alert(), [], the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1237,13 +1682,16 @@ def _every_section_filled() -> Postmortem:
     return a_postmortem(
         root_cause="The divisor was never guarded.",
         causal_chain=[ChainStep(text="Requests failed on the account page.",
-                                cites=[CitedEvidence(label="T1", text="errors rose")])],
+                                cites=[CitedEvidence(label="T1", text="errors rose")],
+                                ruled_out=[RuledOut(text="The earlier deploy was healthy.",
+                                                    cites=[CitedEvidence(label="T2",
+                                                                         text="read")])])],
         contributing_factors=[ContributingFactor(text="Nothing reviewed the divisor.",
                                                  addressed_by=["AI-1"])],
         trigger=Trigger(subject="monthly-spend", from_state="off", to_state="on",
                         changed_at=SOME_ONSET, kind=ChangeKind.FLAG_TOGGLE, actor="dana"),
         resolution=[ResolutionStep(at=SOME_ONSET + timedelta(minutes=5),
-                                   action="Turned the flag off", by="Argus", reversible=True,
+                                   action="Turned the flag off", by="Argus", has_a_way_back=True,
                                    outcome="recovered", label="M1")],
         detection=Detection(alerted_at=SOME_ONSET + timedelta(minutes=1), rule="HighErrorRate",
                             onset_at=SOME_ONSET, gap=timedelta(minutes=1)),
@@ -1279,7 +1727,7 @@ def _a_table_under_every_heading(root_cause_words: int) -> Postmortem:
         hypotheses=[HypothesisConsidered(summary=f"Zhypothesis {some_words}", confidence=0.8,
                                          result="dont care", label="C1")],
         resolution=[ResolutionStep(at=SOME_ONSET, action=f"Zresolution {some_words}",
-                                   by="Argus", reversible=True, outcome="dont care",
+                                   by="Argus", has_a_way_back=True, outcome="dont care",
                                    label="M1")],
         action_items=[ActionItem(number="AI-1", text=f"Zaction {some_words} {some_words}",
                                  type=ActionItemType.PROCESS, owner=None, tracking=None,
@@ -1328,6 +1776,18 @@ def _it_says(expected: str) -> Assertion[bytes]:
 
         if expected not in text:
             raise AssertionError(f"Expected the PDF to say [{expected}], and it reads: {text}")
+
+        return True
+
+    return assertion
+
+
+def _it_does_not_say(unwanted: str) -> Assertion[bytes]:
+    def assertion(pdf: bytes) -> bool:
+        text = _text(pdf)
+
+        if unwanted in text:
+            raise AssertionError(f"Expected the PDF not to say [{unwanted}], and it reads: {text}")
 
         return True
 
@@ -1717,6 +2177,28 @@ def _set_on_one_line(expected: str) -> Assertion[bytes]:
     return assertion
 
 
+def _a_cell_reads(expected: str) -> Assertion[bytes]:
+    """Some piece of the PDF's text is `expected` and nothing else - a cell
+    that wraps it writes each of its lines apart, and a sentence quoting it
+    holds more."""
+    def assertion(pdf: bytes) -> bool:
+        pieces: list[str] = []
+        for page in PdfReader(io.BytesIO(pdf)).pages:
+
+            def visit(text: str, *_: object) -> None:
+                pieces.append(text)
+
+            page.extract_text(visitor_text=visit)
+
+        if not any(piece.strip() == expected for piece in pieces):
+            raise AssertionError(f"Expected a cell reading [{expected}] on one line, and no "
+                                 f"piece of the PDF's text is it alone: {pieces}.")
+
+        return True
+
+    return assertion
+
+
 def _on_one_page(*expected: str) -> Assertion[bytes]:
     """Every one of `expected` is said on the same page as the others."""
     def assertion(pdf: bytes) -> bool:
@@ -1852,6 +2334,42 @@ def _never_cut_across_lines(word: str) -> Assertion[bytes]:
 def _spelled(text: str) -> str:
     """`text` as a pattern, a non-breaking space in it matching either space."""
     return re.escape(text).replace("\u00a0", "[ \u00a0]")
+
+
+def _action_items_naming(word: str, lengths: range) -> RenderedPostmortem:
+    """A postmortem whose action items each name `word` after a different
+    number of words, so it lands at every place along a cell's line."""
+    some_items = [ActionItem(number=f"AI-{length}",
+                             text=" ".join(["word"] * length) + f" {word} now",
+                             type=ActionItemType.PREVENT, owner=None, tracking=None,
+                             status=ActionItemStatus.OPEN)
+                  for length in lengths]
+
+    return render(a_postmortem(action_items=some_items), an_alert(), [], the_page_of)
+
+
+def _cut_only_after(word: str, *joints: str, times: int) -> Assertion[bytes]:
+    """`word` is set `times` times, and wherever a line of the PDF's text ends
+    partway through it, with the next going on with the rest of it, the line
+    ends just after one of `joints`."""
+    # Whatever the text comes back with between each two of its letters.
+    spaced = "".join(f"{re.escape(letter)}(\\s*)" for letter in word[:-1]) + re.escape(word[-1])
+
+    def assertion(pdf: bytes) -> bool:
+        text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+        found = list(re.finditer(spaced, text))
+        cuts = [f"{word[:at + 1]} / {word[at + 1:]}" for each in found
+                for at, between in enumerate(each.groups())
+                if "\n" in between and word[at] not in joints]
+
+        if len(found) != times or cuts:
+            raise AssertionError(f"Expected [{word}] set {times} times and cut across lines only "
+                                 f"after one of {list(joints)}, and the PDF sets it "
+                                 f"{len(found)} times and cuts it as {cuts}.")
+
+        return True
+
+    return assertion
 
 
 def _a_link_out_to(address: str, covering: str) -> Assertion[bytes]:

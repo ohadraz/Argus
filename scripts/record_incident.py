@@ -40,7 +40,7 @@ import shutil
 import sys
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from http import HTTPStatus
 from io import TextIOWrapper
 from pathlib import Path
@@ -49,9 +49,10 @@ from typing import Any, Final, NamedTuple
 import httpx2
 import psycopg
 from agent_investigator.tools.answer import ANSWER_TOOL
-from agent_postmortem.prompting import SUBMIT_TOOL_NAME
-from anthropic_double.recordings import RECORDINGS_DIR, load
-from argus_core import get_settings, to_iso
+from agent_postmortem import WRITE_UP_TOOLS
+from agent_postmortem.prompting import LESSONS_FIELD, SUBMIT_TOOL_NAME, WENT_WELL_FIELD
+from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
+from argus_core import get_settings, to_iso, utc_now
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -66,6 +67,7 @@ from argus_core.events import (
 from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
 from argus_incidents.repository import runs
 from argus_incidents.repository.runs import RunState
+from incident_memory.filing import get_undelivered
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
@@ -84,7 +86,10 @@ from tests.e2e.framework.argus import (
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_REVERT_LEAVES_A_FLAP,
     RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
+    RECORDED_FLAG_TOGGLE_PAGED,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
+    RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_HALF_FINISHED_ROLLOUT,
     RECORDED_LEAD_BEFORE_THE_WALK,
@@ -109,8 +114,9 @@ from tests.e2e.framework.argus import (
     the_anchor_file_for,
     the_held_call_arrived,
     the_model_answers_from,
+    the_rule_is_firing,
 )
-from tests.e2e.framework.builders import THE_ERROR_RATE_RULES_WORDS
+from tests.e2e.framework.builders import THE_ERROR_RATE_RULE, THE_ERROR_RATE_RULES_WORDS
 from tests.e2e.framework.chat import (
     RECORDED_INTENT_INFORMATION,
     RECORDED_INTENT_RESOLVE,
@@ -126,6 +132,8 @@ from tests.e2e.framework.chat import (
 )
 from tests.e2e.framework.flags import (
     THE_DEMO_FLAG,
+    THE_UNRELATED_FLAG,
+    another_flag_was_toggled_on,
     flags_evaluating_true,
     only_the_boot_flags_were_left_in_the_provider,
     the_boot_flags_were_put_back,
@@ -166,6 +174,16 @@ A_WHOLE_INVESTIGATION_SECONDS = 1800.0
 # a walk - the walk is waited out by polling below.
 REQUEST_TIMEOUT_SECONDS = 30.0
 A_POLL_SECONDS = 5.0
+
+# How long the deliverer may take to carry the last recording's record into the
+# store. Generous against its interval: a pass that finds the store briefly down
+# is retried on the next, and a minute is many of them.
+_A_DELIVERY_SECONDS: Final = 60.0
+
+# More records than one run ever leaves waiting, which is one per incident it
+# walked. Only whether any are waiting is asked; which ones is what a failure
+# names.
+_AS_MANY_AS_A_RUN_FILES: Final = 100
 
 
 class _Published(NamedTuple):
@@ -316,6 +334,12 @@ class _Recording(NamedTuple):
     starts this set from, so only the write-up is paid for - and it is written
     about this incident's own shorter record rather than the longer one's.
 
+    `the_whole_walk` takes Code-Fix's answers from it too, for an incident
+    that runs the whole of that walk in a world staged around it differently -
+    somebody paged for it, another flag switched on beside it. The walk is the
+    same queue of answers; the record it leaves is not, and the write-up is
+    written about that record.
+
     `may_take_seconds` is how long the walk is waited for. One figure serves
     every walk whose waits are minutes - judged by the levels, or by a rule
     looking back a minute or two; a walk judged by a rule with a long range
@@ -329,6 +353,11 @@ class _Recording(NamedTuple):
     anything could confirm an action taken on it; a payload built from
     `alert_name` alone states none, so the walk would be recorded reaching a
     different ending than the case replaying it arranges.
+
+    `a_false_alarm` is for the recording whose alert no rule would send - the
+    alarm the walk is meant to find the metrics contradict. It goes out at once,
+    where every other posted alert waits for its rule to fire, as the case
+    replaying it does.
     """
     name: str
     scenario: str | None
@@ -339,7 +368,9 @@ class _Recording(NamedTuple):
     once_opened: Callable[[str], None] | None = None
     resolved_by: Callable[[str], None] | None = None
     walk_from: str | None = None
+    the_whole_walk: bool = False
     may_take_seconds: float = A_WHOLE_INVESTIGATION_SECONDS
+    a_false_alarm: bool = False
 
 
 # How long one candidate is watched under the burn-rate rule the flap pages on:
@@ -399,7 +430,7 @@ def _somebody_will_write_while_the_first_turn_is_held() -> None:
 
     Held here rather than through the e2e framework's `the_model_is_held`,
     which resets the double first: by now it is armed to record, and a reset
-    would take that back.
+    would undo that.
     """
     the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)()
     the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()
@@ -436,6 +467,9 @@ _THE_ON_CALL_PERSON_ID: Final = "PSOMEONE"
 _THE_ON_CALL_NOTE: Final = "kept the flag off and paged the checkout team"
 _THE_ON_CALL_INCIDENT_RESOLVED_AFTER: Final = timedelta(minutes=10)
 _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER: Final = timedelta(minutes=1)
+# The second person the paged cases stage, and when they took it up.
+_THE_OTHER_ON_CALL_PERSON_ID: Final = "PSOMEONEELSE"
+_THE_OTHER_ON_CALL_PERSON_ACKNOWLEDGED_AFTER: Final = timedelta(minutes=2)
 
 
 def _argus_has_turned_the_flag_off() -> None:
@@ -475,11 +509,31 @@ def _the_on_call_platform_paged_somebody() -> None:
     the_on_call_platform_holds(
         _THE_ON_CALL_INCIDENT,
         paged_for=_an_alert_for(THE_SERVICE_NAME, "HighErrorRate", None),
-        paged_at=datetime.now(UTC),
+        paged_at=utc_now(),
         resolved_after=_THE_ON_CALL_INCIDENT_RESOLVED_AFTER,
         acknowledged_after={_THE_ON_CALL_PERSON_ID: _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER},
         resolution_note=_THE_ON_CALL_NOTE
     )()
+
+
+def _two_people_were_paged() -> None:
+    """Stages the PagerDuty incident the paged cases stage: two people, taken
+    up a minute apart, and nobody resolving it while the walk runs."""
+    the_on_call_platform_holds(
+        _THE_ON_CALL_INCIDENT,
+        paged_for=_an_alert_for(THE_SERVICE_NAME, "HighErrorRate", None),
+        paged_at=utc_now(),
+        resolved_after=_THE_ON_CALL_INCIDENT_RESOLVED_AFTER,
+        acknowledged_after={
+            _THE_ON_CALL_PERSON_ID: _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER,
+            _THE_OTHER_ON_CALL_PERSON_ID: _THE_OTHER_ON_CALL_PERSON_ACKNOWLEDGED_AFTER
+        }
+    )()
+
+
+def _another_flag_was_switched_on() -> None:
+    """Switches on the unrelated flag the case stages beside the incident."""
+    another_flag_was_toggled_on(THE_UNRELATED_FLAG)()
 
 
 def _resolved_in_the_on_call_platform(dont_care_incident_id: str) -> None:
@@ -596,6 +650,29 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         resolved_by=_PRESSED_IN_THE_THREAD,
         walk_from=RECORDED_FLAG_TOGGLE
     ),
+    # The same incident, walked the whole way in a world staged around it
+    # differently. The walk is the flag toggle's; the write-up is about what
+    # this world's record holds - somebody paged, or a second flag change.
+    _Recording(
+        RECORDED_FLAG_TOGGLE_PAGED,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED),
+        and_then=_two_people_were_paged,
+        walk_from=RECORDED_FLAG_TOGGLE,
+        the_whole_walk=True
+    ),
+    _Recording(
+        RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED),
+        and_then=_another_flag_was_switched_on,
+        walk_from=RECORDED_FLAG_TOGGLE,
+        the_whole_walk=True
+    ),
     # The incident whose only evidence is the deploy history. Its alert is
     # latency because nothing here fails - the revision that went out is slower
     # and still correct - and the walk now goes the whole way: the mode is
@@ -626,11 +703,20 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         # go back, but a refuted action is put back inside the mitigation loop
         # and recorded as the measurement that refuted it. `ChangeUndone` is
         # what a *withdrawal* publishes, which is a different case entirely.
-        #
-        # And the memory read, because the case replaying this one stages a record
-        # and asserts the walk found it. Held here so that a capture in which the
-        # search found nothing is refused at record time rather than replayed for
-        # weeks as a walk that never reached memory.
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The same incident, in a world where an earlier one already tried this
+    # flag. Its own recording, because the record the walk and the write-up
+    # read is not the plain one's: it holds the recall and what came of it.
+    _Recording(
+        RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED,
+        "flag-toggle-red-herring",
+        "HighErrorRate",
+        IncidentStatus.ESCALATED,
+        # And the memory read, because the case replaying this one stages a
+        # record and asserts the walk found it. Held here so that a capture in
+        # which the search found nothing is refused at record time rather than
+        # replayed for weeks as a walk that never reached memory.
         (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED, _MEMORY_WAS_READ),
         that_flag_was_tried_before_and_did_not_help
     ),
@@ -798,7 +884,8 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "HighErrorRate",
         IncidentStatus.DISPROVEN,
         (),
-        and_then=_the_shop_is_reporting
+        and_then=_the_shop_is_reporting,
+        a_false_alarm=True
     ),
     # The one incident whose alert is not written here. The shop's own weekly
     # check finds stored totals that stopped keeping up with the purchases
@@ -1038,10 +1125,10 @@ def _an_alert_for(service: str,
     judged - by the rule where one is named, by the levels where none is - so a
     payload without it records a walk judged one way and replays it judged the
     other. Where nothing is staged the link is the one the suite's builder
-    sends.
+    sends: the error-rate rule, whose words the summary then is.
     """
     summary = _WHAT_EACH_SCENARIO_PAGES_WITH.get(scenario or "", THE_ERROR_RATE_RULES_WORDS)
-    linked = service if rule_uid is None else rule_uid
+    linked = THE_ERROR_RATE_RULE if rule_uid is None else rule_uid
 
     return {
         "receiver": "argus-webhook",
@@ -1055,7 +1142,7 @@ def _an_alert_for(service: str,
                     "severity": "critical",
                 },
                 "annotations": {"summary": summary},
-                "startsAt": to_iso(datetime.now(UTC)),
+                "startsAt": to_iso(utc_now()),
                 "endsAt": "0001-01-01T00:00:00Z",
                 "generatorURL": f"http://grafana.local/alerting/grafana/{linked}/view",
                 "fingerprint": "abc123def456"
@@ -1112,6 +1199,12 @@ def _arm_the_double(name: str) -> None:
 class _AWalkIsStillLive(Exception):
     """A walk that would not stop, which ends the run rather than the case:
     every capture after it would be recorded into a world nobody controls."""
+
+
+class _ARecordIsStillOnItsWay(Exception):
+    """A filed record the deliverer never delivered, which ends the run for the
+    walk's reason: dropping the store under it would leave the next capture a
+    memory nobody staged."""
 
 
 def _no_walk_is_live() -> None:
@@ -1190,12 +1283,35 @@ def _a_world_this_recording_can_be_captured_in() -> None:
 
 
 def _long_term_memory_was_forgotten() -> None:
-    """Drops the collection this stack remembers incidents in.
+    """Drops the collection this stack remembers incidents in, once nothing is
+    on its way to it.
 
     Dropped rather than emptied, as the suite that replays these does it: an
     absent collection reads as an empty corpus everywhere above the store, and
-    the first write makes it again.
+    the first write makes it again - which is why the deliverer is waited out
+    first. A record it read before the drop and keeps after it makes the
+    collection again holding the last recording's incident, for the next walk
+    to recall. A record is marked delivered only once the store holds it, so
+    nothing waiting means nothing in flight.
     """
+    deadline = time.monotonic() + _A_DELIVERY_SECONDS
+
+    while True:
+        with psycopg.connect(DATABASE_URL) as connection:
+            waiting = [filed.record.incident_id
+                       for filed in get_undelivered(connection, _AS_MANY_AS_A_RUN_FILES)]
+
+        if not waiting:
+            break
+
+        if time.monotonic() >= deadline:
+            raise _ARecordIsStillOnItsWay(
+                f"the records of {waiting} were still waiting to be delivered after "
+                f"[{_A_DELIVERY_SECONDS:.0f}s]"
+            )
+
+        time.sleep(A_POLL_SECONDS)
+
     store = QdrantClient(url=get_settings().qdrant_url)
 
     try:
@@ -1264,7 +1380,8 @@ def _write_the_anchor(stored: str, seeded_at: str | None) -> None:
 def _an_incident_was_opened_by(service: str,
                                alert_name: str | None,
                                rule_uid: str | None,
-                               scenario: str | None) -> str:
+                               scenario: str | None,
+                               a_false_alarm: bool) -> str:
     """Fires the alert and returns the incident the webhook wrote down.
 
     Two ways in, and which one is used is the recording's to say. A named alert
@@ -1283,6 +1400,10 @@ def _an_incident_was_opened_by(service: str,
     Split from the wait so the caller holds the id *before* the walk can fail.
     A walk that does not finish is the one whose account is worth reading, and
     a wait that owned the id took it down with it.
+
+    A posted alert waits for its rule to fire first, unless it is a false alarm
+    on purpose - Grafana sends nothing sooner, and the case replaying it waits
+    the same way.
     """
     if alert_name is None:
         # The shop holds this open until Argus's webhook answers, which it does
@@ -1295,6 +1416,9 @@ def _an_incident_was_opened_by(service: str,
         raised.raise_for_status()
 
         return str(raised.json().get("incident_id") or "unknown")
+
+    if rule_uid is not None and not a_false_alarm:
+        the_rule_is_firing(rule_uid)
 
     response = httpx2.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
@@ -1477,6 +1601,7 @@ def _discard_what_was_not_answered_again(name: str, started_at: float) -> list[P
     ]
     for path in stale:
         path.unlink()
+        question_beside(path).unlink(missing_ok=True)
 
     return stale
 
@@ -1487,7 +1612,10 @@ _THE_WRITE_UP_AFRESH: Final = "-write-up-afresh"
 
 
 def _calls_the_write_up(answer: Path) -> bool:
-    return any(block.get("type") == TOOL_USE_TYPE and block.get("name") == SUBMIT_TOOL_NAME
+    """Whether an answer is one of the write-up's - the answer itself, or the
+    order of its chain asked after it - by the tools the agent says its
+    write-up calls."""
+    return any(block.get("type") == TOOL_USE_TYPE and block.get("name") in WRITE_UP_TOOLS
                for block in load(answer.stem).get("content", []))
 
 
@@ -1516,9 +1644,9 @@ def _where_the_write_up_begins(stored: str) -> int:
     return begins
 
 
-def _the_walk_is_taken_from(source: str, stored: str) -> None:
-    """Makes `stored` the walk `source` recorded, less Code-Fix's answers, with
-    `source`'s write-up and anchor beside it.
+def _the_walk_is_taken_from(source: str, stored: str, whole: bool = False) -> None:
+    """Makes `stored` the walk `source` recorded, less Code-Fix's answers
+    unless `whole`, with `source`'s write-up and anchor beside it.
 
     The write-up is copied to be replaced: a postmortem-only run records one in
     place of the set's own, and refuses a set holding none. The anchor because
@@ -1537,14 +1665,18 @@ def _the_walk_is_taken_from(source: str, stored: str) -> None:
                                  if ANSWER_TOOL in tools)
     the_write_up = next(position for position, tools in enumerate(called)
                         if SUBMIT_TOOL_NAME in tools)
-    taken = answers[:the_investigations_end + 1] + answers[the_write_up:]
+    taken = answers if whole else answers[:the_investigations_end + 1] + answers[the_write_up:]
 
     for old in _the_set_named(stored):
         old.unlink()
+        question_beside(old).unlink(missing_ok=True)
 
     for position, answer in enumerate(taken):
         named = stored if position == 0 else f"{stored}-{position + 1}"
         shutil.copyfile(answer, RECORDINGS_DIR / f"{named}.json")
+        if question_beside(answer).exists():
+            shutil.copyfile(question_beside(answer),
+                            question_beside(RECORDINGS_DIR / f"{named}.json"))
 
     anchor = the_anchor_file_for(source)
     if anchor.exists():
@@ -1575,11 +1707,15 @@ def _put_the_write_up_in_place(stored: str, begins: int) -> list[str]:
 
     for old in _the_set_named(stored)[begins:]:
         old.unlink()
+        question_beside(old).unlink(missing_ok=True)
 
     for offset, answer in enumerate(afresh):
         position = begins + offset
         named = stored if position == 0 else f"{stored}-{position + 1}"
+        asked = question_beside(answer)
         answer.rename(RECORDINGS_DIR / f"{named}.json")
+        if asked.exists():
+            asked.rename(question_beside(RECORDINGS_DIR / f"{named}.json"))
 
     return [answer.stem for answer in _the_set_named(stored)]
 
@@ -1628,18 +1764,28 @@ def _the_held_call_is_the_write_up(incident_id: str, ends_as: IncidentStatus) ->
     into Code-Fix - had Code-Fix's first call held, released and paid for as
     though it were the write-up. The write-up is asked for only once the walk
     has ended, so an incident not yet at its ending is holding some other call.
+
+    Its status alone does not tell: a walk that recommends or mitigates is at
+    its ending before Code-Fix runs, so a Code-Fix call held after it passed
+    as the write-up. So the held call is also the one offered the write-up's
+    tool, which the double reports of the call it holds.
     """
     status = _the_status_of(incident_id)
 
-    if status == ends_as:
-        return
-
     with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        state = control.get("/double-control/state")
+        state.raise_for_status()
+        offered = state.json()["held_tools"]
+
+        if status == ends_as and SUBMIT_TOOL_NAME in offered:
+            return
+
         control.post("/double-control/reset").raise_for_status()
 
     raise RuntimeError(
-        f"incident [{incident_id}] held a call while [{status}], not [{ends_as}] - "
-        f"so not its write-up; refused before it reached the real model"
+        f"incident [{incident_id}] held a call offered {offered} while [{status}], "
+        f"not one offered [{SUBMIT_TOOL_NAME}] at [{ends_as}] - so not its write-up; "
+        f"refused before it reached the real model"
     )
 
 
@@ -1687,7 +1833,8 @@ def _capture(recording: _Recording,
     _no_walk_is_live()
 
     if postmortem_only and recording.walk_from:
-        _the_walk_is_taken_from(stored_as(recording.walk_from), stored)
+        _the_walk_is_taken_from(stored_as(recording.walk_from), stored,
+                                whole=recording.the_whole_walk)
 
     begins = _where_the_write_up_begins(stored) if postmortem_only else 0
 
@@ -1732,7 +1879,8 @@ def _capture(recording: _Recording,
         recording.and_then()
 
     incident_id = _an_incident_was_opened_by(
-        service, recording.alert_name, staged.rule_uid, recording.scenario
+        service, recording.alert_name, staged.rule_uid, recording.scenario,
+        recording.a_false_alarm
     )
 
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")
@@ -1798,6 +1946,40 @@ def _capture(recording: _Recording,
     _the_walk_did_what_this_recording_is_of(
         recording, incident_id, the_incidents_events(incident_id)
     )
+
+    if not replaying:
+        _what_went_well_came_as_items(stored, started_at)
+
+
+def _what_went_well_came_as_items(stored: str, started_at: float) -> None:
+    """Refuses a write-up recorded this run whose what-went-well came as plain
+    sentences rather than items that may name their row.
+
+    That is the shape answers came in before rows were asked for, and
+    `checking` holds it to none of its rules about timing, so the recordings
+    made in it still replay - which lets a live answer in it pass every check
+    unread, a span of the model's own and all. Only this run's answers: the
+    set's older ones are in the old shape by right. After the walk is judged,
+    and with nothing deleted, as there.
+    """
+    plain = [answer.stem for answer in _the_set_named(stored)
+             if answer.stat().st_mtime >= started_at
+             and any(isinstance(item, str) for item in _what_went_well_in(answer))]
+
+    if plain:
+        raise AssertionError(
+            f"[{stored}] recorded what went well as plain sentences in {plain} - the "
+            f"shape before rows were asked for, which no check holds to its timing"
+        )
+
+
+def _what_went_well_in(answer: Path) -> list[Any]:
+    """Each item of what went well a write-up's answer submitted, as it came."""
+    return [item for block in load(answer.stem).get("content", [])
+            if block.get("type") == TOOL_USE_TYPE and block.get("name") == SUBMIT_TOOL_NAME
+            and isinstance(lessons := block.get("input", {}).get(LESSONS_FIELD), dict)
+            and isinstance(went_well := lessons.get(WENT_WELL_FIELD), list)
+            for item in went_well]
 
 
 def _what_was_asked_for(names: list[str]) -> list[_Recording]:

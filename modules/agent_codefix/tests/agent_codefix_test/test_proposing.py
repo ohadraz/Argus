@@ -25,15 +25,19 @@ from agent_codefix.proposing import (
     BranchWriter,
     FixDeclined,
     FixNotAnswered,
+    FixNotProposed,
     FixStopped,
     PullRequestOpener,
     propose_fix,
 )
 from agent_codefix.retrieval import (
+    BranchMembership,
+    CodeOutsideReader,
     FileLister,
     FileReader,
     IndexNotice,
     MeaningSearcher,
+    ReadTierTools,
     SourceSearcher,
 )
 from agent_codefix.tools import READ_FILE_TOOL
@@ -48,11 +52,16 @@ from argus_core.llm import (
     a_conversation_recorded_for,
 )
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
     Ask,
+    CodeOutsideThePatch,
     CodeSearch,
+    CodeUse,
     Effort,
     Evidence,
     FailureMode,
+    FileAsItRan,
     Hypothesis,
     Leads,
     Meaning,
@@ -66,11 +75,14 @@ from argus_core.models import (
     ToolResults,
     Transcript,
     Turn,
+    Verdict,
     Weighing,
+    WhatArgusDid,
     a_chat_message,
 )
 from argus_core.replay import Recorder
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_narration import what_was_done
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_error_mentioned
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
 
@@ -102,6 +114,12 @@ DONT_CARE_HYPOTHESIS = a_hypothesis("the monthly spend figure divides by an empt
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_SOURCE = "def average_spend_per_item_this_month(account):\n    ...\n"
 SOME_FIXED_SOURCE = "def average_spend_per_item_this_month(account):\n    return 0\n"
+SOME_TEST_PATH = "tests/io_shop/test_spend_summary.py"
+SOME_TEST_SOURCE = (
+    "def test_an_empty_month_averages_nothing():\n"
+    "    assert average_spend_per_item_this_month(None) == 0\n"
+)
+SOME_REVISION_THAT_RAN = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
 
 # What the live run actually submitted where a file's content belongs, and it is
 # valid JSON, a valid string and a schema-valid argument - which is the whole
@@ -112,6 +130,7 @@ A_PLACEHOLDER_WHERE_SOURCE_BELONGS = "(see above)"
 # The words the complaint has to carry, not the sentence carrying them - as the
 # last-call warning above pins words rather than prose.
 WHAT_IS_NOT_SOURCE = "not source"
+WHAT_NO_TEST_IS = "brought no test"
 
 # What the files the evidence names are listed under, and what one the
 # repository does not hold is said to be.
@@ -146,12 +165,32 @@ WHAT_AN_UNWEIGHED_LEAD_IS_CALLED = "never weighed"
 THE_THREAD = "incident's thread"
 WHAT_THE_FINDING_IS_TO_A_WEIGHING = "outranks"
 
+# What heads the actions Argus took, below the leads - words rather than a
+# sentence, for the reason the warning above pins words.
+WHAT_ARGUS_DID = "What Argus did"
+
 # What a submission is asked before it is opened, and what an answer nobody
 # asked for is told - words rather than sentences, for the reason the warning
 # above pins words.
 THE_QUESTION_A_SUBMISSION_IS_ASKED = "only once code outside this repository changes"
 NO_QUESTION_IS_OPEN = "no question is open"
 NOT_RUN_UNTIL_ANSWERED = "answer the question first"
+
+# What a submission speaking of several pieces of code outside its patch at once
+# is told - words rather than sentences, for the reason the warning above pins
+# words.
+SPOKEN_OF_TOGETHER = "speaks of several pieces of code outside your patch"
+
+# What a call sent beside a submission sent back is told - words rather than
+# sentences, for the reason the warning above pins words.
+NOT_RUN_UNTIL_SUBMITTED_AGAIN = "submit again first"
+
+# What a walk that ran out with its last submission sent back says it ended on.
+WHAT_A_WALK_ENDING_ON_A_SENT_BACK_SAYS = "last submission was sent back"
+
+# How the adapter says a turn that ran out of room, in its own words - which
+# are the vendor's stop reason and nothing a reader of the incident can use.
+WHAT_A_TURN_CUT_SHORT_IS_SAID_AS = "the model did not complete its turn (stop_reason=max_tokens)"
 
 
 @pytest.mark.unit
@@ -388,6 +427,104 @@ def test_a_lead_the_investigation_refuted_is_put_below_the_finding_not_against_i
         ) \
         .then(
             _the_opening_said(model, WHAT_THE_FINDING_IS_TO_A_WEIGHING)
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_is_followed_by_what_argus_did_and_whether_each_change_stands() -> None:
+    # Weighed before anything was tried, a lead can say the reads do not tell
+    # two flags apart in an incident an action then settled. Told the weighing
+    # and nothing after it, a recorded fix said the investigation had left the
+    # flag open, when reverting one had refuted it and reverting the other had
+    # confirmed it. Each action is said in the words the incident's own account
+    # uses, with its verdict and whether its change still stands: a revert said
+    # as refuted and no more reads as a flag still off, when it was put back.
+    # After the weighing, because the actions are the later word on it.
+    some_put_back = _a_flag_revert("kuki", Verdict.REFUTED, "put back when it did not help")
+    some_in_place = _a_flag_revert("buki", Verdict.CONFIRMED, "still in place")
+    some_reason = "the reads do not tell the flags apart"
+    a_lead_the_reads_could_not_settle = _a_lead(
+        "it's the buki flag",
+        Weighing(standing=Standing.UNVERIFIED, reason=some_reason)
+    )
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [a_lead_the_reads_could_not_settle],
+                done=[some_put_back, some_in_place],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_opening_said_in_order(model, [some_reason,
+                                               WHAT_ARGUS_DID,
+                                               _what_it_showed(some_put_back),
+                                               _what_it_showed(some_in_place)])
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_on_an_incident_nothing_was_done_about_is_followed_by_no_word_of_actions(
+) -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see - the reason the thread's own section is left out where nobody
+    # wrote.
+    a_weighed_lead = _a_lead(
+        "the kuki flag was flipped at noon",
+        Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees")
+    )
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [a_weighed_lead],
+                done=[],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_model_was_not_told(model, WHAT_ARGUS_DID)
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_nobody_wrote_about_is_told_nothing_of_what_argus_did() -> None:
+    # What Argus did is said only to settle what the leads were weighed as, so
+    # with no lead there is nothing for it to settle - and the request stays the
+    # one every incident nobody talked about has always sent.
+    some_put_back = _a_flag_revert("kuki", Verdict.REFUTED, "put back when it did not help")
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                done=[some_put_back],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_not_told(model, WHAT_ARGUS_DID),
+                _the_model_was_not_told(model, _what_it_showed(some_put_back))
+            )
         )
 
 
@@ -681,36 +818,6 @@ def test_a_conclusion_that_names_a_file_sends_the_model_there_first() -> None:
             )
         ) \
         .then(_the_standing_brief_said(built_with, WHAT_THE_CONCLUSION_ALREADY_NAMES))
-
-
-@pytest.mark.unit
-def test_the_model_may_ask_for_several_files_in_one_turn() -> None:
-    # Measured over the recorded corpus rather than supposed: the model asked
-    # for exactly one file in 59 of 88 turns, and its widest turn was two in
-    # most walks and four in two of them. Nothing in the loop was holding it to
-    # one - every parallel call is answered in a single reply, and always has
-    # been - so what did was the read tool's own first sentence, "Read one
-    # file's entire contents", which reads as a limit where a unit was meant.
-    #
-    # Worth correcting because turns are what the resend is quadratic in:
-    # everything read so far is sent again on every call, and three walks ran
-    # out mid-read having submitted nothing. Said in the tool rather than in the
-    # brief, because the sentence that reads as the constraint is the sentence
-    # that has to stop reading that way.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(_the_tool_offered_said(model, READ_FILE_TOOL, "several files"))
 
 
 @pytest.mark.unit
@@ -1088,117 +1195,6 @@ def test_a_listing_that_could_not_be_fetched_does_not_end_the_work() -> None:
 
 
 @pytest.mark.unit
-def test_a_deployment_with_an_index_offers_both_ways_of_searching() -> None:
-    # They answer different questions and are worth having together: one
-    # matches characters, the other meaning. A cause that has a name is found
-    # faster by the first, and one that only has a description is found at all
-    # by the second.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(retrieval=CodeSearch.BOTH),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(
-            all_of(
-                _the_model_was_offered(model, "search_repository"),
-                _the_model_was_offered(model, "search_repository_by_meaning"),
-                _the_model_was_offered(model, "read_repository_file"),
-                _the_model_was_offered(model, "submit_fix"),
-                # Offered alongside the patch tool, not instead of it: a
-                # deployment where the model can propose but cannot conclude is
-                # one where the only answer is a fix, however the code reads.
-                _the_model_was_offered(model, "report_nothing_to_change")
-            )
-        )
-
-
-@pytest.mark.unit
-def test_the_agent_is_offered_nothing_that_could_run_a_repair() -> None:
-    # The guarantee this agent rests on is the absence of a capability, not a
-    # check somebody could skip (§13) - and a repair script makes that concrete
-    # rather than theoretical. Code-Fix now proposes a file whose whole purpose
-    # is to rewrite stored data, so for the first time the difference between
-    # writing one and running one is a difference about this agent.
-    #
-    # Pinned as the whole set rather than asserted as the absence of a name
-    # nobody has written: a tool that ran something would be added under a name
-    # this test cannot predict, and a check for "no tool called execute" is a
-    # check that passes on the day somebody calls it something else.
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(),
-                converse=model.converse,
-                **a_repository(holding=[SOME_PATH]).ports()
-            )
-        ) \
-        .then(_the_only_tools_offered_were(model))
-
-
-@pytest.mark.unit
-def test_a_deployment_with_no_index_offers_no_tool_that_cannot_answer() -> None:
-    # A tool that is offered will be called, and one backed by an index nobody
-    # built answers nothing for every description - which a model reads as a
-    # fact about the code rather than about the deployment.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(retrieval=CodeSearch.GREP),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(
-            all_of(
-                _the_model_was_offered(model, "search_repository"),
-                _the_model_was_not_offered(model, "search_repository_by_meaning")
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_run_of_meaning_alone_offers_no_substring_search() -> None:
-    # What the benchmark's retriever comparison (§21) needs: one channel at a
-    # time, over the same incidents, or the answer is about having both.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(retrieval=CodeSearch.MEANING),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(
-            all_of(
-                _the_model_was_offered(model, "search_repository_by_meaning"),
-                _the_model_was_not_offered(model, "search_repository")
-            )
-        )
-
-
-@pytest.mark.unit
 def test_an_index_that_is_behind_is_said_before_the_model_reads_anything() -> None:
     # Told rather than left to find out. The index is built off any incident's
     # path, so it can describe an older commit than the one being fixed - and a
@@ -1244,6 +1240,232 @@ def test_an_index_that_is_current_adds_nothing_to_what_the_model_is_told() -> No
         .then(_the_model_was_not_told(model, "index"))
 
 
+@pytest.mark.unit
+def test_a_revision_the_branch_read_does_not_contain_is_said_before_the_model_reads() -> None:
+    # Deployed from a branch that was never merged, so the files the model opens
+    # are not the files that ran. Told first, it can say which of the two a
+    # claim is about; left to read the branch as what ran, it states a layout
+    # that was never running as the one that was.
+    repository = a_repository(containing_what_ran=False)
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(base_branch="main"),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_branch_was_asked(repository, "main", SOME_REVISION_THAT_RAN),
+                _the_model_was_told(model, SOME_REVISION_THAT_RAN)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_the_branch_read_contains_adds_nothing_to_what_the_model_is_told() -> None:
+    # The ordinary case, where what ran was merged: a caveat said on every
+    # incident is one nobody reads on the incident it is true of.
+    repository = a_repository(containing_what_ran=True)
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_not_told(model, SOME_REVISION_THAT_RAN))
+
+
+@pytest.mark.unit
+def test_with_no_revision_known_to_have_run_the_branch_is_not_asked() -> None:
+    # An incident with no deploy before it has nothing to ask about - and asking
+    # about nothing is a call the repository answers with an error.
+    repository = a_repository(containing_what_ran=False)
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=None,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_branch_was_not_asked(repository))
+
+
+@pytest.mark.unit
+def test_a_branch_that_could_not_be_asked_says_nothing_and_does_not_end_the_work() -> None:
+    # Asked while the message is built, before the conversation exists, for the
+    # listing's reason: a raise here would spend the whole attempt on one call.
+    # And nothing said rather than the caveat - told the files are not what ran,
+    # the model hedges every claim on a fact nobody established.
+    repository = a_repository()
+    repository.contains.side_effect = RuntimeError("the repository could not be reached")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_not_told(model, SOME_REVISION_THAT_RAN),
+                _a_pull_request_was_opened(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("containing", "deployed", "unreachable", "held"), [
+    (False, SOME_REVISION_THAT_RAN, False, False),
+    (True, SOME_REVISION_THAT_RAN, False, True),
+    (False, None, False, None),
+    (True, SOME_REVISION_THAT_RAN, True, None)
+], ids=["not-contained", "contained", "nothing-ran", "could-not-be-asked"])
+def test_a_proposal_comes_back_saying_whether_the_branch_read_holds_what_ran(
+        containing: bool, deployed: str | None, unreachable: bool, held: bool | None) -> None:
+    # The write-up reads it too. A fix written against a branch that does not
+    # hold what ran changes nothing that runs once merged - not until a deploy
+    # carries it - and only the opening ever knew. `None` where nothing was
+    # established: no revision to ask about, or a branch that could not answer.
+    repository = a_repository(containing_what_ran=containing)
+    if unreachable:
+        repository.contains.side_effect = RuntimeError("the repository could not be reached")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=deployed,
+                **repository.ports()
+            )
+        ) \
+        .then(_it_held_what_ran(held))
+
+
+@pytest.mark.unit
+def test_nothing_to_change_comes_back_saying_whether_the_branch_read_holds_what_ran() -> None:
+    # "Nothing in the code to change" said of a branch that is not what ran is
+    # a reading of other code, and the write-up has to know it.
+    model = a_model_that(reports_nothing_to_change(explanation="dont care"))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **a_repository(containing_what_ran=False).ports()
+            )
+        ) \
+        .then(_it_held_what_ran(False))
+
+
+@pytest.mark.unit
+def test_a_proposal_comes_back_naming_the_branch_it_read() -> None:
+    # Whether the branch holds what ran is said of a branch, and the write-up
+    # names it: "written against main" is the sentence a reader acts on.
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(base_branch="release"),
+                converse=model.converse,
+                **a_repository().ports()
+            )
+        ) \
+        .then(_it_read("release"))
+
+
+@pytest.mark.unit
+def test_a_proposal_comes_back_with_the_files_its_reading_names_as_they_ran() -> None:
+    # Read after the answer, so the write-up can show what ran rather than
+    # call the file the cause turns on a reading nothing ran.
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH, explanation=f"{SOME_PATH} reads the flag"),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **a_repository().ports()
+            )
+        ) \
+        .then(_it_found_as_they_ran([FileAsItRan(path=SOME_PATH,
+                                                 revision=SOME_REVISION_THAT_RAN,
+                                                 as_read=True, content=None)]))
+
+
+def _the_branch_was_asked(repository: _Repository,
+                          branch: str,
+                          revision: str) -> Assertion[Any]:
+    """Whether the branch the fix is read from contains the revision that ran."""
+    def assertion(dont_care_result: Any) -> bool:
+        asked = repository.contains.call_args
+
+        if asked is None or asked.args != (branch, revision):
+            raise AssertionError(
+                f"Expected [{branch}] to be asked whether it contains [{revision}], "
+                f"got [{asked}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_branch_was_not_asked(repository: _Repository) -> Assertion[Any]:
+    def assertion(dont_care_result: Any) -> bool:
+        if repository.contains.called:
+            raise AssertionError(
+                f"Expected no branch to be asked whether it contains anything, and "
+                f"it was: {repository.contains.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_meaning_search_was_made_at(repository: _Repository,
                                     ref: str) -> Assertion[ProposedFix]:
     """The search by meaning ran against the branch a fix is cut from."""
@@ -1254,79 +1476,6 @@ def _the_meaning_search_was_made_at(repository: _Repository,
             raise AssertionError(
                 f"Expected a search by meaning at ref [{ref}], got [{asked}]."
             )
-
-        return True
-
-    return assertion
-
-
-def _the_model_was_offered(model: _Model, tool: str) -> Assertion[Any]:
-    """A tool the model could reach for, which is the whole of what it has."""
-    def assertion(dont_care_result: Any) -> bool:
-        offered = {
-            definition.name
-            for definitions in model.tools_offered
-            for definition in definitions
-        }
-
-        if tool not in offered:
-            raise AssertionError(f"Expected [{tool}] to be offered, got {offered}.")
-
-        return True
-
-    return assertion
-
-
-def _the_only_tools_offered_were(model: _Model) -> Assertion[Any]:
-    """That the set of things this agent can reach is exactly this.
-
-    Named here rather than imported from the module that builds them, which
-    would make this a test that the code equals itself. The point of writing
-    them out is that widening the set is a line somebody has to add in two
-    places, one of which asks why.
-
-    Four reads and three answers. Nothing here reaches the service, nothing
-    runs anything, and nothing merges - which is the guarantee stated as an
-    absence (§13) rather than as a check a later caller could skip.
-    """
-    def assertion(dont_care_result: Any) -> bool:
-        offered = {
-            definition.name
-            for definitions in model.tools_offered
-            for definition in definitions
-        }
-        expected = {
-            "search_repository",
-            "search_repository_by_meaning",
-            "list_repository_files",
-            "read_repository_file",
-            "submit_fix",
-            "report_nothing_to_change",
-            "answer_question"
-        }
-
-        if offered != expected:
-            raise AssertionError(
-                f"Expected exactly {sorted(expected)} to be offered, got "
-                f"{sorted(offered)}. A tool added here can reach production "
-                f"without anybody deciding it should."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_model_was_not_offered(model: _Model, tool: str) -> Assertion[Any]:
-    def assertion(dont_care_result: Any) -> bool:
-        offered = {
-            definition.name
-            for definitions in model.tools_offered
-            for definition in definitions
-        }
-
-        if tool in offered:
-            raise AssertionError(f"Expected [{tool}] not to be offered, got {offered}.")
 
         return True
 
@@ -1427,7 +1576,8 @@ def test_a_submitted_fix_is_written_to_a_branch_of_this_incidents_own() -> None:
             all_of(
                 _the_branch_written_mentions(repository, some_incident),
                 _the_branch_was_cut_from(repository, "main"),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
@@ -1490,6 +1640,35 @@ def test_what_comes_back_is_where_the_proposal_can_be_read() -> None:
                 _what_came_back_is(some_pull_request)
             )
         )
+
+
+@pytest.mark.unit
+def test_a_proposal_bringing_no_test_comes_back_saying_so() -> None:
+    # A fix to configuration alone is opened with no test, and the postmortem's
+    # review must not send its reader to run the proposal's tests.
+    some_pull_request = OpenedPullRequest(
+        number=41,
+        url="https://github.invalid/io-shop/target/pull/41",
+        branch="argus/fix-incident-41"
+    )
+    repository = a_repository()
+    repository.open_pull_request.return_value = some_pull_request
+    model = a_model_that(
+        submits_a_fix_bringing_no_test("deploy/values-production.yaml", content="replicas: 6\n"),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_what_came_back_is(some_pull_request.model_copy(update={"brings_a_test": False})))
 
 
 @pytest.mark.unit
@@ -1594,13 +1773,13 @@ def test_a_submitted_fix_is_asked_whether_it_needs_code_outside_this_repository(
             all_of(
                 _a_result_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED),
                 _a_pull_request_was_opened(repository),
-                _it_was_not_held_back()
+                _it_came_back_needing_no_code_outside()
             )
         )
 
 
 @pytest.mark.unit
-def test_a_fix_that_helps_only_once_code_outside_changes_is_written_but_not_opened() -> None:
+def test_a_fix_that_helps_only_once_code_outside_changes_is_written_and_not_kept() -> None:
     # Not a proposal, because merged alone it spares nobody - and not "nothing
     # to change", because the model found a change and said what else it
     # needs. What comes back is why, in the model's words, for the person who
@@ -1626,7 +1805,7 @@ def test_a_fix_that_helps_only_once_code_outside_changes_is_written_but_not_open
             all_of(
                 _no_branch_was_written(repository),
                 _nothing_was_proposed(),
-                _it_was_held_back(),
+                _it_came_back_needing_code_outside(),
                 _it_explained(some_explanation)
             )
         )
@@ -1686,7 +1865,7 @@ def test_an_answer_sent_with_the_submission_is_not_its_answer() -> None:
             all_of(
                 _the_model_was_told(model, NO_QUESTION_IS_OPEN),
                 _no_branch_was_written(repository),
-                _it_was_held_back()
+                _it_came_back_needing_code_outside()
             )
         )
 
@@ -1713,7 +1892,7 @@ def test_reporting_nothing_to_change_once_asked_proposes_nothing() -> None:
             all_of(
                 _nothing_was_proposed(),
                 _no_branch_was_written(repository),
-                _it_was_not_held_back()
+                _it_came_back_needing_no_code_outside()
             )
         )
 
@@ -1743,7 +1922,8 @@ def test_a_fix_submitted_again_once_asked_is_asked_about_again() -> None:
         .then(
             all_of(
                 _the_conversation_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED, times=2),
-                _the_patch_written_was(repository, {SOME_PATH: some_second_source})
+                _the_patch_written_was(repository, {SOME_PATH: some_second_source,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
@@ -1773,11 +1953,44 @@ def test_a_fix_submitted_on_the_last_call_is_still_asked_about() -> None:
 @pytest.mark.unit
 def test_a_fix_whose_question_is_never_answered_did_not_finish() -> None:
     # One turn of room for the answer, and no more. A patch nobody said works
-    # on its own is neither a proposal nor a fix held back - it is a run that
-    # stopped before it was done, and is reported as one.
+    # on its own is neither a proposal nor a fix that needs code outside - it
+    # is a run that stopped before it was done, and is reported as one.
     one_call = 1
     repository = a_repository()
     model = a_model_that(submits_a_fix_touching(SOME_PATH), asks_to_list_files())
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=one_call),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_submitted_again_in_the_room_for_its_answer_did_not_finish() -> None:
+    # One turn of room for the answer, however it is spent. Renewed by every
+    # submission past the bounds, a model resubmitting instead of answering
+    # was given another turn each time, and the spend had no bound at all.
+    one_call = 1
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
 
     Scenario() \
         .when(
@@ -1822,6 +2035,58 @@ def test_every_turn_is_offered_the_same_tools() -> None:
             )
         ) \
         .then(_every_turn_was_offered_the_same_tools(model))
+
+
+@pytest.mark.unit
+def test_the_model_is_offered_what_the_read_tier_serves_on_every_turn() -> None:
+    # The read tier's reads are offered as it declares them, beside the three
+    # ways to answer - and a later turn is offered them as the first was.
+    some_served = ToolDefinition(name="some_read",
+                                 description="dont care what it reads",
+                                 properties={},
+                                 required=[])
+    repository = a_repository(serving=[some_served])
+    model = a_model_that(
+        asks_to_list_files(),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_every_turn_was_offered(model, some_served.name))
+
+
+@pytest.mark.unit
+def test_the_read_tier_is_asked_what_it_serves_once_however_many_turns() -> None:
+    # What a tier serves does not change mid-fix, and asking before every turn
+    # would be a request across the boundary per turn, for nothing.
+    repository = a_repository()
+    model = a_model_that(
+        asks_to_list_files(),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_read_tier_was_asked_once(repository))
 
 
 @pytest.mark.unit
@@ -1894,7 +2159,8 @@ def test_a_read_sent_with_the_submission_waits_for_the_answer() -> None:
                 ToolCall(id="call-submit_fix", name="submit_fix", arguments={
                     "summary": "a summary",
                     "explanation": "an explanation",
-                    "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}]
+                    "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+                              {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}]
                 }),
                 ToolCall(id="call-read_repository_file", name="read_repository_file",
                          arguments={"path": SOME_PATH})
@@ -2144,6 +2410,59 @@ def test_a_model_that_declines_says_so_rather_than_looking_like_a_broken_reposit
 
 
 @pytest.mark.unit
+def test_a_declined_fix_carries_none_of_the_adapters_words() -> None:
+    # A refusal comes with no words of the model's, only the adapter's stop
+    # reason - and that reached the walk, Slack and the postmortem as
+    # "(stop_reason=refusal)".
+    some_adapters_words = "the model did not complete its turn (stop_reason=refusal)"
+    repository = a_repository()
+    model = _Model([ModelRefused(some_adapters_words)])
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(all_of(
+            an_error_was_raised(FixDeclined),
+            _the_error_did_not_mention(some_adapters_words)
+        ))
+
+
+@pytest.mark.unit
+def test_an_answer_cut_short_carries_none_of_the_adapters_words() -> None:
+    # The bound that ran out is the one thing to say, and the adapter's stop
+    # reason after it said that again in the vendor's vocabulary.
+    repository = a_repository()
+    model = a_model_that_is_cut_short()
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(all_of(
+            an_error_was_raised(FixNotAnswered),
+            the_error_mentioned("the fix did not fit in the room the model had to write it"),
+            _the_error_did_not_mention(WHAT_A_TURN_CUT_SHORT_IS_SAID_AS)
+        ))
+
+
+@pytest.mark.unit
 def test_an_answer_cut_short_is_a_fix_that_did_not_finish() -> None:
     # Reported as not having finished rather than as not having been
     # possible, because that is what it is: a bound was too small. The bound
@@ -2312,7 +2631,7 @@ def test_an_empty_patch_sent_twice_is_never_read_as_a_verdict() -> None:
 
 
 @pytest.mark.unit
-def test_a_patch_whose_content_is_not_source_is_put_back_for_another_attempt() -> None:
+def test_a_patch_whose_content_is_not_source_is_sent_back_for_another_attempt() -> None:
     # What a live run did: the model wrote the whole new module into its
     # explanation and then put "(see above)" where the file's content belongs.
     # The submission is schema-valid - a string is a string - so nothing refused
@@ -2325,7 +2644,7 @@ def test_a_patch_whose_content_is_not_source_is_put_back_for_another_attempt() -
     # the one thing that can be checked before a branch exists. It catches a
     # truncation as well, which nothing currently catches.
     #
-    # Put back rather than raised, as an empty patch is: the model has already
+    # Sent back rather than raised, as an empty patch is: the model has already
     # decided what to write and is one turn from writing it properly.
     repository = a_repository()
     model = a_model_that(
@@ -2346,7 +2665,598 @@ def test_a_patch_whose_content_is_not_source_is_put_back_for_another_attempt() -
         .then(
             all_of(
                 _the_model_was_told(model, WHAT_IS_NOT_SOURCE),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_patch_bringing_no_test_is_sent_back_for_another_attempt() -> None:
+    # A fix to code with no test is a claim: the submission's own description
+    # asks for the test, the grader has nothing to run against the shop, and
+    # the postmortem sends its reader to run tests that do not exist.
+    #
+    # Sent back rather than raised, as a patch that is not source is: the model
+    # has decided what to change and is one turn from showing it.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_told(model, WHAT_NO_TEST_IS),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_walk_whose_patches_never_bring_a_test_opens_nothing() -> None:
+    # The end of the rule above. A model that keeps sending a fix with no test
+    # runs out, and running out is what a reader is told - never a pull request
+    # opened anyway, whose postmortem would send its reader to tests that do
+    # not exist.
+    two_calls = 2
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_bringing_no_test(), submits_a_fix_bringing_no_test())
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=two_calls),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                the_error_mentioned(WHAT_A_WALK_ENDING_ON_A_SENT_BACK_SAYS),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("path", "sent_back"), [
+    ("tests/io_shop/test_spend_summary.py", False),
+    ("tests/io_shop/spend_summary_test.py", False),
+    ("tests/io_shop/conftest.py", True)
+], ids=["test-prefix", "test-suffix", "conftest-alone"])
+def test_a_test_is_known_by_the_name_pytest_collects_it_under(path: str, sent_back: bool) -> None:
+    # Both of pytest's own patterns, and nothing else: a file beside the tests
+    # that the runner never collects is not one, so a patch whose only such file
+    # is a conftest is sent back, and the rewrite bringing a test is the one
+    # proposed.
+    repository = a_repository()
+    model = a_model_that(
+        _a_turn_calling("submit_fix", {
+            "summary": "a summary",
+            "explanation": "an explanation",
+            "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+                      {"path": path, "content": SOME_TEST_SOURCE}]
+        }),
+        *([submits_a_fix_touching(SOME_PATH)] if sent_back else []),
+        answers_it_works_on_its_own()
+    )
+    proposed = SOME_TEST_PATH if sent_back else path
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                  proposed: SOME_TEST_SOURCE}))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", [
+    "deploy/values-production.yaml",
+    "deploy/scrape.yml",
+    "config/settings.toml",
+    "config/flags.json",
+    "config/app.ini",
+    "config/app.cfg",
+    "config/nginx.conf",
+    "config/.env",
+    "config/app.properties",
+    "config/beans.xml"
+], ids=["yaml", "yml", "toml", "json", "ini", "cfg", "conf", "env", "properties", "xml"])
+def test_a_patch_changing_only_configuration_is_proposed_without_a_test(path: str) -> None:
+    # What a recorded run did: the fix set a value in a values file and nothing
+    # else. A test for it reads the file back and checks the value - the diff
+    # said twice, proving nothing about what the value does - so a patch whose
+    # every file is configuration is opened as it came.
+    some_configuration = "scaleDownStabilizationSeconds: 300\n"
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(path, content=some_configuration),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_patch_written_was(repository, {path: some_configuration}))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", [
+    "deploy/run.sh",
+    "deploy/Dockerfile"
+], ids=["shell", "dockerfile"])
+def test_a_patch_changing_anything_but_configuration_still_brings_a_test(path: str) -> None:
+    # The limit of the rule above. A script or a Dockerfile runs, so it is code
+    # however it is deployed, and a patch to one brings its test like any other.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(path),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_told(model, WHAT_NO_TEST_IS),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_patch_changing_configuration_and_code_still_brings_a_test() -> None:
+    # Configuration beside code is a code fix: the code is what the test is for.
+    some_values_file = "deploy/values-production.yaml"
+    repository = a_repository()
+    model = a_model_that(
+        _a_turn_calling("submit_fix", {
+            "summary": "a summary",
+            "explanation": "an explanation",
+            "files": [{"path": some_values_file, "content": "replicas: 6\n"},
+                      {"path": SOME_PATH, "content": SOME_FIXED_SOURCE}]
+        }),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, WHAT_NO_TEST_IS))
+
+
+@pytest.mark.unit
+def test_a_submission_speaking_of_code_outside_its_patch_as_a_group_is_sent_back() -> None:
+    # What every slip of this kind was: each reader said right on its own, then
+    # one sentence about all of them that counted among them the one checking
+    # the figure. What the code outside the patch does is said by its syntax
+    # tree, so the submission goes back with that before it is asked anything,
+    # and only the one written without the group is asked.
+    some_reader = "src/io_shop/spend_report.py"
+    some_checker = "src/io_shop/spend_reconciliation.py"
+    some_group = f"{some_reader} and {some_checker} keep trusting the stored figure."
+    repository = a_repository(
+        holding=[SOME_PATH, some_reader, some_checker],
+        whose_code_outside_is=CodeOutsideThePatch(
+            uses=[CodeUse(name="month", path=some_checker, line=9, function="reconcile",
+                          does="compares it with bought(account)")],
+            defined={}
+        )
+    )
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH, explanation=some_group),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _a_result_said(model, SPOKEN_OF_TOGETHER),
+                _a_result_said(model, some_group),
+                _a_result_said(
+                    model, f"{some_checker}:9, in reconcile: compares it with bought(account)"
+                ),
+                _the_conversation_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED, times=1),
+                _the_code_outside_was_read_for(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                            SOME_TEST_PATH: SOME_TEST_SOURCE},
+                                               "main"),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_submission_sent_back_once_is_asked_its_question_the_second_time() -> None:
+    # Sent back once before it is believed, as an empty patch is. A rewrite that
+    # still trips the check was sent back until the budget ran out, and the fix
+    # was lost to a sentence about it.
+    some_reader = "src/io_shop/spend_report.py"
+    some_checker = "src/io_shop/spend_reconciliation.py"
+    some_group = f"{some_reader} and {some_checker} keep trusting the stored figure."
+    repository = a_repository(holding=[SOME_PATH, some_reader, some_checker])
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH, explanation=some_group),
+        submits_a_fix_touching(SOME_PATH, explanation=some_group),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_conversation_said(model, SPOKEN_OF_TOGETHER, times=1),
+                _the_conversation_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED, times=1),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_submission_sent_back_on_the_last_call_is_still_rewritten_and_asked() -> None:
+    # The rewrite is part of the submission, not another read, as the answer to
+    # its question is. The last call is where the warning makes a model submit,
+    # and a patch sent back there ended the walk "without submitting a fix".
+    one_call = 1
+    some_reader = "src/io_shop/spend_report.py"
+    some_checker = "src/io_shop/spend_reconciliation.py"
+    some_group = f"{some_reader} and {some_checker} keep trusting the stored figure."
+    repository = a_repository(holding=[SOME_PATH, some_reader, some_checker])
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH, explanation=some_group),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(max_tool_calls=one_call),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_conversation_said(model, SPOKEN_OF_TOGETHER, times=1),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("files", "explanation"), [
+    (
+        [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+         {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}],
+        "src/io_shop/spend_report.py and src/io_shop/spend_reconciliation.py keep "
+        "trusting the stored figure."
+    ),
+    ([{"path": SOME_PATH, "content": A_PLACEHOLDER_WHERE_SOURCE_BELONGS}], "an explanation"),
+    ([{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}], "an explanation"),
+    ([], "an explanation")
+], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-test", "no-files"])
+def test_a_read_sent_with_a_submission_sent_back_is_answered_not_run(
+        files: list[dict[str, str]], explanation: str) -> None:
+    # The API takes one result for every call in a turn, and refuses the next
+    # request otherwise. A submission sent back was the only call answered, so a
+    # read sent beside it left the walk one request from an error.
+    repository = a_repository(holding=[
+        SOME_PATH, "src/io_shop/spend_report.py", "src/io_shop/spend_reconciliation.py"
+    ])
+    model = a_model_that(
+        Turn(
+            text="",
+            tool_calls=[
+                ToolCall(id="call-submit_fix", name="submit_fix", arguments={
+                    "summary": "a summary",
+                    "explanation": explanation,
+                    "files": files
+                }),
+                ToolCall(id="call-read_repository_file", name="read_repository_file",
+                         arguments={"path": SOME_PATH})
+            ],
+            input_tokens=NO_TOKENS,
+            output_tokens=NO_TOKENS
+        ),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _every_call_was_answered(model),
+                _the_model_was_told(model, NOT_RUN_UNTIL_SUBMITTED_AGAIN),
+                _nothing_was_read(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_submission_sent_back_in_the_room_for_its_answer_gets_no_room_for_a_rewrite() -> None:
+    # Each stretch is given once. A rewrite past the room for an answer is a
+    # call that cannot end in a fix: it is written, and never asked about.
+    one_call = 1
+    some_reader = "src/io_shop/spend_report.py"
+    some_checker = "src/io_shop/spend_reconciliation.py"
+    some_group = f"{some_reader} and {some_checker} keep trusting the stored figure."
+    repository = a_repository(holding=[SOME_PATH, some_reader, some_checker])
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH),
+        submits_a_fix_touching(SOME_PATH, explanation=some_group)
+    )
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=one_call),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("files", "explanation"), [
+    (
+        [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+         {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}],
+        "src/io_shop/spend_report.py and src/io_shop/spend_reconciliation.py keep "
+        "trusting the stored figure."
+    ),
+    ([{"path": SOME_PATH, "content": A_PLACEHOLDER_WHERE_SOURCE_BELONGS}], "an explanation"),
+    ([{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}], "an explanation"),
+    ([], "an explanation")
+], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-test", "no-files"])
+def test_a_walk_ending_on_a_submission_sent_back_says_so(
+        files: list[dict[str, str]], explanation: str) -> None:
+    # A submission was made. Told that none was, a reader goes looking at an
+    # agent that never got as far as a fix, when it got one and was sent back.
+    two_calls = 2
+    repository = a_repository(holding=[
+        SOME_PATH, "src/io_shop/spend_report.py", "src/io_shop/spend_reconciliation.py"
+    ])
+    model = a_model_that(
+        _a_turn_calling("submit_fix", {
+            "summary": "a summary",
+            "explanation": explanation,
+            "files": files
+        }),
+        asks_to_read(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=two_calls),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                the_error_mentioned(WHAT_A_WALK_ENDING_ON_A_SENT_BACK_SAYS)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_submission_sent_back_withdraws_the_one_asked_before_it() -> None:
+    # A second submission replaces the first, sent back or not. Left asked, the
+    # first was opened on an answer given after another had been sent.
+    three_calls = 3
+    some_reader = "src/io_shop/spend_report.py"
+    some_checker = "src/io_shop/spend_reconciliation.py"
+    some_group = f"{some_reader} and {some_checker} keep trusting the stored figure."
+    repository = a_repository(holding=[SOME_PATH, some_reader, some_checker])
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH),
+        submits_a_fix_touching(SOME_PATH, explanation=some_group),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=three_calls),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_fix_proposed_carries_what_the_code_outside_its_patch_does_with_it() -> None:
+    # The rows go where the explanation goes: beside it in the pull request, and
+    # into the write-up, which slipped the same way from a survey of readers.
+    some_uses = [CodeUse(name="month", path="src/io_shop/spend_reconciliation.py", line=9,
+                         function="reconcile", does="compares it with bought(account)")]
+    repository = a_repository(
+        whose_code_outside_is=CodeOutsideThePatch(uses=some_uses, defined={})
+    )
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_fix_carries_the_uses(some_uses)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("needs_code_outside", [False, True],
+                         ids=["opened", "needs-code-outside"])
+def test_the_uses_outside_the_patch_come_back_saying_whether_their_files_ran_as_read(
+        needs_code_outside: bool) -> None:
+    # Compared once the model has answered, as the files its reading names are,
+    # whichever way it answered: the write-up applies these lines to what ran
+    # only where their files ran as the branch holds them.
+    some_uses = [CodeUse(name="month", path="src/io_shop/spend_reconciliation.py", line=9,
+                         function="reconcile", does="compares it with bought(account)")]
+    repository = a_repository(
+        whose_code_outside_is=CodeOutsideThePatch(uses=some_uses, defined={})
+    )
+    model = a_model_that(submits_a_fix_touching(SOME_PATH),
+                         answers_it_needs_code_outside() if needs_code_outside
+                         else answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_fix_carries_the_uses([some_uses[0].model_copy(
+                update={"revision": SOME_REVISION_THAT_RAN, "as_read": True})])
+        )
+
+
+@pytest.mark.unit
+def test_the_pull_request_says_what_the_code_outside_its_patch_does_with_it() -> None:
+    # Published beside the explanation, as Code-Fix is told it is: whoever
+    # decides whether to merge reads what the code outside the patch does from
+    # the code, not from the model's survey of it.
+    some_checker = "src/io_shop/spend_reconciliation.py"
+    repository = a_repository(
+        whose_code_outside_is=CodeOutsideThePatch(
+            uses=[CodeUse(name="month", path=some_checker, line=9, function="reconcile",
+                          does="compares it with bought(account)")],
+            defined={}
+        )
+    )
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_proposal_explained(
+                repository, f"{some_checker}:9, in reconcile: compares it with bought(account)"
             )
         )
 
@@ -2414,11 +3324,17 @@ def test_a_patch_file_that_is_not_python_is_proposed_as_it_arrived() -> None:
                 **repository.ports()
             )
         ) \
-        .then(_the_patch_written_was(repository, {some_values_file: some_yaml}))
+        .then(_the_patch_written_was(repository, {some_values_file: some_yaml,
+                                                  SOME_TEST_PATH: SOME_TEST_SOURCE}))
 
 
 @pytest.mark.unit
-def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> None:
+@pytest.mark.parametrize(("refusing", "left_on_a_branch"), [
+    ("write_branch", False),
+    ("open_pull_request", True)
+], ids=["the-branch", "the-pull-request"])
+def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal(
+        refusing: str, left_on_a_branch: bool) -> None:
     # Raised rather than answered with nothing. "No fix was found" and "the fix
     # could not be pushed" reach the same human and only one of them would be
     # true - and the second is a thing somebody can go and fix.
@@ -2427,10 +3343,19 @@ def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> N
     # opens a pull request in production is a tool on another process, so what
     # arrives is the transport's - and a loop catching a specific exception
     # would swallow every other way that call can fail.
-    some_refusal = RuntimeError("the repository refused the pull request")
+    #
+    # Raised carrying what the model said of the code. A pull request GitHub
+    # answered 500 to took the reading with it, and the write-up lost the one
+    # account of the mechanism anybody had read off the source.
+    #
+    # And the branch the fix was left on, where the branch was written and only
+    # the pull request was refused: the fix is there for somebody to open, and
+    # nothing else on this path says so.
+    some_reading = "spend_summary divides by the month's purchase count, 0 for a new shopper"
     repository = a_repository()
-    repository.open_pull_request.side_effect = some_refusal
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+    getattr(repository, refusing).side_effect = RuntimeError("the repository refused the work")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH, explanation=some_reading),
+                         answers_it_works_on_its_own())
 
     Scenario() \
         .when(
@@ -2446,9 +3371,47 @@ def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> N
         ) \
         .then(
             all_of(
-                an_error_was_raised(RuntimeError)
+                an_error_was_raised(FixNotProposed),
+                the_error_mentioned("the repository refused the work"),
+                _the_reading_carried_was(some_reading),
+                _the_branch_carried_was(repository, left_on_a_branch)
             )
         )
+
+
+def _the_branch_carried_was(repository: _Repository,
+                            left_on_a_branch: bool) -> Assertion[Exception | None]:
+    """The branch the fix was written to where the write landed, and none where
+    it did not."""
+    def assertion(error: Exception | None) -> bool:
+        written = repository.write_branch.call_args.kwargs["branch"]
+        expected = written if left_on_a_branch else None
+        carried = error.branch if isinstance(error, FixNotProposed) else None
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the failure to carry the branch [{expected}], "
+                f"it carried [{carried}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_reading_carried_was(explanation: str) -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        carried = error.reading.explanation if isinstance(error, FixNotProposed) else None
+
+        if carried != explanation:
+            raise AssertionError(
+                f"Expected the failure to carry the reading [{explanation}], "
+                f"it carried [{carried}]."
+            )
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.unit
@@ -2511,14 +3474,14 @@ def test_a_scripted_conversation_never_reaches_the_real_client() -> None:
 
 
 @pytest.mark.unit
-def test_a_submission_with_no_files_is_put_back_rather_than_read_as_a_verdict() -> None:
+def test_a_submission_with_no_files_is_sent_back_rather_than_read_as_a_verdict() -> None:
     # The schema forbids an empty patch, so one arriving here is a submission
     # whose every entry was dropped as unreadable - see the leniency in
     # `SubmittedFix`. That is a model that meant to attach a patch, not one
     # reaching a verdict: the verdict has a tool of its own, and a model that
     # wanted it would have called that.
     #
-    # Put back once, because the model has already decided what to write and
+    # Sent back once, because the model has already decided what to write and
     # needs the turn rather than the judgement. Ending here instead would throw
     # away every file it had read correctly and report it as a conclusion
     # about the code - which is what a live run did, recording "Argus looked
@@ -2575,6 +3538,36 @@ def _no_conversation_was_built(conversations: Any
     return assertion
 
 
+def _the_code_outside_was_read_for(repository: _Repository,
+                                   patch: dict[str, str],
+                                   ref: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        asked = [made.args for made in repository.code_outside.call_args_list]
+
+        if (patch, ref) not in asked:
+            raise AssertionError(
+                f"Expected the code outside the patch {patch} read at [{ref}], and it "
+                f"was read for {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_fix_carries_the_uses(uses: list[CodeUse]) -> Assertion[ProposedFix]:
+    def assertion(fix: ProposedFix) -> bool:
+        if fix.uses_outside != uses:
+            raise AssertionError(
+                f"Expected the fix to carry the uses {uses}, and it carried "
+                f"{fix.uses_outside}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_model_was_told(model: _Model, said: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         if said not in model.everything_it_was_told():
@@ -2592,6 +3585,22 @@ def _the_opening_said(model: _Model, said: str) -> Assertion[Any]:
         if said not in model.what_it_was_told_first():
             raise AssertionError(
                 f"Expected the opening message to say [{said!r}]; it did not."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_opening_said_in_order(model: _Model, said: list[str]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        opening = model.what_it_was_told_first()
+        where = [opening.find(each) for each in said]
+
+        if -1 in where or where != sorted(where):
+            raise AssertionError(
+                f"Expected the opening message to say {said} in that order; it "
+                f"said them at {where}, -1 where it did not say one at all."
             )
 
         return True
@@ -2661,6 +3670,21 @@ def _nothing_put_to_it_was_empty(model: _Model) -> Assertion[Any]:
     return assertion
 
 
+def _a_flag_revert(flag: str, verdict: Verdict, standing: str) -> WhatArgusDid:
+    """A flag Argus reverted, what the service's metrics made of it, and
+    whether the change still stands."""
+    return WhatArgusDid(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG, subject=flag),
+                        verdict=verdict,
+                        standing=standing)
+
+
+def _what_it_showed(done: WhatArgusDid) -> str:
+    """An action as the opening lists it: the incident's own words for it, its
+    verdict, and whether it still stands."""
+    return (f"{what_was_done(done.identity.action_type, done.identity.subject)}: "
+            f"{done.verdict.value}, {done.standing}")
+
+
 def _a_lead(words: str, weighing: Weighing | None = None) -> ThreadMessage:
     """Something a person told the incident, understood as information."""
     return ThreadMessage(incident_id=new_id(),
@@ -2702,34 +3726,6 @@ def _the_model_was_not_told_a_repr(model: _Model) -> Assertion[Any]:
                 raise AssertionError(
                     f"Expected the model told prose, it was told [{leaked}]."
                 )
-
-        return True
-
-    return assertion
-
-
-def _the_tool_offered_said(model: _Model, named: str, said: str) -> Assertion[Any]:
-    """What one of the tools the model was handed told it about itself.
-
-    Asserted against what was offered rather than against the definition in the
-    module, because a description is an instruction only once it has reached the
-    model - and `tools_for` is what decides which definitions do.
-    """
-    def assertion(_: Any) -> bool:
-        offered = [
-            tool for turn in model.tools_offered for tool in turn if tool.name == named
-        ]
-
-        if not offered:
-            raise AssertionError(
-                f"Expected [{named}] to have been offered to the model; it was not."
-            )
-
-        if not any(said in tool.description for tool in offered):
-            raise AssertionError(
-                f"Expected [{named}] to have said [{said!r}], it said "
-                f"[{offered[0].description!r}]."
-            )
 
         return True
 
@@ -2826,6 +3822,16 @@ def _wanted_for(turns: int) -> StillWanted:
     return still_wanted
 
 
+def _the_error_did_not_mention(unwanted: str) -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        if error is not None and unwanted in str(error):
+            raise AssertionError(f"Expected the error not to mention [{unwanted}], got [{error}].")
+
+        return True
+
+    return assertion
+
+
 def _no_branch_was_written(repository: _Repository) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         if repository.write_branch.call_args_list:
@@ -2878,12 +3884,12 @@ def _it_explained(explanation: str) -> Assertion[ProposedFix]:
     return assertion
 
 
-def _it_was_held_back() -> Assertion[ProposedFix]:
+def _it_held_what_ran(expected: bool | None) -> Assertion[ProposedFix]:
     def assertion(came_back: ProposedFix) -> bool:
-        if not came_back.needs_code_outside:
+        if came_back.holds_what_ran is not expected:
             raise AssertionError(
-                "Expected the fix to come back held back for needing code "
-                "outside the repository, and it came back as not needing any."
+                f"Expected the proposal to say the branch read holds what ran "
+                f"[{expected}], got [{came_back.holds_what_ran}]."
             )
 
         return True
@@ -2891,12 +3897,51 @@ def _it_was_held_back() -> Assertion[ProposedFix]:
     return assertion
 
 
-def _it_was_not_held_back() -> Assertion[ProposedFix]:
+def _it_found_as_they_ran(expected: list[FileAsItRan]) -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if came_back.as_it_ran != expected:
+            raise AssertionError(
+                f"Expected the files its reading names, as they ran, to be {expected}, "
+                f"got {came_back.as_it_ran}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_read(expected: str) -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if came_back.branch_read != expected:
+            raise AssertionError(
+                f"Expected the proposal to name [{expected}] as the branch read, "
+                f"got [{came_back.branch_read}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_came_back_needing_code_outside() -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if not came_back.needs_code_outside:
+            raise AssertionError(
+                "Expected the fix to come back as needing code outside the "
+                "repository, and it came back as not needing any."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_came_back_needing_no_code_outside() -> Assertion[ProposedFix]:
     def assertion(came_back: ProposedFix) -> bool:
         if came_back.needs_code_outside:
             raise AssertionError(
-                "Expected the fix not to come back held back for needing code "
-                "outside the repository, and it did."
+                "Expected the fix to come back as not needing code outside the "
+                "repository, and it did."
             )
 
         return True
@@ -2931,6 +3976,32 @@ def _nothing_was_read(repository: _Repository) -> Assertion[Any]:
     return assertion
 
 
+def _every_call_was_answered(model: _Model) -> Assertion[Any]:
+    """Every call a turn made has one result in the reply that follows it -
+    which the API insists on, refusing the next request otherwise."""
+    def assertion(_: Any) -> bool:
+        sent = model.what_it_was_last_sent()
+
+        for turn, reply in zip(sent, sent[1:], strict=False):
+            if not isinstance(turn, Turn) or not turn.tool_calls:
+                continue
+
+            called = sorted(call.id for call in turn.tool_calls)
+            answered = sorted(
+                result.call_id for result in reply.results
+            ) if isinstance(reply, ToolResults) else []
+
+            if called != answered:
+                raise AssertionError(
+                    f"Expected a result for every call {called}, and the reply "
+                    f"answered {answered}."
+                )
+
+        return True
+
+    return assertion
+
+
 def _every_turn_was_offered_the_same_tools(model: _Model) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         offered = [[tool.name for tool in tools] for tools in model.tools_offered]
@@ -2940,6 +4011,35 @@ def _every_turn_was_offered_the_same_tools(model: _Model) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected every turn to be offered the tools the first was, "
                 f"{offered[0]}; some were offered {different}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _every_turn_was_offered(model: _Model, tool: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        offered = [[definition.name for definition in tools] for tools in model.tools_offered]
+        missing = [names for names in offered if tool not in names]
+
+        if not offered or missing:
+            raise AssertionError(
+                f"Expected [{tool}] offered on every turn, and the turns were offered "
+                f"{offered}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_read_tier_was_asked_once(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if repository.read_tier_tools.call_count != 1:
+            raise AssertionError(
+                f"Expected the read tier asked once what it serves, and it was asked "
+                f"{repository.read_tier_tools.call_count} times."
             )
 
         return True
@@ -2979,11 +4079,14 @@ def reports_nothing_to_change(explanation: str = "an explanation") -> Turn:
 def submits_a_fix_touching(*paths: str,
                            summary: str = "a summary",
                            explanation: str = "an explanation") -> Turn:
+    """A fix of these files, with the test every fix brings - none at all where
+    no path is given, since that is a patch with nothing in it."""
     return _a_turn_calling("submit_fix", {
         "summary": summary,
         "explanation": explanation,
         "files": [
-            {"path": path, "content": SOME_FIXED_SOURCE} for path in paths
+            *({"path": path, "content": SOME_FIXED_SOURCE} for path in paths),
+            *([{"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}] if paths else [])
         ]
     })
 
@@ -2992,7 +4095,8 @@ def submits_a_fix_whose_content_is(content: str,
                                    path: str = SOME_PATH,
                                    summary: str = "a summary",
                                    explanation: str = "an explanation") -> Turn:
-    """A submission attaching one file whose content is whatever a test says.
+    """A submission attaching one file whose content is whatever a test says,
+    and the test every fix brings.
 
     Beside the builder above rather than a parameter on it: what that one says
     is "a fix of these files", and every caller of it means a fix that is fine.
@@ -3000,6 +4104,18 @@ def submits_a_fix_whose_content_is(content: str,
     return _a_turn_calling("submit_fix", {
         "summary": summary,
         "explanation": explanation,
+        "files": [{"path": path, "content": content},
+                  {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}]
+    })
+
+
+def submits_a_fix_bringing_no_test(path: str = SOME_PATH,
+                                   content: str = SOME_FIXED_SOURCE) -> Turn:
+    """A fix of one file and nothing else - sound in itself, and proving
+    nothing."""
+    return _a_turn_calling("submit_fix", {
+        "summary": "a summary",
+        "explanation": "an explanation",
         "files": [{"path": path, "content": content}]
     })
 
@@ -3031,7 +4147,8 @@ def submits_a_fix_and_answers_at_once() -> Turn:
             ToolCall(id="call-submit_fix", name="submit_fix", arguments={
                 "summary": "a summary",
                 "explanation": "an explanation",
-                "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}]
+                "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+                          {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}]
             }),
             ToolCall(id="call-answer_question", name="answer_question", arguments={
                 "answer": False,
@@ -3171,7 +4288,7 @@ def a_model_that_is_cut_short() -> _Model:
     """
     return _Model([
         AnswerTruncated(
-            "the model ran out of room before finishing its turn",
+            WHAT_A_TURN_CUT_SHORT_IS_SAID_AS,
             billed=Turn(
                 text="", tool_calls=[], input_tokens=0, output_tokens=128_000
             )
@@ -3194,7 +4311,13 @@ class _Repository:
                  whose_source_is: str,
                  found: list[str],
                  reading_like: list[str],
-                 whose_index_says: str) -> None:
+                 whose_index_says: str,
+                 containing_what_ran: bool,
+                 serving: list[ToolDefinition],
+                 whose_code_outside_is: CodeOutsideThePatch) -> None:
+        self.read_tier_tools: Any = create_autospec(
+            ReadTierTools, instance=True, return_value=serving
+        )
         self.list_files: Any = create_autospec(
             FileLister, instance=True, return_value=holding
         )
@@ -3209,6 +4332,12 @@ class _Repository:
         )
         self.read_file: Any = create_autospec(
             FileReader, instance=True, return_value=whose_source_is
+        )
+        self.code_outside: Any = create_autospec(
+            CodeOutsideReader, instance=True, return_value=whose_code_outside_is
+        )
+        self.contains: Any = create_autospec(
+            BranchMembership, instance=True, return_value=containing_what_ran
         )
         self.write_branch: Any = create_autospec(
             BranchWriter, instance=True, return_value="a-branch"
@@ -3231,10 +4360,13 @@ class _Repository:
         bury the line each test is actually about.
         """
         return {
+            "read_tier_tools": self.read_tier_tools,
             "list_files": self.list_files,
             "search": self.search,
             "search_by_meaning": self.search_by_meaning,
             "index_notice": self.index_notice,
+            "code_outside": self.code_outside,
+            "contains": self.contains,
             "read_file": self.read_file,
             "write_branch": self.write_branch,
             "open_pull_request": self.open_pull_request
@@ -3245,12 +4377,20 @@ def a_repository(holding: list[str] | None = None,
                  whose_source_is: str = SOME_SOURCE,
                  where: list[str] | None = None,
                  reading_like: list[str] | None = None,
-                 whose_index_says: str = "") -> _Repository:
+                 whose_index_says: str = "",
+                 containing_what_ran: bool = True,
+                 serving: list[ToolDefinition] | None = None,
+                 whose_code_outside_is: CodeOutsideThePatch | None = None) -> _Repository:
     """The repository as the loop sees it - indexed, and current unless said.
 
     `whose_index_says` empty is an index describing the commit being fixed,
     which is the ordinary state and the one that must add nothing to what the
-    model is told.
+    model is told. `containing_what_ran` is the same for the branch read: it contains
+    the revision that ran unless said.
+
+    `serving` is the read tier's tools the loop offers beside its own - none
+    unless said, since which reads a deployment holds is `tools`' to decide and
+    `test_tools`' to pin.
     """
     return _Repository(
         holding or [SOME_PATH],
@@ -3259,7 +4399,10 @@ def a_repository(holding: list[str] | None = None,
         reading_like if reading_like is not None else [
             f"{SOME_PATH}:4-9\n{SOME_SOURCE}"
         ],
-        whose_index_says
+        whose_index_says,
+        containing_what_ran,
+        serving or [],
+        whose_code_outside_is or CodeOutsideThePatch(uses=[], defined={})
     )
 
 
@@ -3400,7 +4543,7 @@ def test_an_answer_cut_short_is_logged_as_a_warning(caplog: pytest.LogCaptureFix
 def test_a_patch_whose_content_is_not_source_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Put back and usually corrected, so a turn paid for and thrown away shows
+    # Sent back and usually corrected, so a turn paid for and thrown away shows
     # nowhere but here.
     repository = a_repository()
     model = a_model_that(
@@ -3421,6 +4564,65 @@ def test_a_patch_whose_content_is_not_source_is_logged_as_a_warning(
         .then(
             one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
                                   "patch is not source", values={"paths": [SOME_PATH]})
+        )
+
+
+@pytest.mark.unit
+def test_a_patch_bringing_no_test_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Sent back and usually corrected, so a turn paid for and thrown away shows
+    # nowhere but here - as a patch that is not source does.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+                                  "patch brings no test")
+        )
+
+
+@pytest.mark.unit
+def test_code_outside_a_patch_that_could_not_be_read_is_logged_and_the_submission_asked(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Checked rather than blocked on: a read tier that could not fetch the
+    # source is no reason to hold back a fix, and a check skipped is one only
+    # this line says was skipped.
+    repository = a_repository()
+    repository.code_outside.side_effect = RuntimeError("no route to host")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+                                      "code outside the patch could not be read"),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
         )
 
 

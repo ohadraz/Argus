@@ -216,6 +216,12 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
     Every entry carries its status and its patch, as every text file in a real
     comparison does. The deployment-diff channel reads both, and an entry
     naming the path alone failed it - silently, as far as any case could tell.
+
+    The comparison's own `status` says how the two commits stand - whether
+    `head` has `base` in its history - which is how Code-Fix learns that the
+    branch it reads does not hold the revision that ran. Read from the history
+    the case staged, never from the trees: two commits holding the same files
+    can still be on different lines.
     """
     base, separator, head = basehead.partition(_BETWEEN)
 
@@ -230,6 +236,7 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
         return _not_found(absent)
 
     return JSONResponse({
+        _STATUS_FIELD: repository.relation_between(base, head),
         _FILES_FIELD: [
             {
                 _FILENAME_FIELD: each.path,
@@ -404,14 +411,36 @@ async def stage_a_commit(request: Request) -> JSONResponse:
     of another repository's history, right until the next scenario names two
     other commits and 404s exactly as this one did.
 
-    The fixture's own files sit underneath whatever is given, so a comparison
-    answers with the paths that differ rather than with the whole tree.
+    The commit holds these files and nothing else: a path not given is a 404
+    at it, as at GitHub for a file the commit never had.
+
+    `parents`, where given, is the commit the staged one was made on - the
+    history a comparison reads to say how two commits stand.
     """
     asked: dict[str, Any] = await request.json()
 
-    repository.stage_commit(asked["sha"], asked["files"])
+    repository.stage_commit(asked["sha"], asked["files"], asked.get("parents"))
 
     return JSONResponse({"status": "staged", "sha": asked["sha"]})
+
+
+@app.post("/double-control/stage-head")
+async def stage_a_branchs_history(request: Request) -> JSONResponse:
+    """Puts staged commits in the history of a branch's head.
+
+    How a case says the revision it deployed is on `main`: a fact of the
+    scenario, like the commits themselves, so the case states it. The head
+    keeps its sha and its files - only what it reaches back through grows -
+    and a reset forgets it.
+    """
+    asked: dict[str, Any] = await request.json()
+
+    try:
+        repository.stage_history_of(asked["branch"], list(asked["parents"]))
+    except NoSuchObject as absent:
+        return _not_found(absent)
+
+    return JSONResponse({"status": "staged", "branch": asked["branch"]})
 
 
 @app.get("/double-control/pulls")

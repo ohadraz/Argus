@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS incident (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     alert_payload JSONB NOT NULL,
     status TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- The moment of the event that opens the incident's account, and no
+    -- default: stamped by the database's own clock, the row and the account
+    -- would disagree about when the incident began.
+    created_at TIMESTAMPTZ NOT NULL,
     -- When the incident stopped being one, stamped on the transition that
     -- ended it. Null while it is still being worked - which `fixing` is,
     -- however terminal it reads. How long an incident lasted is reported
@@ -72,6 +75,10 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     -- Defaulted rather than nullable: every hypothesis has a rank, and a row
     -- that does not say otherwise is first.
     rank INTEGER NOT NULL DEFAULT 1,
+    -- Which candidate of the incident this is, counted across its rounds in
+    -- the order they were formed - the number every telling says it by.
+    -- Defaulted as the rank is: a row that does not say otherwise is first.
+    number INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -107,7 +114,39 @@ CREATE TABLE IF NOT EXISTS action (
     has_a_way_back BOOLEAN NOT NULL,
     undo_descriptor JSONB,
     outcome TEXT,
-    taken_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- How far the action got (`ActionProgress`): `claimed` from the claim on;
+    -- `performed` the moment the change is made, before the wait and so
+    -- before any verdict, with `undo_descriptor` written beside it;
+    -- `not-performed` where the attempt ended before the action itself was
+    -- done - a platform that did not answer, an action with nowhere left to
+    -- go, an incident a person ended first, a write that raised - though it
+    -- may have changed something on the way, which `undo_descriptor` carries
+    -- where Argus knows what was left; `unknown` for a claim no walk will ever
+    -- answer. The candidate the row names was tried only where this is
+    -- `performed`, and no verdict says it: a stop is the word for an ending
+    -- before the write and for one during the wait.
+    progress TEXT NOT NULL,
+    -- Whether `undo_descriptor` is the whole of what the attempt left behind -
+    -- nothing, where it is NULL. False from the claim, since a worker that
+    -- stopped after it may have made the change; true for a change made, and
+    -- for every ending before any change was asked for. What tells a refusal
+    -- that changed nothing from one whose change request's answer was lost:
+    -- both are `not-performed`, both may carry no descriptor, and only the first
+    -- may be written up as having changed nothing.
+    left_behind_known BOOLEAN NOT NULL DEFAULT false,
+    -- What putting the change back did (`Undone`) - the walk's own undo after
+    -- a refutation, or the cleanup after the incident: `restored`;
+    -- `left-as-found` where somebody changed the subject since Argus set it;
+    -- `not-established` where what it holds could not be read; `no-undo-was-owed`
+    -- for a change nothing puts back. NULL where nothing attempted an undo. The
+    -- cleanup puts back NULL and `not-established`, passes over the rest, and
+    -- writes here what it did.
+    undone TEXT,
+    -- When the claim was written, on the walk's clock: no default, because the
+    -- database's is a clock nothing else in the incident is dated by. Before
+    -- the action, not at it - a reader dating the action reads its
+    -- announcement, and this only where there is none.
+    taken_at TIMESTAMPTZ NOT NULL
 );
 
 -- What makes one action one action. A partial index rather than a table
@@ -183,6 +222,7 @@ CREATE TABLE IF NOT EXISTS postmortem (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
     root_cause TEXT,
+    cause_in_plain_words TEXT,
     symptom TEXT,
     -- Three figures rather than one blob, and three rather than two: what the
     -- incident cost the business, what it cost the humans, and what it cost
@@ -234,6 +274,11 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- different source than the takings, and nothing here converts one figure
     -- into the other.
     responder_cost_currency TEXT,
+    -- How that cost was arrived at: the working year, the band each title was
+    -- priced at, or what stopped it. Beside the figure rather than among the
+    -- assumptions, because the postmortem says nothing of pay - its readers are
+    -- the people it would price - and whoever is shown the figure reads this.
+    response_cost_basis JSONB NOT NULL DEFAULT '[]'::jsonb,
     tokens_spent INTEGER,
     -- Never null, for the reason `responder_titles` is not: a document that
     -- rested on nothing worth disclosing discloses nothing, and that is an
@@ -269,6 +314,13 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- and watched: a sentence here would send somebody to repeat a change
     -- already made.
     recommended_action TEXT,
+    -- When Argus closed the incident as disproven - there was no incident to
+    -- measure - and null on every other ending. Stored rather than read off the
+    -- incident's status when shown, because the document's own sections were
+    -- written from it: the impact, the summary and the review say what they
+    -- say of a disproven alarm, and a page reading the ending elsewhere could
+    -- disagree with the document it shows.
+    disproven_at TIMESTAMPTZ,
     -- What people told the incident in its thread, each with what the
     -- investigation made of it and the one sentence on whether it changed what
     -- was done. Copied out of `thread_message` rather than joined to it: the
@@ -286,21 +338,32 @@ CREATE TABLE IF NOT EXISTS postmortem (
     impact JSONB,
     detection JSONB,
     trigger JSONB,
+    no_trigger JSONB,
     resolution JSONB NOT NULL DEFAULT '[]'::jsonb,
     causal_chain JSONB NOT NULL DEFAULT '[]'::jsonb,
     contributing_factors JSONB NOT NULL DEFAULT '[]'::jsonb,
     hypotheses JSONB NOT NULL DEFAULT '[]'::jsonb,
     action_items JSONB NOT NULL DEFAULT '[]'::jsonb,
     lessons JSONB,
+    -- How soon the alert came against what its rule spends before it can
+    -- fire, written by code. Null where the gap cannot be weighed.
+    detection_lesson JSONB,
     timeline JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- The changes to production, the log messages and what each deployment
-    -- looked into changed and what Code-Fix read in the source, as the model
-    -- was shown them, each under the label the prose cites it by - the kinds
-    -- of evidence no other section is a row for.
+    -- looked into changed, what Code-Fix read in the source and the files it
+    -- names as they ran, as the model was shown them, each under the label the
+    -- prose cites it by - the kinds of evidence no other section is a row for.
     changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     log_messages_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     deployment_changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     code_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    as_it_ran_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    uses_outside_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- What the metrics show of a cause confirmed to be the load, measured by
+    -- Argus - empty for any other cause.
+    cause_measured JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- The branch Code-Fix read, which the uses outside its patch were read on.
+    fix_branch_read TEXT,
     -- What came of reading the deploys, the flags and the logs - read, only
     -- changes made since Argus first acted (the flags alone), not asked, or
     -- asked with no answer.
@@ -313,7 +376,9 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- Google's five review criteria, each met, unmet, or left for a person.
     -- Never null: a document is always reviewed against all five.
     review JSONB NOT NULL DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- The moment of the event saying it was written, as the incident's own
+    -- times are its account's.
+    created_at TIMESTAMPTZ NOT NULL
 );
 
 -- One row per currency per day, against one base. The rates a document was
@@ -361,12 +426,25 @@ CREATE TABLE IF NOT EXISTS incident_run (
     -- connection and leaves the row looking held by nobody.
     claimed_by TEXT,
     leased_until TIMESTAMPTZ,
+    -- Which claim of the run this is, moved on by every claim. A lease says
+    -- when a holder may be presumed gone; it cannot tell a holder that was only
+    -- paused from the one that took the run back. The epoch tells them apart:
+    -- whatever the old holder does after the run is taken back carries an
+    -- epoch the row no longer has.
+    epoch BIGINT NOT NULL DEFAULT 0,
     -- Why a run stopped, where it stopped badly. Recorded against the run
     -- rather than left in a log: an incident whose walk failed is then
     -- distinguishable from one still being worked by asking the database,
     -- which is the question every reader of a run actually asks.
     failure_reason TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- How many times the run was requeued to be tried again, and the moment
+    -- before which it is not to be taken: none and null for a run nobody has
+    -- requeued. A run is requeued where its walk could not get an answer from
+    -- the model for now, and taken again only once the wait is over - taken at
+    -- once, it would be asked into the same outage.
+    retries INTEGER NOT NULL DEFAULT 0,
+    not_before TIMESTAMPTZ
 );
 
 -- What a worker asks for, every interval, forever: the runs it could take.
@@ -520,16 +598,176 @@ CREATE TABLE IF NOT EXISTS repository_index (
     -- looks stale.
     indexed_at TIMESTAMPTZ
 );
+
+-- What each finished incident tried, filed for long-term memory (spec §11.2) -
+-- the walk's one write to it. A row rather than a write to the vector store,
+-- because a row is what the fence refuses: a walk whose run was taken back
+-- files nothing over the record of the walk that holds it now. The store is
+-- filled from these rows by a process of its own, and is a view of them.
+-- Written and read by `incident_memory`.
+CREATE TABLE IF NOT EXISTS incident_memory (
+    incident_id UUID PRIMARY KEY REFERENCES incident(id),
+    -- The record whole, as `incident_memory.records` spells it: it is read
+    -- whole, by the process that embeds it, and nothing queries inside it.
+    record JSONB NOT NULL,
+    -- Which filing of the record this is, moved on whenever what was tried
+    -- changes - and which of them the store last took. The difference is the
+    -- work list, the retry and the backlog, so there is no queue to drain: a
+    -- deliverer that was down, or memory switched on late, finds every record
+    -- the store does not hold still waiting.
+    version BIGINT NOT NULL DEFAULT 1,
+    delivered_version BIGINT NOT NULL DEFAULT 0,
+    -- When it was first filed, which is the order a deliverer that fell behind
+    -- catches up in.
+    filed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- What a deliverer asks for, every interval, forever: the records not yet
+-- delivered. Partial, because almost every row is delivered and stays so.
+CREATE INDEX IF NOT EXISTS incident_memory_undelivered_idx
+    ON incident_memory (filed_at) WHERE delivered_version < version;
+"""
+
+# Where a walk is kept between its steps, so a run taken up after its worker
+# stopped resumes rather than starts again. LangGraph's own tables, as its
+# `PostgresSaver.setup()` leaves them after its ten steps: made here rather than
+# by the worker, because no service applies DDL - and a worker that did would be
+# a process writing outside any run, which the fence refuses.
+#
+# A constant of its own because the tables are LangGraph's rather than Argus's:
+# their columns are written by LangGraph's code, and the orchestrator holds the
+# copy to the original, so an upgrade that adds a step fails a test rather than
+# a walk. Named as a dependency's in `_OWNED_BY_A_DEPENDENCY` below, which is
+# where `guard_written_columns` learns not to look for their writers in Argus.
+#
+# The indexes are LangGraph's, made plainly where its setup makes them
+# concurrently: this runs in a transaction, which a concurrent build cannot, and
+# on tables nobody has written to yet it would buy nothing.
+_LANGGRAPH_DDL = """
+CREATE TABLE IF NOT EXISTS checkpoint_migrations (
+    v INTEGER PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS checkpoints (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    checkpoint_id TEXT NOT NULL,
+    parent_checkpoint_id TEXT,
+    type TEXT,
+    checkpoint JSONB NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+);
+CREATE TABLE IF NOT EXISTS checkpoint_blobs (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    channel TEXT NOT NULL,
+    version TEXT NOT NULL,
+    type TEXT NOT NULL,
+    blob BYTEA,
+    PRIMARY KEY (thread_id, checkpoint_ns, channel, version)
+);
+CREATE TABLE IF NOT EXISTS checkpoint_writes (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    checkpoint_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    type TEXT,
+    blob BYTEA NOT NULL,
+    task_path TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+);
+CREATE INDEX IF NOT EXISTS checkpoints_thread_id_idx ON checkpoints (thread_id);
+CREATE INDEX IF NOT EXISTS checkpoint_blobs_thread_id_idx ON checkpoint_blobs (thread_id);
+CREATE INDEX IF NOT EXISTS checkpoint_writes_thread_id_idx ON checkpoint_writes (thread_id);
+-- Every step of its setup, recorded as applied - which is what its setup reads
+-- to know there is nothing left to do.
+INSERT INTO checkpoint_migrations (v) SELECT generate_series(0, 9);
+"""
+
+# The tables in this revision that a dependency owns, by the dependency. Stated
+# here, where the tables are declared, rather than in whatever checks them.
+_OWNED_BY_A_DEPENDENCY = {"langgraph-checkpoint-postgres": _LANGGRAPH_DDL}
+
+# What keeps a walk whose run was taken back from writing as though it still
+# held it (`argus_core.fencing`). A worker's connection says which claim it
+# writes for in `argus.fence`, as `<run id>:<epoch>`; a write is made only while
+# that claim still holds the run, and the run's row is share-locked for the rest
+# of the transaction, so a claim passes it over rather than taking it back under
+# a write still being made. A worker's connection naming no claim is refused as
+# well - a walk writing for no run is a worker that forgot - and anything that
+# is not a worker walks no run and writes freely.
+#
+# A constant of its own because it declares no table, and applied last because
+# it fences every table the two before it made.
+#
+# Our own SQLSTATEs, in a class Postgres leaves unused: AR001 is the run lost,
+# AR002 the worker that named none. The messages are joined rather than
+# formatted, because the migration's SQL passes through a driver that reads a
+# percent sign as a parameter.
+_FENCING_DDL = """
+CREATE OR REPLACE FUNCTION argus_fence() RETURNS trigger LANGUAGE plpgsql AS $fence$
+DECLARE
+    -- Null where this session never set it, empty where it was taken down: the
+    -- same answer either way.
+    held TEXT := coalesce(current_setting('argus.fence', true), '');
+BEGIN
+    IF held = '' THEN
+        IF current_setting('application_name') = 'argus-worker' THEN
+            RAISE EXCEPTION USING ERRCODE = 'AR002',
+                MESSAGE = 'a worker wrote to ' || TG_TABLE_NAME || ' for no run';
+        END IF;
+
+        RETURN NULL;
+    END IF;
+
+    PERFORM 1 FROM incident_run
+        WHERE id = split_part(held, ':', 1)::uuid
+          AND epoch = split_part(held, ':', 2)::bigint
+          AND state = 'running'
+        FOR SHARE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'AR001',
+            MESSAGE = 'run ' || held || ' is no longer held by this claim';
+    END IF;
+
+    RETURN NULL;
+END
+$fence$;
+
+-- On every table but the queue - which says who holds what, and which a worker
+-- that lost its run must still be able to lose a renewal on - and Alembic's
+-- record of the chain. Once per statement and before it, for every kind of
+-- write: a fence a DELETE or a TRUNCATE got round would be no fence.
+DO $fencing$
+DECLARE
+    fenced TEXT;
+BEGIN
+    FOR fenced IN
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = current_schema()
+          AND tablename NOT IN ('incident_run', 'alembic_version')
+    LOOP
+        EXECUTE 'CREATE TRIGGER argus_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE '
+                'ON ' || quote_ident(fenced) || ' FOR EACH STATEMENT '
+                'EXECUTE FUNCTION argus_fence()';
+    END LOOP;
+END
+$fencing$;
 """
 
 def upgrade() -> None:
-    """Every table, as one statement, in one transaction.
+    """Every table, in one transaction: Argus's, LangGraph's, then the fence
+    over all of them.
 
-    One `op.execute` of the SQL rather than a run of `op.create_table` calls:
-    the comments are the argument for half the columns in this system, and
+    `op.execute` of the SQL rather than a run of `op.create_table` calls: the
+    comments are the argument for half the columns in this system, and
     Alembic's builders have nowhere to put them.
     """
     op.execute(_DDL)
+    op.execute(_LANGGRAPH_DDL)
+    op.execute(_FENCING_DDL)
 
 
 def downgrade() -> None:

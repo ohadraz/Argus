@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Final
 
 from pydantic import BaseModel, model_validator
@@ -20,6 +21,12 @@ _REQUIRED_KEY: Final = "required"
 _ADDITIONAL_PROPERTIES_KEY: Final = "additionalProperties"
 
 _OBJECT_TYPE: Final = "object"
+
+# A schema keyword a generator writes on every node - pydantic's, under
+# FastMCP - which strict tool use lists no support for and no model needs.
+_TITLE_KEY: Final = "title"
+# Where a schema says a node is defined elsewhere in it.
+_REF_KEY: Final = "$ref"
 
 
 class ToolDefinition(BaseModel):
@@ -65,6 +72,63 @@ class ToolDefinition(BaseModel):
 
         return self
 
+    @classmethod
+    def from_input_schema(cls,
+                          name: str,
+                          description: str | None,
+                          input_schema: dict[str, Any]) -> ToolDefinition:
+        """A tool as the server that serves it declares it (MCP, `tools/list`).
+
+        The server owns a tool's definition, and what it declares is what a
+        model is offered - less the titles its schema generator writes, which
+        repeat the names they sit on. A server that wrote no description offers
+        an empty one, which is the server's to fix rather than a guess's here.
+
+        Refuses an argument the offer cannot carry, naming it, rather than
+        offering something wrong: one defined elsewhere in the schema (a `$ref`
+        into `$defs`, which properties alone leave pointing at nothing), and an
+        object that does not name every key it takes - a map, one open to any
+        key, one naming none - which strict tool use cannot say: stamped strict,
+        it would take only the keys it named, and those may be none at all.
+        """
+        for argument, schema in input_schema.get(_PROPERTIES_KEY, {}).items():
+            if _anywhere_in(schema, _refers_elsewhere):
+                raise ValueError(f"tool {name!r} argument {argument!r} is defined "
+                                 f"elsewhere in its schema, which an offer does not carry")
+
+            if _anywhere_in(schema, _takes_keys_it_does_not_name):
+                raise ValueError(f"tool {name!r} argument {argument!r} is an object taking "
+                                 f"keys it does not name, which a strict offer cannot say")
+
+        return cls(
+            name=name,
+            description=description or "",
+            properties={argument: _untitled(schema)
+                        for argument, schema in input_schema.get(_PROPERTIES_KEY, {}).items()},
+            required=list(input_schema.get(_REQUIRED_KEY, []))
+        )
+
+    def without(self, *arguments: str) -> ToolDefinition:
+        """The same tool, less arguments its caller fills in itself.
+
+        Taken from `required` as well as `properties`: a schema demanding an
+        argument it does not offer is refused whole. The model is then offered
+        only what is its to choose, as LangChain's `InjectedToolArg` does.
+
+        Refuses an argument the tool does not take: a server that renamed one
+        would otherwise have it offered to the model again, under its new name.
+        """
+        unknown = [argument for argument in arguments if argument not in self.properties]
+
+        if unknown:
+            raise ValueError(f"tool {self.name!r} takes no {unknown} to leave out")
+
+        return self.model_copy(update={
+            "properties": {argument: schema for argument, schema in self.properties.items()
+                           if argument not in arguments},
+            "required": [argument for argument in self.required if argument not in arguments]
+        })
+
     def to_wire(self) -> dict[str, Any]:
         """Renders this tool as the API expects a tool offer to look.
 
@@ -94,6 +158,52 @@ class ToolDefinition(BaseModel):
                 }
             )
         }
+
+
+def _anywhere_in(schema: Any, found: Callable[[dict[str, Any]], bool]) -> bool:
+    """Whether any node of `schema` is one `found` picks out."""
+    if isinstance(schema, dict):
+        return found(schema) or any(_anywhere_in(value, found) for value in schema.values())
+
+    if isinstance(schema, list):
+        return any(_anywhere_in(item, found) for item in schema)
+
+    return False
+
+
+def _refers_elsewhere(node: dict[str, Any]) -> bool:
+    """A node defined by a reference rather than in place."""
+    return _REF_KEY in node
+
+
+def _takes_keys_it_does_not_name(node: dict[str, Any]) -> bool:
+    """An object open to keys beyond those it names - a map among them, whose
+    keys are anybody's - or one naming no keys at all."""
+    if node.get(_ADDITIONAL_PROPERTIES_KEY, False) is not False:
+        return True
+
+    return node.get(_TYPE_KEY) == _OBJECT_TYPE and _PROPERTIES_KEY not in node
+
+
+def _untitled(schema: Any) -> Any:
+    """The same schema, with no node carrying a `title`.
+
+    The keyword only: an argument called `title` is a key of `properties`, and
+    a properties map is walked by its values, never stripped of its keys.
+    """
+    if isinstance(schema, dict):
+        return {
+            key: ({argument: _untitled(value) for argument, value in inner.items()}
+                  if key == _PROPERTIES_KEY and isinstance(inner, dict)
+                  else _untitled(inner))
+            for key, inner in schema.items()
+            if key != _TITLE_KEY
+        }
+
+    if isinstance(schema, list):
+        return [_untitled(item) for item in schema]
+
+    return schema
 
 
 def _strictly(schema: Any) -> Any:

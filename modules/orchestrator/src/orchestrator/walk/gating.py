@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from agent_mitigation import a_mitigation_answers, is_within_reach
+from agent_mitigation import is_within_reach, why_nothing_was_proposed
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -16,14 +16,17 @@ from argus_core.events import (
 from argus_core.models import (
     Action,
     Attempt,
-    FailureMode,
+    Circumstances,
+    Hypothesis,
     Refusal,
     ServiceDependency,
     reports_what_it_changed,
     the_identity_of,
     the_subject_of,
+    why_it_was_refused,
 )
 
+from orchestrator.walk.candidates import the_circumstances
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import Admitted, RecordOutcome
 from orchestrator.walk.routes import (
@@ -35,49 +38,13 @@ from orchestrator.walk.state import IncidentState
 
 logger = logging.getLogger(__name__)
 
-# What the candidate's own row says stopped it, one sentence per reason. The
-# row is read beside the other candidates rather than on the timeline, so it
-# says what happened to *this* explanation in full - where the published event
-# carries the value anything counting refusals reads.
-#
-# A subscript rather than a `get`, deliberately: a refusal nobody has written a
-# sentence for is a refusal a reader would see as a blank row and take for a
-# candidate nothing happened to. What that costs is why it is reached through
-# the function below rather than read here - see `what_the_row_says`.
-_WHAT_THE_ROW_SAYS = {
-    Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed for this cause",
-    Refusal.NOTHING_ANSWERS_THIS_MODE: "no mitigation Argus can take answers "
-                                       "this kind of failure",
-    Refusal.NOT_A_GENERIC_MITIGATION: "actions of this kind are not among the "
-                                      "mitigations Argus may take unasked",
-    Refusal.ALREADY_TRIED_ENOUGH: "this has already been tried on this subject "
-                                  "as often as the incident allows",
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH: "this is addressed to a service "
-                                          "outside the estate Argus may act on",
-    Refusal.NOTHING_COULD_CONFIRM_IT: "nothing would say whether this worked "
-                                      "inside the time Argus waits, so it is "
-                                      "recommended rather than taken"
-}
-
-
-def what_the_row_says(refusal: Refusal) -> str:
-    """The sentence a refused candidate's row carries, for one refusal.
-
-    Public, and one line long, because the table it reads is a subscript on the
-    walk itself. A refusal with no entry does not degrade to a blank row - it
-    raises inside the gate, before anything has been tried and before anything
-    has been said, so the incident ends rather than its account being spoiled.
-    The narration's twin of this table cost exactly that once, in the milder
-    place, and was answered with a test over the whole enum; that test needs
-    something taking a `Refusal`, and the node takes a state it derives one
-    from.
-
-    So this is the unit, rather than a private name a test reaches past its own
-    rules to touch. Deriving the sentence and deciding the refusal are two jobs
-    anyway: one is a rendering, the other is the one judgement standing between
-    a proposal and production.
-    """
-    return _WHAT_THE_ROW_SAYS[refusal]
+# The refusals that are the diagnosis saying Argus takes nothing for this kind
+# of failure, for one reason or the other. Both end the mitigation phase the
+# same way; what differs is the sentence, and a reader's next call.
+_THE_MODE_HAS_NO_MITIGATION = frozenset({
+    Refusal.SOMEBODY_ELSES_SERVICE,
+    Refusal.WOULD_UNDO_A_MEANT_CHANGE
+})
 
 
 def tier_gate_node(
@@ -98,27 +65,28 @@ def tier_gate_node(
     however it is labelled. An incident with no action at all has nothing for
     this stage to admit.
 
-    Four of the six rejections are recorded and the walk moves on, rather than
+    Five of the eight rejections are recorded and the walk moves on, rather than
     ending the incident. The gate is judging *this* action, and the explanations
     after it on the list may be answered by a mitigation that is admitted -
     stopping there would let one unauthorised proposal spend the whole of
     Argus's autonomy. Where nothing follows, the node that decides that says so.
 
-    Two stop instead, because neither is a judgement on the action. One rejects
+    Three stop instead, because none is a judgement on the action. One rejects
     the possibility of confirming *any* action on this incident, so the next
     candidate would be refused for the same reason and would overwrite the
-    recommendation with its own on the way past. The other is the diagnosis
-    saying no mitigation applies: the candidate in hand is the likeliest
-    explanation still standing, and acting on a less likely one would be acting
-    against it.
+    recommendation with its own on the way past. The other two are the diagnosis
+    saying Argus takes no mitigation for this kind of failure - the fault is in
+    another company's service, or the one action that reaches it would undo a
+    change somebody meant: the candidate in hand is the likeliest explanation
+    still standing, and acting on a less likely one would be acting against it.
 
-    Those four refusals move the incident nowhere - a rejection is the end of
+    Those five refusals move the incident nowhere - a rejection is the end of
     this attempt, not of the incident, so the status is `mitigating` before and
-    after. The two that stop do move it, because neither is an attempt that
-    failed but an ending: one leaves a recommendation and the other a mode
-    nothing answers, and the status derives from each. So this node narrates in
-    exactly those cases and in no other, a narration for a move that did not
-    happen being a line in the account describing nothing.
+    after. The three that stop do move it, because none is an attempt that
+    failed but an ending: one leaves a recommendation and the other two a mode
+    Argus takes nothing for, and the status derives from each. So this node
+    narrates in exactly those cases and in no other, a narration for a move that
+    did not happen being a line in the account describing nothing.
 
     The refusal is published from here rather than returned as a sentence for
     somebody else to write down: this is the only place that knows a refusal
@@ -151,7 +119,12 @@ def tier_gate_node(
         state.dependencies,
         state.attempts,
         attempts_per_subject,
-        state.hypothesis.failure_mode if state.hypothesis is not None else None,
+        state.hypothesis,
+        # Built as the proposal node built them, so the gate says why nothing
+        # was proposed from the record the proposal was made against.
+        the_circumstances(state.alert, state.flag_changes, state.deployments,
+                          state.placement, deployment_changes=state.deployment_changes,
+                          onset=state.onset),
         # The two facts confirmability is read off. Dated by the alert rather
         # than measured from the service's own series, and whether any reading
         # covers the incident's minutes - both properties of the evidence, and
@@ -174,12 +147,14 @@ def tier_gate_node(
     if state.hypothesis is not None:
         record_outcome(state.hypothesis.id,
                        tested=False,
-                       result=what_the_row_says(refusal))
+                       result=why_it_was_refused(refusal))
 
     publish(
         ActionRefused(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id if state.hypothesis is not None else None,
+            candidate_number=(state.hypothesis.number if state.hypothesis is not None
+                              else None),
             refusal=refusal
         ),
         publisher
@@ -204,37 +179,38 @@ def tier_gate_node(
                 hypothesis_id=(
                     state.hypothesis.id if state.hypothesis is not None else None
                 ),
+                candidate_number=(
+                    state.hypothesis.number if state.hypothesis is not None else None
+                ),
                 action_type=recommended.action_type,
                 subject=the_identity_of(recommended).subject
             ),
             publisher
         )
 
-    if refusal is Refusal.NOTHING_ANSWERS_THIS_MODE:
-        # The second refusal that ends the mitigation phase, and it moves the
-        # incident, so it is narrated as the recommendation is.
+    if refusal in _THE_MODE_HAS_NO_MITIGATION:
+        # The other refusals that end the mitigation phase, and they move the
+        # incident, so they are narrated as the recommendation is.
         return StateDelta(
             proposed_action=None,
-            nothing_answers_the_mode=True,
-            narration=Narration(action="no mitigation answers this",
-                                detail=what_the_row_says(refusal))
+            the_mode_has_no_mitigation=True,
+            narration=Narration(action="no mitigation taken")
         )
 
     return StateDelta(
         proposed_action=None,
         recommended_action=recommended,
         # Only where there is a recommendation, because only then does this
-        # return move the incident. The other four refusals that reach it end an
+        # return move the incident. The other five refusals that reach it end an
         # attempt and leave the status where it was, and the walk refuses a move
         # nothing accounts for - which is how this was found, one case after the
         # ending was written.
         #
-        # The refusal's own sentence rather than a second one: a reader meeting
-        # this on the timeline and again on the candidate's row is meeting one
-        # fact, and two spellings of it would read as two.
+        # What was done alone, without the reason: the refusal's own line gives
+        # it one line above, and said again on the move the account reads the
+        # same sentence twice in a row.
         narration=(
-            Narration(action="action recommended",
-                      detail=what_the_row_says(refusal))
+            Narration(action="action recommended")
             if recommended is not None else None
         )
     )
@@ -246,24 +222,27 @@ def _why_the_action_cannot_proceed(action: Action | None,
                                    dependencies: Sequence[ServiceDependency],
                                    attempts: Sequence[Attempt],
                                    attempts_per_subject: int,
-                                   failure_mode: FailureMode | None,
+                                   hypothesis: Hypothesis | None,
+                                   circumstances: Circumstances | None,
                                    dated_by_the_alert: bool,
                                    readings_cover_the_incident: bool) -> Refusal | None:
     """Which refusal this is, or `None` when there is none to give.
 
-    Five rejections reach the same status for different reasons, and a human
-    reading the incident needs to know which: a kind of failure nothing answers,
-    nothing to do about a cause that does have an answer, something to do that
-    nobody pre-authorised, something aimed at a service Argus may not touch, or
-    something that has already been done to this subject as often as it may be.
-    Answered as the value, so that the sentence a reader sees is derived from it
-    in one place rather than written here and matched on somewhere else.
+    The rejections reach their statuses for different reasons, and a human
+    reading the incident needs to know which: a kind of failure Argus takes
+    nothing for and why, a change the candidate named that the record does not
+    hold, nothing to do about a cause that does have an answer, something to
+    do that nobody pre-authorised, something aimed at a service
+    Argus may not touch, or something that has already been done to this subject
+    as often as it may be. Answered as the value, so that the sentence a reader
+    sees is derived from it in one place rather than written here and matched on
+    somewhere else.
 
-    The first two are both "no action arrived", and telling them apart is the
-    whole reason the mode is read here. Which modes have an answer is asked of
-    the policy that holds the mapping rather than looked up locally: a gate
-    keeping its own copy of what Argus can do is a second copy to fall out of
-    step with the first.
+    The first three are all "no action arrived", and telling them apart is the
+    whole reason the candidate and the record it was proposed against are read
+    here. Which is which is asked of the policy that holds the mapping rather
+    than worked out locally: a gate keeping its own copy of what Argus can do
+    is a second copy to fall out of step with the first.
 
     Admission is asked of the set of declared mitigations rather than read off
     the action. Nothing about an instance can put its kind in or out of that
@@ -317,14 +296,7 @@ def _why_the_action_cannot_proceed(action: Action | None,
     minute, left as a recommendation, on an incident that reads as handled.
     """
     if action is None:
-        # A mode nobody determined is not a mode nothing answers. There was
-        # nothing to look a mitigation up by, which is the investigation coming
-        # up short - and telling a reader that this kind of failure has no
-        # answer would be saying something about a kind nobody named.
-        if failure_mode is not None and not a_mitigation_answers(failure_mode):
-            return Refusal.NOTHING_ANSWERS_THIS_MODE
-
-        return Refusal.NO_MITIGATION_PROPOSED
+        return why_nothing_was_proposed(hypothesis, circumstances)
 
     if not admitted(action):
         return Refusal.NOT_A_GENERIC_MITIGATION
@@ -361,7 +333,7 @@ def _times_already_tried(action: Action, attempts: Sequence[Attempt]) -> int:
     Both halves matter, which is why the comparison is against an identity
     rather than against two fields. Per subject, because restarting one service
     says nothing about whether another may be restarted - the blast radius of a
-    mitigation is the thing it acts on. And per kind, because a flag put back
+    mitigation is the thing it acts on. And per kind, because a flag reverted
     and a service restarted are different experiments that happen to share a
     name in the record. Written as two comparisons, either half could be
     dropped by an edit and the cap would go on looking like a cap.
@@ -377,22 +349,23 @@ def route_after_gate(state: IncidentState) -> str:
     two - the status is `mitigating` either way, because a rejection at the gate
     is not the end of the incident, only the end of this attempt.
 
-    Unless the refusal was one of the two that end the mitigation phase instead
+    Unless the refusal was one of the three that end the mitigation phase instead
     of moving on to the next explanation. The other refusals reject a particular
     action and leave the rest of the list worth trying. Nothing could confirm it
     rejects the possibility of confirming any action on this incident, so the
     next candidate would be refused for the same reason and would overwrite the
-    recommendation with its own on the way past. Nothing answers this mode is
-    the diagnosis saying no mitigation applies, and the next candidate is a less
-    likely reading of the same evidence - in a deliberate change the monitoring
-    did not follow, reliably the rollback that would undo it.
+    recommendation with its own on the way past. The two that say Argus takes
+    nothing for the mode are the diagnosis saying no mitigation applies, and the
+    next candidate is a less likely reading of the same evidence - in a
+    deliberate change the monitoring did not follow, reliably the rollback that
+    would undo it.
 
     Third, and on to Code-Fix rather than out of the graph, for the reason a
     mitigation that *worked* goes there: nobody is going to take an action, so
     the fault is still where it was and still worth a patch. Here it is the
     only thing anybody gets.
     """
-    if state.recommended_action is not None or state.nothing_answers_the_mode:
+    if state.recommended_action is not None or state.the_mode_has_no_mitigation:
         return FIXING_ROUTE
 
     return MITIGATING_ROUTE if state.proposed_action is not None else NEXT_CANDIDATE_ROUTE

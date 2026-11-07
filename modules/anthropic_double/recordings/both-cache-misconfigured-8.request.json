@@ -1,0 +1,316 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: The deployment of revision 0d8e826225f0de73958a8a8dd3d867b2ae249e72 at 2026-10-26T17:39:00Z changed the summary cache port in deploy/values-production.yaml from 6379 to 6380. Cache lookups are now refused on every request. The page falls back to the slow path, so p50 latency rose from about 26ms to about 190ms and cache_hit_ratio fell to 0. The code is unchanged and the cache itself is healthy.\n\nWhat that rests on:\n  - modified deploy/values-production.yaml: cache.port 6379 -> 6380 (only change in the diff)\n  - summary cache lookup failed - connection refused to redis://cache.io-shop.svc.cluster.local:6380 (200 of 200 requests)\n  - p50_ms 190, cache_hit_ratio 0.0, rule_reading 190.0 (baseline p50 about 26, hit ratio about 0.9)\n  - Deployment converged: all 3 replicas on 0d8e826225f0de73958a8a8dd3d867b2ae249e72\n\nFiles named in the evidence:\n  deploy/values-production.yaml\nThese are what the evidence names, which is not always where the fault lives.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01B44JxohKYanbgugMWWWAtx",
+          "input": {
+            "path": "deploy/values-production.yaml"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_016MVK81NqbrKuXw2DexgMdN",
+          "input": {
+            "path": "src/io_shop/summary_cache.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01R6f9VTw5CkFLi3QRtdNpRb",
+          "input": {
+            "query": "summary cache lookup failed"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 0\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
+          "tool_use_id": "toolu_01B44JxohKYanbgugMWWWAtx",
+          "type": "tool_result"
+        },
+        {
+          "content": "\"\"\"The spend figure Io has already worked out once, kept so it need not again.\n\nWorking the figure out means walking a shopper's whole purchase history, and an\naccount page is the most-visited page the shop has. So what that walk produced\nis cached under the shopper it belongs to, and the page reads the cache before\nit computes - which is what makes the shop fast rather than merely correct.\n\nAn entry carries the figure and the number of purchases it was worked out over,\nwritten down together as one piece of text. Both, because the page shows both,\nand a cache holding only the figure sends the page back to the purchase history\nfor the count - which is the walk the cache exists to avoid.\n\nNothing here fails a page. A cache that has nothing for this shopper, and a\ncache that cannot be reached at all, both end the same way: the page works the\nfigure out for itself and renders. That is the designed behaviour and it is\nload-bearing - a shop that failed when its cache did would be a shop whose cache\nis a dependency rather than an optimisation, and losing it would be an outage\ninstead of a slowdown.\n\nWhich is also why losing it is so easy to miss. Every page is still correct.\nThe only thing that changes is how long each one takes.\n\nWhere the cache lives is not this module's to know. The endpoint is deployment\nconfiguration, handed in by whoever is running the shop, and how it is reached\nis a seam the caller supplies.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom collections.abc import Callable\nfrom dataclasses import dataclass\n\n# How the cache is addressed, in the scheme its client speaks. Spelled out so\n# that the endpoint in a failure line is the endpoint the shop actually dialled\n# - a reader comparing it against what the configuration says is doing the one\n# comparison that diagnoses this.\n_ENDPOINT_FORMAT = \"redis://{host}:{port}\"\n\n# How an entry is written down, and what separates the two things it holds.\n# Spelled out so that the text a failure quotes is the text the shop wrote -\n# a reader setting one against the other is doing the one comparison that says\n# whether a writer and a reader agree about the shape.\n_ENTRY_FORMAT = \"{amount_cents}/{items_counted}\"\n_ENTRY_SEPARATOR = \"/\"\n\n\n@dataclass(frozen=True)\nclass CacheEndpoint:\n    \"\"\"Where the cache is, as the deployment configured it.\n\n    A value rather than a pair of loose strings, because the two are only an\n    address together and because the address is what a failure has to name. It\n    carries no client and opens nothing: this says where, and the seam says how.\n    \"\"\"\n\n    host: str\n    port: int\n\n    def __str__(self) -> str:\n        return _ENDPOINT_FORMAT.format(host=self.host, port=self.port)\n\n\n@dataclass(frozen=True)\nclass SummaryEntry:\n    \"\"\"What the cache holds for one shopper: the figure, and what it covers.\n\n    A value rather than a bare figure, because the two are only a summary\n    together. The account page shows what a shopper has spent *and* across how\n    many purchases, and an entry carrying the first alone leaves the page\n    walking the history for the second - which is the walk this cache exists to\n    save.\n\n    Written down as one piece of text, because that is what a cache stores: the\n    entry goes in under the shopper it belongs to and comes back as the same\n    characters. `__str__` is therefore the writer, exactly as it is for\n    `CacheEndpoint` above - one spelling of an entry, used to put it in and\n    quoted whenever something cannot read it back.\n    \"\"\"\n\n    amount_cents: int\n    items_counted: int\n\n    def __str__(self) -> str:\n        return _ENTRY_FORMAT.format(\n            amount_cents=self.amount_cents, items_counted=self.items_counted\n        )\n\n\ndef summary_entry_in(written: str) -> SummaryEntry | None:\n    \"\"\"The entry this text holds, or `None` where it holds none.\n\n    The shape above and no other. Text that does not carry the two fields an\n    entry has is text this revision has nothing to do with, and passing over it\n    is what the shop's fallback is for: the page works the figure out for\n    itself, which is the same thing it does for a shopper the cache has never\n    seen.\n\n    `None` rather than an exception for the same reason a miss is `None`. This\n    module fails no page - see the docstring at the top - and an entry that\n    cannot be read is, to the page in front of it, an entry that is not there.\n    \"\"\"\n    amount, separator, items = written.partition(_ENTRY_SEPARATOR)\n\n    if not separator:\n        return None\n\n    try:\n        return SummaryEntry(amount_cents=int(amount), items_counted=int(items))\n    except ValueError:\n        return None\n\n\n@dataclass(frozen=True)\nclass CacheAnswer:\n    \"\"\"One reply from the cache: whether it was reached, and what it held.\n\n    The two are separate because they mean different things to the shop even\n    though both end in a recomputation. A cache that answered and held nothing\n    is a cache working normally - every entry has a first request. A cache that\n    could not be reached is the shop's fast path gone, for every shopper at\n    once, and it is worth saying so.\n\n    Whether it was reached is carried rather than interpreted by whoever\n    fetched it, for the reason the provider's status is: turning it into the\n    shop's own words is this module's job, and a fetcher that composed them\n    would put that in as many places as there are ways to reach a cache.\n\n    What it held is the text the cache had under this shopper, unread. Reading\n    it is this module's job too, and a fetcher that handed back a parsed entry\n    would be deciding, in as many places as there are ways to reach a cache,\n    what an entry is.\n    \"\"\"\n\n    reached: bool\n    entry: str | None = None\n\n\nclass CacheUnreachable(Exception):\n    \"\"\"The cache could not be reached at all.\n\n    Raised so that the caller has to decide what to do about it, and caught\n    immediately by the one caller there is - which sounds pointless and is not.\n    A miss returns `None` and is unremarkable; this is a different fact about\n    the world, and a shop that returned `None` for both would have no way to\n    say which of them it is living through.\n    \"\"\"\n\n\n# How the cache is reached, given a shopper. A seam rather than a client, for\n# the reason the payment provider's is one: the shop is rendered many times over\n# to produce a minute of telemetry, and a connection per render would be\n# thousands of them per read.\ntype LookUpSummary = Callable[[str], CacheAnswer]\n\n\ndef cached_summary(shopper_id: str,\n                   look_up: LookUpSummary,\n                   endpoint: CacheEndpoint) -> SummaryEntry | None:\n    \"\"\"The entry the cache holds for this shopper, or `None` where it holds\n    none.\n\n    Raises `CacheUnreachable` when the cache did not answer, and the message is\n    the point of the function: it names the endpoint the shop dialled, port\n    included. A failure that said only \"cache unavailable\" would leave a reader\n    knowing the cache is gone and unable to work out why - where the endpoint,\n    set against the endpoint the configuration was supposed to carry, is the\n    whole diagnosis.\n    \"\"\"\n    answer = look_up(shopper_id)\n\n    if not answer.reached:\n        raise CacheUnreachable(f\"connection refused to {endpoint}\")\n\n    if answer.entry is None:\n        return None\n\n    return summary_entry_in(answer.entry)\n",
+          "tool_use_id": "toolu_016MVK81NqbrKuXw2DexgMdN",
+          "type": "tool_result"
+        },
+        {
+          "content": "no line in the repository matches that",
+          "tool_use_id": "toolu_01R6f9VTw5CkFLi3QRtdNpRb",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_011C5RqgdW4vVa8SXY4frJGL",
+          "input": {
+            "query": "CacheUnreachable"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01CnWDPncS1rwBn7yoBimZD6",
+          "input": {
+            "query": "6379"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "src/io_shop/account_page.py:34: CacheUnreachable,\nsrc/io_shop/account_page.py:238: except CacheUnreachable as unreachable:\nsrc/io_shop/summary_cache.py:138: class CacheUnreachable(Exception):\nsrc/io_shop/summary_cache.py:162: Raises `CacheUnreachable` when the cache did not answer, and the message is\nsrc/io_shop/summary_cache.py:172: raise CacheUnreachable(f\"connection refused to {endpoint}\")\ntests/io_shop/test_summary_cache.py:8: CacheUnreachable,\ntests/io_shop/test_summary_cache.py:112: with pytest.raises(CacheUnreachable):\ntests/io_shop/test_summary_cache.py:120: with pytest.raises(CacheUnreachable) as unreachable:",
+          "tool_use_id": "toolu_011C5RqgdW4vVa8SXY4frJGL",
+          "type": "tool_result"
+        },
+        {
+          "content": "tests/io_shop/test_account_page.py:193: SOME_CACHE_ENDPOINT = CacheEndpoint(host=\"cache.io-shop.svc.cluster.local\", port=6379)\ntests/io_shop/test_account_page.py:259: assert \"6379\" in page.cache_failure\ntests/io_shop/test_summary_cache.py:30: SOME_ENDPOINT = CacheEndpoint(host=\"cache.io-shop.svc.cluster.local\", port=6379)\ntests/io_shop/test_summary_cache.py:124: assert \"6379\" in str(unreachable.value)\ntests/io_shop/test_summary_cache.py:128: assert str(SOME_ENDPOINT) == \"redis://cache.io-shop.svc.cluster.local:6379\"",
+          "tool_use_id": "toolu_01CnWDPncS1rwBn7yoBimZD6",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01R7mnobtdA8DyYsG2XXFMu9",
+          "input": {
+            "path": "src/io_shop/account_page.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"Serving one account page - the shop's request boundary.\n\nThis is the line at which an exception stops being a bug and becomes an\nincident: everything below it raises, and here it is caught, recorded in the\nshop's own words, and turned into a failed response. It is the only place in the\nshop that catches broadly, and it does so on purpose - a request handler that let\nan unexpected error escape would take the worker with it instead of reporting a\nrate somebody can alert on.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport traceback\nfrom dataclasses import dataclass\nfrom pathlib import PurePath\nfrom typing import Final\n\nfrom io_shop.accounts import Account\nfrom io_shop.monthly_statement import (\n    MonthlyStatement,\n    StatementPeriod,\n    render_monthly_statement,\n)\nfrom io_shop.payment_provider import AskTheProvider, card_on_file\nfrom io_shop.pricing_service import (\n    AskThePricingService,\n    PricedBasket,\n    PricingServiceFailed,\n    basket_total,\n)\nfrom io_shop.spend_summary import render_spend_summary\nfrom io_shop.summary_cache import (\n    CacheEndpoint,\n    CacheUnreachable,\n    LookUpSummary,\n    cached_summary,\n)\nfrom io_shop.visits import record_visit\n\n\n@dataclass(frozen=True)\nclass RenderedPage:\n    \"\"\"How serving one account page went.\n\n    Either the page rendered, in which case the figure and the card are here -\n    and the basket total too, unless pricing could not give one, because the\n    page is worth showing without it - or it failed, in which case none of them is\n    and `failure` carries the error's own words and the line they were raised\n    on - because those are what reach the log and what a reader diagnoses from.\n    A generic \"request failed\" would describe every incident equally, and the\n    error's words alone name a fault without naming where it lives.\n\n    `statement` is the monthly statement panel, on the pages the newest rollout\n    reached and absent everywhere else. It sits beside the figure rather than\n    replacing it: the statement is a second thing the page shows, so a request\n    outside the rollout renders the page it always rendered rather than a\n    shorter one.\n\n    `served_from_cache` says whether the figure was read rather than worked out.\n    It is reported on a page that rendered perfectly well, because it is the\n    difference between the two ways of rendering perfectly well - and the share\n    of requests taking each is what says whether the shop's fast path is there.\n\n    `cache_failure` carries the words of a cache that could not be reached. It\n    sits beside `failure` rather than in it, and the distinction is the whole\n    scenario: this is a page that *succeeded* while something underneath it was\n    broken, so a reader sees it in the logs without seeing it in the error rate.\n\n    `pricing_delay` is the same shape of thing for the same reason: the words of\n    a pricing call that took longer than the shop thinks worth passing over. The\n    page was correct and the shopper was charged the right amount; what a reader\n    gets from this line is where the request's time went, which is the one thing\n    no amount of the shop's own telemetry can say.\n\n    `pricing_unavailable` is what the shopper is told in the basket total's\n    place when the pricing service gave no price, and `pricing_failure` is the\n    error's own words, for the log - a page that rendered without its basket\n    total, like one that rendered without its cache.\n    \"\"\"\n\n    figure_cents: int | None\n    card_last_four: str | None\n    failure: str | None\n    served_from_cache: bool = False\n    cache_failure: str | None = None\n    statement: MonthlyStatement | None = None\n    basket_total_cents: int | None = None\n    pricing_delay: str | None = None\n    pricing_unavailable: str | None = None\n    pricing_failure: str | None = None\n\n\n# What the page says in the basket total's place when pricing gave no price.\nPRICING_UNAVAILABLE: Final = \"Pricing is not available right now. Please check again later.\"\n\n\ndef serve_account_page(account: Account,\n                       use_monthly_summary: bool,\n                       ask_the_provider: AskTheProvider,\n                       ask_the_pricing_service: AskThePricingService,\n                       look_up_summary: LookUpSummary | None = None,\n                       cache_endpoint: CacheEndpoint | None = None,\n                       use_typical_spend: bool = False,\n                       use_monthly_statement: bool = False,\n                       statement_period: StatementPeriod | None = None\n                       ) -> RenderedPage:\n    \"\"\"Renders the account page, reporting a failure rather than raising one.\n\n    Three things are shown, and two of them are needed: what the shopper\n    averages per item, which Io works out for itself, and the card it would\n    charge, which only the payment provider knows. The third, what their basket\n    comes to, which the pricing service works out, is a convenience - the page\n    is still worth showing without it. The basket and the card are calls to\n    other services from inside a page render, which is ordinary and is why a\n    slowdown or an outage over there arrives here as Io's own latency and Io's\n    own error rate.\n\n    The two are not the same kind of neighbour, and nothing in this function\n    tells them apart: one is another team's service and one is another company's,\n    and which is which is published in the service catalogue rather than\n    inferred from a host name.\n\n    `use_monthly_summary` and `use_typical_spend` are the rollout decisions\n    already made - whether this request is one of the ones each new figure is\n    live for. The page does not make those decisions itself; it is told, the way\n    a handler is told by the flag SDK that evaluated for this user. Two of them\n    because there are two rollouts running, and a page carrying one boolean for\n    both would be a page that cannot say which feature a request got.\n\n    `look_up_summary` and `cache_endpoint` are how the figure is looked for\n    before it is worked out. Both optional and both absent together, because a\n    deployment that configured no cache has none - and a page that insisted on\n    one would make an optimisation into a requirement, which is the very thing\n    this shop's cache is not.\n\n    `use_monthly_statement` is the third rollout decision, and it arrives here\n    already made like the other two. `statement_period` is which month the\n    request is asking about, which the page is told rather than deriving: the\n    shop's purchase records carry a month flag and no date, so the only thing\n    here that knows the calendar is whoever handled the request.\n    \"\"\"\n    try:\n        figure_cents, from_cache, cache_failure = _the_figure_for(\n            account, use_monthly_summary, look_up_summary, cache_endpoint,\n            use_typical_spend\n        )\n        statement = _the_statement_for(\n            account, use_monthly_statement, statement_period\n        )\n        basket, pricing_failure = _the_basket_for(\n            account.shopper_id, ask_the_pricing_service\n        )\n        card = card_on_file(account.shopper_id, ask_the_provider)\n    except Exception as error:  # noqa: BLE001 - the boundary records anything\n        failure = f\"{type(error).__name__}: {error} at {_where_it_was_raised(error)}\"\n        record_visit(account.shopper_id, failure)\n\n        return RenderedPage(figure_cents=None, card_last_four=None, failure=failure)\n\n    record_visit(account.shopper_id, str(figure_cents))\n\n    return RenderedPage(figure_cents=figure_cents,\n                        card_last_four=card.last_four,\n                        failure=None,\n                        served_from_cache=from_cache,\n                        cache_failure=cache_failure,\n                        statement=statement,\n                        basket_total_cents=basket.total_cents if basket else None,\n                        pricing_delay=basket.slow_call if basket else None,\n                        pricing_unavailable=None if basket else PRICING_UNAVAILABLE,\n                        pricing_failure=pricing_failure)\n\n\ndef _the_basket_for(shopper_id: str,\n                    ask_the_pricing_service: AskThePricingService\n                    ) -> tuple[PricedBasket | None, str | None]:\n    \"\"\"The basket total, or nothing and the reason where pricing gave no price.\n\n    Caught here rather than at the boundary, because the page is worth showing\n    without its basket total, where it is not without the card.\n    \"\"\"\n    try:\n        return basket_total(shopper_id, ask_the_pricing_service), None\n    except PricingServiceFailed as error:\n        return None, f\"{type(error).__name__}: {error}\"\n\n\ndef _the_statement_for(account: Account,\n                       use_monthly_statement: bool,\n                       period: StatementPeriod | None) -> MonthlyStatement | None:\n    \"\"\"The monthly statement panel, where this request is one the rollout\n    reached, and nothing where it is not.\n\n    Nothing also where the request arrived without a period. That is a\n    misconfigured caller rather than a shopper's month, and rendering a\n    statement titled with a month nobody named would put a wrong heading over\n    correct figures - see `io_shop.monthly_statement.StatementPeriod`, which is\n    where that argument is made at length. A missing panel is visible to\n    whoever configured the rollout; a wrongly titled one is visible only to the\n    shopper.\n    \"\"\"\n    if not use_monthly_statement or period is None:\n        return None\n\n    return render_monthly_statement(account, period)\n\n\ndef _the_figure_for(\n    account: Account,\n    use_monthly_summary: bool,\n    look_up_summary: LookUpSummary | None,\n    cache_endpoint: CacheEndpoint | None,\n    use_typical_spend: bool\n) -> tuple[int, bool, str | None]:\n    \"\"\"The figure to show, whether it came from the cache, and what the cache\n    said if it could not be reached.\n\n    The cache is asked first and is allowed to fail. Whatever it does - answers\n    with a figure, answers with nothing, or cannot be reached at all - this\n    returns a figure, because the shop can always work one out. That is the\n    fallback the whole scenario rests on: the page is correct either way, and\n    the only thing the cache decides is how long getting here took.\n\n    A cache failure is returned rather than raised onward, because it is not\n    this request's failure. The request succeeded.\n    \"\"\"\n    if look_up_summary is None or cache_endpoint is None:\n        return render_spend_summary(\n            account,\n            use_monthly_summary=use_monthly_summary,\n            use_typical_spend=use_typical_spend\n        ), False, None\n\n    cache_failure: str | None = None\n\n    try:\n        found = cached_summary(account.shopper_id, look_up_summary, cache_endpoint)\n    except CacheUnreachable as unreachable:\n        found, cache_failure = None, str(unreachable)\n\n    if found is not None:\n        return found.amount_cents, True, cache_failure\n\n    return render_spend_summary(\n        account,\n        use_monthly_summary=use_monthly_summary,\n        use_typical_spend=use_typical_spend\n    ), False, cache_failure\n\n\ndef _where_it_was_raised(error: BaseException) -> str:\n    \"\"\"The innermost frame, as `path/to/file.py:line`.\n\n    The innermost rather than the boundary's own, because the boundary is where\n    every failure is caught and is therefore the same answer for all of them.\n    What a reader wants is the line that actually divided by zero.\n\n    Said as a repository path rather than the absolute one the interpreter\n    reports, so that the log names a file somebody can open. The frame's path is\n    wherever this happens to be installed - a container's site-packages, an\n    editable checkout - and none of those spellings exist in the repository.\n    \"\"\"\n    frames = traceback.extract_tb(error.__traceback__)\n\n    if not frames:\n        return \"an unknown line\"\n\n    innermost = frames[-1]\n\n    return f\"{_as_a_repository_path(innermost.filename)}:{innermost.lineno}\"\n\n\ndef _as_a_repository_path(filename: str) -> str:\n    \"\"\"The file as the repository spells it, if it can be recognised.\n\n    Cut at the package directory and put back under `src/`, which is where this\n    shop keeps its source. Anything unrecognisable is reported whole rather than\n    guessed at - a wrong path in a log is worse than a long one, because it\n    sends a reader to a file that does not exist and looks authoritative doing\n    it.\n    \"\"\"\n    parts = PurePath(filename).parts\n\n    if _PACKAGE not in parts:\n        return filename\n\n    return \"/\".join((\"src\", *parts[parts.index(_PACKAGE):]))\n\n\n_PACKAGE = \"io_shop\"\n",
+          "tool_use_id": "toolu_01R7mnobtdA8DyYsG2XXFMu9",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01Tr8uSc5xpgSzfQFfX63aa1",
+          "input": {
+            "query": "values-production"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "deploy/scrape.yaml:11: # The name here has to be the one `metrics.portName` in values-production.yaml\nsrc/io_shop/categorising.py:19: `deploy/values-production.yaml`.",
+          "tool_use_id": "toolu_01Tr8uSc5xpgSzfQFfX63aa1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
+      "strict": true
+    }
+  ]
+}

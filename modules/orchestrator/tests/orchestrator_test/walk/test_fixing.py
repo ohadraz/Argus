@@ -15,14 +15,23 @@ human it was on its way to, and the investigation behind it would be lost.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixStopped
+from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
+from argus_core import RunLost
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
     Alert,
+    ChangeEvent,
+    ChangeKind,
+    CodeUse,
+    FileAsItRan,
     FixOutcome,
     Hypothesis,
     IncidentStatus,
@@ -30,13 +39,23 @@ from argus_core.models import (
     OpenedPullRequest,
     ProposedFix,
     ThreadMessage,
+    Verdict,
+    WhatArgusDid,
     no_leads,
 )
 from argus_incidents import IsStillWanted
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
-from orchestrator.walk.ports import LeadsOf, ProposeFix
+from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -49,6 +68,11 @@ from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "buki-123"
+
+THE_ALERT_FIRED_AT = datetime(2026, 9, 27, 9, 20, tzinfo=UTC)
+AN_EARLIER_REVISION = "65279ee05d2cfae49802712847428bc55e794bb3"
+THE_REVISION_THAT_RAN = "383534e9bb182bb778e01fd22ba63f88885362e3"
+A_LATER_REVISION = "4c810f22894e612ced87f5ee3f3062dfeb785050"
 
 
 @pytest.mark.unit
@@ -125,6 +149,26 @@ def test_a_proposal_that_could_not_be_made_does_not_fail_the_walk() -> None:
             the_updates_carry("fix_found", False),
             _the_work_was_narrated()
         ))
+
+
+@pytest.mark.unit
+def test_a_proposal_stopped_because_the_run_was_lost_is_not_said_as_a_failed_fix() -> None:
+    # Not a bad afternoon either: the run is another claim's, and whatever this
+    # walk said of the fix would be said for an incident somebody else is
+    # walking. The worker is the one that answers it, by writing nothing more.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            an_agent_told_the_run_was_lost := _an_agent_that_fails(
+                RunLost("a newer claim holds this run")
+            )
+        ) \
+        .when(attempting(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_told_the_run_was_lost)
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
 
 
 @pytest.mark.unit
@@ -221,6 +265,77 @@ def test_what_code_fix_said_of_the_code_is_published_with_what_came_of_it(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("holds_what_ran", [True, False, None],
+                         ids=["holds-it", "does-not", "not-established"])
+def test_the_attempt_keeps_which_branch_code_fix_read_and_whether_it_holds_what_ran(
+        holds_what_ran: bool | None) -> None:
+    # The write-up reads the attempt, not the agent. A fix written against a
+    # branch that does not hold what ran changes nothing that runs once merged -
+    # not until a deploy carries it - and only Code-Fix's opening ever knew.
+    published: list[IncidentEvent] = []
+    some_branch = "main"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_that_read(some_branch, holds_what_ran)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_says_it_read(some_branch, holds_what_ran, published)
+        )
+
+
+@pytest.mark.unit
+def test_the_attempt_keeps_the_files_code_fix_s_reading_names_as_they_ran() -> None:
+    # The write-up reads the attempt: what ran is what settles a reading made
+    # on a branch that is other text.
+    published: list[IncidentEvent] = []
+    some_file = FileAsItRan(path="deploy/scrape.yaml", revision=THE_REVISION_THAT_RAN,
+                            as_read=False, content="selector:\n  port: metrics\n")
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_finding([some_file])
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_found_as_they_ran([some_file], published)
+        )
+
+
+@pytest.mark.unit
+def test_the_attempt_keeps_how_the_code_outside_the_patch_uses_what_it_changes() -> None:
+    # The write-up reads the attempt: what the code outside the patch does with
+    # what it changes is said there by the code, which a survey of readers in
+    # Code-Fix's words was not.
+    published: list[IncidentEvent] = []
+    some_use = CodeUse(name="total_this_month_cents", path="src/io_shop/spend_reconciliation.py",
+                       line=109, function="reconcile_monthly_totals",
+                       does="compares it with _bought_this_month(account)")
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_finding_the_uses([some_use])
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_found_the_uses_outside([some_use], published)
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_that_needs_code_outside_is_published_as_written_and_not_opened() -> None:
     # Neither a proposal nor "nothing to change": the model wrote a fix and
     # said it helps nobody until code outside the repository changes too. A
@@ -291,6 +406,43 @@ def test_a_proposal_that_could_not_be_made_is_published_as_a_failure() -> None:
                 FixOutcome.NOT_POSSIBLE, None, published
             ),
             _the_attempt_says_why(what_stopped_it, published)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("left_on", ["argus/fix-abc", None], ids=["a-branch", "no-branch"])
+def test_a_proposal_that_could_not_be_made_keeps_the_fix_code_fix_wrote(
+        left_on: str | None) -> None:
+    # GitHub answered 500 to a pull request, and the reading of the code that
+    # came with the fix went nowhere: the write-up had no account of the
+    # mechanism, and its action items lost the fix to review. The reading is a
+    # finding whether or not the proposal could be opened - and the fix itself
+    # is still on the branch it was written to, where that write landed.
+    published: list[IncidentEvent] = []
+    some_reading = "spend_summary divides by the month's purchase count, 0 for a new shopper"
+    what_stopped_it = "could not open a pull request: GitHub answered 500 Internal Server Error"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_could_not := _an_agent_raising(FixNotProposed(
+                what_stopped_it,
+                reading=ProposedFix(pull_request=None, explanation=some_reading),
+                branch=left_on
+            ))
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_could_not,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            _exactly_one_attempt_was_announced(
+                FixOutcome.NOT_POSSIBLE, None, published
+            ),
+            _the_attempt_says_why(what_stopped_it, published),
+            _the_attempt_explains(some_reading, published),
+            _the_attempt_left_a_fix_unproposed_on(left_on, published)
         ))
 
 
@@ -382,6 +534,88 @@ def test_a_model_that_declined_is_not_reported_as_a_repository_that_refused() ->
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("error", "reason"), [
+    (RuntimeError("could not create branch: 403 Forbidden"),
+     "could not create branch: 403 Forbidden"),
+    (FixNotAnswered("read for 12 turns without submitting a fix"),
+     "read for 12 turns without submitting a fix"),
+    (FixDeclined("the model declined to write a fix"), "")
+], ids=["not-possible", "not-answered", "declined"])
+def test_a_fix_that_failed_says_why_once_on_its_own_line(error: Exception,
+                                                         reason: str) -> None:
+    # The attempt's own line opens by saying what happened - "Could not propose
+    # a fix" - so the attempt carries the reason alone. Handed the move's words
+    # as well, it read "Could not propose a fix - the fix could not be proposed:
+    # ...", saying the one thing twice. A refusal has no reason to carry: the
+    # sentence that the model declined is all there is.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_failed := _an_agent_raising(error)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_failed,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_says_only(reason, published)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("error", "the_move_says"), [
+    (RuntimeError("could not create branch: 403 Forbidden"),
+     "the fix could not be proposed: could not create branch: 403 Forbidden"),
+    (FixNotAnswered("read for 12 turns without submitting a fix"),
+     "the agent did not finish looking: read for 12 turns without submitting a fix"),
+    (FixDeclined("the model declined to write a fix"), "the model declined to write one")
+], ids=["not-possible", "not-answered", "declined"])
+def test_the_move_after_a_failed_fix_says_what_failed_and_why(error: Exception,
+                                                              the_move_says: str) -> None:
+    # The move's line has no sentence of its own about the fix - "Moved the
+    # incident to ESCALATED" - so it carries both: what failed, and why, where
+    # there is a why.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_failed := _an_agent_raising(error)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_that_failed)
+        ) \
+        .then(
+            _the_move_says(the_move_says)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("holds_back", "the_move_says"), [
+    (False, "no code-level fix found"),
+    (True, "the fix Code-Fix wrote helps only once code outside the repository changes as well")
+], ids=["not-warranted", "not-opened"])
+def test_the_move_after_a_fix_left_unopened_says_why_and_not_that_a_person_has_it(
+        holds_back: bool, the_move_says: str) -> None:
+    # The move is the hand-over, and wherever it is read - its own line, the
+    # postmortem's "Ended by" after "escalated to a person" - that is said
+    # already. The reason says only why, in words that stand without the
+    # attempt's own line before them.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_holding_back() if holds_back else _an_agent_offering(None)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent)
+        ) \
+        .then(
+            _the_move_says(the_move_says)
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_stopped_because_nobody_wants_it_any_more_says_nothing() -> None:
     # Not an attempt that ended in any of its outcomes - somebody said stop.
     # Announcing one would put a line on the timeline about a fix nobody asked
@@ -454,6 +688,35 @@ def test_the_agent_is_handed_what_people_told_this_incident() -> None:
 
 
 @pytest.mark.unit
+def test_the_agent_is_told_what_argus_did_about_this_incident() -> None:
+    # Code-Fix was shown each lead as it was weighed, before anything was
+    # tried, and nothing after it - so a recorded fix said the investigation had
+    # left the flag open, when one revert had refuted it and the next had
+    # confirmed it. Read off the record rather than the walk's state, because
+    # the record is what says whether each change still stands.
+    some_done = [WhatArgusDid(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                                                      subject="kuki-flag"),
+                              verdict=Verdict.REFUTED,
+                              standing="put back when it did not help")]
+    asked: list[str] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 the_agent.propose,
+                                 what_argus_did=_a_record_noting_who_it_is_asked_about(
+                                     asked, some_done))
+        ) \
+        .then(
+            _what_argus_did_handed_down_is(some_done, the_agent, asked, DONT_CARE_INCIDENT_ID)
+        )
+
+
+@pytest.mark.unit
 def test_a_node_nobody_is_listening_to_still_does_its_work() -> None:
     # Publishing is an account, never a participant (spec §4 principle 8). A
     # node that behaved differently with no subscriber would make every test
@@ -508,6 +771,76 @@ def test_the_agent_is_told_which_incident_it_is_fixing() -> None:
         ) \
         .then(
             _the_agent_was_asked_for_incident(the_agent, some_incident)
+        )
+
+
+@pytest.mark.unit
+def test_the_agent_is_told_the_revision_running_when_the_alert_fired() -> None:
+    # Code-Fix reads one branch, and is told when that branch does not hold
+    # what ran. What ran is the newest deploy the alert came after - not one
+    # made since, which a rollback or anybody else may have put out, and not
+    # the newest before the onset: a deploy that stopped a series' rows lands
+    # after its last row, and is still the one that ran.
+    Scenario() \
+        .given(
+            an_incident_after_three_deploys := _an_incident_in(
+                IncidentStatus.FIXING,
+                alert=Alert(service="kuki", alert_name="HighErrorRate",
+                            started_at=THE_ALERT_FIRED_AT),
+                deployments=[
+                    _a_deploy(AN_EARLIER_REVISION, "2026-09-27T09:00:00Z"),
+                    _a_deploy(THE_REVISION_THAT_RAN, "2026-09-27T09:14:00Z"),
+                    _a_deploy(A_LATER_REVISION, "2026-09-27T09:30:00Z")
+                ]
+            ),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_after_three_deploys, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_told_what_ran(the_agent, THE_REVISION_THAT_RAN)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_deploy_recorded_tells_the_agent_of_none() -> None:
+    # Nothing known to have run is nothing to ask the branch about - and a
+    # history nobody could read is not one in which something was deployed.
+    Scenario() \
+        .given(
+            an_incident_with_no_deploys_read := _an_incident_in(
+                IncidentStatus.FIXING, deployments=None
+            ),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_with_no_deploys_read, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_told_what_ran(the_agent, None)
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_that_dated_nothing_tells_the_agent_of_none() -> None:
+    # With no instant to bound it, the newest deploy could be the walk's own
+    # rollback - and Code-Fix would be told of a revision that never caused
+    # anything. Silence loses a caveat; the guess could state something false.
+    Scenario() \
+        .given(
+            an_incident_whose_alert_dated_nothing := _an_incident_in(
+                IncidentStatus.FIXING,
+                alert=Alert(service="kuki", alert_name="HighErrorRate", started_at=None),
+                deployments=[_a_deploy(THE_REVISION_THAT_RAN, "2026-09-27T09:14:00Z")]
+            ),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_whose_alert_dated_nothing, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_told_what_ran(the_agent, None)
         )
 
 
@@ -611,17 +944,23 @@ class _AnAgentRememberingWhatItWasAsked:
         self.incident_id: str | None = None
         self.still_wanted: StillWanted | None = None
         self.leads: Leads | None = None
+        self.done: Sequence[WhatArgusDid] | None = None
+        self.deployed: str | None = None
 
     def propose(self,
                 hypothesis: Hypothesis | None,
                 incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
         self.still_wanted = still_wanted
         self.leads = leads
+        self.done = done
+        self.deployed = deployed
 
         return ProposedFix(pull_request=None, explanation=None)
 
@@ -633,8 +972,57 @@ def _an_agent_offering(proposal: OpenedPullRequest | None,
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=proposal, explanation=explaining)
+
+    return propose
+
+
+def _an_agent_that_read(branch: str, holds_what_ran: bool | None) -> ProposeFix:
+    """Code-Fix, having proposed a fix from `branch`, which held what ran or not."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
+        return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
+                           branch_read=branch, holds_what_ran=holds_what_ran)
+
+    return propose
+
+
+def _an_agent_finding(as_it_ran: list[FileAsItRan]) -> ProposeFix:
+    """Code-Fix, having proposed a fix whose reading names files read again
+    at the revision that ran."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
+        return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
+                           as_it_ran=as_it_ran)
+
+    return propose
+
+
+def _an_agent_finding_the_uses(uses_outside: list[CodeUse]) -> ProposeFix:
+    """Code-Fix, having proposed a fix whose patch changes what the code
+    outside it uses."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
+        return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
+                           uses_outside=uses_outside)
 
     return propose
 
@@ -646,7 +1034,9 @@ def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=None, explanation=explaining,
                            needs_code_outside=True)
 
@@ -665,7 +1055,9 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
         raise failure
 
     return propose
@@ -677,11 +1069,36 @@ def a_pull_request(url: str = "https://github.invalid/dont-care/dont-care/pull/1
 
 
 def _an_incident_in(status: IncidentStatus,
-                    hypothesis: Hypothesis | None = None) -> IncidentState:
+                    hypothesis: Hypothesis | None = None,
+                    alert: Alert = DONT_CARE_ALERT,
+                    deployments: list[ChangeEvent] | None = None) -> IncidentState:
     return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
-                         alert=DONT_CARE_ALERT,
+                         alert=alert,
                          status=status,
-                         hypothesis=hypothesis)
+                         hypothesis=hypothesis,
+                         deployments=deployments)
+
+
+def _a_deploy(revision: str, at: str) -> ChangeEvent:
+    return ChangeEvent(kind=ChangeKind.DEPLOY,
+                       occurred_at=at,
+                       reference=revision,
+                       summary="dont-care-summary")
+
+
+def _the_agent_was_told_what_ran(
+    agent: _AnAgentRememberingWhatItWasAsked, revision: str | None
+) -> Assertion[StateDelta]:
+    def assertion(_updates: StateDelta) -> bool:
+        if agent.deployed != revision:
+            raise AssertionError(
+                f"Expected Code-Fix to be told [{revision}] was running, it was "
+                f"told [{agent.deployed}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_agent_was_asked_about(
@@ -761,7 +1178,9 @@ def _an_agent_raising(error: Exception) -> ProposeFix:
                dont_care_incident_id: str,
                *,
                still_wanted: StillWanted = wanted_throughout,
-               leads: Leads = no_leads) -> Any:
+               leads: Leads = no_leads,
+               done: Sequence[WhatArgusDid] = (),
+               deployed: str | None = None) -> Any:
         raise error
 
     return refuse
@@ -794,6 +1213,25 @@ def _exactly_one_attempt_was_announced(
     return assertion
 
 
+def _the_attempt_left_a_fix_unproposed_on(branch: str | None,
+                                          published: list[IncidentEvent]
+                                          ) -> Assertion[StateDelta]:
+    """A fix Code-Fix wrote and nothing proposes, and the branch it is on -
+    `None` where it is on none."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        attempt = next(event for event in published if isinstance(event, FixAttempted))
+
+        if not attempt.unproposed or attempt.branch_written != branch:
+            raise AssertionError(
+                f"Expected the attempt to leave a fix unproposed on [{branch}], got "
+                f"unproposed [{attempt.unproposed}] on [{attempt.branch_written}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_attempt_explains(explanation: str,
                           published: list[IncidentEvent]) -> Assertion[StateDelta]:
     """What Code-Fix said of the code, on the one account of the step."""
@@ -811,6 +1249,58 @@ def _the_attempt_explains(explanation: str,
     return assertion
 
 
+def _the_attempt_says_it_read(branch: str,
+                              holds_what_ran: bool | None,
+                              published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """Which branch Code-Fix read, and whether it held what ran, on the attempt."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = [(event.branch_read, event.holds_what_ran) for event in published
+                if isinstance(event, FixAttempted)]
+        if said != [(branch, holds_what_ran)]:
+            raise AssertionError(
+                f"Expected the attempt to say Code-Fix read [{branch}], holding what "
+                f"ran [{holds_what_ran}], got {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_found_as_they_ran(expected: list[FileAsItRan],
+                                   published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The files Code-Fix's reading names, as they ran, on the attempt."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        found = [event.as_it_ran for event in published if isinstance(event, FixAttempted)]
+        if found != [expected]:
+            raise AssertionError(
+                f"Expected the attempt to carry the files as they ran, {expected}, "
+                f"got {found}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_found_the_uses_outside(expected: list[CodeUse],
+                                        published: list[IncidentEvent]
+                                        ) -> Assertion[StateDelta]:
+    """How the code outside Code-Fix's patch uses what it changes, on the
+    attempt."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        found = [event.uses_outside for event in published if isinstance(event, FixAttempted)]
+        if found != [expected]:
+            raise AssertionError(
+                f"Expected the attempt to carry how the code outside the patch uses "
+                f"what it changes, {expected}, got {found}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_attempt_says_why(reason: str,
                           published: list[IncidentEvent]) -> Assertion[StateDelta]:
     """The failure's own words, because the next question is always why."""
@@ -821,6 +1311,36 @@ def _the_attempt_says_why(reason: str,
         if not any(reason in detail for detail in said):
             raise AssertionError(
                 f"Expected an attempt mentioning [{reason}], got {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_move_says(expected: str) -> Assertion[StateDelta]:
+    """What the move after this step says of it, whole: a reason after the
+    words saying what failed is the reason, and anything more is noise."""
+    def assertion(updates: StateDelta) -> bool:
+        said = updates.narration.detail if updates.narration is not None else None
+
+        if said != expected:
+            raise AssertionError(f"Expected the move to say [{expected}], it said [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_says_only(reason: str,
+                           published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The reason and nothing before it: the attempt's line says the rest."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = [event.detail for event in published if isinstance(event, FixAttempted)]
+
+        if said != [reason]:
+            raise AssertionError(
+                f"Expected the one attempt to say [{reason}] and nothing more, got {said}."
             )
 
         return True
@@ -867,6 +1387,37 @@ def _the_question_handed_down_asks_about(agent: _AnAgentRememberingWhatItWasAske
             raise AssertionError(
                 f"Expected the question handed down to ask about incident "
                 f"[{incident_id}], and it asked about {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_record_noting_who_it_is_asked_about(asked: list[str],
+                                           done: list[WhatArgusDid]) -> WhatArgusDidIn:
+    def what_argus_did(incident_id: str, /) -> list[WhatArgusDid]:
+        asked.append(incident_id)
+        return done
+
+    return what_argus_did
+
+
+def _what_argus_did_handed_down_is(expected: list[WhatArgusDid],
+                                   agent: _AnAgentRememberingWhatItWasAsked,
+                                   asked: list[str],
+                                   incident_id: str) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if asked != [incident_id]:
+            raise AssertionError(
+                f"Expected what Argus did to be read for incident [{incident_id}], "
+                f"and it was read for {asked}."
+            )
+
+        if agent.done is None or list(agent.done) != expected:
+            raise AssertionError(
+                f"Expected Code-Fix to be told Argus did {expected}, and it was told "
+                f"{agent.done}."
             )
 
         return True

@@ -32,9 +32,9 @@ from agent_investigator.retrieval import (
     MetricsFetcher,
     RolloutFetcher,
 )
-from agent_investigator.tools import LOGS_TOOL, METRICS_TOOL, Dispatcher
+from agent_investigator.tools import DEPLOYMENT_DIFF_TOOL, LOGS_TOOL, METRICS_TOOL, Dispatcher
 from argus_core.mcp_transport import McpToolError
-from argus_core.models import ToolResult
+from argus_core.models import DeploymentChanges, ToolResult
 from argus_core.replay import CallType, Replay, ReplayEntry
 from argus_testkit import (
     Assertion,
@@ -43,6 +43,7 @@ from argus_testkit import (
     all_of,
     calling,
     one_record_was_logged,
+    the_answer_was,
 )
 
 from agent_investigator_test.framework.assertions.tool_results import (
@@ -77,6 +78,29 @@ def test_a_result_answers_the_call_it_was_made_for() -> None:
         ) \
         .then(
             the_result_answers(some_call_id)
+        )
+
+
+@pytest.mark.unit
+def test_what_each_deployment_changed_is_kept_under_its_revision() -> None:
+    # What the investigation hands the walk, which answers a candidate blaming
+    # a file by the deploy whose diff names it.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_changes = DeploymentChanges(said=["modified src/io_shop/purchase_ledger.py"],
+                                     lists_every_file=True)
+    some_dispatcher = a_dispatcher(reads_a_deployment=create_autospec(
+        DeploymentDiffFetcher, instance=True, return_value=some_changes))
+
+    Scenario() \
+        .given(
+            calling(lambda: some_dispatcher.dispatch(
+                a_call_to(DEPLOYMENT_DIFF_TOOL, revision=some_revision)))
+        ) \
+        .when(
+            lambda: some_dispatcher.deployment_changes
+        ) \
+        .then(
+            the_answer_was({some_revision: some_changes})
         )
 
 

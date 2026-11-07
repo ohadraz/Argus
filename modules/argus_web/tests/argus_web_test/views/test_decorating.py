@@ -20,8 +20,10 @@ import pytest
 from argus_core import new_id
 from argus_core.events import (
     ActionTaken,
+    AnchoredOnTheAlarm,
     FixAttempted,
     OnsetDetected,
+    SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
 )
@@ -29,14 +31,18 @@ from argus_core.models import (
     FixOutcome,
     IncidentStatus,
     OpenedPullRequest,
+    RecalledIncident,
     Verdict,
 )
-from argus_narration import NarrationLine, a_narration_line
+from argus_narration import NarrationLine, a_narration_line, shown
 from argus_testkit import Assertion, Scenario, all_of
-from argus_web.views.decorating import DecoratedLine, decorated
+from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
 
 SOME_MINUTE = "2026-08-30T10:03:00Z"
 SOME_FLAG = "monthly-spend-feature"
+
+# The rows a page holds, where no line in the case leads to one.
+DONT_CARE_ROWS = RowsHeld(minutes=[], logged=[], flags=[])
 
 
 @pytest.mark.unit
@@ -49,7 +55,7 @@ def test_a_status_line_wears_the_badge_the_header_wears() -> None:
                 StatusChanged(incident_id=new_id(), to_status=IncidentStatus.RESOLVED)
             )
         ) \
-        .when(lambda: decorated(the_incident_resolving)) \
+        .when(lambda: decorated(the_incident_resolving, held=DONT_CARE_ROWS)) \
         .then(_it_is_dressed_as(f"moved-to {IncidentStatus.RESOLVED}"))
 
 
@@ -81,7 +87,7 @@ def test_a_verdict_line_is_dressed_as_the_verdict_it_reached() -> None:
                 VerdictReached(incident_id=new_id(), hypothesis_id=None, outcome=some_verdict)
             )
         ) \
-        .when(lambda: decorated(the_verdict)) \
+        .when(lambda: decorated(the_verdict, held=DONT_CARE_ROWS)) \
         .then(_it_is_dressed_as(f"verdict {some_verdict}"))
 
 
@@ -95,7 +101,7 @@ def test_a_line_with_nothing_marked_is_dressed_as_nothing() -> None:
                 OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)
             )
         ) \
-        .when(lambda: decorated(a_plain_line)) \
+        .when(lambda: decorated(a_plain_line, held=DONT_CARE_ROWS)) \
         .then(_it_is_dressed_as(""))
 
 
@@ -109,8 +115,39 @@ def test_the_onset_line_points_at_the_minute_it_named() -> None:
                 OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)
             )
         ) \
-        .when(lambda: decorated(the_onset)) \
+        .when(lambda: decorated(the_onset, held=_holding(minutes=[SOME_MINUTE]))) \
         .then(_it_points_at(f"#minute-{SOME_MINUTE}", "show the minute"))
+
+
+@pytest.mark.unit
+def test_the_line_saying_where_the_investigation_looked_from_points_at_that_minute() -> None:
+    # Where nothing dated the incident, the minute the investigation looked from
+    # is the one minute the account is about, and finding it by hand is the work
+    # the link saves.
+    Scenario() \
+        .given(
+            the_anchor := a_narration_line(
+                AnchoredOnTheAlarm(incident_id=new_id(), minute=SOME_MINUTE)
+            )
+        ) \
+        .when(lambda: decorated(the_anchor, held=_holding(minutes=[SOME_MINUTE]))) \
+        .then(_it_points_at(f"#minute-{SOME_MINUTE}", "show the minute"))
+
+
+@pytest.mark.unit
+def test_an_onset_at_a_minute_the_page_holds_no_row_for_points_at_nothing() -> None:
+    # The metrics stopped at the onset, so their table ended a minute before
+    # it, and "show the minute" led to no row. A link that lands nowhere is
+    # worse than none.
+    Scenario() \
+        .given(
+            the_onset := a_narration_line(
+                OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)
+            )
+        ) \
+        .when(lambda: decorated(the_onset,
+                                held=_holding(minutes=["2026-08-30T10:02:00Z"]))) \
+        .then(_it_points_at("", ""))
 
 
 @pytest.mark.unit
@@ -128,8 +165,29 @@ def test_an_action_line_points_at_the_change_it_reverted() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(the_action)) \
+        .when(lambda: decorated(the_action, held=_holding(flags=[SOME_FLAG]))) \
         .then(_it_points_at(f"#flag-{SOME_FLAG}", "the change it reverted"))
+
+
+@pytest.mark.unit
+def test_an_action_on_a_flag_the_page_holds_no_row_for_points_at_nothing() -> None:
+    # A flag has a row only where the flag history read holds it. An action on
+    # one it does not hold led to "the change it reverted" and landed nowhere -
+    # the onset's dead link again, by another kind of line.
+    Scenario() \
+        .given(
+            the_action := a_narration_line(
+                ActionTaken(
+                    incident_id=new_id(),
+                    hypothesis_id=new_id(),
+                    action_type="revert-feature-flag",
+                    subject=SOME_FLAG,
+                    enabled=False
+                )
+            )
+        ) \
+        .when(lambda: decorated(the_action, held=_holding(flags=["some-other-flag"]))) \
+        .then(_it_points_at("", ""))
 
 
 @pytest.mark.unit
@@ -143,7 +201,7 @@ def test_a_line_that_read_a_channel_points_at_nothing() -> None:
                 VerdictReached(incident_id=new_id(), hypothesis_id=None, outcome=Verdict.CONFIRMED)
             )
         ) \
-        .when(lambda: decorated(the_verdict)) \
+        .when(lambda: decorated(the_verdict, held=DONT_CARE_ROWS)) \
         .then(_it_points_at("", ""))
 
 
@@ -166,8 +224,32 @@ def test_a_proposed_fix_makes_the_address_it_marked_clickable() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(the_proposal)) \
+        .when(lambda: decorated(the_proposal, held=DONT_CARE_ROWS)) \
         .then(_the_marked_word_is_a_link_to(where_it_can_be_read))
+
+
+@pytest.mark.unit
+def test_a_proposed_fix_shown_by_its_name_makes_the_name_clickable() -> None:
+    # Shown, the line marks "PR #7" rather than the address, and the name is
+    # the way there.
+    where_it_can_be_read = "https://example.invalid/pull/7"
+
+    Scenario() \
+        .given(
+            the_proposal := shown(a_narration_line(
+                FixAttempted(
+                    incident_id=new_id(),
+                    outcome=FixOutcome.PROPOSED,
+                    pull_request=OpenedPullRequest(
+                        number=7, url=where_it_can_be_read, branch="argus/fix-abc"
+                    ),
+                    detail="dont care what the node said"
+                )
+            ), {}, {where_it_can_be_read: "PR #7"})
+        ) \
+        .when(lambda: decorated(the_proposal, held=DONT_CARE_ROWS)) \
+        .then(all_of(_it_still_marks(the_proposal),
+                     _the_marked_word_is_a_link_to(where_it_can_be_read)))
 
 
 @pytest.mark.unit
@@ -185,8 +267,52 @@ def test_a_fix_that_proposed_nothing_marks_a_word_that_is_not_a_link() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(could_not)) \
+        .when(lambda: decorated(could_not, held=DONT_CARE_ROWS)) \
         .then(_the_marked_word_is_a_link_to(""))
+
+
+@pytest.mark.unit
+def test_an_earlier_incident_a_line_names_leads_to_that_incident_s_page() -> None:
+    # A whole id is a name nobody looks up by hand, so the word in the sentence
+    # is made the way there. Added to the links a shown line already carries
+    # rather than in place of them: a revision the same line names still leads
+    # to its commit.
+    some_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+    some_revision = "7c3ca00"
+    where_it_was_committed = "https://example.invalid/commit/7c3ca00"
+
+    Scenario() \
+        .given(
+            the_recall := a_narration_line(
+                SimilarIncidentsRecalled(
+                    incident_id=new_id(),
+                    recalled=[RecalledIncident(incident_id=some_earlier_incident, tried=[])]
+                )
+            ).model_copy(update={"links": {some_revision: where_it_was_committed}})
+        ) \
+        .when(lambda: decorated(the_recall, held=DONT_CARE_ROWS)) \
+        .then(all_of(
+            _it_links(some_earlier_incident, f"/incidents/{some_earlier_incident}"),
+            _it_links(some_revision, where_it_was_committed)
+        ))
+
+
+@pytest.mark.unit
+def test_a_line_naming_no_earlier_incident_gains_no_link() -> None:
+    Scenario() \
+        .given(
+            the_action := a_narration_line(
+                ActionTaken(
+                    incident_id=new_id(),
+                    hypothesis_id=new_id(),
+                    action_type="revert-feature-flag",
+                    subject=SOME_FLAG,
+                    enabled=False
+                )
+            )
+        ) \
+        .when(lambda: decorated(the_action, held=DONT_CARE_ROWS)) \
+        .then(_it_links_nothing())
 
 
 @pytest.mark.unit
@@ -205,8 +331,13 @@ def test_everything_the_line_already_said_is_still_said() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(the_action)) \
+        .when(lambda: decorated(the_action, held=DONT_CARE_ROWS)) \
         .then(all_of(_it_still_reads_as(the_action), _it_still_marks(the_action)))
+
+
+def _holding(minutes: list[str] | None = None, flags: list[str] | None = None) -> RowsHeld:
+    """A page holding rows for these minutes and these flags, and nothing else."""
+    return RowsHeld(minutes=minutes or [], logged=[], flags=flags or [])
 
 
 def _it_is_dressed_as(expected: str) -> Assertion[DecoratedLine]:
@@ -241,6 +372,28 @@ def _the_marked_word_is_a_link_to(expected: str) -> Assertion[DecoratedLine]:
                 f"Expected the marked word linking to [{expected}], "
                 f"got [{line.emphasis_href}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _it_links(word: str, address: str) -> Assertion[DecoratedLine]:
+    def assertion(line: DecoratedLine) -> bool:
+        if line.links.get(word) != address:
+            raise AssertionError(
+                f"Expected [{word}] linking to [{address}], got the links {line.links}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_links_nothing() -> Assertion[DecoratedLine]:
+    def assertion(line: DecoratedLine) -> bool:
+        if line.links:
+            raise AssertionError(f"Expected no links, got {line.links}.")
 
         return True
 

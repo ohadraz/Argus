@@ -29,11 +29,13 @@ the question, and hide it as an empty answer.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_core.models import DeploymentChanges, DeploymentComparison
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.scenario import Scenario, attempting
 from deployment_platform import DeploymentPlatformReads, DeploymentRecord
 from read_mcp_server.deployments import (
@@ -81,6 +83,15 @@ A_NUMBERED_MODULE = "src/io_shop/module_{number}.py"
 # One patch line per file, so that a test about the line budget is about the
 # budget and not about how long a diff happens to be.
 A_ONE_LINE_PATCH = "@@ -1 +1 @@\n"
+
+# Where the two revisions' lines of history part, for a deploy cut from before
+# the revision that ran.
+THE_MERGE_BASE = "a97029318f2d4c6b8e0a1c3e5f7092b4d6f8a0c2"
+
+# What a deploy back to an earlier revision took away: a file the revision
+# before had, removed.
+THE_SCRAPE_CONFIGURATION = "deploy/scrape.yaml"
+THE_SCRAPE_REMOVED = "@@ -1,2 +0,0 @@\n-scrape:\n-  port: metrics\n"
 
 
 @pytest.mark.unit
@@ -376,6 +387,247 @@ def test_a_repository_that_could_not_be_compared_raises() -> None:
 
 
 @pytest.mark.unit
+def test_a_deploy_ahead_of_the_one_before_it_is_said_as_it_always_was() -> None:
+    # The ordinary deploy, and every recording's: nothing in what the model is
+    # shown of it moves.
+    compare = a_comparison_finding(
+        a_changed_file(THE_CONFIGURATION_FILE, patch=THE_PORT_THAT_MOVED)
+    )
+
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                platform=an_application_deployed_twice(),
+                compare=compare
+            ).said
+        ) \
+        .then(the_answer_was([
+            f"Deployment of revision {THE_REVISION_DEPLOYED} to {SOME_SERVICE}, compared "
+            f"against {THE_REVISION_DEPLOYED_BEFORE} - the revision deployed before it.",
+            f"modified {THE_CONFIGURATION_FILE}",
+            "  @@ -24,4 +24,4 @@ cache:",
+            "     host: cache.io-shop.svc.cluster.local",
+            "  -  port: 6379",
+            "  +  port: 6380"
+        ]))
+
+
+@pytest.mark.unit
+def test_a_deploy_back_to_an_earlier_revision_says_it_went_back_and_what_it_took_away(
+) -> None:
+    # Listed by what it brought, a deploy back to an ancestor brought nothing,
+    # and read as a deploy that changed no file at all - which rules it out.
+    compare = a_comparison_finding(
+        relation="behind",
+        taken_away=(a_changed_file(THE_SCRAPE_CONFIGURATION, patch=THE_SCRAPE_REMOVED,
+                                   status="removed"),)
+    )
+
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                platform=an_application_deployed_twice(),
+                compare=compare
+            )
+        ) \
+        .then(all_of(
+            _the_answer_mentions(f"It went back: {THE_REVISION_DEPLOYED} is in the history of "
+                                 f"{THE_REVISION_DEPLOYED_BEFORE}"),
+            _the_answer_mentions(f"removed {THE_SCRAPE_CONFIGURATION}"),
+            _the_answer_mentions("-  port: metrics"),
+            _the_answer_does_not_mention("changed no file")
+        ))
+
+
+@pytest.mark.unit
+def test_a_deploy_from_another_line_says_what_it_brought_and_what_it_took_away() -> None:
+    # Cut from before the revision that ran, it brings its own side and takes
+    # the other's away - and said by its own side alone, it was half of what
+    # changed. What it took away first: a file both sides changed is listed
+    # twice, and its two patches compose only in the deploy's own order - back
+    # to where the lines part, then on to what it deployed.
+    compare = a_comparison_finding(
+        a_changed_file(THE_SOURCE_FILE, patch=A_ONE_LINE_PATCH),
+        relation="diverged",
+        merge_base=THE_MERGE_BASE,
+        taken_away=(a_changed_file(THE_CONFIGURATION_FILE, patch=THE_PORT_THAT_MOVED),)
+    )
+
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                platform=an_application_deployed_twice(),
+                compare=compare
+            )
+        ) \
+        .then(all_of(
+            _the_answer_says_in_order(
+                f"part at {THE_MERGE_BASE}. It took away what {THE_REVISION_DEPLOYED_BEFORE} "
+                f"had changed since then:",
+                f"modified {THE_CONFIGURATION_FILE}",
+                f"and brought what {THE_REVISION_DEPLOYED} changed since then:",
+                f"modified {THE_SOURCE_FILE}")
+        ))
+
+
+@pytest.mark.unit
+def test_a_deploy_from_another_line_with_no_merge_base_named_says_the_lines_parted() -> None:
+    # Where the comparison names none, the model is told the lines parted - and
+    # never that they part at "None", a commit it would go looking for.
+    compare = a_comparison_finding(
+        a_changed_file(THE_SOURCE_FILE, patch=A_ONE_LINE_PATCH),
+        relation="diverged",
+        merge_base=None
+    )
+
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                platform=an_application_deployed_twice(),
+                compare=compare
+            )
+        ) \
+        .then(all_of(
+            _the_answer_mentions("The two revisions are on lines of history that have parted."),
+            _the_answer_does_not_mention("None")
+        ))
+
+
+@pytest.mark.unit
+def test_a_copy_taken_away_says_why_it_has_no_diff() -> None:
+    # Not the generic reason: the copy is text, and the comparison does carry a
+    # diff for it - one against its source, which is not what removing it took
+    # out. A wrong reason handed to a model is worse than none.
+    compare = a_comparison_finding(
+        relation="behind",
+        taken_away=(ChangedFile(path=SOME_IMAGE, status="removed",
+                                copied_from=THE_SOURCE_FILE),)
+    )
+
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                platform=an_application_deployed_twice(),
+                compare=compare
+            )
+        ) \
+        .then(all_of(
+            _the_answer_mentions(f"it was a copy of {THE_SOURCE_FILE}"),
+            _the_answer_does_not_mention("it is not text")
+        ))
+
+
+@pytest.mark.unit
+def test_a_deploy_back_to_a_revision_holding_the_same_files_changed_no_file() -> None:
+    # Neither side lists a file: the two revisions hold the same files, however
+    # they stand in history.
+    compare = a_comparison_finding(relation="behind")
+
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                platform=an_application_deployed_twice(),
+                compare=compare
+            )
+        ) \
+        .then(_the_answer_mentions("changed no file"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("brought", "taken_away", "cut_off", "lists_every_file"), [
+    (1, 0, False, True),
+    (0, 0, False, True),
+    (1, 0, True, False),
+    (MOST_FILES_NAMED + 1, 0, False, False),
+    (MOST_FILES_NAMED, 1, False, False)
+], ids=["listed", "nothing", "cut-off", "more-than-named", "both-sides-past-named"])
+def test_the_answer_says_whether_it_lists_every_file_the_two_revisions_differ_in(
+        brought: int, taken_away: int, cut_off: bool, lists_every_file: bool) -> None:
+    # Where it does, a file it does not name is as it was at the revision it
+    # compares against - which the write-up says, and may only say there.
+    compare = a_comparison_finding(
+        *_numbered_files(brought),
+        more_files_than_listed=cut_off,
+        relation="diverged" if taken_away else "ahead",
+        merge_base=THE_MERGE_BASE if taken_away else None,
+        taken_away=_numbered_files(taken_away, from_number=brought)
+    )
+
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED,
+                some_settings(),
+                platform=an_application_deployed_twice(),
+                compare=compare
+            ).lists_every_file
+        ) \
+        .then(the_answer_was(lists_every_file))
+
+
+@pytest.mark.unit
+def test_a_deployment_with_nothing_before_it_lists_no_file() -> None:
+    # No diff was read, so none is listed whole.
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                THE_REVISION_DEPLOYED_BEFORE,
+                some_settings(),
+                platform=an_application_deployed_once(),
+                compare=a_comparison_finding()
+            ).lists_every_file
+        ) \
+        .then(the_answer_was(False))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("revision", "platform", "comparison"), [
+    (THE_REVISION_DEPLOYED, lambda: an_application_deployed_twice(),
+     DeploymentComparison.COMPARED),
+    (THE_REVISION_DEPLOYED_BEFORE, lambda: an_application_deployed_once(),
+     DeploymentComparison.NOTHING_BEFORE_IT),
+    (A_FLAG_NAME, lambda: an_application_deployed_twice(),
+     DeploymentComparison.NOT_DEPLOYED)
+], ids=["compared", "nothing-before-it", "not-deployed"])
+def test_the_answer_says_whether_a_comparison_was_made_and_why_not_where_none_was(
+        revision: str, platform: Callable[[], Any], comparison: DeploymentComparison) -> None:
+    # Only a comparison is a diff. The other two answers are facts about the
+    # history, said to a model in its words - and every other reader says them
+    # in its own, which it can do only knowing which answer this is.
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                revision,
+                some_settings(),
+                platform=platform(),
+                compare=a_comparison_finding()
+            ).comparison
+        ) \
+        .then(the_answer_was(comparison))
+
+
+@pytest.mark.unit
 def test_the_answer_says_which_two_revisions_it_is_about() -> None:
     # What reads this is a model rather than the caller that asked. A diff that
     # does not say what it is a diff of is one the reader has to trust it was
@@ -429,8 +681,12 @@ def a_changed_file(path: str,
 
 
 def a_comparison_finding(*files: ChangedFile,
-                         more_files_than_listed: bool = False) -> Any:
-    """The repository comparison, answering with the files named.
+                         more_files_than_listed: bool = False,
+                         relation: str = "ahead",
+                         merge_base: str | None = None,
+                         taken_away: tuple[ChangedFile, ...] = ()) -> Any:
+    """The repository comparison, answering with the files named - and, for a
+    deploy that is not ahead of the one before it, with what it took away.
 
     A double rather than the real reader: what belongs here is what this module
     does with a difference once it has one, and reading a repository is
@@ -441,7 +697,10 @@ def a_comparison_finding(*files: ChangedFile,
         base=THE_REVISION_DEPLOYED_BEFORE,
         head=THE_REVISION_DEPLOYED,
         files=tuple(files),
-        more_files_than_listed=more_files_than_listed
+        more_files_than_listed=more_files_than_listed,
+        relation=relation,
+        merge_base=merge_base,
+        taken_away=taken_away
     )
 
     return compare
@@ -501,13 +760,13 @@ def _a_history_of(*deployed: tuple[str, str]) -> Any:
     return platform
 
 
-def _the_answer_mentions(wanted: str) -> Assertion[list[str]]:
+def _the_answer_mentions(wanted: str) -> Assertion[DeploymentChanges]:
     """Something a model has to be able to read in the answer."""
-    def assertion(answered: list[str]) -> bool:
-        if not any(wanted in line for line in answered):
+    def assertion(answered: DeploymentChanges) -> bool:
+        if not any(wanted in line for line in answered.said):
             raise AssertionError(
                 f"Expected the answer to mention [{wanted}], and it says "
-                f"{answered}."
+                f"{answered.said}."
             )
 
         return True
@@ -515,13 +774,13 @@ def _the_answer_mentions(wanted: str) -> Assertion[list[str]]:
     return assertion
 
 
-def _the_answer_does_not_mention(unwanted: str) -> Assertion[list[str]]:
+def _the_answer_does_not_mention(unwanted: str) -> Assertion[DeploymentChanges]:
     """Something whose presence would mean the answer had lost its subject."""
-    def assertion(answered: list[str]) -> bool:
-        if any(unwanted in line for line in answered):
+    def assertion(answered: DeploymentChanges) -> bool:
+        if any(unwanted in line for line in answered.said):
             raise AssertionError(
                 f"Expected the answer not to mention [{unwanted}], and it says "
-                f"{answered}."
+                f"{answered.said}."
             )
 
         return True
@@ -529,11 +788,11 @@ def _the_answer_does_not_mention(unwanted: str) -> Assertion[list[str]]:
     return assertion
 
 
-def _at_most_this_many_files_were_named(ceiling: int) -> Assertion[list[str]]:
+def _at_most_this_many_files_were_named(ceiling: int) -> Assertion[DeploymentChanges]:
     """How many of the changed paths reached the answer."""
-    def assertion(answered: list[str]) -> bool:
+    def assertion(answered: DeploymentChanges) -> bool:
         named = [
-            line for line in answered
+            line for line in answered.said
             if A_NUMBERED_MODULE.format(number="").rstrip(".py") in line
         ]
 
@@ -548,11 +807,36 @@ def _at_most_this_many_files_were_named(ceiling: int) -> Assertion[list[str]]:
     return assertion
 
 
+def _the_answer_says_in_order(*wanted: str) -> Assertion[DeploymentChanges]:
+    """Each of these in some line of the answer, each after the one before it."""
+    def assertion(answered: DeploymentChanges) -> bool:
+        at = 0
+        for one in wanted:
+            found = next((place for place, line in enumerate(answered.said)
+                          if place >= at and one in line), None)
+            if found is None:
+                raise AssertionError(
+                    f"Expected the answer to say {list(wanted)} in that order, and "
+                    f"[{one}] is not after what came before it in {answered.said}."
+                )
+            at = found + 1
+
+        return True
+
+    return assertion
+
+
+def _numbered_files(count: int, from_number: int = 0) -> tuple[ChangedFile, ...]:
+    """That many distinct files, where nothing about them but how many matters."""
+    return tuple(a_changed_file(A_NUMBERED_MODULE.format(number=number), patch=None)
+                 for number in range(from_number, from_number + count))
+
+
 def _the_comparison_made_was(compare: Any,
                              base: str,
-                             head: str) -> Assertion[list[str]]:
+                             head: str) -> Assertion[DeploymentChanges]:
     """Which two revisions the repository was actually asked about."""
-    def assertion(dont_care_answer: list[str]) -> bool:
+    def assertion(dont_care_answer: DeploymentChanges) -> bool:
         if not compare.call_args_list:
             raise AssertionError(
                 f"Expected a comparison of [{base}] with [{head}], and no "
@@ -573,7 +857,7 @@ def _the_comparison_made_was(compare: Any,
     return assertion
 
 
-def _no_comparison_was_made(compare: Any) -> Assertion[list[str]]:
+def _no_comparison_was_made(compare: Any) -> Assertion[DeploymentChanges]:
     """That the repository was left alone.
 
     Asserted rather than assumed: there is nothing to compare in either of the
@@ -581,7 +865,7 @@ def _no_comparison_was_made(compare: Any) -> Assertion[list[str]]:
     revision the history does not hold - answered by the API with a failure that
     reads as a repository problem.
     """
-    def assertion(dont_care_answer: list[str]) -> bool:
+    def assertion(dont_care_answer: DeploymentChanges) -> bool:
         if compare.call_args_list:
             raise AssertionError(
                 f"Expected no comparison to be asked for, and "

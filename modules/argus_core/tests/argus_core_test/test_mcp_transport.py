@@ -29,14 +29,19 @@ from unittest.mock import create_autospec
 
 import pytest
 import uvicorn
+from argus_core import Fence, Holding, RunLost
 from argus_core.mcp_transport import (
+    LEFT_BEHIND_KNOWN_MARKER,
+    LEFT_BEHIND_MARKER,
     ActionExhausted,
     McpClient,
     McpToolError,
     McpUnreachable,
     PlatformUnreachable,
     TracedFastMCP,
+    a_refusal_saying_what_it_left,
     an_unreachable_platform,
+    every_tool_listed,
     serving_a_tool_call,
     what_was_left_behind,
 )
@@ -48,9 +53,10 @@ from argus_core.telemetry import (
     MCP_CLIENT_OPERATION_DURATION,
     MCP_METHOD_NAME,
 )
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
+from mcp.types import ListToolsResult, Tool
 from opentelemetry import baggage
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import SpanContext, SpanKind, StatusCode
@@ -70,6 +76,7 @@ LONG_ENOUGH_TO_HAVE_COME_BACK = 15.0
 
 SOMETHING = TypeAdapter(list[str])
 A_COUNT = TypeAdapter(int)
+A_FENCE_HEARD = TypeAdapter(dict[str, object])
 
 NOTHING_IS_LISTENING_HERE = "http://127.0.0.1:8199/mcp"
 DONT_CARE_TOOL = "say_something"
@@ -121,6 +128,59 @@ def test_one_session_answers_every_call_made_over_it(
 
 
 @pytest.mark.component
+def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
+    running_double: RunningDouble
+) -> None:
+    # The server owns its tools' definitions, and a client reads them rather
+    # than keeping copies - every one, as declared: which of them anybody offers
+    # a model, and whether it can be, is the offer's to decide.
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, lambda client: client.list_tools())
+        ) \
+        .then(
+            all_of(
+                _the_tools_listed_are([
+                    "say_something", "refuse", "refuse_without_a_word", "times_refused",
+                    "refuse_as_exhausted",
+                    "refuse_as_unreachable_platform",
+                    "refuse_as_unreachable_platform_mid_action",
+                    "refuse_saying_it_left_nothing", "refuse_saying_what_it_left",
+                    "refuse_with_what_it_left", "refuse_as_lost_run",
+                    "the_fence_i_was_sent", "dawdle", "the_trace_i_am_in"
+                ]),
+                _the_tool_listed_requires("dawdle", ["seconds"]),
+                _the_tool_listed_is_described("refuse_as_exhausted",
+                                              "Refuses the way a tier refuses")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_list_of_tools_in_pages_is_read_to_its_last_page() -> None:
+    # MCP pages `tools/list`: an answer naming a next cursor has more to come,
+    # and a client stopping at the first page offers the model a part of what
+    # the server serves.
+    some_pages = {
+        None: ListToolsResult(tools=[_a_listed_tool("first"), _a_listed_tool("second")],
+                              nextCursor="after-second"),
+        "after-second": ListToolsResult(tools=[_a_listed_tool("third")])
+    }
+
+    async def page(cursor: str | None) -> ListToolsResult:
+        return some_pages[cursor]
+
+    Scenario() \
+        .when(
+            lambda: [tool.name for tool in asyncio.run(every_tool_listed(page))]
+        ) \
+        .then(
+            the_answer_was(["first", "second", "third"])
+        )
+
+
+@pytest.mark.component
 def test_a_tool_that_refused_is_raised_rather_than_asked_again(
     running_double: RunningDouble
 ) -> None:
@@ -141,6 +201,44 @@ def test_a_tool_that_refused_is_raised_rather_than_asked_again(
             _what_was_raised_was(McpToolError),
             _the_tool_was_asked(times=1)
         ))
+
+
+@pytest.mark.component
+def test_a_refusal_is_said_in_the_tools_own_words(running_double: RunningDouble) -> None:
+    """What a tool said when it refused, and nothing the transport wrapped it in.
+
+    The refusal is read by a person - in an escalation's reason, the timeline,
+    the postmortem and a Slack line - and it used to arrive as the SDK's own
+    "Error executing tool ..." inside the `repr` of a list of content blocks.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, _refusing_once_and_counting)
+        ) \
+        .then(
+            _what_was_raised_said("this tool always refuses")
+        )
+
+
+@pytest.mark.component
+def test_a_refusal_without_a_word_still_says_whose_it_was(
+    running_double: RunningDouble
+) -> None:
+    """A tool that refused in no words is named in their place.
+
+    Stripping what the SDK put in front of a refusal leaves nothing where the
+    tool said nothing, and an empty reason in an escalation tells a person
+    neither what failed nor where to look.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, _refusing_without_a_word)
+        ) \
+        .then(
+            _what_was_raised_said("[refuse_without_a_word] failed and said nothing")
+        )
 
 
 @pytest.mark.component
@@ -178,6 +276,115 @@ def test_an_ordinary_refusal_is_not_read_as_an_exhausted_action(
             _what_was_raised_was(McpToolError),
             _what_was_raised_was_not(ActionExhausted)
         ))
+
+
+@pytest.mark.component
+def test_a_call_made_while_a_run_is_held_says_which_claim_it_is_made_for(
+    running_double: RunningDouble
+) -> None:
+    # What the write tier decides a change by: a change made for a claim the run
+    # has moved past is a second walk acting on somebody else's incident. In
+    # each call's `_meta` rather than in a header, because the session is held
+    # and its headers were fixed before any run was claimed.
+    some_fence = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    holding = Holding()
+
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_while_holding(running_double, holding, some_fence, _the_fence_sent)
+        ) \
+        .then(
+            the_answer_was({"run_id": some_fence.run_id, "epoch": some_fence.epoch})
+        )
+
+
+@pytest.mark.component
+def test_each_call_says_the_claim_held_as_it_is_made(running_double: RunningDouble) -> None:
+    # A worker's write client is one session for the life of the process, and
+    # the process walks one run after another over it. A claim read once, when
+    # the session opened, would be the first run's claim said for every run
+    # after it.
+    some_first_run = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    some_next_run = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000002", epoch=1)
+    holding = Holding()
+
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_holding(running_double, holding, lambda client: [
+                _the_fence_sent_while_holding(holding, some_first_run, client),
+                _the_fence_sent_while_holding(holding, some_next_run, client)
+            ])
+        ) \
+        .then(
+            the_answer_was([
+                {"run_id": some_first_run.run_id, "epoch": some_first_run.epoch},
+                {"run_id": some_next_run.run_id, "epoch": some_next_run.epoch}
+            ])
+        )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("holding", [None, Holding()], ids=["no-holding", "nothing-held"])
+def test_a_call_made_while_no_run_is_held_names_none(
+    holding: Holding | None, running_double: RunningDouble
+) -> None:
+    # A web route's read, or a worker between runs. The tier answers a change
+    # that names no run as an ordinary refusal, so naming none here must not
+    # be naming some other run.
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_holding(running_double, holding, _the_fence_sent)
+        ) \
+        .then(
+            the_answer_was({})
+        )
+
+
+@pytest.mark.component
+def test_a_refusal_the_server_marked_as_a_lost_run_says_so_and_is_not_asked_again(
+    running_double: RunningDouble
+) -> None:
+    # The walk stops on it, writing nothing more - so it arrives as the walk's
+    # own `RunLost` rather than as a tool that broke. And it is not asked again
+    # over a new session: the run is lost over every session there is.
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking(running_double, _refusing_as_a_lost_run_and_counting)
+        ) \
+        .then(all_of(
+            _what_was_raised_was(RunLost),
+            _the_tool_was_asked(times=1)
+        ))
+
+
+@pytest.mark.component
+def test_an_ordinary_refusal_is_not_read_as_a_lost_run(
+    running_double: RunningDouble
+) -> None:
+    # A walk told its run was lost writes nothing more, so a broken tool read as
+    # one would end an incident in silence rather than at a human.
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking(running_double, _refusing_once_and_counting)
+        ) \
+        .then(
+            _what_was_raised_was_not(RunLost)
+        )
 
 
 @pytest.mark.component
@@ -388,6 +595,111 @@ def test_a_descriptor_recording_that_there_was_nothing_before_survives_the_cross
             an_unreachable_platform(PLATFORM, WHAT_THE_TIER_SAID, left_behind)
         )) \
         .then(_it_came_back_as(left_behind))
+
+
+@pytest.mark.component
+def test_a_refusal_saying_it_left_nothing_is_known_to_have_changed_nothing() -> None:
+    """A tier that refused before it asked for anything to change says so.
+
+    The refusal is still an ordinary one - the platform answered and said no, so
+    nothing is narrowed and nothing is spent - but a caller can now tell it from
+    a failure nobody can account for, and say the estate is as it was.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with("refuse_saying_it_left_nothing"))) \
+            .then(all_of(
+                _what_was_raised_was(McpToolError),
+                _what_was_raised_was_not(ActionExhausted),
+                _what_was_raised_was_not(PlatformUnreachable),
+                _what_it_left_behind_is_known(True),
+                _it_left_nothing_behind()
+            ))
+
+
+@pytest.mark.component
+def test_a_refusal_saying_what_it_left_carries_it_and_is_known() -> None:
+    """A tier refused the action's own write after suspending reconciliation.
+
+    The application is sitting un-reconciled, and the refusal is the only record
+    of it - so it travels on the failure, and the failure says that is all.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with("refuse_saying_what_it_left"))) \
+            .then(all_of(
+                _what_was_raised_was(McpToolError),
+                _what_was_raised_was_not(PlatformUnreachable),
+                _what_it_left_behind_is_known(True),
+                _what_it_left_behind_is(WHAT_WAS_LEFT_BEHIND)
+            ))
+
+
+@pytest.mark.component
+def test_a_refusal_that_may_have_changed_more_still_carries_what_it_knows_it_left() -> None:
+    """A tier whose change request may have landed, after one that surely did.
+
+    Not known: the request whose answer was lost may be taking effect this
+    second. What the earlier calls answered for is still carried, because the
+    suspension they report is in place either way and something has to put it
+    back.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with("refuse_with_what_it_left"))) \
+            .then(all_of(
+                _what_was_raised_was(McpToolError),
+                _what_was_raised_was_not(PlatformUnreachable),
+                _what_it_left_behind_is_known(False),
+                _what_it_left_behind_is(WHAT_WAS_LEFT_BEHIND)
+            ))
+
+
+@pytest.mark.component
+def test_an_ordinary_refusal_is_not_known_to_have_changed_nothing(
+    running_double: RunningDouble
+) -> None:
+    """A tool that raised for a reason nobody foresaw has said nothing about the
+    estate, and is not taken to have said it was untouched."""
+    Scenario() \
+        .given(running_double) \
+        .when(_asking(running_double, _refusing_once_and_counting)) \
+        .then(all_of(
+            _what_it_left_behind_is_known(False),
+            _it_left_nothing_behind()
+        ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(
+    "tool", ["refuse_as_exhausted", "refuse_as_unreachable_platform"],
+    ids=["exhausted", "unreachable platform"]
+)
+def test_a_refusal_marked_for_its_kind_is_known_to_say_what_it_left(tool: str) -> None:
+    """Both markers already promise it: an exhausted action is spent before
+    anything is touched, and a platform is only marked unreachable where the
+    tier can say what it left behind."""
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with(tool))) \
+            .then(_what_it_left_behind_is_known(True))
+
+
+@pytest.mark.unit
+def test_a_refusal_says_it_is_known_before_the_descriptor_it_carries() -> None:
+    # The descriptor runs to the end of the message, which is how it is read
+    # back: anything after it would be read as part of it.
+    Scenario() \
+        .given(WHAT_WAS_LEFT_BEHIND) \
+        .when(lambda: a_refusal_saying_what_it_left(WHAT_THE_TIER_SAID, WHAT_WAS_LEFT_BEHIND)) \
+        .then(all_of(
+            _the_marker_comes_before_the_payload(),
+            _it_reads_back_as(WHAT_WAS_LEFT_BEHIND)
+        ))
 
 
 @pytest.mark.component
@@ -692,6 +1004,60 @@ def test_a_tool_that_raised_is_logged_as_a_warning_by_the_server(
         )
 
 
+def _a_listed_tool(name: str) -> Tool:
+    return Tool(name=name, description="dont care what it does",
+                inputSchema={"type": "object", "properties": {}})
+
+
+def _the_tools_listed_are(expected: list[str]) -> Assertion[list[Tool]]:
+    def assertion(listed: list[Tool]) -> bool:
+        names = [tool.name for tool in listed]
+
+        if names != expected:
+            raise AssertionError(f"Expected the server's tools listed as {expected}, "
+                                 f"got {names}.")
+
+        return True
+
+    return assertion
+
+
+def _the_tool_listed_requires(name: str, required: list[str]) -> Assertion[list[Tool]]:
+    def assertion(listed: list[Tool]) -> bool:
+        declared = _the_tool_named(listed, name).inputSchema.get("required")
+
+        if declared != required:
+            raise AssertionError(
+                f"Expected [{name}] to require {required}, got {declared}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tool_listed_is_described(name: str, words: str) -> Assertion[list[Tool]]:
+    def assertion(listed: list[Tool]) -> bool:
+        described = _the_tool_named(listed, name).description or ""
+
+        if words not in described:
+            raise AssertionError(f"Expected [{name}] described with [{words}], got "
+                                 f"[{described}].")
+
+        return True
+
+    return assertion
+
+
+def _the_tool_named(listed: list[Tool], name: str) -> Tool:
+    found = [tool for tool in listed if tool.name == name]
+
+    if len(found) != 1:
+        raise AssertionError(f"Expected one tool named [{name}], got {len(found)}.")
+
+    return found[0]
+
+
 def _served_raising(observed: Observed, tool: str, error: Exception) -> None:
     """The server's half alone: one tool call that raised while it was served."""
     with serving_a_tool_call(tool, None, tracer=observed.tracer):
@@ -749,6 +1115,59 @@ def _refusing_once_and_counting(client: McpClient) -> _Attempt:
         )
 
     return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python))
+
+
+def _refusing_without_a_word(client: McpClient) -> _Attempt:
+    try:
+        client.call("refuse_without_a_word", SOMETHING.validate_python)
+    except Exception as refusal:
+        return _Attempt(raised=refusal)
+
+    return _Attempt()
+
+
+def _refusing_as_a_lost_run_and_counting(client: McpClient) -> _Attempt:
+    try:
+        client.call("refuse_as_lost_run", SOMETHING.validate_python)
+    except Exception as refusal:
+        return _Attempt(
+            raised=refusal,
+            asked=client.call("times_refused", A_COUNT.validate_python)
+        )
+
+    return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python))
+
+
+def _the_fence_sent(client: McpClient) -> object:
+    return client.call("the_fence_i_was_sent", A_FENCE_HEARD.validate_python)
+
+
+def _the_fence_sent_while_holding(holding: Holding, held: Fence, client: McpClient) -> object:
+    with holding.of(held):
+        return _the_fence_sent(client)
+
+
+def _asking_while_holding[T](double: RunningDouble,
+                             holding: Holding,
+                             held: Fence,
+                             ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """`_asking`, with `held` held by the process for the length of the call."""
+    def step() -> T:
+        with McpClient(double.url, holding=holding) as client, holding.of(held):
+            return ask(client)
+
+    return step
+
+
+def _asking_holding[T](double: RunningDouble,
+                       holding: Holding | None,
+                       ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """`_asking`, by a client handed `holding` - or handed none."""
+    def step() -> T:
+        with McpClient(double.url, holding=holding) as client:
+            return ask(client)
+
+    return step
 
 
 def _refusing_then_asking_something_else(client: McpClient) -> _Attempt:
@@ -834,6 +1253,20 @@ def _what_was_raised_was(expected: type[BaseException]) -> Assertion[_Attempt]:
         if not isinstance(attempt.raised, expected):
             raise AssertionError(
                 f"Expected {expected.__name__} to be raised, got {attempt.raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_raised_said(expected: str) -> Assertion[_Attempt]:
+    def assertion(attempt: _Attempt) -> bool:
+        said = None if attempt.raised is None else str(attempt.raised)
+
+        if said != expected:
+            raise AssertionError(
+                f"Expected the refusal to say [{expected}], and it said [{said}]."
             )
 
         return True
@@ -1032,6 +1465,62 @@ def _it_left_nothing_behind() -> Assertion[_Attempt]:
             )
 
         return True
+
+    return assertion
+
+
+def _refusing_with(tool: str) -> Callable[[McpClient], _Attempt]:
+    def ask(client: McpClient) -> _Attempt:
+        try:
+            client.call(tool, SOMETHING.validate_python)
+        except Exception as refusal:
+            return _Attempt(raised=refusal)
+
+        return _Attempt()
+
+    return ask
+
+
+def _what_it_left_behind_is_known(expected: bool) -> Assertion[_Attempt]:
+    """Whether the failure says it carries the whole of what it left behind."""
+    def assertion(attempt: _Attempt) -> bool:
+        if not isinstance(attempt.raised, McpToolError):
+            raise AssertionError(
+                f"Expected a tool's refusal, and what was raised was {attempt.raised!r}."
+            )
+
+        if attempt.raised.left_behind_known is not expected:
+            raise AssertionError(
+                f"Expected the refusal to say what it left behind is "
+                f"{'known' if expected else 'not known'}, and it said "
+                f"left_behind_known={attempt.raised.left_behind_known}: "
+                f"[{attempt.raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_marker_comes_before_the_payload() -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        marker = said.find(LEFT_BEHIND_KNOWN_MARKER)
+        payload = said.find(LEFT_BEHIND_MARKER)
+
+        if marker < 0 or payload < 0 or marker > payload:
+            raise AssertionError(
+                f"Expected [{LEFT_BEHIND_KNOWN_MARKER}] and then "
+                f"[{LEFT_BEHIND_MARKER}], and the refusal said [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_reads_back_as(expected: UndoDescriptor) -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        return _it_came_back_as(expected)(what_was_left_behind(said))
 
     return assertion
 

@@ -6,20 +6,24 @@ them to try after one was refuted. One question with one answer, so a
 candidate the walk would skip is never the one the investigation begins
 with.
 
-What an action is worked out from is built here too, for those two and for the
-proposal node, so that all three reason from the same circumstances.
+What an action is worked out from is built here too, for those two, the
+proposal node and the gate, so that all four reason from the same
+circumstances.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from agent_mitigation import propose_action
+from argus_core import parse_iso
 from argus_core.models import (
     Alert,
     Attempt,
     ChangeEvent,
     Circumstances,
+    DeploymentChanges,
+    EstablishedOnset,
     FlagChange,
     Hypothesis,
     Platform,
@@ -33,16 +37,19 @@ from argus_core.models import (
 def the_circumstances(alert: Alert,
                       flag_changes: Sequence[FlagChange] | None,
                       deployments: Sequence[ChangeEvent] | None,
-                      placement: RecordedPlacement | None
+                      placement: RecordedPlacement | None,
+                      deployment_changes: Mapping[str, DeploymentChanges] | None = None,
+                      onset: EstablishedOnset | None = None
                       ) -> Circumstances | None:
     """What every candidate in a round is answered from, or `None` where the
     flag history could not be read.
 
-    Built here, once, for the three nodes that ask what a candidate would be
+    Built here, once, for the four nodes that ask what a candidate would be
     answered with - the investigation ordering its candidates, the walk choosing
-    the next one, and the proposal node answering the one chosen. Built by each
-    of them, they could come to disagree, and the walk would skip a candidate on
-    the strength of an action the proposal node then declines to take.
+    the next one, the proposal node answering the one chosen, and the gate
+    saying why nothing answered it. Built by each of them, they could come to
+    disagree, and the walk would skip a candidate on the strength of an action
+    the proposal node then declines to take.
 
     The alert's service, because an action addressed to a service is addressed
     to the one the incident is about. The alert's keys for the same reason and
@@ -65,6 +72,11 @@ def the_circumstances(alert: Alert,
     The placement is the exception, carried as `None` rather than as empty. An
     empty placement would say the service runs on no pod, and the strategy that
     reads it would find no replica that moved - an outage read as an all-clear.
+
+    What each deployment looked into changed, and the minute the incident is
+    dated from, are what a deploy that carried a blamed file is found by: its
+    diff names the file, and it came by the end of the onset. Neither looked
+    into nor dated, and no deploy carried anything.
     """
     if flag_changes is None:
         return None
@@ -74,7 +86,9 @@ def the_circumstances(alert: Alert,
         flag_changes=flag_changes,
         stale_entry_keys=alert.stale_entry_keys or (),
         deployments=deployments or (),
-        placement=placement
+        placement=placement,
+        deployment_changes=deployment_changes or {},
+        onset=parse_iso(onset.minute) if onset is not None else None
     )
 
 

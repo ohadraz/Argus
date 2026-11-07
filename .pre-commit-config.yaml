@@ -42,6 +42,7 @@ repos:
         entry: uv run python -m nox -s guard_recordings  # fails if a recording is of a walk that gave up partway
         language: system
         pass_filenames: false  # no filenames - a corpus is many files, and the question is about the set.
+        files: ^(modules/anthropic_double/recordings/|modules/anthropic_double/src/anthropic_double/recordings\.py$|scripts/guard_recordings\.py$)  # only a commit that can change the answer
 
       - id: guard-written-columns
         name: written columns (via nox)

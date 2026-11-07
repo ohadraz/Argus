@@ -57,6 +57,20 @@ def reports_executive_summary(expected: str) -> Assertion[PostmortemDocument]:
     return assertion
 
 
+def summarises_with(expected: str) -> Assertion[PostmortemDocument]:
+    """That the summary says `expected` somewhere in it - the model's sentence,
+    which code writes the record's facts around."""
+    def assertion(document: PostmortemDocument) -> bool:
+        if expected not in (document.executive_summary or ""):
+            raise AssertionError(
+                f"Expected the summary to say [{expected}], got "
+                f"[{document.executive_summary}].")
+
+        return True
+
+    return assertion
+
+
 def estimates_a_loss_of(expected: Decimal | None) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.customer_loss_estimate != expected:
@@ -313,6 +327,34 @@ def discloses_an_assumption_mentioning(label: str,
             raise AssertionError(
                 f"Expected an assumption mentioning [{label}] and [{detail}], "
                 f"got {document.assumptions}")
+
+        return True
+
+    return assertion
+
+
+def keeps_a_cost_basis_line_mentioning(label: str,
+                                       detail: str) -> Assertion[PostmortemDocument]:
+    """How the response cost was arrived at, kept apart from the assumptions:
+    the postmortem says nothing of pay, and what is shown the figure reads this."""
+    def assertion(document: PostmortemDocument) -> bool:
+        if not any(label in stated and detail in stated
+                   for stated in document.response_cost_basis):
+            raise AssertionError(
+                f"Expected a line of the cost basis mentioning [{label}] and [{detail}], "
+                f"got {document.response_cost_basis}.")
+
+        return True
+
+    return assertion
+
+
+def keeps_the_cost_basis_line(expected: str) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if expected not in document.response_cost_basis:
+            raise AssertionError(
+                f"Expected the cost basis line [{expected}], got "
+                f"{document.response_cost_basis}.")
 
         return True
 

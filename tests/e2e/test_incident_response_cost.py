@@ -32,7 +32,7 @@ from argus_testkit.assertions import eventually
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
-    RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_PAGED,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
@@ -73,8 +73,8 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("feature-flag-toggle",
-                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE)),
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_PAGED)),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_PAGED)),
             calling(the_on_call_platform_holds(
                 some_on_call_incident,
                 paged_for=some_alert,
@@ -182,24 +182,30 @@ def _the_figure_carries_the_band_it_came_from() -> Assertion[httpx2.Response]:
 
 
 def _the_arithmetic_was_disclosed() -> Assertion[httpx2.Response]:
-    """Both things the figure rests on that nobody measured.
+    """Both things the figure rests on that nobody measured, kept beside it -
+    and nowhere in the postmortem's own assumptions, which say nothing of pay.
 
     The working year is the divisor that turns an annual band into a per-minute
-    rate, and the band is a range this document collapsed to a point. A reader
-    who cannot see either is being asked to take the cost on trust, and this is
-    the one assertion here that could not pass without the HR source in the
-    path.
+    rate, and the band is a range collapsed to a point. Whoever is shown the
+    cost cannot check it without either, and this is the one assertion here
+    that could not pass without the HR source in the path.
     """
     def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
         incident_id = incident_id_from(response)
+        kept = postmortem.response_cost_basis
         stated = postmortem.assumptions or []
 
         for label in (WORKING_YEAR_ASSUMPTION_LABEL, PAY_BAND_ASSUMPTION_LABEL):
-            if not any(label in assumption for assumption in stated):
+            if not any(label in line for line in kept):
                 raise AssertionError(
-                    f"Postmortem for [{incident_id}] discloses no [{label}] "
-                    f"behind its response cost. It says: {stated}.")
+                    f"Postmortem for [{incident_id}] keeps no [{label}] behind its "
+                    f"response cost. It keeps: {kept}.")
+
+            if any(label in assumption for assumption in stated):
+                raise AssertionError(
+                    f"Postmortem for [{incident_id}] says [{label}] among its "
+                    f"assumptions, which say nothing of pay. It says: {stated}.")
 
         return True
 

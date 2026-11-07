@@ -16,7 +16,9 @@ import logging
 from datetime import UTC, datetime
 
 import pytest
+from argus_core import RunLost
 from argus_core.events import (
+    PATCH_LINE_INDENT,
     ActionRefused,
     AgentInvoked,
     CandidateSelected,
@@ -40,8 +42,12 @@ from argus_core.events import (
     StatusChanged,
     VerdictReached,
     WithdrawalOffered,
+    a_changed_file_line,
+    names_as_changed,
     parse_event,
     publish,
+    the_changed_file_it_names,
+    the_escalations,
 )
 from argus_core.ids import new_id
 from argus_core.models import (
@@ -49,16 +55,21 @@ from argus_core.models import (
     PIN_AUTOSCALER,
     PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
+    ActionIdentity,
+    DeploymentComparison,
     IncidentStatus,
     Meaning,
     PodPlacement,
+    RecalledIncident,
     RecordedPlacement,
     Reference,
     Report,
     ReportChannel,
     Standing,
+    WhatWasTried,
     the_actions_through,
 )
 from argus_core.models.action import Verdict
@@ -69,7 +80,15 @@ from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
 from argus_core.telemetry import ARGUS_INCIDENT_ID
-from argus_testkit import Assertion, Scenario, all_of, attempting, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    one_record_was_logged,
+    the_answer_was,
+)
 from pydantic import ValidationError
 
 SOME_WINDOW_START = "2026-08-30T10:02:00Z"
@@ -177,6 +196,108 @@ def test_what_a_deployment_changed_reads_back_as_it_was_read() -> None:
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
         .then(_it_is(published))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("comparison", [DeploymentComparison.NOT_DEPLOYED,
+                                        DeploymentComparison.NOTHING_BEFORE_IT])
+def test_an_answer_with_no_comparison_behind_it_that_names_no_service_is_refused(
+        comparison: DeploymentComparison) -> None:
+    # Every reader but the model says such an answer in its own words, of the
+    # service whose history was read - and one naming none would say it of
+    # nothing. Only a comparison may name none, as every event written before
+    # the service was carried does.
+    Scenario() \
+        .given(comparison) \
+        .when(attempting(lambda: DeploymentChangesRead.model_validate({
+            "incident_id": new_id(),
+            "revision": "7c3ca00",
+            "said": ["dont care"],
+            "comparison": comparison
+        }))) \
+        .then(_it_was_refused())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", ["deploy/values-production.yaml", "docs/release notes.md"],
+                         ids=["a-path", "a-path-with-a-space"])
+def test_a_file_named_as_changed_is_read_back_as_the_file_it_names(path: str) -> None:
+    # The read tier writes the line and the write-up reads it back, so the two
+    # share one spelling of it - and the path is read back whole, a space in it
+    # included.
+    Scenario() \
+        .given(
+            line := a_changed_file_line("modified", path)
+        ) \
+        .when(
+            lambda: names_as_changed(line, path)
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("line", [
+    f"{PATCH_LINE_INDENT}+# selected by deploy/scrape.yaml",
+    "Deployment of revision 7c3ca00 to io-shop, compared against deploy/scrape.yaml",
+    "modified other/deploy/scrape.yaml"],
+    ids=["a-patch-line-ending-with-it", "a-header-ending-with-it", "a-longer-path-ending-with-it"])
+def test_a_line_that_only_mentions_a_file_does_not_name_it_as_changed(line: str) -> None:
+    # Only the line naming a changed file - its status, then its path - says the
+    # deploy changed it. A patch line set in under a file is that file's own
+    # text, and can name any other; a header can name anything at all.
+    Scenario() \
+        .given(
+            line
+        ) \
+        .when(
+            lambda: names_as_changed(line, "deploy/scrape.yaml")
+        ) \
+        .then(
+            the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", ["deploy/values-production.yaml",
+                                     "deploy/values-production.yaml:cache.port",
+                                     "deploy/values-production.yaml cache.port"],
+                         ids=["the-file", "a-key-after-a-colon", "a-key-after-a-space"])
+def test_a_subject_names_the_changed_file_it_starts_with(subject: str) -> None:
+    # A candidate blames a file, or a setting with the file it lives in. Either
+    # names the file a diff changed, and the walk and the write-up both find
+    # what carried it by that file - so the two read a subject one way.
+    Scenario() \
+        .given(
+            said := [a_changed_file_line("modified", "deploy/values-production.yaml")]
+        ) \
+        .when(
+            lambda: the_changed_file_it_names(subject, said)
+        ) \
+        .then(
+            the_answer_was("deploy/values-production.yaml")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", ["deploy/values-staging.yaml", "values-production.yaml",
+                                     "monthly-spend-feature"],
+                         ids=["another-file", "the-end-of-its-path", "a-flag"])
+def test_a_subject_naming_no_changed_file_names_none(subject: str) -> None:
+    # Only a file the diff names among those it changed, by the whole of its
+    # path: another file, the tail of this one's path or a flag is no file the
+    # deploy changed.
+    Scenario() \
+        .given(
+            said := [a_changed_file_line("modified", "deploy/values-production.yaml")]
+        ) \
+        .when(
+            lambda: the_changed_file_it_names(subject, said)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
 
 
 @pytest.mark.unit
@@ -289,15 +410,32 @@ def test_a_recall_that_names_no_incident_is_refused() -> None:
     # because the narrator reads the nearest incident off the front of the list:
     # a row read back through `parse_event` with an empty one raises on the
     # incident page and in the postmortem, a long way from whoever wrote it.
-    no_incidents_at_all: list[str] = []
+    no_incidents_at_all: list[RecalledIncident] = []
 
     Scenario() \
         .given(no_incidents_at_all) \
         .when(attempting(lambda: SimilarIncidentsRecalled.model_validate({
             "incident_id": new_id(),
-            "incident_ids": no_incidents_at_all
+            "recalled": no_incidents_at_all
         }))) \
         .then(_it_was_refused())
+
+
+@pytest.mark.unit
+def test_a_recall_read_back_says_what_each_incident_tried() -> None:
+    # What the walk was shown is the line's whole content beyond an id: read
+    # back without it, the line names an incident and nothing a reader can use.
+    published = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[RecalledIncident(incident_id=new_id(), tried=[
+            WhatWasTried(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                                                 subject="some-flag"),
+                         verdict=Verdict.REFUTED)])])
+
+    Scenario() \
+        .given(published) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(the_answer_was(published))
 
 
 @pytest.mark.unit
@@ -364,12 +502,28 @@ def test_a_candidate_selected_reads_back_as_the_one_now_under_test() -> None:
             published := CandidateSelected(
                 incident_id=new_id(),
                 hypothesis_id=new_id(),
-                summary="the checkout flag was toggled on",
-                confidence=0.72
+                candidate_number=2
             )
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
         .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_a_candidate_selected_stored_with_its_words_still_reads_back() -> None:
+    # An event written when the move carried the candidate's summary and
+    # confidence: the account it belongs to is read whole, so one line that
+    # failed to parse would take the incident's page and write-up with it.
+    some_move = CandidateSelected(incident_id=new_id(), hypothesis_id=new_id())
+
+    Scenario() \
+        .given(
+            stored := {**some_move.model_dump(mode="json"),
+                       "summary": "the checkout flag was toggled on",
+                       "confidence": 0.72}
+        ) \
+        .when(lambda: parse_event(stored)) \
+        .then(_it_is(some_move))
 
 
 @pytest.mark.unit
@@ -606,6 +760,36 @@ def test_a_fix_that_was_not_possible_is_not_a_fix_that_was_not_warranted() -> No
 
 
 @pytest.mark.unit
+def test_the_escalations_are_argus_s_own_moves_to_escalated_and_nothing_else() -> None:
+    # How an incident Argus could not end was handed over: its own move, said
+    # once here for the page's head and the postmortem alike - two copies of the
+    # rule are two answers to whether it escalated. A person's report never
+    # moves an incident there, and one that did would not be Argus handing over.
+    some_incident = new_id()
+
+    Scenario() \
+        .given(
+            argus_s_move := StatusChanged(incident_id=some_incident,
+                                          to_status=IncidentStatus.ESCALATED),
+            recorded := [
+                StatusChanged(incident_id=some_incident,
+                              to_status=IncidentStatus.INVESTIGATING),
+                argus_s_move,
+                StatusChanged(incident_id=some_incident,
+                              to_status=IncidentStatus.ESCALATED,
+                              reported=Report(by="some person",
+                                              channel=ReportChannel.ARGUS_UI))
+            ]
+        ) \
+        .when(
+            lambda: the_escalations(recorded)
+        ) \
+        .then(
+            the_answer_was([argus_s_move])
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_attempt_is_read_back_as_what_it_was_published_as() -> None:
     # The log is read by a page, a relay and a postmortem, none of which
     # published it. A row that came back as a dictionary would have every one
@@ -655,6 +839,30 @@ def test_a_publisher_that_fails_is_logged_as_a_warning(caplog: pytest.LogCapture
                                           ARGUS_INCIDENT_ID: some_incident},
                                   failure=RuntimeError)
         )
+
+
+@pytest.mark.unit
+def test_a_publisher_told_the_run_was_lost_is_not_swallowed() -> None:
+    # Not a subscriber having a bad day: the run the event is about is another
+    # claim's now, and a walk that published past it would go on writing an
+    # account nobody will settle - so the walk is told, as every other write
+    # would tell it.
+    Scenario() \
+        .when(attempting(lambda: publish(
+            AgentInvoked(incident_id=new_id(), agent=Actor.INVESTIGATOR),
+            publisher=_a_publisher_told_the_run_was_lost()
+        ))) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
+
+
+def _a_publisher_told_the_run_was_lost() -> Publisher:
+    """A subscriber whose store refused the write for a lost run."""
+    def refused(dont_care_event: IncidentEvent) -> None:
+        raise RunLost("a newer claim holds this run")
+
+    return refused
 
 
 def _a_publisher_having_a_bad_day() -> Publisher:

@@ -25,28 +25,46 @@ from argus_narration.flags import (
 from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
 from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_narration.narrating import (
+    THE_CLAIM_WAS_NOT_IN_THE_WINDOW,
     CandidateLine,
+    CandidateNamed,
     NarrationLine,
+    a_candidate_cause,
     a_narration_line,
     build_narration,
     each_wait_told_once,
+    said_as_meant,
     said_in_full,
     what_the_action_does,
+    what_to_do,
     what_was_done,
+    what_was_not_done,
     where_a_report_came_from,
 )
-from argus_narration.prose import said_plainly
-from argus_narration.showing import ShownRevision, as_shown, shown, the_revisions
+from argus_narration.prose import InstantInProse, said_plainly, the_instants_in
+from argus_narration.showing import (
+    ShownRevision,
+    as_shown,
+    said_as_shown,
+    shown,
+    the_links_in,
+    the_pull_requests,
+    the_revisions,
+)
 
 __all__ = [
     "BucketRow",
     "CandidateLine",
+    "CandidateNamed",
     "Finding",
     "FlagToggleRow",
+    "InstantInProse",
     "LogLine",
     "NarrationLine",
     "ShownRevision",
+    "THE_CLAIM_WAS_NOT_IN_THE_WINDOW",
     "a_bucket_row",
+    "a_candidate_cause",
     "a_finding",
     "a_flag_history",
     "a_log_line",
@@ -61,12 +79,19 @@ __all__ = [
     "on_or_off",
     "pointed_at",
     "said_as_a_state",
+    "said_as_meant",
+    "said_as_shown",
     "said_in_full",
     "said_plainly",
     "shown",
+    "the_instants_in",
+    "the_links_in",
     "the_minutes_logged",
+    "the_pull_requests",
     "the_revisions",
     "what_the_action_does",
+    "what_to_do",
     "what_was_done",
+    "what_was_not_done",
     "where_a_report_came_from"
 ]

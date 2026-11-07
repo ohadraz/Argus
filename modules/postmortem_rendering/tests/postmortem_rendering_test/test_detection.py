@@ -8,13 +8,21 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import CitedEvidence, Detection
+from argus_core.models import (
+    AlarmClaim,
+    Alert,
+    CitedEvidence,
+    Detection,
+    DetectionLesson,
+    DetectionMeasuredFrom,
+    TimelineMarker,
+)
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow
 
-from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
+from postmortem_rendering_test.framework.builders import a_marker, a_postmortem, an_alert
 
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 SOME_ALERT = SOME_ONSET + timedelta(minutes=2, seconds=40)
@@ -22,6 +30,9 @@ SOME_ALERT = SOME_ONSET + timedelta(minutes=2, seconds=40)
 
 @pytest.mark.unit
 def test_detection_says_when_it_began_when_the_alert_fired_and_the_gap() -> None:
+    # The gap in words, as the summary, the lessons and the brief say a span:
+    # "2m 40s" is the cards' form, a figure to read off, not a phrase in a
+    # sentence.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(detection=Detection(
@@ -38,7 +49,33 @@ def test_detection_says_when_it_began_when_the_alert_fired_and_the_gap() -> None
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=". HighErrorRate fired at "),
                                       Run.a_moment(SOME_ALERT),
-                                      Run(text=", 2m 40s later"),
+                                      Run(text=", 2 minutes 40 seconds later"),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_an_onset_where_the_metrics_stopped_is_said_to_be_that() -> None:
+    # What the onset dates then is the metrics stopping, and the service may
+    # have gone on serving as before - the timeline and the Date row say so.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=Detection(alerted_at=SOME_ALERT, rule="dont care",
+                                    onset_at=SOME_ONSET,
+                                    gap=timedelta(minutes=2, seconds=40)),
+                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET)])
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The metrics on "),
+                                      Run(text="io-shop", role=Role.CODE),
+                                      Run(text=" stopped at "),
+                                      Run.a_moment(SOME_ONSET),
+                                      Run(text=". HighErrorRate fired at "),
+                                      Run.a_moment(SOME_ALERT),
+                                      Run(text=", 2 minutes 40 seconds later"),
                                       Run(text=".")))))
 
 
@@ -65,7 +102,7 @@ def test_an_alert_dated_before_the_measured_onset_is_said_to_be() -> None:
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=". HighErrorRate fired at "),
                                       Run.a_moment(some_earlier_alert),
-                                      Run(text=", 1m 20s before the measured onset"),
+                                      Run(text=", 1 minute 20 seconds before the measured onset"),
                                       Run(text=".")))))
 
 
@@ -88,19 +125,22 @@ def test_an_unknown_onset_is_said_to_be_and_no_gap_is_given() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize(("gap", "rule_waits", "rule_wait_unread", "held", "said"), [
     (timedelta(minutes=5, seconds=7), timedelta(minutes=5), False, None,
-     ", 5m 7s later - its rule fires only once its condition has held for 5m 0s"),
+     ", 5 minutes 7 seconds later - its rule fires only once its condition has held for "
+     "5 minutes"),
     (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, True,
-     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it "
-     "fires, so the condition held before the measured onset"),
+     ", 4 minutes 51 seconds later - shorter than the 5 minutes its rule's condition must "
+     "hold before it fires, so the condition held before the measured onset"),
     (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, False,
-     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it "
-     "fires, though not every minute of that wait before the measured onset met it"),
+     ", 4 minutes 51 seconds later - shorter than the 5 minutes its rule's condition must "
+     "hold before it fires, though not every minute of that wait before the measured onset "
+     "met it"),
     (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, None,
-     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it fires"),
+     ", 4 minutes 51 seconds later - shorter than the 5 minutes its rule's condition must "
+     "hold before it fires"),
     (timedelta(seconds=40), timedelta(0), False, None,
-     ", 40s later - its rule fires as soon as its condition holds"),
+     ", 40 seconds later - its rule fires as soon as its condition holds"),
     (timedelta(minutes=5, seconds=7), None, True, None,
-     ", 5m 7s later - how long its rule waits before firing could not be read")
+     ", 5 minutes 7 seconds later - how long its rule waits before firing could not be read")
 ], ids=["longer-than-the-wait", "shorter-than-the-wait-and-held",
         "shorter-than-the-wait-and-did-not-hold", "shorter-than-the-wait-and-unknown",
         "no-wait", "unread"])
@@ -137,6 +177,63 @@ def test_detection_says_the_rules_wait_beside_the_gap(
 
 
 @pytest.mark.unit
+def test_a_wait_the_lesson_on_detection_weighs_is_not_said_beside_the_gap() -> None:
+    # The lesson weighs the gap against the wait and everything else the rule
+    # spends; said here as well, a page told the wait twice.
+    some_alert = SOME_ONSET + timedelta(minutes=5, seconds=7)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=Detection(alerted_at=some_alert, rule="dont care",
+                                    onset_at=SOME_ONSET, gap=timedelta(minutes=5, seconds=7),
+                                    rule_waits=timedelta(minutes=5)),
+                detection_lesson=DetectionLesson(
+                    gap=timedelta(minutes=5, seconds=7),
+                    measured_from=DetectionMeasuredFrom.ONSET,
+                    rule_waits=timedelta(minutes=5),
+                    rule_looks_back=timedelta(minutes=1),
+                    rule_evaluated_every=timedelta(minutes=1),
+                    scraping_and_storing=timedelta(seconds=30)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The incident on "),
+                                      Run(text="io-shop", role=Role.CODE),
+                                      Run(text=" began at "),
+                                      Run.a_moment(SOME_ONSET),
+                                      Run(text=". HighErrorRate fired at "),
+                                      Run.a_moment(some_alert),
+                                      Run(text=", 5 minutes 7 seconds later"),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_says_there_was_no_onset_rather_than_that_it_is_unknown() -> None:
+    # The window was read, and no minute of it departed: "unknown" says nobody
+    # could tell.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                disproven_at=SOME_ALERT + timedelta(seconds=5),
+                detection=Detection(alerted_at=SOME_ALERT, rule="dont care", onset_at=None,
+                                    gap=None, rule_waits=timedelta(minutes=5)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="There was no onset: no minute departed from the "
+                                               "baseline. HighErrorRate fired at "),
+                                      Run.a_moment(SOME_ALERT),
+                                      Run(text=" - its rule fires only once its condition has "
+                                               "held for 5 minutes"),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
 def test_detection_with_no_onset_still_says_the_rules_wait() -> None:
     # No gap to weigh it against, and still the one thing the page can say of
     # how long the condition held before the alert.
@@ -153,7 +250,7 @@ def test_detection_with_no_onset_still_says_the_rules_wait() -> None:
             the_answer_was(Line(runs=(Run(text="The onset is unknown. HighErrorRate fired at "),
                                       Run.a_moment(SOME_ALERT),
                                       Run(text=" - its rule fires only once its condition has "
-                                               "held for 5m 0s"),
+                                               "held for 5 minutes"),
                                       Run(text=".")))))
 
 
@@ -184,6 +281,29 @@ def test_an_alert_that_said_nothing_of_its_own_has_no_row() -> None:
         ) \
         .when(
             lambda: the_detection(some_postmortem, an_alert()).said
+        ) \
+        .then(
+            the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_an_alert_s_own_finding_is_left_to_impact_and_has_no_row_here() -> None:
+    # What an alert found is the measure of the damage, and Impact says it
+    # under the label a citation leads to. A row here would say it again, a
+    # section further on.
+    some_finding = "240 of 240 shopper totals do not reconcile"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=SOME_ALERT, rule="dont care", onset_at=None, gap=None,
+                said=CitedEvidence(label="AL1", text=some_finding)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem,
+                                  Alert(alert_name="dont care", service="dont care",
+                                        summary=some_finding,
+                                        claim=AlarmClaim.ITS_OWN_FINDING)).said
         ) \
         .then(
             the_answer_was(None))

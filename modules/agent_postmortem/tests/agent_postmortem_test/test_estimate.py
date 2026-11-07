@@ -17,13 +17,22 @@ from math import isclose
 
 import pytest
 from agent_postmortem.estimate import (
+    DemandLevels,
     ErrorRates,
+    LatencyLevels,
+    LoadLevels,
     RuleSeriesLevels,
+    RuleSeriesSpan,
     Unmeasured,
+    a_line_was_read,
     beyond_the_variation,
     calm_to_read_for,
+    demand_over,
     error_rates_over,
+    first_minute_past_its_line,
+    latency_over,
     rule_held_before_the_onset,
+    rule_series_before,
     rule_series_over,
     why_no_error_rates,
 )
@@ -359,6 +368,83 @@ def test_a_rise_in_failed_requests_is_measured_only_above_the_baseline_and_beyon
         ) \
         .then(
             the_answer_was(measured)
+        )
+
+
+@pytest.mark.unit
+def test_the_calm_s_worst_minute_is_carried_however_few_stretches_it_holds() -> None:
+    # Too short a calm says nothing of how high stretches as long go on their
+    # own, and still says how high it went: no stretch of it averaged, or
+    # peaked, above its worst minute.
+    the_worst_calm_minute = 0.035
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=3), error_rate=0.01),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          error_rate=the_worst_calm_minute),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1), error_rate=0.02),
+                _a_bucket(at=INCIDENT_START, error_rate=DONT_CARE_ERROR_RATE)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, INCIDENT_START + timedelta(minutes=1))
+        ) \
+        .then(
+            _the_calm_s_worst_minute_is(the_worst_calm_minute)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "at_its_worst", "rose", "peaked"), [
+    pytest.param(0.183, 0.35, True, True, id="above-every-calm-minute"),
+    pytest.param(0.02, 0.35, None, True, id="only-its-worst-minute-above-them"),
+    pytest.param(0.02, 0.03, None, None, id="within-the-calm-s-worst-minute")
+])
+def test_a_rise_above_every_minute_of_a_calm_too_short_to_vary_in_is_beyond_its_variation(
+    while_broken: float, at_its_worst: float, rose: bool | None, peaked: bool | None
+) -> None:
+    # No stretch averages above its own worst minute, so a broken stretch above
+    # every calm minute read went higher than any stretch as long of the calm
+    # did, however few of them there were. At or below one, nobody can say.
+    Scenario() \
+        .given(
+            some_rates := ErrorRates(baseline=0.01, while_broken=while_broken,
+                                     at_its_worst=at_its_worst, usual_ceiling=None,
+                                     usual_worst=None, calm_worst=0.035)
+        ) \
+        .when(
+            lambda: (some_rates.rose_beyond_its_variation, some_rates.peaked_beyond_its_variation)
+        ) \
+        .then(
+            the_answer_was((rose, peaked))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "usual_ceiling", "rose"), [
+    pytest.param(0.30, 0.012, True, id="beyond-its-variation"),
+    pytest.param(0.011, 0.012, False, id="within-its-variation"),
+    pytest.param(0.009, None, False, id="below-the-baseline"),
+    pytest.param(0.30, None, None, id="variation-unknown")
+])
+def test_whether_failed_requests_rose_is_unknown_only_above_the_baseline_and_its_variation_unknown(
+        while_broken: float, usual_ceiling: float | None, rose: bool | None) -> None:
+    # "No rise" is a claim. A stretch no worse than the calm before it makes it,
+    # and so does one within the rate's own variation; one above the calm, with
+    # nobody able to say how high the rate goes alone, does not.
+    Scenario() \
+        .given(
+            some_rates := ErrorRates(baseline=0.01, while_broken=while_broken,
+                                     at_its_worst=while_broken,
+                                     usual_ceiling=usual_ceiling, usual_worst=None)
+        ) \
+        .when(
+            lambda: some_rates.rose
+        ) \
+        .then(
+            the_answer_was(rose)
         )
 
 
@@ -937,10 +1023,385 @@ def test_a_rule_whose_line_could_not_be_read_says_nothing_of_whether_it_held() -
         )
 
 
+@pytest.mark.unit
+def test_the_rule_s_series_passed_its_line_in_the_first_minute_from_the_onset_past_it() -> None:
+    # Where the gap to the alert is measured from. The onset is the first minute
+    # Argus's own reading departed from calm; a fault that grows takes minutes
+    # more to reach the rule's line, and the rule could not have fired sooner.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START, rule_reading=_a_reading(0.95)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=1),
+                          rule_reading=_a_reading(0.9)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=2),
+                          rule_reading=_a_reading(0.71)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=3),
+                          rule_reading=_a_reading(0.6))
+            ]
+        ) \
+        .when(
+            lambda: first_minute_past_its_line(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(INCIDENT_START + timedelta(minutes=2))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("past_it", [-timedelta(minutes=1), timedelta(minutes=6)],
+                         ids=["before-the-onset", "from-the-alert-on"])
+def test_a_minute_past_its_line_outside_the_onset_to_the_alert_is_not_where_it_passed(
+        past_it: timedelta) -> None:
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START + past_it, rule_reading=_a_reading(0.71)),
+                _a_bucket(at=INCIDENT_START, rule_reading=_a_reading(0.95))
+            ]
+        ) \
+        .when(
+            lambda: first_minute_past_its_line(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("at", "with_its_line", "read"), [
+    (timedelta(minutes=2), True, True),
+    (timedelta(minutes=2), False, False),
+    (-timedelta(minutes=1), True, False)
+], ids=["a-line-from-the-onset-to-the-alert", "no-line", "a-line-before-the-onset"])
+def test_a_line_was_read_where_a_minute_from_the_onset_to_the_alert_carries_one(
+        at: timedelta, with_its_line: bool, read: bool) -> None:
+    # Told apart from a line never passed: a series read with its line and never
+    # past it before the alert does not bear out when the rule could fire, and
+    # one with no line read says nothing of it either way.
+    some_calm_value = 0.95
+
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START + at,
+                                  rule_reading=(_a_reading(some_calm_value) if with_its_line
+                                                else RuleReading(value=some_calm_value,
+                                                                 worse_when="below")))]
+        ) \
+        .when(
+            lambda: a_line_was_read(buckets, INCIDENT_START,
+                                    INCIDENT_START + timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(read)
+        )
+
+
+@pytest.mark.unit
+def test_the_rules_series_before_the_alert_runs_from_the_minute_its_look_began_inside_to_the_alerts(
+) -> None:
+    # What the rule looked at before it fired, for a disproof's grounds. A
+    # minute is the finest the series comes in, so the one the stretch began
+    # part-way through is read whole, as a wait is; a minute before it, and one
+    # after the alert, are no part of what the rule looked at.
+    alert_at = INCIDENT_START + timedelta(minutes=6, seconds=22)
+    looked_over = timedelta(minutes=6)
+    first_minute = (alert_at - looked_over).replace(second=0)
+    last_minute = alert_at.replace(second=0)
+    inside = {first_minute: 0.95, first_minute + timedelta(minutes=3): 0.85, last_minute: 0.9}
+    outside = {first_minute - timedelta(minutes=1): 0.5, last_minute + timedelta(minutes=1): 0.2}
+
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=at, rule_reading=_a_reading(value))
+                        for at, value in {**inside, **outside}.items()]
+        ) \
+        .when(
+            lambda: rule_series_before(buckets, alert_at, looked_over)
+        ) \
+        .then(
+            the_answer_was(RuleSeriesSpan(lowest=min(inside.values()),
+                                          highest=max(inside.values()),
+                                          first_minute=first_minute,
+                                          last_minute=last_minute,
+                                          line=_THE_LINE))
+        )
+
+
+@pytest.mark.unit
+def test_a_stretch_before_the_alert_carrying_no_reading_of_the_rules_series_reads_nothing(
+) -> None:
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START)]
+        ) \
+        .when(
+            lambda: rule_series_before(buckets, INCIDENT_START + timedelta(seconds=22),
+                                       timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_latency_is_measured_at_the_levels_the_error_rate_is() -> None:
+    # How long requests took, which is what the people using the service felt
+    # where a rule watching something else paged and nothing failed: before it
+    # began, while it was broken, and at its slowest. Far past anything the calm
+    # reached, so it departed.
+    some_calm_p95 = 215
+    some_slow_p95 = 900
+    the_slowest_p95 = some_slow_p95 + 549
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2), p95_ms=some_calm_p95),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), p95_ms=some_slow_p95),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6), p95_ms=the_slowest_p95)
+            ]
+        ) \
+        .when(
+            lambda: latency_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_latency_was(LatencyLevels(
+                quantile="p95",
+                baseline=some_calm_p95,
+                while_broken=(some_slow_p95 + the_slowest_p95) / 2,
+                at_its_worst=the_slowest_p95,
+                departed=True
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_latency_no_slower_than_the_calm_went_on_its_own_has_not_departed() -> None:
+    # A quantile wobbles from minute to minute, and a broken stretch no slower
+    # than the calm's slowest minute is that wobble. Told as a slowdown, it is a
+    # harm nobody measured.
+    the_calm_at_its_slowest = 46
+    the_calm_at_its_quickest = the_calm_at_its_slowest - 1
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=3),
+                          p50_ms=the_calm_at_its_quickest),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          p50_ms=the_calm_at_its_slowest),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          p50_ms=the_calm_at_its_slowest)
+            ]
+        ) \
+        .when(
+            lambda: latency_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_latency_was(LatencyLevels(
+                quantile="p50",
+                baseline=(the_calm_at_its_quickest + the_calm_at_its_slowest) / 2,
+                while_broken=the_calm_at_its_slowest,
+                at_its_worst=the_calm_at_its_slowest,
+                departed=False
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_latency_past_the_calm_by_no_more_than_two_of_its_own_steps_has_not_departed() -> None:
+    # A median swinging a millisecond either way on its own, a millisecond
+    # slower while broken: past how high stretches of the calm went, but by no
+    # more than the series moves in. Told as a slowdown, it is noise.
+    the_calm = [44, 45, 46] * 14
+
+    Scenario() \
+        .given(
+            buckets := [
+                *(_a_bucket(at=INCIDENT_START - timedelta(minutes=len(the_calm) - minute),
+                            p50_ms=p50)
+                  for minute, p50 in enumerate(the_calm)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), p50_ms=46),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6), p50_ms=46)
+            ]
+        ) \
+        .when(
+            lambda: latency_over(buckets, INCIDENT_START, INCIDENT_END)[0].departed
+        ) \
+        .then(
+            the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "rose"), [
+    pytest.param(0.02, False, id="within-two-of-its-steps"),
+    pytest.param(0.30, True, id="beyond-them")
+])
+def test_failed_requests_past_the_calm_by_no_more_than_two_of_its_own_steps_did_not_rise(
+        while_broken: float, rose: bool) -> None:
+    # A rate read over a few hundred requests moves in half-percent steps, and one
+    # minute landing a step higher lifted a stretch's mean past how high the
+    # calm's went: told as a rise, the summary and the impact blamed the incident
+    # for noise its own recorded write-up called none.
+    the_calm = [0.01, 0.015, 0.02] * 14
+
+    Scenario() \
+        .given(
+            buckets := [
+                *(_a_bucket(at=INCIDENT_START - timedelta(minutes=len(the_calm) - minute),
+                            error_rate=rate)
+                  for minute, rate in enumerate(the_calm)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), error_rate=while_broken),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6), error_rate=while_broken)
+            ]
+        ) \
+        .when(
+            lambda: _rose(error_rates_over(buckets, INCIDENT_START, INCIDENT_END))
+        ) \
+        .then(
+            the_answer_was(rose)
+        )
+
+
+def _rose(rates: ErrorRates | None) -> bool | None:
+    return rates.rose if rates is not None else None
+
+
+@pytest.mark.unit
+def test_the_load_and_the_cpu_it_asked_for_are_measured_before_while_broken_and_at_highest(
+) -> None:
+    # What a confirmed demand-saturation rests on, which nothing else the brief
+    # is handed carries: the requests a minute, and the CPU in use as a share
+    # of its limit. Before it began as the hour's median, not its mean - a load
+    # rises minutes before the latency departs, so the hour before the onset
+    # holds the start of the climb, and a mean over it reads higher than the
+    # calm the climb set off from.
+    some_calm_volume = 1200
+    the_start_of_the_climb = 2100
+    some_broken_volume = 3000
+    the_highest_volume = 5400
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=3),
+                          request_volume=some_calm_volume, cpu_used_cores=0.75),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          request_volume=some_calm_volume, cpu_used_cores=0.75),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1),
+                          request_volume=the_start_of_the_climb, cpu_used_cores=1.3),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          request_volume=some_broken_volume, cpu_used_cores=1.8),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6),
+                          request_volume=the_highest_volume, cpu_used_cores=3.0)
+            ]
+        ) \
+        .when(
+            lambda: demand_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_demand_was(DemandLevels(
+                requests=LoadLevels(before=some_calm_volume,
+                                    while_broken=(some_broken_volume + the_highest_volume) / 2,
+                                    at_its_highest=the_highest_volume),
+                cpu_share=LoadLevels(before=0.75 / 3.0,
+                                     while_broken=(1.8 / 3.0 + 3.0 / 3.0) / 2,
+                                     at_its_highest=1.0)
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_cpu_with_no_limit_read_is_no_share_of_one() -> None:
+    # A deployment imposing no CPU limit is ordinary, and its use is a share of
+    # nothing: the load is still measured, and the CPU is said not to be.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2), cpu_limit_cores=None),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), cpu_limit_cores=None)
+            ]
+        ) \
+        .when(
+            lambda: demand_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_demand_was(DemandLevels(
+                requests=LoadLevels(before=_THE_BUCKETS_VOLUME,
+                                    while_broken=_THE_BUCKETS_VOLUME,
+                                    at_its_highest=_THE_BUCKETS_VOLUME),
+                cpu_share=None
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_no_demand_is_measured_with_no_minute_before_it_began() -> None:
+    # A level against nothing is an unanswered question, as the error rate's is.
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START + timedelta(minutes=5))]
+        ) \
+        .when(
+            lambda: demand_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+# The line `_a_reading`'s share pages under.
+_THE_LINE = 0.8
+
+
 def _a_reading(value: float) -> RuleReading:
-    """A minute of a share that pages under 0.8."""
+    """A minute of a share that pages under `_THE_LINE`."""
     return RuleReading(value=value, worse_when="below",
-                       line=RuleLine(at=0.8, fires_on_it=False))
+                       line=RuleLine(at=_THE_LINE, fires_on_it=False))
+
+
+def _the_latency_was(expected: LatencyLevels) -> Assertion[list[LatencyLevels]]:
+    def assertion(measured: list[LatencyLevels]) -> bool:
+        got = next((levels for levels in measured if levels.quantile == expected.quantile),
+                   None)
+
+        if (
+            got is None
+            or not isclose(got.baseline, expected.baseline)
+            or not isclose(got.while_broken, expected.while_broken)
+            or not isclose(got.at_its_worst, expected.at_its_worst)
+            or got.departed != expected.departed
+        ):
+            raise AssertionError(
+                f"Expected the {expected.quantile} latency at {expected}, got [{got}].")
+
+        return True
+
+    return assertion
+
+
+def _the_demand_was(expected: DemandLevels) -> Assertion[DemandLevels | None]:
+    def same(got: LoadLevels | None, wanted: LoadLevels | None) -> bool:
+        if got is None or wanted is None:
+            return got is wanted
+
+        return (isclose(got.before, wanted.before)
+                and isclose(got.while_broken, wanted.while_broken)
+                and isclose(got.at_its_highest, wanted.at_its_highest))
+
+    def assertion(measured: DemandLevels | None) -> bool:
+        if (measured is None
+                or not same(measured.requests, expected.requests)
+                or not same(measured.cpu_share, expected.cpu_share)):
+            raise AssertionError(f"Expected the demand at {expected}, got [{measured}].")
+
+        return True
+
+    return assertion
 
 
 def _estimates(expected: Decimal) -> Assertion[Decimal]:
@@ -953,20 +1414,29 @@ def _estimates(expected: Decimal) -> Assertion[Decimal]:
     return assertion
 
 
+# The requests a minute `_a_bucket` carries unless told otherwise.
+_THE_BUCKETS_VOLUME = 1_000
+
+
 def _a_bucket(at: datetime,
               error_rate: float = DONT_CARE_ERROR_RATE,
-              rule_reading: RuleReading | None = None) -> MetricBucket:
+              rule_reading: RuleReading | None = None,
+              p50_ms: int = 20,
+              p95_ms: int = 40,
+              request_volume: int = _THE_BUCKETS_VOLUME,
+              cpu_used_cores: float = 0.77,
+              cpu_limit_cores: float | None = 3.0) -> MetricBucket:
     return MetricBucket(
         bucket_id=at.strftime("%Y-%m-%dT%H:%M"),
         error_rate=error_rate,
-        p50_ms=20,
-        p95_ms=40,
+        p50_ms=p50_ms,
+        p95_ms=p95_ms,
         p99_ms=90,
-        request_volume=1_000,
+        request_volume=request_volume,
         memory_used_bytes=440 * 1024**2,
         process_start_time_seconds=1_756_000_000.0,
-        cpu_used_cores=0.77,
-        cpu_limit_cores=3.0,
+        cpu_used_cores=cpu_used_cores,
+        cpu_limit_cores=cpu_limit_cores,
         rule_reading=rule_reading
     )
 
@@ -1007,6 +1477,19 @@ def _goes_on_its_own_to(usual_ceiling: float | None,
             raise AssertionError(
                 f"Expected the error rate to go on its own to [{usual_ceiling}] on average "
                 f"and [{usual_worst}] at worst, got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_calm_s_worst_minute_is(calm_worst: float) -> Assertion[ErrorRates | None]:
+    def assertion(measured: ErrorRates | None) -> bool:
+        said = measured.calm_worst if measured else None
+
+        if said is None or not isclose(said, calm_worst):
+            raise AssertionError(
+                f"Expected the calm's worst minute to be [{calm_worst}], got [{said}].")
 
         return True
 

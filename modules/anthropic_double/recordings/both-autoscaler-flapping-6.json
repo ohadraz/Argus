@@ -2,24 +2,36 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQS7wYKEAgSGAI4AUIIdGhpbmtpbmcSDNdGIqu3TAu69i9sABoMWD2EQjm0YxoVxiYrIjA1tGixZBgEfie3y/mYomEXGdF7RJRgIYVWlcuBF0323MGUy4D6/fumVCMPeyIFco4qjAZGsgSu8mTYEYTUyu13FGi6q3L1omPHHQUHy4vPwaQmQ0Fpq3cAFhAflwder31Z9QQbDAh4ry4rDUfbWp0zUDupBLw1bdG1lD2Sl5bGIN7mHIpNDO0JJetNGa217YXB82e8pc2zf8lF69ZSYueZVp0oY5xvSgz3x/BWBHF+j7IyNLEPFujBXKcMxVMnDh8L7cYcqXnoo6BAOWiHGzIkDQRfAUlXI3oS+qZR7nwqH+gZ3FIT94oWJ/i0vkf7954YNM9atpUT8GdYHpGwaBa37ggi/ycSvfuQSkVy1dUU25bvySyjICDK5kLlMR4NCbs3du7C4hTrZZT/WHWc7eZJ6zBgUgBgpow/9VAjeRXrJVnshjP4kRZ2PPdTs0PXpITH8HIY0PK+lacq6uTKzXOXPJYWMVbmzX65npi8UmwnVLLUhHr7sdNx9rsckdNGKtq62C5/0gyTrwaMGQfIDhO0ZBZaZz0Zm7sBIjB7EKa3G846q5T/48JlrDvJJ2uLwEjrwEhbmiMPEpoF7u+YJwAiWrOksUgQ7aqc/mSId3M3E7KZYSYJ1iMQgYI/488hzRGCYb3tnus+X9fn1HbHdhAvtIRJSciO3M0d9NTBmr2B/Wg+1YSx3ZT3wDWKojy9KoHoNFLW4yjTmKVdB7ZaZ0rk6Q33MSlg4a5jRntOCy9A/0rLxNjxUet4r9lejanJeUeHFZj9vGmT+wOFFhsMun8UDjdW9ME4sMIraDuos0tlvx2Zzy3D9EYnP/nuBYva5hVkEnzlsbahAizOm527riNtseFHQeOauMgsbHIBoEOewdYCpmE12QZxHf616JtsI96DZIVYtUZ8Ag2ZZSQHb9SruGfTq2kBaVbrOkeaZZC4aC4ud47+tfVElOwCXWoxUHHX1H8y+j2g5DsrwTxTg8k6LPyF6sKHlVmOjAOqypdbPelAN4QofQyQTYY2BfimWAr2lXwf9cCNMZfEjO2WNppynp7aq+4o1FUuA2dRJPzJ6dvzi1jXSpWfICxIiKPTu3OJPVxnOhFseFsbeIKiVjYYAQ==",
-      "thinking": "The actual fix is changing scaleDownStabilizationSeconds from 0 to 300 in the config yaml. I should check if there's an existing test reading these values, and possibly add one that loads the yaml and asserts the stabilization period is at least 60 seconds\u2014first I'll check how categorising.py parses that file.\n\n",
+      "signature": "CAQSxgYKEAgTGAI4AUIIdGhpbmtpbmcSDJIMTsMsPr7MypweXxoMfoCsbeUU3WlJA6o6IjB/NOtw9jX39bo23q+rAT9/tMUWndtxyxjZlHahA6zdGmrYlo9aA7PyNCELjgmVZ0Qq4wVwonBmXpqZ+Pw1R9CHs6eHM75qjalBcdooPMGdZ/y2rOu8hP/QSxhOLpxnlCDgL31fpI1mLiF0z5rVzGiIz41pzlU77kDsMI97eF3hIIEBvuTJmYT4Cy7h7OQgUz4Ute702fb1FqM9QTE9tOpmtfVgmcjF5McFyftOp8zjAiOhjh/0/O/w+j4gL6GhQ4XJS26NRSiPIxNwQYe3SleVjvHCDIzpTe0wKAhmGmWW9PN1+RjIN1bRMHMY4WECUjMsdk40cSs19XjklFUOJiVj/jkaARJRImNYkDE8MWjGy+4y0Up/BRM94aemQ073h7H18ftqmTZbXg5nRvDptm5ljsOjp3p3knZhOMoGGC95kYschvw2SqbIK6r7a8M7YWzjHj+rD4N4Xrmz/Cvu+SvEjuATwWr94BoUCvSDE3RkBPhpi/WPaGDhLLI9MT50eFLomDHXRZ63yGlOhdDXKjpWBRFcyLXPYLdUG9El4j9KF2lgwspqAooGdZBHoYSjw7NWuMI70IwtCuczB1AhmG7fdfPgxjfIq4x/ZzV47nXERA/UUB97nCNoWsMNlXFzEgFXdfIYhvAf9m8T+oKeh0rtB0AJPOlgrSeympq2of8i0/ztviBjH3wnq0dPIHRgrZNRmIpoyWvSH4AWOVTGJSqORG79Zswk0ZO7tTIP417a2K/WdZThLYyZJ/gsmCgSPG10Nb/zHRr9YjRTfHbpurbWbbWJpx1Fu/VU9LV2n+s+pISDfIV40xWffqUdSG0bBbIQmp/sIf8JiN0KMUXER6KA9hhSM2rbqAPUkIT4vcrP4kHBf+D6Fqs3cACYMm1a4h55i/JBFCgLlj0UMUn8t5EoUEiuhmCXyn/LHJr+8IXSSYFyRclWZ/wq8tFmQK5vZSuEz01yBOdMSa57JUYAMKl76hdyiuEZm+LLQ/shB+MlHhSk9sy5U6eZkHUpYYS5ZnpmmLtVCaYaThm5wfVERZRZ7/emh7jGGAE=",
+      "thinking": "The autoscaling flapping comes down to scale-down stabilization being set to 0, which lets replica counts oscillate between 3 and 6. I'll set it to 300 in the deploy file, since that's where the config lives and nothing in code reads it.\n\n",
+      "type": "thinking"
+    },
+    {
+      "signature": "CAQSqAkKEQgTGAI4AUIJbmFycmF0aW9uEgyBN02XdeDsCLCbUvsaDNTZX0K71ZunFSg6hyIw5mI9092sbjYE4VTOO2IU2DLdn7E8mohVkRGe4XTaOIkKUbQXKg/T3wtw1MZ2im5eKsQIza2SmH7EfiZIuIyqcvp3H/2fg+KRYNQy4YM682fjEsUZb+uHeHolmAhn+DPywpeQbFxTp1YFBAWGS3D9LhCtIe9vczlRBceMw2t52JIbFhieVWUyE7SnaO7n/Uvt7SyDMAA/57FWPCuYXReSuggf/8EkWxWJ5QUEzb28ROY3EPZA2/rXZG5EHChYdF5njHKwDYaosiRCr5tXvU+QgtSksZEqxrMpf5JX+mWfhtrsYHfZWUJMfwCU21TKg8bCvpua9VbUxzkQZ+2M8POkMiksQqK0UT29OZ2jsw35IqjOv9702LRDsyn/dgewUhoMEkgCUqB5nZb4Fux3DAbRkFr7xm3Dcl6D2vfx8GRr/q+fTNiK2GMOiZRh7BGUwljbam5fHy6A1OvCODd8PxlJSGEix0gw1rQZQqIuIPtiHsw6mXWyFKzO3hzgiQ44p7D90eohHhZS2yADYZgsCVGOWohmKvwOeENXuhxdw8v/PsZc2tvAzjAF1QToQGK/Bd0E5oWCFpxMdHR4RGf5J9uR+kae3KnjB+NTq7j04hFxi3BFY5El0SGE76B059dsrWaKCdxpy+JUQsPnbt5V6EEY3i5KB802QS/PK6uFHEpmCYn4M5oTG7rPydMuA58myt7G4o+94a2SsB1on8gMR7Ww8/bbpnStSx4o1iW/BSvH/a7Qv5fed7TWn9pkRQo5rdR8+Cozf5VttKIK+HwINgBIrejWMvJde/4aDNWa8z2EZ7zKVQdy8E+qgCs8uVnZxCeThbd+VoAYLFX6Dbqn7pj19xS/0y6qYtMqpxg472kkWjieKmc391yacRvnvO8MC2arbHjjybqjAlYYSWEo+c/IOM2LhVk7ehfiRadXcQXwrRn5NtNlSQeRRDxdfP9ecezbcGtYrilI7u9ikDDbJrbnXnEhP48AisKBFnmN7YX8yu+C13r24Zf7Lapfhg9K6FTcWRKG08bZEjOiKOM/FgOGTa1EXXn1x2Ixfv9aYEiICFTuSkHlGOT2AM42cdJs3eBb5sHBBSW6IAXqwlA6uI5V/GK/rkR3Pi3LdU/iOfFSmnBUPfkhX3J2kBzQRbl6MWb3rjiaZb4l53w/yWyilrad9UIQXRaWFiY4oVaSMqGP3KL/9jpuNzKWALSIBhCalEqxXfgFRsGoyHmHt1cBeg8gffdi3rROebgjP/aFAZCRlZTbmG+9KcpEM0UPTLXIP9G2NYP2pdJXPvpVU3Z1zbtQ1zJch3RRCWJzAGTUsN8/uMxNTPdmZosic05CWyYL8b2z6GG1YbWmVOUKrfQogXm2ojJCfDLp+/CFT+Z8l7bDb/Z61AIq5mo2ZIVZrJ5wTnYyu8y4VIXvvFPNfx2u+Ef7gyoazA6zKgvms0VzLrYSJjj24wcknbDW4Nv7xhwXxiW8Nnzl0zJzFFlOG+lLWmdjdyUxvFzGxKMVDUpdeeSKvhTEBD3NWJ+iGAE=",
+      "thinking": "The HPA is flapping because `scaleDownStabilizationSeconds: 0` lets it scale down right after its own scale-up lowers per-replica CPU. Restoring the Kubernetes default stabilization window should stop it, and I'll apply that next.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01VGZZWNK6vg83m8TQ6DZL2D",
+      "id": "toolu_01QDtWYNXW6zvjCTq3XFmXHh",
       "input": {
-        "path": "src/io_shop/categorising.py"
+        "explanation": "deploy/values-production.yaml renders the shop's HorizontalPodAutoscaler with minReplicas 3, maxReplicas 6, targetCpuPercent 70 and scaleDownStabilizationSeconds 0. The file's own comment says what that window is for: Kubernetes defaults it to 300 seconds, so the controller acts on the highest recommendation from the last five minutes. Otherwise it acts on a reading that its own last action produced.\n\nAt 0 the loop flaps. At 3 replicas CPU is pinned, so the controller scales to 6. At 6 replicas the per-replica CPU falls below target, and with no window the controller scales straight back to 3 on that reading, which pins CPU again. That fits the capacity the investigation saw moving between 3.0 and 6.0 cores. The 6-to-3 flip is one minute after a scale-up, while traffic is still climbing.\n\nThis change sets scaleDownStabilizationSeconds to 300, the Kubernetes default. Scale-up is unchanged and happens as soon as it is needed. Scale-down now only happens once the higher recommendation has held for five minutes, so the post-scale-up dip can no longer undo the scale-up.\n\nNothing under src/ reads the autoscaling block (a search for scaleDownStabilization matches only this file), so no service code or tests need to change. There is no test because the fix is in deployment configuration, not code this repository's tests exercise.",
+        "files": [
+          {
+            "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 300\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
+            "path": "deploy/values-production.yaml"
+          }
+        ],
+        "summary": "Restore 300s HPA scale-down stabilization so io-shop stops flapping between 3 and 6 replicas"
       },
-      "name": "read_repository_file",
+      "name": "submit_fix",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cg9y2ASChsrFUJyHQLpjN",
+  "id": "msg_011CgoeJABCprUeoUo7N1mem",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -32,12 +44,12 @@
       "ephemeral_5m_input_tokens": 124
     },
     "cache_creation_input_tokens": 124,
-    "cache_read_input_tokens": 5073,
+    "cache_read_input_tokens": 6500,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 173,
+    "output_tokens": 1815,
     "output_tokens_details": {
-      "thinking_tokens": 111
+      "thinking_tokens": 273
     },
     "service_tier": "standard",
     "speed": "standard"

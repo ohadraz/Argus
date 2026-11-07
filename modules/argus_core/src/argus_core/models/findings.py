@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from argus_core.models.deployment_changes import DeploymentChanges
 from argus_core.models.disproof import Disproof
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.onset import EstablishedOnset
@@ -105,3 +106,10 @@ class Findings:
     #
     # `None` where the investigation ended before it had one.
     onset: EstablishedOnset | None = None
+    # What each deployment the model looked into changed, by its revision.
+    #
+    # Carried out rather than read back off the account, because the walk
+    # decides from it - a candidate blaming a file is answered by the deploy
+    # whose diff names that file - and an account is read by nothing that
+    # decides. Empty where the model looked into none.
+    deployment_changes: dict[str, DeploymentChanges] = field(default_factory=dict)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import AgentInvoked, IncidentEvent, OnsetDetected, StatusChanged
 from argus_core.models import Actor, Alert, IncidentStatus
 from argus_incidents.following import events_since, place_for
@@ -44,7 +44,7 @@ def test_the_log_hands_back_what_was_published_after_a_place(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         the_log = events_since(connect_from_env)
 
         Scenario() \

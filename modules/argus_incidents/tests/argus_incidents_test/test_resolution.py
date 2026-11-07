@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import IncidentEvent, StatusChanged
 from argus_core.models import Alert, IncidentStatus, Report, ReportChannel
 from argus_incidents.repository import incidents
@@ -33,7 +33,7 @@ def test_a_resolution_that_took_effect_is_published_with_who_reported_it(
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     published: list[IncidentEvent] = []
 
@@ -59,8 +59,8 @@ def test_a_resolution_that_changed_nothing_publishes_nothing(a_clean_database: N
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())
 
     published: list[IncidentEvent] = []
 
@@ -85,7 +85,7 @@ def test_a_resolution_reaches_the_incident_itself(a_clean_database: None) -> Non
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -109,7 +109,7 @@ def test_a_resolution_that_took_effect_is_logged_with_where_it_came_from(
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -124,6 +124,53 @@ def test_a_resolution_that_took_effect_is_logged_with_where_it_came_from(
                                   "incident resolved",
                                   values={"channel": ReportChannel.ARGUS_UI})
         )
+
+
+@pytest.mark.component
+def test_a_resolution_ends_the_incident_at_the_moment_it_is_published(
+    a_clean_database: None
+) -> None:
+    # The row's end and the account's line are one instant.
+    some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: resolve_incident(incident_id, SOME_REPORT, connect_from_env,
+                                      publisher=published.append)
+        ) \
+        .then(
+            _it_ended_when_it_was_said_to(published, incident_id)
+        )
+
+
+def _it_ended_when_it_was_said_to(published: list[IncidentEvent],
+                                  incident_id: str) -> Assertion[bool]:
+    def assertion(_ended: bool) -> bool:
+        said_at = [event.at for event in published
+                   if isinstance(event, StatusChanged)
+                   and event.to_status == IncidentStatus.RESOLVED]
+
+        with connect_from_env() as conn:
+            incident = incidents.get(conn, incident_id)
+
+        ended_at = incident.ended_at if incident is not None else None
+        if said_at != [ended_at]:
+            raise AssertionError(
+                f"Expected the incident to end at the moment its line says, it ended "
+                f"at [{ended_at}] and was said to at {said_at}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _nobody_is_listening(_event: IncidentEvent) -> None:

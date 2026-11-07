@@ -1,6 +1,6 @@
 """The incident answered by adding something, end to end.
 
-Every other mitigation in this suite puts something back: a flag to the state it
+Every other mitigation in this suite returns something: a flag to the state it
 was in, a process to a fresh start, a deployment to the revision before it. Io's
 shop here is running the code it was reviewed with, reading the configuration it
 was deployed with, and serving traffic that has grown past the three replicas

@@ -8,6 +8,10 @@ It is also the only channel whose silence is not itself evidence. "Nothing
 changed in this window" is a conclusion something acts on, which is why the
 change channel raises rather than answering emptily; a register that cannot be
 reached supports no conclusion at all, so the model is told and goes on.
+
+What came back is published too, as the values it is, so the account of the
+incident can say which dependency a cause rests on - a candidate that blames one
+names it, and a reader of the account is owed the read that made it whose.
 """
 
 from __future__ import annotations
@@ -18,12 +22,15 @@ from unittest.mock import create_autospec
 import pytest
 from agent_investigator.retrieval import DependencyFetcher
 from agent_investigator.tools.dependencies import DEPENDENCIES_TOOL, read_dependencies
+from argus_core import new_id
+from argus_core.events import IncidentEvent, Narrator, ServiceRegisterRead
 from argus_core.mcp_transport import McpToolError
 from argus_core.models import Ownership, ServiceDependency, ToolCall
 from argus_testkit import Assertion, Scenario, all_of
 
 SOME_SERVICE = "io-shop"
 SOME_CALL = ToolCall(id="call-1", name=DEPENDENCIES_TOOL, arguments={})
+DONT_CARE_NARRATOR = Narrator(new_id())
 
 
 @pytest.mark.unit
@@ -37,7 +44,7 @@ def test_the_answer_names_each_dependency_and_whose_it_is() -> None:
 
     Scenario() \
         .given(registry) \
-        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry)) \
+        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry, DONT_CARE_NARRATOR)) \
         .then(all_of(
             _the_answer_mentions("io-pricing"),
             _the_answer_mentions("io-pay"),
@@ -59,7 +66,7 @@ def test_the_answer_says_what_each_dependency_is_for() -> None:
 
     Scenario() \
         .given(registry) \
-        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry)) \
+        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry, DONT_CARE_NARRATOR)) \
         .then(_the_answer_mentions(some_purpose))
 
 
@@ -71,7 +78,7 @@ def test_a_service_with_nothing_registered_is_told_so_in_words() -> None:
 
     Scenario() \
         .given(registry) \
-        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry)) \
+        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry, DONT_CARE_NARRATOR)) \
         .then(all_of(
             _it_was_served(),
             _the_answer_is_not_empty()
@@ -89,12 +96,11 @@ def test_a_register_nobody_can_reach_is_reported_rather_than_ending_the_walk() -
     # confidence, or by saying which distinction it could not make. Killing the
     # investigation over it would throw away everything already retrieved to
     # avoid a gap the model is perfectly able to report.
-    registry = create_autospec(DependencyFetcher, instance=True)
-    registry.side_effect = McpToolError("nobody answered")
+    registry = a_register_nobody_can_reach()
 
     Scenario() \
         .given(registry) \
-        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry)) \
+        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry, DONT_CARE_NARRATOR)) \
         .then(all_of(
             _it_was_not_served(),
             _the_answer_mentions("register")
@@ -112,13 +118,53 @@ def test_the_channel_records_no_reading() -> None:
 
     Scenario() \
         .given(registry) \
-        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry)) \
+        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry, DONT_CARE_NARRATOR)) \
         .then(_nothing_was_recorded_as_read())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("names", [("io-pricing", "io-pay"), ()], ids=["some", "none"])
+def test_what_the_register_answered_is_published_as_it_came_back(
+        names: tuple[str, ...]) -> None:
+    # A cause resting on a dependency rests on this read - whose the dependency
+    # is decided whether anything could be done - and the account is owed it.
+    # An empty register too: that the service calls nothing, as far as the
+    # register knows, is a finding.
+    published: list[IncidentEvent] = []
+    registered = [_a_dependency(name, Ownership.INTERNAL) for name in names]
+    registry = a_register_holding(*registered)
+
+    Scenario() \
+        .given(registry) \
+        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry,
+                                        Narrator(new_id(), published.append))) \
+        .then(_it_published(published, registered))
+
+
+@pytest.mark.unit
+def test_a_register_nobody_can_reach_publishes_nothing_read() -> None:
+    # A register nobody could read, published as one that answered, would be
+    # an estate the account says something about that nobody found out.
+    published: list[IncidentEvent] = []
+    registry = a_register_nobody_can_reach()
+
+    Scenario() \
+        .given(registry) \
+        .when(lambda: read_dependencies(SOME_CALL, SOME_SERVICE, registry,
+                                        Narrator(new_id(), published.append))) \
+        .then(_nothing_read_was_published(published))
 
 
 def a_register_holding(*dependencies: ServiceDependency) -> Any:
     registry = create_autospec(DependencyFetcher, instance=True)
     registry.return_value = list(dependencies)
+
+    return registry
+
+
+def a_register_nobody_can_reach() -> Any:
+    registry = create_autospec(DependencyFetcher, instance=True)
+    registry.side_effect = McpToolError("nobody answered")
 
     return registry
 
@@ -195,6 +241,38 @@ def _nothing_was_recorded_as_read() -> Assertion[Any]:
             raise AssertionError(
                 f"Expected no reading for a channel with no window, and one was "
                 f"recorded: {answer.reading}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_published(published: list[IncidentEvent],
+                  expected: list[ServiceDependency]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        read = [event.dependencies for event in published
+                if isinstance(event, ServiceRegisterRead)]
+
+        if read != [expected]:
+            raise AssertionError(
+                f"Expected the register's answer published once as it came back, "
+                f"{expected!r}, and what was published is {read!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_read_was_published(published: list[IncidentEvent]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        read = [event for event in published if isinstance(event, ServiceRegisterRead)]
+
+        if read:
+            raise AssertionError(
+                f"Expected nothing published as read from a register nobody "
+                f"could read, and it published {read!r}."
             )
 
         return True

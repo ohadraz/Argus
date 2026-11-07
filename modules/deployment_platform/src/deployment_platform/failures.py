@@ -19,7 +19,19 @@ class DeploymentPlatformError(Exception):
 
     Caught by name where the difference does not matter - a read that has to
     refuse rather than answer emptily refuses the same way for both.
+
+    `known_not_applied` is a second question, and it cuts across the two
+    kinds: whether the answer says the request was not applied. A refused
+    connection and a 4xx both say so; a timeout and a 500 say nothing either
+    way, and a change asked for may be landing as the failure is read. Only the
+    adapter can tell which - it is the one that saw the request go out - and
+    the action above it is the one that has to say what the estate was left
+    as. False unless the adapter says otherwise.
     """
+
+    def __init__(self, said: str, *, known_not_applied: bool = False) -> None:
+        super().__init__(said)
+        self.known_not_applied = known_not_applied
 
 
 class PlatformUnreachable(DeploymentPlatformError):

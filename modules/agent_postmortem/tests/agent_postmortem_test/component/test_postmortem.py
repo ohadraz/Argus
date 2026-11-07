@@ -42,7 +42,6 @@ from argus_core.models import Verdict
 from argus_testkit import Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (
-    discloses_an_assumption_mentioning,
     discloses_an_assumption_naming,
     discloses_no_assumption_about,
     discloses_the_assumption,
@@ -50,14 +49,16 @@ from agent_postmortem_test.framework.assertions import (
     estimates_nothing,
     is_marked_complete,
     is_marked_incomplete,
+    keeps_a_cost_basis_line_mentioning,
+    keeps_the_cost_basis_line,
     reports_a_responder_cost_of,
     reports_engineer_minutes,
     reports_engineer_minutes_across,
-    reports_executive_summary,
     reports_no_responder_cost,
     reports_root_cause,
     reports_the_titles,
     states_the_estimate_is_in,
+    summarises_with,
 )
 from agent_postmortem_test.framework.builders import (
     ENDED_AT,
@@ -116,7 +117,7 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
     some_engaged_person_minutes = 25
     some_responders = 2
     some_root_cause = "the checkout fallback was disabled by a flag toggle at noon"
-    some_summary = "Checkout failed for several minutes after a flag change; reverted."
+    some_cause = "A flag change turned off the fallback checkout relies on."
     expected_loss = (
         Decimal(SOME_CALM_HOURLY_REVENUE) * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - SOME_REVENUE_DURING_THE_INCIDENT
@@ -130,7 +131,7 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
             lambda: a_postmortem_written_with(
                 evidence,
                 llm=a_model_answering(root_cause=some_root_cause,
-                                      executive_summary=some_summary),
+                                      cause_in_plain_words=some_cause),
                 sources=some_sources(
                     revenue=_takings_that_were_normal_until_the_onset(),
                     engagement=an_engagement_source_reporting(
@@ -140,7 +141,7 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
         .then(
             all_of(
                 reports_root_cause(some_root_cause),
-                reports_executive_summary(some_summary),
+                summarises_with(some_cause),
                 estimates_a_loss_of(expected_loss),
                 states_the_estimate_is_in(SOME_CURRENCY),
                 reports_engineer_minutes_across(minutes=some_engaged_person_minutes,
@@ -368,10 +369,10 @@ def test_the_response_is_priced_on_the_page_and_the_arithmetic_disclosed() -> No
                 reports_engineer_minutes(SOME_ENGAGED_MINUTES),
                 reports_a_responder_cost_of(cost_at_midpoint),
                 reports_the_titles(SOME_TITLE),
-                discloses_an_assumption_mentioning(
+                keeps_a_cost_basis_line_mentioning(
                     WORKING_YEAR_ASSUMPTION_LABEL,
                     str(int(SOME_WORKING_YEAR_IN_HOURS))),
-                discloses_an_assumption_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
+                keeps_a_cost_basis_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
             )
         )
 
@@ -405,7 +406,7 @@ def test_a_title_no_band_covers_leaves_the_minutes_and_takes_the_cost() -> None:
             all_of(
                 reports_engineer_minutes(SOME_ENGAGED_MINUTES * 2),
                 reports_no_responder_cost(),
-                discloses_an_assumption_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
+                keeps_a_cost_basis_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
                                                    SOME_TITLE_NO_BAND_COVERS)
             )
         )
@@ -434,7 +435,7 @@ def test_a_band_source_that_cannot_be_read_costs_nothing_but_the_figure() -> Non
             all_of(
                 reports_engineer_minutes(SOME_ENGAGED_MINUTES),
                 reports_no_responder_cost(),
-                discloses_the_assumption(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
+                keeps_the_cost_basis_line(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
             )
         )
 

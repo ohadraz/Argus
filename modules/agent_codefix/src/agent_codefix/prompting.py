@@ -44,6 +44,7 @@ import json
 from collections.abc import Iterable
 from typing import Any, Final
 
+from argus_core import is_a_test_file
 from argus_core.models import ToolDefinition
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -160,6 +161,14 @@ _A_CLOSING_CONTENT_TAG: Final = f"</{CONTENT_FIELD}>"
 # reader will treat it as Python whatever it holds.
 _A_PYTHON_SUFFIX: Final = ".py"
 
+# What a configuration file's name ends in. Data a program reads, never a
+# program: a script or a Dockerfile runs, and is code however it is deployed.
+# Endings rather than suffixes, so a bare `.env` counts.
+_CONFIGURATION_ENDINGS: Final = (
+    ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf", ".env",
+    ".properties", ".xml"
+)
+
 
 def _the_patch_in(written: str) -> list[Any] | None:
     """The files written after a parameter tag, or `None` where there are none.
@@ -271,6 +280,42 @@ def the_paths_whose_content_is_not_source(files: Iterable[ProposedFile]) -> list
     ]
 
 
+def brings_a_test(files: Iterable[ProposedFile]) -> bool:
+    """Whether any of these files is a test, by the name pytest collects it under.
+
+    The submission's own description asks for the test, and a patch without one
+    is a claim nothing can check: the fix grader has nothing to run against the
+    shop, and the postmortem sends its reader to run tests that do not exist. A
+    recorded walk changed a values file alone and said no test could exercise
+    it, where the same fix recorded before brought one that read the file.
+
+    By name rather than by place: where a repository keeps its tests is its own
+    business, and the name is what the runner itself goes by.
+
+    Public, as the reading beside it is, because the loop is what puts a
+    submission back.
+    """
+    return any(
+        is_a_test_file(proposed.path) for proposed in files
+    )
+
+
+def changes_only_configuration(paths: Iterable[str]) -> bool:
+    """Whether every one of these paths is a configuration file - a patch that
+    may come without a test.
+
+    A test for a values file reads the value back and checks it, which is the
+    diff said twice: it proves nothing about what the value does. So a patch
+    whose every file is configuration is proposed as it came, and one with any
+    other file in it brings its test, because that file is what a test is for.
+
+    Public, because the fix grader holds recorded patches to the same rule.
+    """
+    listed = list(paths)
+
+    return bool(listed) and all(path.endswith(_CONFIGURATION_ENDINGS) for path in listed)
+
+
 def _parses(content: str) -> bool:
     """Whether this text is Python, whatever it says."""
     try:
@@ -341,7 +386,7 @@ class SubmittedFix(BaseModel):
     """What the model submitted, said as fields rather than as a mapping.
 
     Every field is optional, because finding out what is missing is the point: a
-    field the model left out is a fault to put back to it, not an answer that
+    field the model left out is a fault to send back to it, not an answer that
     failed to arrive. `None` means unanswered.
 
     An empty `files` is a real answer and not a malformed one - "I looked and
@@ -349,7 +394,7 @@ class SubmittedFix(BaseModel):
     different from a submission that could not be read. Whoever reads this has
     to be able to tell those apart, so both parse.
 
-    It parses, and it is put back once before it is believed. The same call
+    It parses, and it is sent back once before it is believed. The same call
     also arrives from a model that described the change it wanted and attached
     nothing, and no amount of reading the prose separates the two - a verdict
     carries an explanation as readily as a proposal does. So the loop asks, and
@@ -504,7 +549,18 @@ SUBMIT_FIX = ToolDefinition(
             "description": (
                 "Why this is the fix: what the fault was, why the code behaved "
                 "that way, and why this change ends it. Written for the person "
-                "who has to approve it."
+                "who has to approve it. Say what the code does and why: what the "
+                "incident did - how many requests or evaluations it reached, and "
+                "how far a rate moved - is the investigation's to say, not yours "
+                "to restate. Nothing will have run your test or your "
+                "fix when this is read: say what the test is written to show and "
+                "what the change should do, never that the test fails or that the "
+                "fix works. Say what a file says only of the file that says it, "
+                "naming it by its path. Say what each piece of code does only as "
+                "its own lines do it, with the conditions they do it under - no "
+                "wider than the code you read, and nothing of code you did not "
+                "read. Say of several pieces at once only what each one's own "
+                "lines do."
             )
         },
         FILES_FIELD: {
@@ -537,13 +593,13 @@ SUBMIT_FIX = ToolDefinition(
                 "the test. Bring the test that exposes the bug: the case that "
                 "was failing, asserted to pass, alongside the service's other "
                 "tests. A fix without one is a claim; a fix with one is "
-                "evidence. The test has to fail against the code as it stands "
-                "now, or it proves nothing: where the fault is slowness, assert "
-                "a bound on how long the work takes or how much of it is done, "
-                "because a test that only checks the answer passes against the "
-                "slow code too. At least one file: this tool is how a patch is "
-                "sent, and an incident traced to a cause in this service "
-                "usually has one."
+                "evidence. Write the test so that it would fail against the "
+                "code as it stands now, or it proves nothing: where the fault "
+                "is slowness, assert a bound on how long the work takes or how "
+                "much of it is done, because a test that only checks the answer "
+                "passes against the slow code too. At least one file: this tool "
+                "is how a patch is sent, and an incident traced to a cause in "
+                "this service usually has one."
             )
         }
     },
@@ -606,6 +662,9 @@ NOT_AN_ANSWER: Final = (
     "Not an answer: no question is open until your patch has been asked about."
 )
 NOT_RUN_WHILE_ASKED: Final = "Not run: answer the question first."
+
+# What every other call in a turn whose submission was sent back is told.
+NOT_RUN_WHILE_SENT_BACK: Final = "Not run: your submission was sent back - submit again first."
 
 
 class AnswerToTheQuestion(BaseModel):

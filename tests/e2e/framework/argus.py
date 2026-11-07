@@ -27,7 +27,7 @@ from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_core import get_settings, parse_iso
+from argus_core import get_settings, parse_iso, to_iso, utc_now
 from argus_core.events import ActionTaken, ChangesRetrieved, FixAttempted, StatusChanged
 from argus_core.models import (
     ROLL_BACK_DEPLOYMENT,
@@ -53,6 +53,12 @@ DATABASE_URL = get_settings().database_url
 THE_SHOP_STANDS_IN: Final = "TARGET_SERVICE_DOUBLE"
 
 WEBHOOK_PATH = "/webhooks/alerts"
+
+# Where the shop's Grafana answers a rule's state, under the shop's prefix, and
+# the state a rule is in once its condition has held for its wait - Grafana's
+# own path and vocabulary.
+RULE_STATE_PATH: Final = "/grafana/api/prometheus/grafana/api/v1/rules"
+_FIRING_RULE_STATE: Final = "firing"
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -102,7 +108,16 @@ RECORDED_RESOLVED_FROM_THE_PAGE = "flag-toggle-resolved-from-the-page"
 RECORDED_RESOLVED_IN_PAGERDUTY = "flag-toggle-resolved-in-pagerduty"
 RECORDED_RESOLVED_FROM_SLACK = "flag-toggle-resolved-from-slack"
 RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
+# The red herring again, in a world where an earlier incident already tried
+# its flag: the record it is walked and written up from holds the recall.
+RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED = "flag-toggle-red-herring-remembered"
 RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
+# The flag toggle again, whole, in a world staged around it differently:
+# somebody paged for it, or another flag switched on beside it. Each has a
+# write-up of its own, since the record each is written from is not the plain
+# one's.
+RECORDED_FLAG_TOGGLE_PAGED = "flag-toggle-paged"
+RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER = "flag-toggle-beside-another"
 RECORDED_RESOURCE_LEAK = "resource-leak"
 RECORDED_UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
 RECORDED_CACHE_MISCONFIGURED = "cache-misconfigured"
@@ -139,6 +154,8 @@ RECORDED_LEAD_MID_INVESTIGATION = "competing-flag-changes-lead-mid-investigation
 # hold today.
 THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
     RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_PAGED,
+    RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
     RECORDED_RESOURCE_LEAK,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_OUTPUT_QUALITY_DEGRADATION,
@@ -191,7 +208,8 @@ def stored_as(recording: str) -> str:
 
 
 def argus_is_triggered_with_alert(
-    payload: dict[str, Any]
+    payload: dict[str, Any],
+    a_false_alarm: bool = False
 ) -> Callable[[], httpx2.Response]:
     """Fires the alert, and waits for everything it starts.
 
@@ -207,30 +225,110 @@ def argus_is_triggered_with_alert(
     webhook names the rule that fired. Asked of the shop when the alert is sent
     rather than written into the case: which rule a scenario trips is the
     fixture's to say, and a uid copied here would be a second copy of it.
+
+    And stamped with when it was sent, unless the case gave it a moment of its
+    own - not when the case built it, which is before the scenario was seeded,
+    by as long as the seed waited. Not sent until the staged rule is firing:
+    Grafana sends nothing for a rule that has not yet held its condition for
+    its wait, and an alert sent sooner carries a firing that never happened,
+    which Argus reads as the condition having held before an onset it measured.
+
+    `a_false_alarm` is for the case that sends an alert no rule would, on
+    purpose - the alarm Argus is meant to find the metrics contradict. It goes
+    out at once, since there is no firing to wait for.
     """
     def step() -> httpx2.Response:
+        rule_uid = _the_staged_rule()
+        if rule_uid is not None and not a_false_alarm:
+            the_rule_is_firing(rule_uid)
+
         return httpx2.post(
             f"{ARGUS_WEB_BASE_URL}{WEBHOOK_PATH}",
-            json=_naming_the_staged_rule(payload),
+            json=_stamped_now(_linking_to(rule_uid, payload)),
             timeout=WALK_TIMEOUT_SECONDS,
         )
 
     return step
 
 
-def _naming_the_staged_rule(payload: dict[str, Any]) -> dict[str, Any]:
-    """The payload with every alert in it linking to the staged scenario's rule,
-    or the payload as it is where nothing is staged.
-
-    In the link, because that is the one place Grafana's webhook names the rule
-    that fired - its payload has no field of its own for it.
-    """
+def _the_staged_rule() -> str | None:
+    """The uid of the rule the staged scenario trips, or `None` where nothing
+    is staged."""
     response = httpx2.get(
         f"{TARGET_SERVICE_BASE_URL}/scenario/status", timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()
-    rule_uid = response.json()["rule_uid"]
+    rule_uid: str | None = response.json()["rule_uid"]
+    return rule_uid
 
+
+def the_rule_is_firing(rule_uid: str) -> None:
+    """Waits until the shop's Grafana says `rule_uid` is firing - asked through
+    Grafana's own API, as Argus asks it - which is when Grafana would send the
+    alert.
+
+    Public because the recording script sends its alerts the same way: a
+    recording captured from an alert sent sooner than a replay sends it is a
+    walk anchored on a different instant, and every brief built from it differs.
+
+    Firing, not merely "not pending": a rule is also inactive before its first
+    evaluation over a departed minute, and between pendings on a rule that
+    flaps, and an alert sent from either is a firing that never happened.
+
+    Bounded by the rule's own wait and two evaluations of its group, both read
+    off the first answer: one for the first departed minute to close and be
+    evaluated, one of slack for the evaluation itself. A rule not firing by
+    then is one the scenario did not hold, and the case fails rather than send.
+    """
+    groups = _the_rule_state(rule_uid)
+    deadline = time.monotonic() + max(
+        2 * group["interval"] + rule["duration"]
+        for group in groups
+        for rule in group["rules"]
+    )
+
+    while not _is_firing(groups):
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"Expected the staged rule [{rule_uid}] to be firing within its own "
+                f"wait and two evaluations, and the shop's Grafana still says it is "
+                f"[{_the_states(groups)}]: Grafana would not have sent this alert, "
+                f"because the scenario has not held the rule's condition for its wait."
+            )
+
+        time.sleep(A_POLL_SECONDS)
+        groups = _the_rule_state(rule_uid)
+
+
+def _the_rule_state(rule_uid: str) -> list[dict[str, Any]]:
+    """The rule groups the shop's Grafana answers for `rule_uid`."""
+    response = httpx2.get(
+        f"{TARGET_SERVICE_BASE_URL}{RULE_STATE_PATH}",
+        params={"rule_uid": rule_uid},
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    groups: list[dict[str, Any]] = response.json()["data"]["groups"]
+    return groups
+
+
+def _is_firing(groups: list[dict[str, Any]]) -> bool:
+    return any(
+        rule["state"] == _FIRING_RULE_STATE for group in groups for rule in group["rules"]
+    )
+
+
+def _the_states(groups: list[dict[str, Any]]) -> str:
+    return ", ".join(rule["state"] for group in groups for rule in group["rules"])
+
+
+def _linking_to(rule_uid: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload with every alert in it linking to `rule_uid`, or the
+    payload as it is where nothing is staged.
+
+    In the link, because that is the one place Grafana's webhook names the rule
+    that fired - its payload has no field of its own for it.
+    """
     if rule_uid is None:
         return payload
 
@@ -240,6 +338,17 @@ def _naming_the_staged_rule(payload: dict[str, Any]) -> dict[str, Any]:
             {**alert, "generatorURL": f"http://grafana.local/alerting/grafana/{rule_uid}/view"}
             for alert in payload["alerts"]
         ]
+    }
+
+
+def _stamped_now(payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload with every alert the case gave no moment of its own
+    stamped as starting now."""
+    now = to_iso(utc_now())
+
+    return {
+        **payload,
+        "alerts": [{"startsAt": now, **alert} for alert in payload["alerts"]]
     }
 
 
@@ -791,7 +900,8 @@ def _seed_the_answers(control: httpx2.Client,
             "/double-control/seed",
             json={"recording": answered_once, "repeat": 1}
             if shift is None
-            else {"body": _rebased(load(answered_once), shift), "repeat": 1}
+            else {"body": _rebased(load(answered_once), shift), "recorded_as": answered_once,
+                  "repeat": 1}
         ).raise_for_status()
 
 

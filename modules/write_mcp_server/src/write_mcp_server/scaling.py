@@ -55,13 +55,11 @@ import logging
 from collections.abc import Callable
 from typing import Final
 
-from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
-from argus_core.models import DEPLOYMENT_PLATFORM, CapacityRestored, ReplicaUndo
-from deployment_platform import (
-    DeploymentPlatformError,
-    DeploymentPlatformWrites,
-    PlatformUnreachable,
-)
+from argus_core.mcp_transport import an_exhausted_action
+from argus_core.models import CapacityRestored, ReplicaUndo
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+
+from write_mcp_server.refusing import a_platform_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -98,28 +96,19 @@ class ScaleRefused(Exception):
     """The platform would not report the size, or would not change it."""
 
 
-def _refusing(said: str, error: DeploymentPlatformError,
+def _refusing(said: str, error: DeploymentPlatformError, *,
+              asked_to_change: bool,
               left_behind: ReplicaUndo | None = None) -> ScaleRefused:
-    """This module's refusal, marked where the platform was never reached.
-
-    The mark is what lets a caller tell four actions being unavailable from this
-    scale-out being rejected, without reading the words of either. It is applied
-    here rather than by the platform: what a response means is the platform's to
-    say, and what to raise about it is the action's own.
+    """This module's refusal, marked as `a_platform_refusal` marks it.
 
     `left_behind` is what the failure cost, where it cost anything. This is the
-    action most likely to lose the platform part-way - it reads, suspends, and
-    only then acts - so withholding the mark on a failure after the suspension
-    would have meant handling this mode only when the platform happened to fail
-    on the first call. Saying what was left behind lets the caller narrow itself
-    and still know a deployment is sitting un-reconciled.
+    action most likely to fail part-way - it reads, suspends, and only then acts
+    - so the suspension travels on every refusal after it, and the caller still
+    knows a deployment is sitting un-reconciled.
     """
-    if isinstance(error, PlatformUnreachable):
-        return ScaleRefused(
-            an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
-        )
-
-    return ScaleRefused(said)
+    return ScaleRefused(a_platform_refusal(
+        said, error, asked_to_change=asked_to_change, left_behind=left_behind
+    ))
 
 
 def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUndo:
@@ -147,7 +136,8 @@ def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUn
         running = platform.rollout_of(application).replicas_wanted
     except DeploymentPlatformError as error:
         raise _refusing(
-            f"could not read what [{application}] is running: {error}", error
+            f"could not read what [{application}] is running: {error}", error,
+            asked_to_change=False
         ) from error
 
     if running >= THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR:
@@ -161,13 +151,22 @@ def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUn
 
     try:
         was_syncing_itself = platform.is_syncing_itself(application)
-
-        if was_syncing_itself:
-            platform.suspend_sync(application)
     except DeploymentPlatformError as error:
         raise _refusing(
-            f"could not suspend the sync of [{application}]: {error}", error
+            f"could not read whether [{application}] syncs itself: {error}", error,
+            asked_to_change=False
         ) from error
+
+    # Apart from the read before it, because this is the first change asked
+    # for: a failure here may have suspended the sync, where one there cannot.
+    if was_syncing_itself:
+        try:
+            platform.suspend_sync(application)
+        except DeploymentPlatformError as error:
+            raise _refusing(
+                f"could not suspend the sync of [{application}]: {error}", error,
+                asked_to_change=True
+            ) from error
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
@@ -188,7 +187,8 @@ def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUn
             f"[{application}] could not be scaled to [{_twice(running)}] "
             f"replicas: {error}",
             error,
-            undo if was_syncing_itself else None
+            asked_to_change=True,
+            left_behind=undo if was_syncing_itself else None
         ) from error
 
     logger.info("deployment scaled out", extra={

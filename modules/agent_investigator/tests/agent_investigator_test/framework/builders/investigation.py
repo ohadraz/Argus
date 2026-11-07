@@ -24,6 +24,7 @@ from agent_investigator.retrieval import (
     PlacementFetcher,
     RolloutFetcher,
 )
+from agent_investigator.tools.offer import ReadTierTools
 from argus_core import new_id
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
@@ -37,6 +38,7 @@ from argus_core.models import (
     MetricBucket,
     PodPlacement,
     ServiceDependency,
+    ToolDefinition,
     no_leads,
 )
 from argus_testkit import dont_care_sleep, raising, returning
@@ -59,6 +61,7 @@ class Investigation(NamedTuple):
     deployment_diff_fetcher: Mock
     rollout_fetcher: Mock
     placement_fetcher: Mock
+    read_tier_tools: Mock
     model: Mock
     budget: Budget
 
@@ -73,6 +76,7 @@ class Investigation(NamedTuple):
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
                     established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0,
                     sleep: Callable[[float], None] = dont_care_sleep) -> Findings:
         """The loop, run with whatever this investigation was built around.
 
@@ -96,6 +100,7 @@ class Investigation(NamedTuple):
             fetch_placements=self.placement_fetcher,
             settings=settings or some_investigation_settings(),
             thresholds=some_thresholds(),
+            read_tier_tools=self.read_tier_tools,
             converse=None if conversations is not None else self.model,
             conversations=conversations or a_conversation_recorded_for,
             budget=self.budget,
@@ -105,6 +110,7 @@ class Investigation(NamedTuple):
             still_wanted=still_wanted,
             leads=leads,
             established_onset=established_onset,
+            earlier_candidates=earlier_candidates,
             sleep=sleep
         )
 
@@ -147,6 +153,9 @@ class Investigation(NamedTuple):
     def the_placement_could_not_be_read(self, error: Exception) -> Callable[[], None]:
         return raising(self.placement_fetcher, error)
 
+    def the_read_tier_served(self, tools: list[ToolDefinition]) -> Callable[[], None]:
+        return returning(self.read_tier_tools, tools)
+
 
 def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation:
     """The loop, with a scripted model and every channel answering emptily.
@@ -172,6 +181,7 @@ def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation
         placement_fetcher=create_autospec(
             PlacementFetcher, instance=True, return_value=[]
         ),
+        read_tier_tools=create_autospec(ReadTierTools, instance=True, return_value=[]),
         model=model,
         budget=budget or a_budget()
     )

@@ -25,8 +25,9 @@ from argus_core.models import (
     Hypothesis,
     TakenAction,
     Verdict,
+    WhatWasTried,
 )
-from incident_memory.records import RememberedIncident, WhatWasTried
+from incident_memory.records import RememberedIncident
 
 SOME_INCIDENT = "0f5c4d6e-3a1b-4c2d-8e9f-1a2b3c4d5e6f"
 
@@ -133,7 +134,7 @@ def a_remembered_incident(incident_id: str = SOME_INCIDENT,
     )
 
 
-def an_action(subject: str,
+def an_action(subject: str | None,
               verdict: Verdict | None = None,
               incident_id: str = SOME_INCIDENT,
               action_type: ActionType = REVERT_FEATURE_FLAG) -> TakenAction:
@@ -162,4 +163,4 @@ def an_action_on_nothing(verdict: Verdict = Verdict.REFUTED) -> TakenAction:
     Nothing later can match on it, so it is the one row a memory record has no
     use for however determined its outcome was.
     """
-    return an_action(subject="", verdict=verdict).model_copy(update={"target": None})
+    return an_action(subject=None, verdict=verdict)

@@ -4,7 +4,8 @@ A deployment platform names the repository it synced from by the address it
 clones, which is not the address a reader opens. On GitHub the two are close:
 the clone address over HTTPS, less its `.git` - and the commit and the
 directory at that commit are pages under it. A host whose pages this does not
-know gets no addresses at all, rather than ones that lead nowhere.
+know gets no addresses at all, rather than ones that lead nowhere. A file at that
+commit is a page under it too, its path after the address its files open at.
 
 The repository is named by owner and name on any host, since that takes no
 knowledge of the host's pages.
@@ -30,8 +31,9 @@ def owner_and_name(repo_url: str) -> str:
 
 
 def where_to_read(repo_url: str, revision: str, path: str | None) -> RevisionSource | None:
-    """The repository, the commit and the directory at that commit as their
-    pages - or `None` for a repository on a host whose pages are not known."""
+    """The repository, the commit, its files and the directory at that commit
+    as their pages - or `None` for a repository on a host whose pages are not
+    known."""
     parts = _the_parts_of(repo_url)
 
     # The host less any user an SSH address logs in as (`git@`), in whichever
@@ -47,6 +49,7 @@ def where_to_read(repo_url: str, revision: str, path: str | None) -> RevisionSou
         repository=repository,
         repository_address=repository_address,
         revision_address=f"{repository_address}/commit/{revision}",
+        files_address=f"{repository_address}/blob/{revision}",
         directory=directory or None,
         directory_address=(f"{repository_address}/tree/{revision}/{directory}"
                            if directory else None)

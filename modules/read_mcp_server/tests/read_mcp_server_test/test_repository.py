@@ -21,14 +21,17 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_core.models import CodeOutsideThePatch, CodeUse
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
+from read_mcp_server.outside_the_patch import code_outside_the_patch
 from read_mcp_server.repository import (
     RepositoryReadSettings,
     RepositoryUnreadable,
     SourceReader,
     list_repository_files,
+    read_code_outside_the_patch,
     read_repository_file,
     search_repository,
 )
@@ -441,6 +444,90 @@ def test_a_listing_the_repository_could_not_finish_is_logged_as_a_warning(
                                   "repository listing truncated",
                                   values={"ref": DONT_CARE_REF})
         )
+
+
+@pytest.mark.unit
+def test_the_code_outside_a_patch_is_read_off_the_services_own_source_at_the_ref() -> None:
+    # The rig that stages incidents is not where the patch's readers live, for
+    # the reason a search does not answer from it.
+    some_ref = "main"
+    some_patch = {"src/io_shop/purchase_ledger.py": "def record(account): ...\n"}
+    some_service_source = {"src/io_shop/spend_summary.py": "def average(account): ...\n"}
+    some_answer = CodeOutsideThePatch(
+        uses=[CodeUse(name="month", path="src/io_shop/spend_summary.py", line=1,
+                      function="average", does="returns it")],
+        defined={"average": ["src/io_shop/spend_summary.py"]}
+    )
+    read_source = a_source_reader_answering({
+        **some_service_source, "src/target_app/scenarios.py": "def stage(): ...\n"
+    })
+    analyse = create_autospec(code_outside_the_patch, return_value=some_answer)
+
+    Scenario() \
+        .when(
+            lambda: read_code_outside_the_patch(
+                some_patch,
+                ref=some_ref,
+                settings=some_settings(source_paths="src/io_shop"),
+                read_source=read_source,
+                analyse=analyse
+            )
+        ) \
+        .then(
+            all_of(
+                the_answer_was(some_answer),
+                _the_source_was_read_at(read_source, some_ref),
+                _the_analysis_was_given(analyse, some_service_source, some_patch)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_code_outside_a_patch_that_could_not_be_read_is_refused_rather_than_empty() -> None:
+    # No uses because none exist and no uses because nothing was read are
+    # opposite facts, and the silent one tells Code-Fix nothing outside its
+    # patch depends on what it changed.
+    read_source = create_autospec(SourceReader, instance=True)
+    read_source.side_effect = RepositoryUnreadable("no route to host")
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: read_code_outside_the_patch(
+                    {}, ref=DONT_CARE_REF, settings=some_settings(), read_source=read_source
+                )
+            )
+        ) \
+        .then(an_error_was_raised(RepositoryUnreadable))
+
+
+def _the_source_was_read_at(read_source: Any, ref: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        asked = read_source.call_args.args[0]
+
+        if asked != ref:
+            raise AssertionError(f"Expected the source read at [{ref}], got [{asked}].")
+
+        return True
+
+    return assertion
+
+
+def _the_analysis_was_given(analyse: Any,
+                            source: dict[str, str],
+                            patch: dict[str, str]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        given = analyse.call_args.args
+
+        if given != (source, patch):
+            raise AssertionError(
+                f"Expected the analysis given the service's own source {source} and "
+                f"the patch {patch}, got {given}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _exactly_these_files_matched(paths: list[str]) -> Assertion[list[str]]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import psycopg
+from argus_core import utc_now
 from argus_core.models import Alert
 from argus_incidents.repository import incidents
 
@@ -15,4 +16,4 @@ def an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
     directly would be a second statement of the schema that stops agreeing
     with the first the day a column moves.
     """
-    return incidents.create(conn, alert)
+    return incidents.create(conn, alert, at=utc_now())

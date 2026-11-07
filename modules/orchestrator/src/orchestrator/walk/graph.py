@@ -118,7 +118,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     )
     # The yes-or-no the nodes hand their agents. Either ending is a reason not
     # to take the next step; where the walk goes after stopping is the routers'.
-    still_wanted = wanted_until_a_person_ends_it(collaborators.ended_by_a_person)
+    # A run taken back is no answer at all, and stops the walk where it is asked.
+    still_wanted = wanted_until_a_person_ends_it(collaborators.ended_by_a_person,
+                                                 collaborators.still_held)
 
     step(
         INVESTIGATOR_NODE, Actor.INVESTIGATOR,
@@ -159,6 +161,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     record_action=collaborators.record_action,
                     complete_action=collaborators.complete_action,
                     already_taken=collaborators.already_taken,
+                    advance_action=collaborators.advance_action,
                     change_landed=collaborators.change_landed,
                     record_outcome=collaborators.record_outcome,
                     still_wanted=still_wanted,
@@ -180,7 +183,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     propose_fix=collaborators.propose_fix,
                     publisher=collaborators.publisher,
                     still_wanted=still_wanted,
-                    leads_of=collaborators.leads_of)
+                    leads_of=collaborators.leads_of,
+                    what_argus_did=collaborators.what_argus_did)
         )
     )
     # Not wrapped in `deciding_status`, unlike every node above it. Filing what
@@ -195,7 +199,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                 publisher=collaborators.publisher)
     )
     # Stopped only by a withdrawal. A person who reported the incident resolved
-    # is owed the write-up; the person who took it back is not waiting to be
+    # is owed the write-up; the person who withdrew it is not waiting to be
     # told what Argus made of it.
     step(
         POSTMORTEM_NODE, Actor.POSTMORTEM,
@@ -220,6 +224,10 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         stopping_when_a_person_ended_it(route_after_investigation),
         {
             MITIGATING_ROUTE: MITIGATION_PROPOSAL_NODE,
+            # A round that named only what the walk had already tried has spent
+            # the list, and a spent list goes to Code-Fix from here as it does
+            # from the node that runs out of candidates.
+            FIXING_ROUTE: CODEFIX_NODE,
             ESCALATED_ROUTE: REMEMBERING_NODE,
             RESOLVED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END

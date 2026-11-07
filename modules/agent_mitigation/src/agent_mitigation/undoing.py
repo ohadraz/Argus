@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import assert_never
 
+from argus_core import was_lost
 from argus_core.models import (
     AcceleratorPinUndo,
     AutoscalerUndo,
@@ -108,13 +109,18 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"[{application}] could not be put back on the revision at "
+                f"could not be put back on the revision at "
                 f"history entry [{undo_descriptor.was_on_history_id}]: {error}"
             ),
         )
@@ -124,7 +130,7 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}] was put back on the revision at history "
+                f"was put back on the revision at history "
                 f"entry [{undo_descriptor.was_on_history_id}], and its "
                 f"automated sync was restored"
             ),
@@ -143,7 +149,7 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -169,14 +175,19 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"[{application}] could not be put back to "
-                f"[{undo_descriptor.was_replicas}] replicas: {error}"
+                f"could not be put back to [{undo_descriptor.was_replicas}] "
+                f"replica{'' if undo_descriptor.was_replicas == 1 else 's'}: {error}"
             ),
         )
 
@@ -185,9 +196,9 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}] was put back to "
-                f"[{undo_descriptor.was_replicas}] replicas, and its automated "
-                f"sync was restored"
+                f"was put back to [{undo_descriptor.was_replicas}] "
+                f"replica{'' if undo_descriptor.was_replicas == 1 else 's'}, and its "
+                f"automated sync was restored"
             ),
         )
 
@@ -204,7 +215,7 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -238,13 +249,18 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"[{application}]'s autoscaler floor could not be put back to "
+                f"could not have its autoscaler floor put back to "
                 f"[{undo_descriptor.was_min_replicas}]: {error}"
             ),
         )
@@ -254,9 +270,9 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}]'s autoscaler floor was put back to "
+                f"had its autoscaler floor put back to "
                 f"[{undo_descriptor.was_min_replicas}], and its automated sync "
-                f"was restored"
+                f"restored"
             ),
         )
 
@@ -273,7 +289,7 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -299,12 +315,17 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
-            detail=f"[{application}]'s pods could not be let off their card: {error}",
+            detail=f"could not have its pods let off their card: {error}",
         )
 
     if restored.pin_put_back and restored.automated_sync_put_back:
@@ -312,8 +333,8 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}]'s pods were let off [{undo_descriptor.pinned_to}], "
-                f"and its automated sync was restored"
+                f"had its pods let off [{undo_descriptor.pinned_to}], and its "
+                f"automated sync restored"
             ),
         )
 
@@ -330,7 +351,7 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -351,9 +372,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"flag [{flag}] was not written: the change does not record when "
-                f"Argus made it, so whether anybody has changed it since cannot "
-                f"be asked"
+                "was not written: the change does not record when Argus made it, "
+                "so whether anybody has changed it since cannot be asked"
             ),
         )
 
@@ -366,8 +386,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"whether anybody changed flag [{flag}] since Argus set it could "
-                f"not be established, so it was not written"
+                "was not written: whether anybody changed it since Argus set it "
+                "could not be established"
             ),
         )
 
@@ -378,27 +398,31 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
             subject=flag,
             outcome=Undone.LEFT_AS_FOUND,
             detail=(
-                f"flag [{flag}] was left as found: it has been changed from "
-                f"outside since Argus set it"
+                "was left as found: it has been changed from outside since Argus "
+                "set it"
             ),
         )
 
     try:
         set_state(flag, was_enabled)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": flag})
 
         return UndoAttempt(
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"flag [{flag}] could not be put back "
-                f"{state_name(was_enabled)}: {error}"
+                f"could not be put back {state_name(was_enabled)}: {error}"
             ),
         )
 
     return UndoAttempt(
         subject=flag,
         outcome=Undone.RESTORED,
-        detail=f"flag [{flag}] was put back {state_name(was_enabled)}",
+        detail=f"was put back {state_name(was_enabled)}",
     )

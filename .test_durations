@@ -21,7 +21,7 @@
     "tests/e2e/test_a_saturated_deployment_is_scaled_out.py::test_a_shop_that_outgrew_its_capacity_is_scaled_out_and_left_mitigated": 23.24135287300004,
     "tests/e2e/test_a_silent_corruption_is_recommended_not_acted_on.py::test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback": 85.766424852,
     "tests/e2e/test_a_silent_corruption_is_recommended_not_acted_on.py::test_an_incident_nothing_could_confirm_is_recommended_rather_than_acted_on": 64.794364207,
-    "tests/e2e/test_a_slow_rollout_is_reverted.py::test_a_rollout_slow_for_a_few_percent_is_ended_by_putting_the_flag_back": 28.921002903000158,
+    "tests/e2e/test_a_slow_rollout_is_reverted.py::test_a_rollout_slow_for_a_few_percent_is_ended_by_reverting_the_flag": 28.921002903000158,
     "tests/e2e/test_a_stale_cache_is_discarded.py::test_a_cache_serving_figures_the_ledger_moved_past_is_discarded": 2.7918938720000597,
     "tests/e2e/test_an_undated_finding_is_investigated.py::test_a_finding_nobody_can_date_is_walked_from_the_minute_it_paged": 3.1727778719999833,
     "tests/e2e/test_an_unreachable_platform_is_narrowed_around.py::test_a_platform_that_will_not_act_leaves_argus_the_one_action_it_still_has": 16.070787429999996,

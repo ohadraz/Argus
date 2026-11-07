@@ -14,18 +14,23 @@ would make every node's first read a crash.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TypedDict, Unpack
 
 import pytest
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
+    Action,
+    ActionIdentity,
     Alert,
+    Attempt,
     Disproof,
     FailureMode,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
+    Platform,
     RevertFeatureFlag,
+    Verdict,
 )
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from orchestrator.walk.state import IncidentState, status_after
@@ -59,7 +64,7 @@ def test_a_confirmed_action_mitigates_the_incident() -> None:
     Scenario() \
         .given(
             a_confirmed_attempt := _an_incident(
-                candidates=[_a_candidate()], action_outcome="confirmed"
+                candidates=[_a_candidate()], action_outcome=Verdict.CONFIRMED
             )
         ) \
         .when(
@@ -79,7 +84,7 @@ def test_a_refuted_action_with_a_candidate_left_is_still_mitigating() -> None:
             a_refutation_with_somewhere_to_go := _an_incident(
                 candidates=[_a_candidate(), _a_candidate()],
                 candidate_index=0,
-                action_outcome="refuted"
+                action_outcome=Verdict.REFUTED
             )
         ) \
         .when(
@@ -98,7 +103,7 @@ def test_an_action_that_could_not_be_taken_escalates() -> None:
     Scenario() \
         .given(
             an_attempt_that_never_ran := _an_incident(
-                candidates=[_a_candidate()], action_outcome="escalated"
+                candidates=[_a_candidate()], action_outcome=Verdict.ESCALATED
             )
         ) \
         .when(
@@ -140,8 +145,10 @@ def test_a_walk_out_of_candidates_with_rounds_left_investigates_again() -> None:
             a_walk_past_its_last_candidate := _an_incident(
                 candidates=[_a_candidate(), _a_candidate()],
                 candidate_index=2,
-                action_outcome="refuted",
-                rounds=1
+                action_outcome=Verdict.REFUTED,
+                rounds=1,
+                attempts=[_a_refuted_attempt()],
+                attempts_handed=0
             )
         ) \
         .when(
@@ -153,13 +160,38 @@ def test_a_walk_out_of_candidates_with_rounds_left_investigates_again() -> None:
 
 
 @pytest.mark.unit
+def test_a_walk_out_of_candidates_with_nothing_refuted_since_its_round_looks_for_a_fix() -> None:
+    # Rounds left, and the list spent without a refutation since the round
+    # began: its one attempt was handed to the round already, and what came
+    # after was refused or had nowhere to go. Another round would be handed the
+    # evidence this one was, so none is bought.
+    Scenario() \
+        .given(
+            a_walk_that_learnt_nothing_new := _an_incident(
+                candidates=[_a_candidate(), _a_candidate()],
+                candidate_index=2,
+                action_outcome=Verdict.NOT_ATTEMPTED,
+                rounds=2,
+                attempts=[_a_refuted_attempt()],
+                attempts_handed=1
+            )
+        ) \
+        .when(
+            lambda: status_after(a_walk_that_learnt_nothing_new, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.FIXING)
+        )
+
+
+@pytest.mark.unit
 def test_a_walk_out_of_candidates_and_rounds_looks_for_a_permanent_fix() -> None:
     Scenario() \
         .given(
             a_walk_with_nothing_left := _an_incident(
                 candidates=[_a_candidate()],
                 candidate_index=1,
-                action_outcome="refuted",
+                action_outcome=Verdict.REFUTED,
                 rounds=SOME_MAX_ROUNDS
             )
         ) \
@@ -181,7 +213,7 @@ def test_a_walk_out_of_reachable_candidates_escalates_rather_than_investigating(
             a_walk_whose_platform_is_down := _an_incident(
                 candidates=[_a_candidate(), _a_candidate()],
                 candidate_index=2,
-                action_outcome="platform-unreachable",
+                action_outcome=Verdict.PLATFORM_UNREACHABLE,
                 unreachable_platforms=[DEPLOYMENT_PLATFORM],
                 rounds=1
             )
@@ -211,7 +243,7 @@ def test_a_walk_with_a_reachable_candidate_left_is_still_mitigating() -> None:
             a_walk_with_the_flag_still_ahead := _an_incident(
                 candidates=[_a_candidate(), _a_candidate()],
                 candidate_index=1,
-                action_outcome="platform-unreachable",
+                action_outcome=Verdict.PLATFORM_UNREACHABLE,
                 unreachable_platforms=[DEPLOYMENT_PLATFORM],
                 rounds=1
             )
@@ -235,7 +267,7 @@ def test_a_platform_that_went_down_does_not_undo_a_confirmed_mitigation() -> Non
             a_walk_the_flag_revert_saved := _an_incident(
                 candidates=[_a_candidate(), _a_candidate()],
                 candidate_index=2,
-                action_outcome="confirmed",
+                action_outcome=Verdict.CONFIRMED,
                 unreachable_platforms=[DEPLOYMENT_PLATFORM],
                 rounds=1
             )
@@ -329,7 +361,7 @@ def test_a_mode_nothing_answers_is_looking_for_a_fix_with_its_candidate_still_in
             an_incident_nothing_answers := _an_incident(
                 candidates=[_a_candidate()],
                 candidate_index=0,
-                nothing_answers_the_mode=True
+                the_mode_has_no_mitigation=True
             )
         ) \
         .when(
@@ -352,7 +384,7 @@ def test_a_mode_nothing_answers_escalates_once_code_fix_has_answered() -> None:
             an_incident_code_fix_answered := _an_incident(
                 candidates=[_a_candidate()],
                 candidate_index=0,
-                nothing_answers_the_mode=True,
+                the_mode_has_no_mitigation=True,
                 fix_found=False
             )
         ) \
@@ -374,7 +406,7 @@ def test_a_mitigated_incident_stays_mitigated_once_a_fix_is_proposed() -> None:
         .given(
             a_mitigation_that_also_got_a_fix := _an_incident(
                 candidates=[_a_candidate()],
-                action_outcome="confirmed",
+                action_outcome=Verdict.CONFIRMED,
                 fix_found=True
             )
         ) \
@@ -396,7 +428,7 @@ def test_the_same_state_always_derives_the_same_status() -> None:
             some_state := _an_incident(
                 candidates=[_a_candidate(), _a_candidate()],
                 candidate_index=1,
-                action_outcome="refuted",
+                action_outcome=Verdict.REFUTED,
                 rounds=2
             )
         ) \
@@ -549,7 +581,32 @@ def _nothing_was_assumed_about(*fields: str) -> Assertion[IncidentState]:
     return assertion
 
 
-def _an_incident(**what_has_happened: Any) -> IncidentState:
+class _WhatHasHappened(TypedDict, total=False):
+    """The parts of the walk's state these tests set, each typed as the state
+    types it.
+
+    Typed rather than `Any`, so mypy checks every name a test passes against
+    this list, and this list against the state's own constructor. A field
+    renamed in the state then fails the typecheck here instead of being
+    dropped without a word while the test goes on asserting against the
+    default.
+    """
+
+    candidates: list[Hypothesis]
+    candidate_index: int
+    unreachable_platforms: list[Platform]
+    rounds: int
+    attempts: list[Attempt]
+    attempts_handed: int
+    recommended_action: Action | None
+    the_mode_has_no_mitigation: bool
+    nothing_worth_trying: bool
+    disproof: Disproof | None
+    fix_found: bool | None
+    action_outcome: Verdict | None
+
+
+def _an_incident(**what_has_happened: Unpack[_WhatHasHappened]) -> IncidentState:
     dont_care_alert = Alert(service="kuki", alert_name="HighErrorRate")
 
     return IncidentState(
@@ -572,6 +629,15 @@ def _a_candidate() -> Hypothesis:
         confidence=0.8,
         supporting_evidence=[],
         subject="monthly-spend-feature"
+    )
+
+
+def _a_refuted_attempt() -> Attempt:
+    return Attempt(
+        identity=ActionIdentity(action_type="revert-feature-flag",
+                                subject="monthly-spend-feature"),
+        enabled=False,
+        occurred_at="2026-10-28T16:28:07Z"
     )
 
 

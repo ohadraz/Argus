@@ -25,9 +25,25 @@ from decimal import Decimal
 from math import isclose
 
 import pytest
-from agent_postmortem.estimate import RuleSeriesLevels, Unmeasured, calm_to_read_for
+from agent_postmortem import IncidentEvidence
+from agent_postmortem.estimate import (
+    DemandLevels,
+    LatencyLevels,
+    LoadLevels,
+    RuleSeriesLevels,
+    RuleSeriesSpan,
+    Unmeasured,
+    calm_to_read_for,
+)
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.sources import EngagedResponder, EngagementAnswer, Metrics, PayBand, Revenue
+from agent_postmortem.sources import (
+    AlertRule,
+    EngagedResponder,
+    EngagementAnswer,
+    Metrics,
+    PayBand,
+    Revenue,
+)
 from argus_core.models import MetricBucket, RuleLine, RuleReading, Verdict
 from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
 
@@ -43,9 +59,10 @@ from agent_postmortem_test.framework.builders import (
     a_band_source_pricing,
     a_band_source_that_cannot_answer,
     a_bucket,
+    a_resolution,
     a_revenue_source_that_cannot_answer,
-    a_rule_waiting,
     an_action,
+    an_alert_rule,
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
     an_evidence_bundle,
@@ -84,6 +101,13 @@ SOME_BAND = PayBand(
 )
 
 A_WEEK = timedelta(weeks=1)
+A_MINUTE = timedelta(minutes=1)
+
+# How long the paging rule waits and how far back its condition looks, and
+# the line it pages above.
+SOME_WAIT = timedelta(minutes=5)
+SOME_LOOK_BACK = timedelta(minutes=1)
+SOME_LINE = 0.1
 
 
 @pytest.mark.unit
@@ -238,6 +262,106 @@ def test_an_incident_with_no_onset_is_not_costed() -> None:
                 _nothing_was_costed(),
                 _ran_for(an_incident_dated_from_the_alert)
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_runs_from_its_sender_s_alert_not_its_opening() -> None:
+    # A sender holds an alert back before delivering it. Measured from the
+    # incident's opening, the duration ran from a later instant than the one
+    # the brief and the page say it began at.
+    some_alert_before_the_opening = STARTED_AT - timedelta(minutes=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None,
+                                           alerted_at=some_alert_before_the_opening)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _ran_for(hours_between(some_alert_before_the_opening, ENDED_AT))
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_reads_no_takings() -> None:
+    # No loss is counted from the alert, so there is nothing to read the takings
+    # or the rates for - and takings read for nothing were disclosed as
+    # converted at a rate no figure was converted at.
+    windows_asked_for: Kept[tuple[datetime, datetime]] = Kept()
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None)
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(revenue=_revenue_recording_the_windows_into(
+                                windows_asked_for)))
+        ) \
+        .then(all_of(
+            _asked_for_the_takings_over([], windows_asked_for),
+            _read_no_rates()
+        ))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_is_measured_over_the_minutes_its_rule_looked_at_before_firing(
+) -> None:
+    # The grounds of the disproof, in figures: the alarm claims its condition
+    # held over its wait and how far it looks back, and these are the minutes
+    # it claims it held in - given only that no minute departed, a reader takes
+    # the disproof on trust. From the minute that stretch began inside to the
+    # alert's own; the minute before and the one after are no part of it.
+    alert_at = ONSET + timedelta(minutes=8, seconds=22)
+    first_minute = (alert_at - SOME_WAIT - SOME_LOOK_BACK).replace(second=0)
+    last_minute = alert_at.replace(second=0)
+    inside = {first_minute: 0.0, first_minute + A_MINUTE * 3: 0.015, last_minute: 0.01}
+
+    Scenario() \
+        .given(
+            evidence := _an_alarm_closed_seconds_after_it_fired(alerted_at=alert_at, disproven=True)
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=_the_rules_series_reading(
+                                             {**inside,
+                                              first_minute - A_MINUTE: 0.5,
+                                              last_minute + A_MINUTE: 0.9}),
+                                         alert_rule=_a_rule_waiting_and_looking_back())
+                            ).rule_series_before_the_alert
+        ) \
+        .then(
+            the_answer_was(RuleSeriesSpan(lowest=min(inside.values()),
+                                          highest=max(inside.values()),
+                                          first_minute=first_minute,
+                                          last_minute=last_minute,
+                                          line=SOME_LINE))
+        )
+
+
+@pytest.mark.unit
+def test_an_alarm_not_disproven_is_not_measured_before_its_alert() -> None:
+    # Only a disproof rests on those minutes; any other ending is measured
+    # over the stretch the service was broken.
+    some_alert_at = ONSET + timedelta(minutes=8, seconds=22)
+
+    Scenario() \
+        .given(
+            evidence := _an_alarm_closed_seconds_after_it_fired(alerted_at=some_alert_at,
+                                                                disproven=False)
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=_the_rules_series_reading(
+                                             {some_alert_at.replace(second=0): 0.01}),
+                                         alert_rule=_a_rule_waiting_and_looking_back())
+                            ).rule_series_before_the_alert
+        ) \
+        .then(
+            the_answer_was(None)
         )
 
 
@@ -631,7 +755,7 @@ def _metrics_noisier_hours_before_the_onset() -> Metrics:
 
 
 @pytest.mark.unit
-def test_metrics_that_stopped_hours_before_the_onset_were_unobserved_from_it() -> None:
+def test_metrics_that_stopped_hours_before_the_onset_leave_a_metrics_gap_from_it() -> None:
     # The calm is read back further than the hour, so a source whose rows
     # stopped two hours before the onset answers with them: it was read, and
     # collected nothing from the onset on - which is not a source that could
@@ -645,7 +769,7 @@ def test_metrics_that_stopped_hours_before_the_onset_were_unobserved_from_it() -
                             some_sources(metrics=_metrics_that_stopped_hours_before_the_onset()))
         ) \
         .then(
-            _it_was_unobserved_from(ONSET)
+            _the_metrics_stopped_at(ONSET)
         )
 
 
@@ -665,7 +789,7 @@ def _metrics_that_stopped_hours_before_the_onset() -> Metrics:
 
 
 @pytest.mark.unit
-def test_an_incident_whose_metrics_stop_at_the_onset_was_unobserved_from_it() -> None:
+def test_an_incident_whose_metrics_stop_at_the_onset_has_a_metrics_gap_from_it() -> None:
     # A lower bound is not the whole of it. "Still broken when the metrics ran
     # out" and "nothing was collected from the onset on" both leave no recovery,
     # and they are different facts: the first measured a service in trouble to
@@ -682,7 +806,7 @@ def test_an_incident_whose_metrics_stop_at_the_onset_was_unobserved_from_it() ->
         ) \
         .then(all_of(
             _it_never_recovered(),
-            _it_was_unobserved_from(ONSET)
+            _the_metrics_stopped_at(ONSET)
         ))
 
 
@@ -695,11 +819,11 @@ def test_an_incident_whose_metrics_went_on_was_observed_throughout() -> None:
         .when(
             lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
         ) \
-        .then(_it_was_observed_throughout())
+        .then(_the_metrics_never_stopped())
 
 
 @pytest.mark.unit
-def test_metrics_that_could_not_be_read_say_nothing_of_being_unobserved() -> None:
+def test_metrics_that_could_not_be_read_are_not_said_to_have_stopped() -> None:
     # An empty read is a source that did not answer, not a shop nobody collected
     # from. Saying it went unobserved would be a claim about the service drawn
     # from a failure of the read.
@@ -711,11 +835,11 @@ def test_metrics_that_could_not_be_read_say_nothing_of_being_unobserved() -> Non
             lambda: measure(evidence,
                             some_sources(metrics=metrics_that_answer_with_nothing()))
         ) \
-        .then(_it_was_observed_throughout())
+        .then(_the_metrics_never_stopped())
 
 
 @pytest.mark.unit
-def test_an_incident_closed_before_its_first_minute_could_be_reported_was_not_unobserved() -> None:
+def test_an_incident_closed_before_its_first_minute_could_be_reported_has_no_metrics_gap() -> None:
     # A read holds no minute the source has not reported yet, and the newest it
     # can hold by the close is the close's own minute less the source's lag. An
     # incident closed sooner than its first minute is reported finds no row after
@@ -738,7 +862,177 @@ def test_an_incident_closed_before_its_first_minute_could_be_reported_was_not_un
                                 metrics=metrics_that_stop_at_the_onset(),
                                 metrics_reporting_lag_minutes=a_source_a_minute_late))
         ) \
-        .then(_it_was_observed_throughout())
+        .then(_the_metrics_never_stopped())
+
+
+@pytest.mark.unit
+def test_metrics_that_resume_in_the_minute_argus_acted_in_end_the_gap_at_the_action() -> None:
+    # An action that restores the sight puts rows after the onset, and counted as
+    # sight they answered the question with what the action did about it: a blind
+    # spot read as a service broken to the close, its error rate while "broken"
+    # taken from the minutes after the hole. The rows come back in the minute the
+    # action fell in, which holds only the seconds after it - so the stretch the
+    # metrics did not cover ends at the action, and nothing in it was measured.
+    the_action = STARTED_AT + timedelta(minutes=2, seconds=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                metrics=_metrics_missing_until(the_action.replace(second=0))))
+        ) \
+        .then(all_of(
+            _the_metrics_stopped_at(ONSET),
+            _the_metrics_resumed_at(the_action),
+            _it_was_back_to_normal_at(the_action),
+            _ran_for(hours_between(ONSET, the_action)),
+            _the_rise_is_unknown(),
+            _the_error_rates_went_unmeasured_because(Unmeasured.NO_MINUTE_WHILE_BROKEN)
+        ))
+
+
+@pytest.mark.unit
+def test_metrics_that_resume_minutes_after_argus_acted_resume_at_their_first_minute() -> None:
+    the_action = STARTED_AT + timedelta(minutes=2, seconds=20)
+    the_first_minute_back = STARTED_AT + timedelta(minutes=4)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                metrics=_metrics_missing_until(the_first_minute_back)))
+        ) \
+        .then(all_of(
+            _the_metrics_stopped_at(ONSET),
+            _the_metrics_resumed_at(the_first_minute_back),
+            _ran_for(hours_between(ONSET, the_first_minute_back))
+        ))
+
+
+@pytest.mark.unit
+def test_metrics_read_between_the_onset_and_the_action_were_never_lost() -> None:
+    # A row before the minute Argus acted in is the sight being there: the
+    # incident was watched, whatever the action did after.
+    the_action = STARTED_AT + timedelta(minutes=2, seconds=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                metrics=_metrics_missing_until(the_action.replace(second=0) - A_MINUTE)))
+        ) \
+        .then(all_of(
+            _the_metrics_never_stopped(),
+            _the_metrics_never_resumed()
+        ))
+
+
+@pytest.mark.unit
+def test_an_action_inside_the_onset_s_own_minute_loses_no_sight() -> None:
+    # No whole minute lies between the onset and the minute Argus acted in, so
+    # there is none a read could have held: the window had not arrived, which is
+    # no loss of sight - the same reason as an incident closed that fast.
+    the_action = ONSET + timedelta(seconds=30)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                metrics=_metrics_missing_until(ONSET + A_MINUTE)))
+        ) \
+        .then(_the_metrics_never_stopped())
+
+
+@pytest.mark.unit
+def test_an_action_inside_the_onset_s_own_minute_leaves_metrics_that_never_came_back_stopped(
+) -> None:
+    # Only rows back after such an action are no loss of sight. With none at
+    # all, the metrics stopped at the onset, as they did before Argus acted.
+    the_action = ONSET + timedelta(seconds=30)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_stop_at_the_onset()))
+        ) \
+        .then(all_of(
+            _the_metrics_stopped_at(ONSET),
+            _the_metrics_never_resumed()
+        ))
+
+
+@pytest.mark.unit
+def test_metrics_that_resume_past_the_rule_s_line_are_not_back_to_normal() -> None:
+    # The stretch still ends where they resumed, but the rows it resumed with
+    # read on the firing side of the paging rule's line: back to normal is what
+    # the metrics show, and these did not.
+    the_action = STARTED_AT + timedelta(minutes=2, seconds=20)
+    some_reading_past_the_line = SOME_LINE * 5
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                metrics=_metrics_missing_until(the_action.replace(second=0),
+                                               reading_back=some_reading_past_the_line)))
+        ) \
+        .then(all_of(
+            _the_metrics_resumed_at(the_action),
+            _it_never_recovered(),
+            _ran_for(hours_between(ONSET, the_action))
+        ))
+
+
+@pytest.mark.unit
+def test_metrics_that_never_resumed_after_argus_acted_still_stopped() -> None:
+    the_action = STARTED_AT + timedelta(minutes=2, seconds=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_stop_at_the_onset()))
+        ) \
+        .then(all_of(
+            _the_metrics_stopped_at(ONSET),
+            _the_metrics_never_resumed()
+        ))
+
+
+def _metrics_missing_until(resumed_in: datetime, reading_back: float | None = None) -> Metrics:
+    """Ten calm minutes before `ONSET`, nothing from it, and calm minutes again
+    from `resumed_in` to `ENDED_AT` - each carrying the paging rule's series at
+    `reading_back` against a line at `SOME_LINE`, where that is given."""
+    some_calm_rate = 0.01
+    back = int((ENDED_AT - resumed_in) / A_MINUTE)
+
+    def metrics_between(dont_care_start: datetime,
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [
+            *(a_bucket(at=ONSET - timedelta(minutes=minute), error_rate=some_calm_rate)
+              for minute in range(10, 0, -1)),
+            *(a_bucket(at=resumed_in + timedelta(minutes=minute), error_rate=some_calm_rate,
+                       rule_reading=(RuleReading(value=reading_back, worse_when="above",
+                                                 line=RuleLine(at=SOME_LINE, fires_on_it=False))
+                                     if reading_back is not None else None))
+              for minute in range(back))
+        ]
+
+    return metrics_between
 
 
 @pytest.mark.unit
@@ -798,6 +1092,91 @@ def test_a_service_never_back_to_normal_after_its_recorded_recovery_reports_no_e
 
 
 @pytest.mark.unit
+def test_a_persons_resolution_is_where_the_incident_ended_whatever_the_series_reads() -> None:
+    # A person saying the incident is over is the fact (spec §16). The series
+    # here never gets back to normal, and searching it from the report would be
+    # Argus testing the report against a level falling - which it may not do,
+    # and which would end the incident nowhere. Said as theirs, by name: an end
+    # a person's word set is not one the metrics showed.
+    the_report = ENDED_AT - timedelta(minutes=1)
+    the_reporter = "Some Person"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(resolution=a_resolution(the_report, by=the_reporter))
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(the_report),
+            _it_was_reported_by(the_reporter)
+        ))
+
+
+@pytest.mark.unit
+def test_a_persons_resolution_ends_an_incident_mitigation_never_saw_recover() -> None:
+    # Mitigation's looks said the service was still broken, and then a person
+    # said it was over. The looks are Argus's answer and the report is the
+    # person's, and the person's is the fact.
+    the_report = ENDED_AT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(resolution=a_resolution(the_report),
+                                           watched_and_never_recovered=True)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _it_was_back_to_normal_at(the_report)
+        )
+
+
+@pytest.mark.unit
+def test_a_recovery_argus_recorded_stands_over_a_later_resolution() -> None:
+    # Not a contradiction of the report: Argus measured the service coming back,
+    # and the person reported the incident over afterwards. The earlier
+    # measurement is the better answer to when it came back - and the end is
+    # the metrics', said as nobody's report.
+    some_later_report = ENDED_AT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT,
+                                           resolution=a_resolution(some_later_report))
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(RECOVERED_AT),
+            _it_was_reported_by(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_persons_resolution_ends_an_incident_its_recorded_recovery_never_ended() -> None:
+    # Mitigation saw the service fall off the incident's level, and the minutes
+    # after it never get back inside its normal range - so the recorded minute
+    # answers nothing about when it was over. The person's report does.
+    the_report = ENDED_AT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT,
+                                           resolution=a_resolution(the_report))
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _it_was_back_to_normal_at(the_report)
+        )
+
+
+@pytest.mark.unit
 def test_a_service_back_to_normal_in_the_minute_its_fix_landed_ended_at_the_fix() -> None:
     # The minute holding the action reads as normal, and only its seconds after
     # the action can be: it says nothing of the seconds before. The end is the
@@ -816,6 +1195,34 @@ def test_a_service_back_to_normal_in_the_minute_its_fix_landed_ended_at_the_fix(
         .then(all_of(
             _it_was_back_to_normal_at(the_fix),
             _back_before_the_action(False)
+        ))
+
+
+@pytest.mark.unit
+def test_the_broken_stretch_stops_before_the_normal_minute_the_fix_landed_in() -> None:
+    # The incident ends at the fix, seconds into the first normal minute - and
+    # that minute read normal, so it is no part of the broken stretch. Counted
+    # in, it pulled the rate while broken down towards the baseline. How long
+    # it lasted still runs to the fix.
+    some_baseline_error_rate = 0.02
+    some_error_rate_while_broken = 0.30
+    the_fix = RECOVERED_AT + timedelta(seconds=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recorded_recovery_at=RECORDED_RECOVERY_AT,
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, taken_at=the_fix)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered(
+                baseline=some_baseline_error_rate,
+                during=some_error_rate_while_broken)))
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(the_fix),
+            _ran_for(hours_between(ONSET, the_fix)),
+            _the_rise_was(some_error_rate_while_broken - some_baseline_error_rate)
         ))
 
 
@@ -944,7 +1351,7 @@ def test_how_long_the_paging_rule_waits_is_read_for_the_rule_that_paged() -> Non
         ) \
         .when(
             lambda: measure(evidence, some_sources(
-                rule_wait=a_rule_waiting(300, asked=rules_asked_about)))
+                alert_rule=an_alert_rule(300, asked=rules_asked_about)))
         ) \
         .then(
             all_of(
@@ -963,7 +1370,7 @@ def test_a_rule_whose_wait_could_not_be_read_is_measured_as_unread() -> None:
             evidence := an_evidence_bundle(rule="dont-care-rule")
         ) \
         .when(
-            lambda: measure(evidence, some_sources(rule_wait=a_rule_waiting(None)))
+            lambda: measure(evidence, some_sources(alert_rule=an_alert_rule(None)))
         ) \
         .then(
             _the_rule_wait_was_unread()
@@ -980,13 +1387,195 @@ def test_an_incident_no_rule_paged_for_asks_no_rule_how_long_it_waits() -> None:
         ) \
         .when(
             lambda: measure(evidence, some_sources(
-                rule_wait=a_rule_waiting(300, asked=rules_asked_about)))
+                alert_rule=an_alert_rule(300, asked=rules_asked_about)))
         ) \
         .then(
             all_of(
                 _the_rule_waits(None),
                 _asked_how_long_these_rules_wait([], rules_asked_about)
             )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("rule", "looks_back"), [
+    ("dont-care-rule", timedelta(minutes=5)),
+    (None, None)
+], ids=["a-rule-paged", "no-rule-paged"])
+def test_how_far_back_the_paging_rule_s_condition_looks_is_read_off_the_rule_that_paged(
+        rule: str | None, looks_back: timedelta | None) -> None:
+    # Part of the time from the onset to the alert can be the condition's own
+    # window filling - "no sample for 5m" holds only once five minutes have
+    # passed with none - and a write-up not told how long that is either leaves
+    # the gap unweighed or calls it slow detection.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule=rule)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(0, looks_back_seconds=300)))
+        ) \
+        .then(
+            _the_rule_looks_back(looks_back)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("rule", "evaluated_every"), [
+    ("dont-care-rule", timedelta(seconds=30)),
+    (None, None)
+], ids=["a-rule-paged", "no-rule-paged"])
+def test_how_often_the_paging_rule_is_evaluated_is_read_off_the_rule_that_paged(
+        rule: str | None, evaluated_every: timedelta | None) -> None:
+    # A condition that comes to hold between two evaluations is seen at the
+    # second, so up to one interval of the time from the onset to the alert is
+    # the rule not having looked yet - which the detection lesson counts.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule=rule)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(0, evaluated_every_seconds=30)))
+        ) \
+        .then(
+            _the_rule_is_evaluated_every(evaluated_every)
+        )
+
+
+@pytest.mark.unit
+def test_the_query_of_the_rules_series_is_read_off_the_rule_that_paged() -> None:
+    # What the series is. The alert's words say when the rule pages, and only
+    # the rule's query says what it pages on.
+    some_query = "avg(some_confident_ratio)"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(300, series_query=some_query))).rule_series_query
+        ) \
+        .then(
+            the_answer_was(some_query)
+        )
+
+
+@pytest.mark.unit
+def test_the_unit_of_the_rules_series_is_read_off_the_rule_that_paged() -> None:
+    # Only the rule's panel or its metric's name says what unit its levels are
+    # in, and both are read where the rule is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(300, series_unit="ms"))).rule_series_unit
+        ) \
+        .then(
+            the_answer_was("ms")
+        )
+
+
+@pytest.mark.unit
+def test_whether_the_rules_series_is_the_error_rate_is_read_off_the_rule_that_paged() -> None:
+    # Only the rule's query says so, and the query is read where the rule is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(300, series_is_the_error_rate=True))
+            ).rule_series_is_the_error_rate
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+def test_whether_the_rules_series_is_a_latency_is_read_off_the_rule_that_paged() -> None:
+    # Only the rule's query says so, and the query is read where the rule is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(300, series_is_a_latency=True))
+            ).rule_series_is_a_latency
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+def test_latency_is_measured_over_the_stretch_the_service_was_broken() -> None:
+    # Over the same stretch as the error rate, bounded by the same onset and the
+    # same recovery. The minute it recovered in is back to the calm, so a
+    # stretch that ran past it would average lower than the broken minute.
+    some_calm_p95 = 215
+    some_slow_p95 = 900
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=ONSET - timedelta(minutes=2), error_rate=dont_care_error_rate,
+                         p95_ms=some_calm_p95),
+                a_bucket(at=ONSET + timedelta(minutes=1), error_rate=dont_care_error_rate,
+                         p95_ms=some_slow_p95),
+                a_bucket(at=ENDED_AT, error_rate=dont_care_error_rate,
+                         p95_ms=some_calm_p95)]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=ENDED_AT)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_between))
+        ) \
+        .then(
+            _the_latency_was(LatencyLevels(quantile="p95", baseline=some_calm_p95,
+                                           while_broken=some_slow_p95,
+                                           at_its_worst=some_slow_p95, departed=True))
+        )
+
+
+@pytest.mark.unit
+def test_the_load_is_measured_over_the_stretch_the_service_was_broken() -> None:
+    # Over the same stretch as the error rate, bounded by the same onset and the
+    # same recovery: the minute it recovered in carries the load the scale-out
+    # met, and a stretch that ran past it would average it in.
+    some_calm_volume = 1200
+    some_broken_volume = 5400
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=ONSET - timedelta(minutes=2), error_rate=dont_care_error_rate,
+                         request_volume=some_calm_volume, cpu_used_cores=0.75),
+                a_bucket(at=ONSET + timedelta(minutes=1), error_rate=dont_care_error_rate,
+                         request_volume=some_broken_volume, cpu_used_cores=3.0),
+                a_bucket(at=ENDED_AT, error_rate=dont_care_error_rate,
+                         request_volume=some_broken_volume, cpu_used_cores=3.4)]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=ENDED_AT)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_between)).demand
+        ) \
+        .then(
+            the_answer_was(DemandLevels(
+                requests=LoadLevels(before=some_calm_volume, while_broken=some_broken_volume,
+                                    at_its_highest=some_broken_volume),
+                cpu_share=LoadLevels(before=0.25, while_broken=1.0, at_its_highest=1.0)))
         )
 
 
@@ -1010,11 +1599,44 @@ def test_whether_the_rule_held_before_the_onset_is_read_off_the_minutes_its_wait
         ) \
         .when(
             lambda: measure(evidence, some_sources(metrics=metrics_between,
-                                                   rule_wait=a_rule_waiting(300))
+                                                   alert_rule=an_alert_rule(300))
                             ).rule_held_before_the_onset
         ) \
         .then(
             the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("onset_at", "past_its_line_at", "read"), [
+    (ONSET, ONSET + timedelta(minutes=2), True),
+    (None, None, False)
+], ids=["an-onset", "no-onset"])
+def test_where_the_rules_series_passed_its_line_is_read_off_the_minutes_from_the_onset_to_the_alert(
+        onset_at: datetime | None, past_its_line_at: datetime | None, read: bool) -> None:
+    # Calm at the onset and past the line two minutes on: the alert is weighed
+    # from there. Without an onset there is no stretch to read it in.
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=ONSET + timedelta(minutes=minutes), error_rate=dont_care_error_rate,
+                         rule_reading=RuleReading(value=value, worse_when="below",
+                                                  line=RuleLine(at=0.8, fires_on_it=False)))
+                for minutes, value in ((0, 0.9), (1, 0.85), (2, 0.71))]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=onset_at,
+                                           alerted_at=ONSET + timedelta(minutes=6),
+                                           rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_between,
+                                                   alert_rule=an_alert_rule(0)))
+        ) \
+        .then(
+            _the_rules_series_passed_its_line(past_its_line_at, read=read)
         )
 
 
@@ -1050,6 +1672,44 @@ def test_the_rules_series_is_measured_over_the_stretch_the_service_was_broken() 
                 worse_when="below"
             ))
         )
+
+
+@pytest.mark.unit
+def test_the_rules_series_stops_before_the_normal_minute_the_fix_landed_in() -> None:
+    # As the error rate does: the incident ends at the fix, seconds into the
+    # first normal minute, and that minute is no part of the broken stretch.
+    # Its reading is the worst of all, so a stretch that ran on to the fix
+    # would say so.
+    some_calm_share = 0.95
+    a_bad_minute = 0.42
+    the_worst_minute = 0.38
+    an_even_worse_minute_once_recovered = 0.10
+    the_fix = ENDED_AT + timedelta(seconds=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recorded_recovery_at=ENDED_AT,
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, taken_at=the_fix)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_whose_rule_series_went(
+                baseline=some_calm_share,
+                while_broken=a_bad_minute,
+                at_its_worst=the_worst_minute,
+                worse_when="below",
+                once_recovered=an_even_worse_minute_once_recovered
+            )))
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(the_fix),
+            _the_rules_series_was(RuleSeriesLevels(
+                baseline=some_calm_share,
+                while_broken=(a_bad_minute + the_worst_minute) / 2,
+                at_its_worst=the_worst_minute,
+                worse_when="below"
+            ))
+        ))
 
 
 @pytest.mark.unit
@@ -1221,6 +1881,52 @@ def _read_no_baseline() -> Assertion[Measurements]:
     return assertion
 
 
+def _an_alarm_closed_seconds_after_it_fired(alerted_at: datetime,
+                                            disproven: bool) -> IncidentEvidence:
+    """An alarm with no onset, opened and closed seconds after it fired - closed
+    as disproven where `disproven` says so, and on another ending otherwise."""
+    return an_evidence_bundle(onset_at=None,
+                              alerted_at=alerted_at,
+                              started_at=alerted_at + timedelta(seconds=2),
+                              ended_at=alerted_at + timedelta(seconds=5),
+                              rule="dont-care-rule",
+                              disproven=disproven)
+
+
+def _a_rule_waiting_and_looking_back() -> AlertRule:
+    """The rule that paged, waiting `SOME_WAIT` and looking back `SOME_LOOK_BACK`."""
+    return an_alert_rule(int(SOME_WAIT.total_seconds()),
+                         looks_back_seconds=int(SOME_LOOK_BACK.total_seconds()))
+
+
+def _the_rules_series_reading(readings: Mapping[datetime, float]) -> Metrics:
+    """A window whose minutes carry the paging rule's series, each reading as
+    given, against a line the rule pages above at `SOME_LINE`."""
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=at, error_rate=dont_care_error_rate,
+                         rule_reading=RuleReading(value=value, worse_when="above",
+                                                  line=RuleLine(at=SOME_LINE,
+                                                                fires_on_it=False)))
+                for at, value in readings.items()]
+
+    return metrics_between
+
+
+def _read_no_rates() -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rates is not None:
+            raise AssertionError(
+                f"Expected no rate table read where no loss is counted, got "
+                f"[{measured.rates}].")
+
+        return True
+
+    return assertion
+
+
 def _the_figure_is_in(expected: str | None) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
         if measured.currency != expected:
@@ -1273,15 +1979,28 @@ def _the_rise_is_unknown() -> Assertion[Measurements]:
 def _it_was_back_to_normal_at(expected: datetime) -> Assertion[Measurements]:
     """That the incident was measured as ending at this instant.
 
-    Read off the metrics, so it is a fact about the service. A test asserting
-    it against the moment the walk closed the incident would be asserting a
-    fact about Argus, which is the substitution all of this exists to undo.
+    Read off the metrics or a person's report, so it is a fact about the
+    service. A test asserting it against the moment the walk closed the
+    incident would be asserting a fact about Argus, which is the substitution
+    all of this exists to undo.
     """
     def assertion(measured: Measurements) -> bool:
         if measured.back_to_normal_at != expected:
             raise AssertionError(
                 f"Expected recovery at [{expected}], got "
                 f"[{measured.back_to_normal_at}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_reported_by(expected: str | None) -> Assertion[Measurements]:
+    """Whose report the end was - `None` where nobody's was."""
+    def assertion(measured: Measurements) -> bool:
+        if measured.reported_by != expected:
+            raise AssertionError(
+                f"Expected the end reported by [{expected}], got [{measured.reported_by}].")
 
         return True
 
@@ -1320,24 +2039,60 @@ def _it_never_recovered() -> Assertion[Measurements]:
     return assertion
 
 
-def _it_was_unobserved_from(expected: datetime) -> Assertion[Measurements]:
+def _the_metrics_stopped_at(expected: datetime) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
-        if measured.unobserved_from != expected:
+        if measured.metrics_stopped_at != expected:
             raise AssertionError(
-                f"Expected the service to be unobserved from [{expected}], got "
-                f"[{measured.unobserved_from}].")
+                f"Expected the metrics to have stopped at [{expected}], got "
+                f"[{measured.metrics_stopped_at}].")
 
         return True
 
     return assertion
 
 
-def _it_was_observed_throughout() -> Assertion[Measurements]:
+def _the_metrics_never_stopped() -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
-        if measured.unobserved_from is not None:
+        if measured.metrics_stopped_at is not None:
             raise AssertionError(
-                f"Expected the metrics to cover the incident, and the service "
-                f"was measured as unobserved from [{measured.unobserved_from}].")
+                f"Expected the metrics to cover the incident, and they stopped at "
+                f"[{measured.metrics_stopped_at}].")
+
+        return True
+
+    return assertion
+
+
+def _the_metrics_resumed_at(expected: datetime) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.metrics_resumed_at != expected:
+            raise AssertionError(
+                f"Expected the metrics to have resumed at [{expected}], got "
+                f"[{measured.metrics_resumed_at}].")
+
+        return True
+
+    return assertion
+
+
+def _the_metrics_never_resumed() -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.metrics_resumed_at is not None:
+            raise AssertionError(
+                f"Expected no resumption of metrics that never stopped or never came "
+                f"back, got [{measured.metrics_resumed_at}].")
+
+        return True
+
+    return assertion
+
+
+def _the_error_rates_went_unmeasured_because(expected: Unmeasured) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.error_rates_unmeasured is not expected:
+            raise AssertionError(
+                f"Expected the error rates unmeasured because [{expected}], got "
+                f"[{measured.error_rates_unmeasured}].")
 
         return True
 
@@ -1420,6 +2175,26 @@ def _priced_no_response() -> Assertion[Measurements]:
     return assertion
 
 
+def _the_latency_was(expected: LatencyLevels) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        got = next((levels for levels in measured.latency
+                    if levels.quantile == expected.quantile), None)
+
+        if (
+            got is None
+            or not isclose(got.baseline, expected.baseline)
+            or not isclose(got.while_broken, expected.while_broken)
+            or not isclose(got.at_its_worst, expected.at_its_worst)
+            or got.departed != expected.departed
+        ):
+            raise AssertionError(
+                f"Expected the {expected.quantile} latency at {expected}, got [{got}].")
+
+        return True
+
+    return assertion
+
+
 def _the_rules_series_was(expected: RuleSeriesLevels) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
         got = measured.rule_series
@@ -1445,6 +2220,44 @@ def _the_rule_waits(expected: timedelta | None) -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected the rule to wait [{expected}], read, got "
                 f"[{measured.rule_waits}], unread [{measured.rule_wait_unread}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rule_looks_back(expected: timedelta | None) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_looks_back != expected:
+            raise AssertionError(
+                f"Expected the rule's condition to look back over [{expected}], got "
+                f"[{measured.rule_looks_back}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rules_series_passed_its_line(at: datetime | None, *,
+                                      read: bool) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_past_its_line_at != at or measured.rule_line_read != read:
+            raise AssertionError(
+                f"Expected the rule's series past its line at [{at}], its line read "
+                f"[{read}], got [{measured.rule_past_its_line_at}], read "
+                f"[{measured.rule_line_read}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rule_is_evaluated_every(expected: timedelta | None) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_evaluated_every != expected:
+            raise AssertionError(
+                f"Expected the rule to be evaluated every [{expected}], got "
+                f"[{measured.rule_evaluated_every}].")
 
         return True
 

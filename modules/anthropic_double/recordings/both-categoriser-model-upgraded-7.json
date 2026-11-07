@@ -5,17 +5,17 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_019NbC7FBGgyrGw3K5ziytkk",
+      "id": "toolu_018ZKbRQnejownVaiizudEfs",
       "input": {
         "answer": false,
-        "explanation": "The fault is entirely in this repo. `categorise` passed capitalised words to v2, a model that expects words already lowercased by its training pipeline and does no case folding itself. With the title now lowercased in `categorise`, v2 matches what it was trained on as soon as this deploys with `categoriser.model: v2`. Nothing outside this repo has to change. The model files ship in the image and their vocabularies are already lowercase."
+        "explanation": "No. Everything the fix needs is in this repository. Both model versions are defined in src/io_shop/categorising.py, the only call to `predict` goes through `categorise`, and `categorise` now lowercases titles before the model sees them. So V2 matches capitalised words as V1 does, and `categoriser.model: v2` in deploy/values-production.yaml can be turned back on with no change outside this repo. One caveat: I read main, not revision 7c3ca00c, so the fix assumes that branch's categorising.py matches main's."
       },
       "name": "answer_question",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgAHpQXuinj5KMZk6c8FF",
+  "id": "msg_011CgQXzM6VqMEkh7MHv6W2E",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -25,13 +25,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3725
+      "ephemeral_5m_input_tokens": 4231
     },
-    "cache_creation_input_tokens": 3725,
-    "cache_read_input_tokens": 7572,
+    "cache_creation_input_tokens": 4231,
+    "cache_read_input_tokens": 7328,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 208,
+    "output_tokens": 244,
     "output_tokens_details": {
       "thinking_tokens": 0
     },

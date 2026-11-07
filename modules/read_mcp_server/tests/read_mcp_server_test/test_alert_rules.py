@@ -24,15 +24,21 @@ from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from metrics_source import RuleSeries
 from read_mcp_server.alert_rules import (
+    ANNOTATIONS,
     CLASSIC_CONDITIONS,
     CONDITION,
     CONDITIONS,
+    DASHBOARD,
+    DASHBOARD_PATH,
+    DASHBOARD_UID_ANNOTATION,
     DATA,
     DATASOURCE_UID,
+    DEFAULTS,
     EVALUATOR,
     EXPR,
     EXPRESSION,
     EXPRESSION_DATASOURCE,
+    FIELD_CONFIG,
     FOLDER_UID,
     FOR,
     FROM,
@@ -41,6 +47,7 @@ from read_mcp_server.alert_rules import (
     GTE,
     HEALTH,
     HEALTHY,
+    ID,
     INACTIVE,
     INTERVAL,
     KEEP_FIRING_FOR,
@@ -50,6 +57,8 @@ from read_mcp_server.alert_rules import (
     MATH,
     MODEL,
     OUTSIDE_RANGE,
+    PANEL_ID_ANNOTATION,
+    PANELS,
     PARAMS,
     QUERY,
     REDUCE,
@@ -64,6 +73,7 @@ from read_mcp_server.alert_rules import (
     THRESHOLD,
     TYPE,
     UID,
+    UNIT,
     AlertRuleReadSettings,
     AlertRuleUnreadable,
     FetchFromGrafana,
@@ -81,7 +91,18 @@ SOME_EVALUATION = datetime(2026, 10, 6, 10, 20, tzinfo=UTC)
 DONT_CARE_PATH = "/some/path"
 
 SOME_QUERY = "avg(some_confident_ratio)"
+SOME_DASHBOARD = "some-dashboard"
+SOME_PANEL = 4
+# A series in milliseconds whose query names a metric in seconds: the shop's own
+# latency rules, and the case a unit read off a metric's name would get wrong.
+SOME_RESCALED_QUERY = 'max(http_request_duration_seconds{quantile="0.95"}) * 1000'
+SOME_QUERY_IN_SECONDS = 'max(http_request_duration_seconds{quantile="0.95"})'
 SOME_OTHER_QUERY = "avg(some_other_ratio)"
+# The query the metrics read takes the error rate by.
+THE_ERROR_RATE_QUERY = ('sum(rate(http_requests_total{code=~"5.."}[1m]))'
+                        " / sum(rate(http_requests_total[1m]))")
+# And the one it takes the slowest one request in twenty by.
+THE_P95_QUERY = 'max(http_request_duration_seconds{quantile="0.95"}) * 1000'
 
 # Grafana's other words for a rule's state in its Prometheus-compatible answer,
 # which Argus never reads by name: anything but inactive is not normal.
@@ -216,6 +237,187 @@ def test_how_long_the_rule_waits_before_firing_is_read_from_its_for(pending: str
             lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(pending=pending))
         ) \
         .then(_it_waits_before_firing(expected))
+
+
+@pytest.mark.unit
+def test_the_rule_names_the_query_of_the_series_it_watches() -> None:
+    # The postmortem names the series by it: the alert's words are the rule's
+    # condition, and a series named by its condition is named by its threshold.
+    # Followed as the metrics read follows it, so the query named is the one
+    # the readings were read with.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=(a_query("A", SOME_QUERY),
+                       a_reduce("B", of="A"),
+                       a_threshold("C", of="B", evaluator=LT)),
+                condition="C"))
+        ) \
+        .then(_it_watches(SOME_QUERY))
+
+
+@pytest.mark.unit
+def test_a_rule_whose_series_argus_cannot_follow_names_no_query() -> None:
+    # Two queries, so no one series is what paged - and none is named.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=(a_query("A", SOME_QUERY),
+                       a_query("B", SOME_OTHER_QUERY),
+                       a_reduce("C", of="A"),
+                       a_threshold("D", of="C", evaluator=GT)),
+                condition="D"))
+        ) \
+        .then(_it_watches(None))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("query", "expected"), [
+    (THE_ERROR_RATE_QUERY, True),
+    (SOME_QUERY, False)
+])
+def test_a_rule_says_whether_it_watches_the_error_rate_itself(query: str,
+                                                              expected: bool) -> None:
+    # Then what it watched is a figure every reader is already given as the
+    # error rate, and whoever says both would say it twice.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=(a_query("A", query),
+                       a_reduce("B", of="A"),
+                       a_threshold("C", of="B", evaluator=GT)),
+                condition="C"))
+        ) \
+        .then(_it_watches_the_error_rate(expected))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("query", "expected"), [
+    (THE_P95_QUERY, True),
+    (SOME_QUERY, False)
+])
+def test_a_rule_says_whether_it_watches_a_latency(query: str, expected: bool) -> None:
+    # Then how long requests took is what it watched, and a reader told the
+    # latency beside its series would be told it twice.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=(a_query("A", query),
+                       a_reduce("B", of="A"),
+                       a_threshold("C", of="B", evaluator=GT)),
+                condition="C"))
+        ) \
+        .then(_it_watches_a_latency(expected))
+
+
+@pytest.mark.unit
+def test_the_series_unit_is_the_one_the_rule_s_linked_panel_shows() -> None:
+    # Grafana's own route from a rule to a unit: the rule names its panel, and
+    # the panel says the unit its values are in. The query is rescaled, so its
+    # metric's name would say seconds of a series in milliseconds.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_RESCALED_QUERY), condition="C",
+                linked_to=(SOME_DASHBOARD, str(SOME_PANEL)),
+                dashboard=a_dashboard(a_panel(SOME_PANEL, unit="ms"))))
+        ) \
+        .then(_its_series_is_in("ms"))
+
+
+@pytest.mark.unit
+def test_a_linked_panel_inside_a_collapsed_row_is_found() -> None:
+    # A collapsed row keeps its panels inside it rather than beside it.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_RESCALED_QUERY), condition="C",
+                linked_to=(SOME_DASHBOARD, str(SOME_PANEL)),
+                dashboard=a_dashboard(a_row(a_panel(SOME_PANEL, unit="ms")))))
+        ) \
+        .then(_its_series_is_in("ms"))
+
+
+@pytest.mark.unit
+def test_a_rule_linked_to_no_panel_takes_its_unit_from_its_metric_s_name() -> None:
+    # Prometheus's convention: a metric in base units, named for them.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_QUERY_IN_SECONDS), condition="C"))
+        ) \
+        .then(_its_series_is_in("s"))
+
+
+@pytest.mark.unit
+def test_a_linked_panel_that_names_no_unit_leaves_it_to_the_metric_s_name() -> None:
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_QUERY_IN_SECONDS), condition="C",
+                linked_to=(SOME_DASHBOARD, str(SOME_PANEL)),
+                dashboard=a_dashboard(a_panel(SOME_PANEL, unit=None))))
+        ) \
+        .then(_its_series_is_in("s"))
+
+
+@pytest.mark.unit
+def test_a_dashboard_grafana_will_not_serve_costs_the_unit_and_not_the_standing() -> None:
+    # The unit is how a level is said, not whether the rule has stopped firing:
+    # a dashboard out of reach is no reason to judge a mitigation by nothing.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_RESCALED_QUERY), condition="C",
+                linked_to=(SOME_DASHBOARD, str(SOME_PANEL)),
+                dashboard=None))
+        ) \
+        .then(all_of(_it_reads_normal(True), _its_series_is_in(None)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("unit", ["none", "short"])
+def test_a_panel_showing_plain_numbers_names_no_unit(unit: str) -> None:
+    # Grafana's two plain-number formats are formats, not units: "850 none" is
+    # no way to say a level. So the metric's name is asked instead.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_QUERY_IN_SECONDS), condition="C",
+                linked_to=(SOME_DASHBOARD, str(SOME_PANEL)),
+                dashboard=a_dashboard(a_panel(SOME_PANEL, unit=unit))))
+        ) \
+        .then(_its_series_is_in("s"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("dashboard", [
+    {DASHBOARD: {PANELS: [{ID: SOME_PANEL, FIELD_CONFIG: {DEFAULTS: None}}]}},
+    {DASHBOARD: {PANELS: ["not a panel"]}},
+    {DASHBOARD: None}
+], ids=["defaults-null", "a-panel-that-is-not-an-object", "no-dashboard-in-the-answer"])
+def test_a_dashboard_answered_in_a_shape_not_read_costs_the_unit_and_not_the_standing(
+        dashboard: dict[str, Any]) -> None:
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_RESCALED_QUERY), condition="C",
+                linked_to=(SOME_DASHBOARD, str(SOME_PANEL)),
+                dashboard=dashboard))
+        ) \
+        .then(all_of(_it_reads_normal(True), _its_series_is_in(None)))
+
+
+@pytest.mark.unit
+def test_a_series_neither_panel_nor_name_says_the_unit_of_has_none() -> None:
+    # Rescaled, and linked to nothing: the name says seconds and the series is
+    # not in seconds, so the unit is unknown rather than wrong.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=_a_series_read_with(SOME_RESCALED_QUERY), condition="C"))
+        ) \
+        .then(_its_series_is_in(None))
 
 
 @pytest.mark.unit
@@ -543,7 +745,11 @@ def a_grafana_holding(state: str | None = INACTIVE,
                       pending: str | None = "0s",
                       health: str = HEALTHY,
                       others_firing: tuple[str, ...] = (),
-                      missing: str | None = None) -> FetchFromGrafana:
+                      missing: str | None = None,
+                      steps: tuple[dict[str, Any], ...] | None = None,
+                      condition: str | None = None,
+                      linked_to: tuple[str, str] | None = None,
+                      dashboard: dict[str, Any] | None = None) -> FetchFromGrafana:
     """A Grafana answering the three reads for `SOME_RULE`, in its own shapes.
 
     Each answer is served at its own path alone, the group's at the folder and
@@ -551,12 +757,18 @@ def a_grafana_holding(state: str | None = INACTIVE,
     that made it rather than finding an answer meant for another.
 
     `others_firing` are rules listed, firing, in a group ahead of this one's;
-    `missing` is a field dropped from whichever answer carries it.
+    `missing` is a field dropped from whichever answer carries it. `steps` and
+    `condition` are a definition's own, in place of the ranged steps, for a
+    rule whose series is followed.
+
+    `linked_to` is the dashboard and panel the rule's annotations name, and
+    `dashboard` what Grafana answers for that dashboard - none, and asking for
+    it is answered as Grafana out of reach answers.
     """
     definition: dict[str, Any] = {
         FOLDER_UID: SOME_FOLDER,
         RULE_GROUP: SOME_GROUP,
-        DATA: [
+        DATA: list(steps) if steps is not None else [
             *(
                 {"refId": f"Q{index}", RELATIVE_TIME_RANGE: {FROM: seconds, "to": 0}}
                 for index, seconds in enumerate(ranges_seconds)
@@ -565,10 +777,15 @@ def a_grafana_holding(state: str | None = INACTIVE,
             {"refId": "THRESHOLD"}
         ]
     }
+    if condition is not None:
+        definition[CONDITION] = condition
     if keep_firing_for is not None:
         definition[KEEP_FIRING_FOR] = keep_firing_for
     if pending is not None:
         definition[FOR] = pending
+    if linked_to is not None:
+        definition[ANNOTATIONS] = {DASHBOARD_UID_ANNOTATION: linked_to[0],
+                                   PANEL_ID_ANNOTATION: linked_to[1]}
     group: dict[str, Any] = {INTERVAL: interval_seconds}
     # As Grafana writes it: RFC 3339, in UTC.
     evaluated = SOME_EVALUATION.isoformat().replace("+00:00", "Z")
@@ -600,7 +817,14 @@ def a_grafana_holding(state: str | None = INACTIVE,
         RULE_STATE_PATH.format(rule=SOME_RULE): rules
     }
 
+    if linked_to is not None and dashboard is not None:
+        answers[DASHBOARD_PATH.format(uid=linked_to[0])] = dashboard
+
     def answer(path: str) -> dict[str, Any]:
+        if linked_to is not None and path == DASHBOARD_PATH.format(uid=linked_to[0]) \
+                and dashboard is None:
+            raise AlertRuleUnreadable(f"could not read [{path}]: 404")
+
         if path not in answers:
             raise AssertionError(f"Grafana was asked for [{path}], which it does not serve.")
 
@@ -610,6 +834,28 @@ def a_grafana_holding(state: str | None = INACTIVE,
     fetch.side_effect = answer
 
     return cast(FetchFromGrafana, fetch)
+
+
+def a_dashboard(*panels: dict[str, Any]) -> dict[str, Any]:
+    """A dashboard as Grafana's dashboards API answers one: wrapped."""
+    return {DASHBOARD: {UID: SOME_DASHBOARD, PANELS: list(panels)}, "meta": {}}
+
+
+def a_panel(panel_id: int, unit: str | None) -> dict[str, Any]:
+    """A panel, its id a number as Grafana writes one, its unit in its
+    field defaults where it has one."""
+    defaults: dict[str, Any] = {UNIT: unit} if unit is not None else {}
+
+    return {ID: panel_id, TYPE: "timeseries", FIELD_CONFIG: {DEFAULTS: defaults, "overrides": []}}
+
+
+def a_row(*panels: dict[str, Any]) -> dict[str, Any]:
+    """A collapsed row, holding its panels."""
+    return {ID: 99, TYPE: "row", "collapsed": True, PANELS: list(panels)}
+
+
+def _a_series_read_with(query: str) -> tuple[dict[str, Any], ...]:
+    return (a_query("A", query), a_reduce("B", of="A"), a_threshold("C", of="B", evaluator=GT))
 
 
 def a_grafana_defining(*data: dict[str, Any], condition: str) -> FetchFromGrafana:
@@ -775,6 +1021,60 @@ def _it_waits_before_firing(expected: timedelta) -> Assertion[AlertRuleStanding]
             raise AssertionError(
                 f"Expected the rule to wait [{expected.total_seconds():.0f}]s before "
                 f"firing, got [{standing.pending_seconds}]s."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_watches(expected: str | None) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.series_query != expected:
+            raise AssertionError(
+                f"Expected the rule to watch the series [{expected}], got "
+                f"[{standing.series_query}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_watches_the_error_rate(expected: bool) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.series_is_the_error_rate != expected:
+            raise AssertionError(
+                f"Expected the rule's series [{standing.series_query}] "
+                f"{'to be' if expected else 'not to be'} the error rate, it "
+                f"{'is not' if expected else 'is'}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_watches_a_latency(expected: bool) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.series_is_a_latency != expected:
+            raise AssertionError(
+                f"Expected the rule's series [{standing.series_query}] "
+                f"{'to be' if expected else 'not to be'} a latency, it "
+                f"{'is not' if expected else 'is'}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _its_series_is_in(expected: str | None) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.series_unit != expected:
+            raise AssertionError(
+                f"Expected the rule's series to be in [{expected}], got "
+                f"[{standing.series_unit}]."
             )
 
         return True

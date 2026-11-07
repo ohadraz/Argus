@@ -6,8 +6,10 @@ whoever builds the client; nothing below this door learns an address.
 """
 
 from read_mcp_client.client import (
+    branch_contains_revision,
     get_alert_rule,
     get_change_events,
+    get_code_outside_the_patch,
     get_enabled_flags,
     get_log_lines,
     get_metrics_summary,
@@ -23,10 +25,14 @@ from read_mcp_client.client import (
     search_repository,
     search_repository_by_meaning,
 )
+from read_mcp_client.offering import NotServed, offered
 
 __all__ = [
+    "NotServed",
+    "branch_contains_revision",
     "get_alert_rule",
     "get_change_events",
+    "get_code_outside_the_patch",
     "get_enabled_flags",
     "get_log_lines",
     "get_metrics_summary",
@@ -37,6 +43,7 @@ __all__ = [
     "get_service_dependencies",
     "get_what_a_deployment_changed",
     "list_repository_files",
+    "offered",
     "read_mcp",
     "read_repository_file",
     "search_repository",

@@ -9,6 +9,7 @@ from functools import partial
 from typing import Protocol, assert_never
 
 from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
+from argus_core.anomaly import the_end_of_the_onset
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     AcceleratorPinRestored,
@@ -24,6 +25,7 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     FlagChange,
+    FlagHistory,
     MetricBucket,
     PinAutoscaler,
     PinToAccelerator,
@@ -669,9 +671,13 @@ def fetch_recent_flag_changes(
     fetch: FlagChangesSince,
     now: Clock = utc_now,
     onset: datetime | None = None,
-) -> list[FlagChange]:
+) -> FlagHistory:
     """The flag toggles recorded over the configured lookback, oldest first -
-    excluding the ones Argus itself made.
+    excluding the ones Argus itself made - and the window they were read over.
+
+    The window is the one the changes were kept from, its end computed once and
+    used for the question and the cut alike, so that what is said of the read
+    is exactly what the list covers.
 
     A named function rather than `get_recent_flag_changes` passed directly,
     because the agent needs exactly one of that tool's calling shapes - a
@@ -688,7 +694,7 @@ def fetch_recent_flag_changes(
     every caller wants the same thing: what somebody *else* did. Once Argus can
     act more than once on an incident, its own revert lands in this window, and
     a window carrying it makes the unambiguous case - one flag changed, so that
-    is the one to put back - report two flags and refuse to act.
+    is the one to revert - report two flags and refuse to act.
 
     `onset` moves the window back to end where the incident began, and is left
     out by almost every caller. Ending it at the present asks what somebody
@@ -699,24 +705,30 @@ def fetch_recent_flag_changes(
 
     Anchored rather than widened, and the difference matters. The lookback is
     short on purpose - a wide window makes "two flags changed, so no action" the
-    common case - so it stays the width it was and only moves. The upper bound
+    common case - so it keeps its lookback and ends with the onset. The upper bound
     is applied here because the provider is asked from a moment and answers to
     the present: without it, a window anchored a week back carries a week. What
     it drops is changes made after the incident began, which did not cause it,
-    and that is the rule the Investigator's own default window already applies.
+    and that is the rule the Investigator's own default window already applies:
+    it ends with the onset (`the_end_of_the_onset`), so a flag switched on a
+    few seconds into the minute it broke is read by both.
     """
     lookback = timedelta(minutes=settings.mitigation_change_lookback_minutes)
-    window_ends_at = onset if onset is not None else now()
+    anchored_at = onset if onset is not None else now()
+    window_starts_at = anchored_at - lookback
+    window_ends_at = the_end_of_the_onset(onset) if onset is not None else anchored_at
 
     changes = changes_not_made_by(
         settings.unleash_actor,
-        fetch(since=to_iso(window_ends_at - lookback)),
+        fetch(since=to_iso(window_starts_at)),
     )
 
-    return [
-        change for change in changes
-        if parse_iso(change.occurred_at) <= window_ends_at
-    ]
+    return FlagHistory(
+        changes=[change for change in changes
+                 if parse_iso(change.occurred_at) <= window_ends_at],
+        since=window_starts_at,
+        until=window_ends_at
+    )
 
 
 def fetch_recent_deployments(
@@ -730,7 +742,7 @@ def fetch_recent_deployments(
     oldest first.
 
     The flag history's window, asked of the other change a service has: the
-    same lookback, ending at the same place - the onset where the alert stated
+    same lookback, ending in the same place - with the onset where the alert stated
     one, now where it did not. Not a lookback of its own, because the question
     is the same one: what somebody changed just before this began. A mode that
     names the damage rather than the change is answered by undoing whichever of
@@ -743,13 +755,14 @@ def fetch_recent_deployments(
     propose rolling that back.
     """
     lookback = timedelta(minutes=settings.mitigation_change_lookback_minutes)
-    window_ends_at = onset if onset is not None else now()
+    anchored_at = onset if onset is not None else now()
+    window_ends_at = the_end_of_the_onset(onset) if onset is not None else anchored_at
 
     return changes_not_made_by(
         settings.argocd_actor,
         fetch(
             service=service,
-            window_start=to_iso(window_ends_at - lookback),
+            window_start=to_iso(anchored_at - lookback),
             window_end=to_iso(window_ends_at)
         )
     )

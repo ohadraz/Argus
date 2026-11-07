@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from operator import attrgetter
 
 import pytest
-from argus_core.models import ChannelReading, CitedEvidence, OpenedPullRequest
+from argus_core.models import ChannelReading, CitedChange, CitedEvidence, OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow, the_supporting_information
@@ -55,7 +55,8 @@ def test_the_walk_and_the_fix_are_listed_with_every_address_in_full() -> None:
                            Run(text=" ("),
                            Run.an_address(some_fix.url),
                            Run(text=") "),
-                           Run(text="draft - nobody has merged it", role=Role.STATUS))))))
+                           Run(text="opened as a draft", role=Role.STATUS),
+                           Run(text=". The record holds nothing about it after that."))))))
 
 
 @pytest.mark.unit
@@ -122,6 +123,29 @@ def test_each_revision_a_change_read_names_leads_where_it_opens_short_and_whole(
         ) \
         .then(
             the_answer_was({SOME_DEPLOYED_REVISION[:7]: commit, SOME_DEPLOYED_REVISION: commit}))
+
+
+@pytest.mark.unit
+def test_the_prose_names_the_proposed_fix_as_a_link_to_it_beside_each_revision() -> None:
+    # Prose naming the fix - an action item's "PR #7" - leads where the fix
+    # opens, as a revision it names does. Only the document's own fix: a pull
+    # request it holds nothing of has nowhere true to lead.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[a_deploy_read("P2")],
+                                            pull_request=some_fix)
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).prose_addresses
+        ) \
+        .then(
+            the_answer_was({SOME_DEPLOYED_REVISION[:7]: commit, SOME_DEPLOYED_REVISION: commit,
+                            "PR #7": some_fix.url}))
 
 
 @pytest.mark.unit
@@ -227,6 +251,36 @@ def test_no_changes_says_of_the_deploys_and_the_flags_each_whether_they_were_rea
     Scenario() \
         .given(
             some_postmortem := a_postmortem(changes_read=[],
+                                            deploys_reading=deploys,
+                                            flags_reading=flags)
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).changes_absent
+        ) \
+        .then(
+            the_answer_was(said))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("listed", "deploys", "flags", "said"), [
+    ([a_change_read("P1")], ChannelReading.NOT_ASKED, ChannelReading.READ,
+     "Deploys not read."),
+    ([a_deploy_read("P1")], ChannelReading.READ, ChannelReading.READ,
+     "Flags read, none came back."),
+    ([a_deploy_read("P1"), a_change_read("P2")], ChannelReading.READ, ChannelReading.READ,
+     None)
+], ids=["only-flags-listed", "only-deploys-listed", "both-listed"])
+def test_a_kind_of_change_with_no_row_is_said_as_what_came_of_reading_it(
+        listed: list[CitedChange], deploys: ChannelReading, flags: ChannelReading,
+        said: str | None) -> None:
+    # A flag row alone says nothing of the deploys, and a reader takes them
+    # as read and ruled out - when the investigation never asked for them.
+    # So the kind with no row is said beneath the rows that are there, as it
+    # is when neither has any.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=listed,
                                             deploys_reading=deploys,
                                             flags_reading=flags)
         ) \
@@ -452,6 +506,84 @@ def test_what_code_fix_read_sets_the_code_it_quotes_apart_without_its_backticks(
 
 
 @pytest.mark.unit
+def test_what_code_fix_read_sets_what_it_wrote_in_bold_as_strong_without_its_marks() -> None:
+    # As with its backticks: asterisks printed are marks nobody reading the
+    # page or the paper was meant to see.
+    some_reading = CitedEvidence(label="F1", text="**The fix.** It hands off to `record`.")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The fix.", role=Role.STRONG),
+                                      Run(text=" It hands off to "),
+                                      Run(text="record", role=Role.CODE),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_code_code_fix_quotes_inside_its_bold_is_set_as_code_and_the_rest_strong() -> None:
+    some_reading = CitedEvidence(label="F1", text="**The script: `repair.py`. Not run.**")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The script: ", role=Role.STRONG),
+                                      Run(text="repair.py", role=Role.CODE),
+                                      Run(text=". Not run.", role=Role.STRONG)))))
+
+
+@pytest.mark.unit
+def test_an_item_of_a_list_code_fix_wrote_is_set_after_a_bullet_in_place_of_its_dash() -> None:
+    # The dash is the list's Markdown, as the asterisks are bold's. The bullet
+    # is what the rest of the paper sets a list with.
+    some_reading = CitedEvidence(label="F1", text="It reads:\n- **Input:** an export;\n- gaps")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="It reads:\n• "),
+                                      Run(text="Input:", role=Role.STRONG),
+                                      Run(text=" an export;\n• gaps")))))
+
+
+@pytest.mark.unit
+def test_a_double_asterisk_nothing_closes_stays_in_what_code_fix_read_as_written() -> None:
+    # Strong in pairs: one left over opens nothing, and set strong it would
+    # make the rest of the reading strong.
+    some_reading = CitedEvidence(label="F1", text="**The fix.** It costs 2 ** 3")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The fix.", role=Role.STRONG),
+                                      Run(text=" It costs 2 ** 3")))))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("named", [SOME_DEPLOYED_REVISION, SOME_DEPLOYED_REVISION[:7]],
                          ids=["whole", "short"])
 def test_a_revision_what_code_fix_read_names_is_said_short_and_leads_where_it_opens(
@@ -478,19 +610,30 @@ def test_a_revision_what_code_fix_read_names_is_said_short_and_leads_where_it_op
 
 
 @pytest.mark.unit
-def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran() -> None:
+@pytest.mark.parametrize(("pull_request", "heading"), [
+    (OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7", branch="dont care"),
+     "What Code-Fix read in the source and proposed - nothing ran its test or its fix"),
+    (OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7", branch="dont care",
+                       brings_a_test=False),
+     "What Code-Fix read in the source and proposed - nothing ran its fix"),
+    (None, "What Code-Fix read in the source - nothing ran to check it")
+], ids=["proposed", "proposed-bringing-no-test", "nothing-proposed"])
+def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran(
+        pull_request: OpenedPullRequest | None, heading: str) -> None:
     # The mechanism as it was read off the source: a reader weighs a cause
-    # resting on it by knowing that nothing ran it.
+    # resting on it by knowing that nothing ran it. "Proposed" only where a
+    # pull request holds what it proposed: said of a fix nobody opened, it was
+    # false - and "its test" only where the fix brought one.
     Scenario() \
         .given(
-            dont_care_postmortem := a_postmortem()
+            some_postmortem := a_postmortem(pull_request=pull_request)
         ) \
         .when(
             lambda: the_supporting_information(
-                dont_care_postmortem, SOME_INCIDENT_ADDRESS).code_read_heading
+                some_postmortem, SOME_INCIDENT_ADDRESS).code_read_heading
         ) \
         .then(
-            the_answer_was("What Code-Fix read in the source - a static reading, nothing ran it"))
+            the_answer_was(heading))
 
 
 @pytest.mark.unit
@@ -504,6 +647,166 @@ def test_an_incident_code_fix_said_nothing_of_has_no_row_for_it() -> None:
         ) \
         .then(
             the_answer_was(()))
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_is_a_row_naming_it_and_opening_it_where_it_ran() -> None:
+    # What settles a reading made on a branch that is other text, and a row
+    # for the same reason the reading is: a citation of it leads here. Named,
+    # not printed: the text is the model's to read, and printed whole two
+    # files took six pages of fourteen. A reader opens it at the revision.
+    some_address = "https://github.invalid/acme/shop/blob/53f02e9f/deploy/scrape.yaml"
+    some_file = CitedEvidence(label="S1",
+                              text="deploy/scrape.yaml at 53f02e9\nselector:\n  port: metrics\n",
+                              address=some_address)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(as_it_ran_read=[some_file])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="S1", said=Line(runs=(
+                Run(text="deploy/scrape.yaml", role=Role.LINK, address=some_address),
+                Run(text=" at 53f02e9")))),)))
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_with_nowhere_to_open_is_named_alone() -> None:
+    # A document written before the address was carried, or a deploy from a
+    # host whose pages Argus does not know.
+    some_file = CitedEvidence(label="S1",
+                              text="deploy/scrape.yaml at 53f02e9\nselector:\n  port: metrics\n")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(as_it_ran_read=[some_file])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="S1", said=Line(runs=(
+                Run(text="deploy/scrape.yaml at 53f02e9"),))),)))
+
+
+@pytest.mark.unit
+def test_the_files_as_they_ran_are_headed_as_read_at_the_revision_that_ran() -> None:
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran_heading
+        ) \
+        .then(
+            the_answer_was("What ran, read at the revision running when the alert fired"))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_file_as_it_ran_has_no_row_for_one() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(as_it_ran_read=[])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran
+        ) \
+        .then(
+            the_answer_was(()))
+
+
+@pytest.mark.unit
+def test_a_use_outside_the_patch_is_a_row_under_its_label() -> None:
+    # What a line outside Code-Fix's patch does with what it changes, read off
+    # the code - a row because a citation of it leads here.
+    some_use = CitedEvidence(label="U1",
+                             text="total_this_month_cents at src/io_shop/spend_reconciliation.py"
+                                  ":109, in reconcile_monthly_totals: compares it with "
+                                  "_bought_this_month(account)")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(uses_outside_read=[some_use])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).uses_outside
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="U1",
+                                        said=Line(runs=(Run(text=some_use.text),))),)))
+
+
+@pytest.mark.unit
+def test_what_the_metrics_show_of_the_confirmed_cause_is_a_row_under_its_label() -> None:
+    # The load a confirmed demand-saturation rests on, measured by Argus - a row
+    # because a step of the cause cites it.
+    some_load = CitedEvidence(label="R1",
+                              text="Requests a minute: 1200 before it began, 4200 on average "
+                                   "while it was broken, 5400 at its highest.")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(cause_measured=[some_load])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).cause_measured
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="R1",
+                                        said=Line(runs=(Run(text=some_load.text),))),)))
+
+
+@pytest.mark.unit
+def test_what_the_metrics_show_of_the_confirmed_cause_is_headed_as_measured_by_argus() -> None:
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).cause_measured_heading
+        ) \
+        .then(
+            the_answer_was("What the metrics show of the confirmed cause, measured by Argus"))
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_are_headed_as_read_off_the_code() -> None:
+    # Code-Fix's reading sits above them in its own words; these are the code's.
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).uses_outside_heading
+        ) \
+        .then(
+            the_answer_was("How the code outside Code-Fix's patch uses what it changes, "
+                           "read off the code"))
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_are_headed_as_read_on_the_branch_code_fix_read() -> None:
+    # Read on main, not at the revision that ran - and a reader takes the rows
+    # for what ran unless the heading says otherwise.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(fix_branch_read="main")
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).uses_outside_heading
+        ) \
+        .then(
+            the_answer_was("How the code outside Code-Fix's patch uses what it changes, "
+                           "read on main"))
 
 
 @pytest.mark.unit

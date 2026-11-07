@@ -15,6 +15,7 @@ from datetime import datetime
 from functools import partial
 from typing import Final
 
+from argus_core import to_iso
 from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
@@ -33,6 +34,7 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    RecalledIncident,
     ServiceDependency,
     ThreadMessage,
 )
@@ -43,6 +45,7 @@ from argus_core.models import (
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from argus_incidents import IsStillWanted
+from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
 from incident_memory.describing import what_it_looked_like
 from incident_memory.ordering import demoting_what_was_refuted
 
@@ -51,6 +54,7 @@ from orchestrator.walk.candidates import (
     the_next_worth_trying,
     what_each_would_do,
 )
+from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     FetchDependencies,
@@ -62,7 +66,7 @@ from orchestrator.walk.ports import (
     RecordHypothesis,
     RecordWeighing,
 )
-from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
 _logger = logging.getLogger(__name__)
@@ -157,7 +161,10 @@ def investigator_node(
         # `None` on a first round, which measures one. On a later one, the minute
         # the first established: the window this round reads is one Argus has
         # since acted on, and what departs there is what the action left behind.
-        established_onset=state.onset
+        established_onset=state.onset,
+        # What this round numbers its candidates on from, so each is said by
+        # the number it keeps for the whole incident.
+        earlier_candidates=state.candidates_formed
     )
     if findings.stopped:
         return StateDelta()
@@ -193,6 +200,10 @@ def investigator_node(
     # must not have its answer depend on a document store being up at the
     # instant it asks.
     dependencies = _what_the_register_lists(state, fetch_dependencies)
+    # What each deployment looked into changed, this round's beside every earlier
+    # round's - the first answer about a revision standing, since one deploy
+    # changed one thing.
+    deployment_changes = {**findings.deployment_changes, **state.deployment_changes}
     # What earlier incidents on this service looked like this one. Searched once
     # per round rather than once per candidate: one search, and a deterministic
     # order for everything below to reason from.
@@ -217,7 +228,9 @@ def investigator_node(
         publish(
             SimilarIncidentsRecalled(
                 incident_id=state.incident_id,
-                incident_ids=[remembered.incident_id for remembered in recalled]
+                recalled=[RecalledIncident(incident_id=remembered.incident_id,
+                                           tried=remembered.tried)
+                          for remembered in recalled]
             ),
             publisher
         )
@@ -235,7 +248,8 @@ def investigator_node(
             # The placement this round's investigation recorded, not the state's:
             # the state still holds the last round's until this node returns.
             the_circumstances(
-                state.alert, flag_changes, deployments, findings.placement
+                state.alert, flag_changes, deployments, findings.placement,
+                deployment_changes=deployment_changes, onset=state.onset or findings.onset
             )
         ),
         recalled
@@ -276,7 +290,15 @@ def investigator_node(
     # is what the investigation learned, and it is the one thing that tells an
     # investigation with nothing to offer apart from a walk that has worked
     # through everything it was offered - the two leave the same list behind.
-    nothing_worth_trying = next_up is None
+    #
+    # Asked with nothing tried, because a round whose every cause the walk has
+    # already tried is the second of those and not the first. It named causes;
+    # the walk has answered each of them already, so the list is spent - and a
+    # spent list goes where the walk sends one out of candidates, to a fix.
+    # Counted as finding nothing, it escalated past Code-Fix with "hypothesis
+    # formed" as the reason.
+    nothing_worth_trying = the_next_worth_trying(reordered.candidates, [], start=0) is None
+    the_list_is_spent = next_up is None and not nothing_worth_trying
     # Every candidate, not only the one about to be tried. The incident's
     # record should say what was considered as well as what was acted on - a
     # runner-up that never reached the table is a finding a human picking the
@@ -287,7 +309,10 @@ def investigator_node(
     return StateDelta(
         hypothesis=hypothesis,
         candidates=candidates,
-        candidate_index=next_up[0] if next_up is not None else 0,
+        # Past the end where the list is spent, which is what says so: no
+        # candidate is under test, and nothing this round found is left to try.
+        candidate_index=(next_up[0] if next_up is not None
+                         else len(candidates) if the_list_is_spent else 0),
         # Carried on, including where it is `None`: the nodes after this one
         # act on the same history this round was reasoned from, and a provider
         # that could not be read has to reach them as that rather than as a
@@ -298,6 +323,7 @@ def investigator_node(
         # placement this round could not read must clear the last one rather
         # than leave pods recorded against an earlier onset standing.
         placement=findings.placement,
+        deployment_changes=deployment_changes,
         # Carried on for the gate, which is where it is finally asked a
         # question. Empty where the register would not answer, deliberately
         # indistinguishable from a register that listed nothing: both leave
@@ -314,9 +340,16 @@ def investigator_node(
         readings_cover_the_incident=findings.readings_cover_the_incident,
         onset=state.onset or findings.onset,
         rounds=state.rounds + 1,
+        # What this round was told had been tried, so the walk can tell whether
+        # anything was refuted after it.
+        attempts_handed=len(state.attempts),
+        candidates_formed=state.candidates_formed + len(candidates),
         confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,
-        narration=Narration(action=_what_the_investigation_did(hypothesis)),
+        # The spent list in the walk's own words for one, since it is the same
+        # move for the same reason.
+        narration=(nothing_left_to_try(state.attempts) if the_list_is_spent
+                   else Narration(action=_what_the_investigation_did(hypothesis))),
     )
 
 
@@ -346,7 +379,7 @@ def _what_the_provider_recorded(state: IncidentState,
     `ChannelsUnread` exists to draw and cannot draw on its own.
     """
     try:
-        flag_changes = fetch_flag_changes(
+        history = fetch_flag_changes(
             onset=_where_the_change_window_ends(state, readings_cover_the_incident)
         )
     except Exception as unanswered:
@@ -366,11 +399,14 @@ def _what_the_provider_recorded(state: IncidentState,
         return None
 
     publish(
-        FlagChangesRetrieved(incident_id=state.incident_id, changes=flag_changes),
+        FlagChangesRetrieved(incident_id=state.incident_id,
+                             changes=history.changes,
+                             window_start=to_iso(history.since),
+                             window_end=to_iso(history.until)),
         publisher
     )
 
-    return flag_changes
+    return history.changes
 
 
 def _what_the_platform_recorded(state: IncidentState,
@@ -415,7 +451,7 @@ def _what_the_platform_recorded(state: IncidentState,
 def _where_the_change_window_ends(state: IncidentState,
                                   readings_cover_the_incident: bool
                                   ) -> datetime | None:
-    """The onset a change history's window ends at, or `None` for the present.
+    """The onset a change history's window ends with, or `None` for the present.
 
     The onset the alert stated, or nothing - which is what every alert that
     measured its own says, and what leaves the window ending where it always
@@ -502,8 +538,9 @@ def _the_alarm_was_disproven(state: IncidentState,
             # timeline shows it beside the disproof event, which carries the
             # grounds; the channel announcement shows it as the whole reason
             # the incident ended, with nothing else beside it. So it says what
-            # was found rather than naming the finding.
-            action="the alarm's own claim was not in the window"
+            # was found rather than naming the finding - in the words the
+            # postmortem's head says the ending in.
+            action=THE_CLAIM_WAS_NOT_IN_THE_WINDOW
         )
     )
 
@@ -511,14 +548,22 @@ def _the_alarm_was_disproven(state: IncidentState,
 def _what_the_investigation_did(hypothesis: Hypothesis) -> str:
     """What the timeline records the Investigator as having done (spec §11.2).
 
-    Two escalations reach this line for different reasons, and the timeline is
-    where a human finds out which. A named cause below the threshold means a
-    hypothesis was formed and is on file to be doubted; no cause at all means
-    the loop read everything it was allowed to and still had nothing - the
-    next step there is more evidence, not a second opinion on the first.
+    Two different rounds reach this line, and the timeline is where a human
+    finds out which. A named cause means a hypothesis was formed and the walk
+    goes on to try it; no cause at all means the loop read everything it was
+    allowed to and still had nothing - the next step there is more evidence,
+    not a second opinion on the first.
     """
     return "hypothesis formed" if hypothesis.failure_mode is not None else "insufficient evidence"
 
 
 def route_after_investigation(state: IncidentState) -> str:
-    return MITIGATING_ROUTE if state.status == IncidentStatus.MITIGATING else ESCALATED_ROUTE
+    if state.status == IncidentStatus.MITIGATING:
+        return MITIGATING_ROUTE
+
+    # A round that named only what the walk had already tried, which spends the
+    # list as running out of candidates does.
+    if state.status == IncidentStatus.FIXING:
+        return FIXING_ROUTE
+
+    return ESCALATED_ROUTE

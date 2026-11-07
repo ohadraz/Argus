@@ -32,6 +32,7 @@ from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     Alert,
+    Attempt,
     DiscardCacheEntries,
     Evidence,
     FailureMode,
@@ -44,6 +45,7 @@ from argus_core.models import (
     RevertFeatureFlag,
     RollBackDeployment,
     the_actions_through,
+    the_identity_of,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
@@ -109,7 +111,7 @@ def test_moving_to_the_next_candidate_is_published_rather_than_narrated() -> Non
     # of one, so the only account of it has to be an event - and which
     # explanation is now under test is the thing the lines after this are about.
     incident_id = a_random_id()
-    the_next_candidate = a_determined_hypothesis(incident_id)
+    the_next_candidate = a_determined_hypothesis(incident_id).model_copy(update={"number": 2})
     published: list[IncidentEvent] = []
 
     Scenario() \
@@ -173,8 +175,8 @@ def test_what_was_tried_is_remembered_for_the_round_after() -> None:
 @pytest.mark.unit
 def test_what_was_tried_is_remembered_at_the_moment_it_was_taken() -> None:
     # A later round reads the attempt beside the flag provider's record of the
-    # same change. Remembered when the walk moved on from it - after the wait
-    # for the service to answer - it was dated minutes after that record, and
+    # same change. Remembered when the walk moved on from it - after the
+    # verification wait - it was dated minutes after that record, and
     # the round read two changes where there was one.
     incident_id = a_random_id()
 
@@ -187,6 +189,26 @@ def test_what_was_tried_is_remembered_at_the_moment_it_was_taken() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_attempt_recorded_is_dated(to_iso(SOME_MOMENT_IT_WAS_TAKEN)))
+
+
+@pytest.mark.unit
+def test_what_was_tried_is_remembered_with_why_it_did_not_help() -> None:
+    # The reason the wait judged it on, carried to the round that reads the
+    # attempt: which way it failed is evidence about the cause.
+    incident_id = a_random_id()
+    some_reason = (
+        "the rule that fired was still firing when the time it allows ran out"
+    )
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(incident_id,
+                                 [a_determined_hypothesis(incident_id)],
+                                 index=0,
+                                 because=some_reason)
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(_the_attempt_recorded_was_refuted_because(some_reason))
 
 
 @pytest.mark.unit
@@ -229,6 +251,48 @@ def test_a_spent_list_buys_another_investigation() -> None:
 
 
 @pytest.mark.unit
+def test_a_spent_list_says_it_investigates_again_without_saying_anything_was_refuted() -> None:
+    # The list ran out, which is all the line may claim. A candidate the gate
+    # refused or the tier had nowhere to take was never tested, and a line
+    # saying every explanation was refuted puts a measurement in the record
+    # that never happened.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(incident_id,
+                                 [a_determined_hypothesis(incident_id)],
+                                 index=0,
+                                 rounds=1)
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _what_it_said_names("no explanation left to try", "investigating again"),
+            _what_it_said_does_not_name("refuted")
+        ))
+
+
+@pytest.mark.unit
+def test_a_spent_list_with_nothing_tried_since_its_round_looks_for_a_fix() -> None:
+    # Rounds left, and nothing refuted since this round began: its candidate's
+    # action was never performed, so another round would be handed exactly the
+    # evidence this one was. What is left is a permanent fix.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk_that_changed_nothing := _a_walk_at(
+                incident_id,
+                [a_determined_hypothesis(incident_id)],
+                index=0,
+                rounds=1
+            ).model_copy(update={"acted_at": None})
+        ) \
+        .when(lambda: next_candidate_node(a_walk_that_changed_nothing, SOME_ROUND_BUDGET)) \
+        .then(_the_walk_goes_to(FIXING_ROUTE, a_walk_that_changed_nothing))
+
+
+@pytest.mark.unit
 def test_a_walk_that_has_used_every_round_ends() -> None:
     # The bound is a count of rounds rather than the walk's own judgement: each
     # round is a model call and another set of real changes to production, and
@@ -248,6 +312,56 @@ def test_a_walk_that_has_used_every_round_ends() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_walk_goes_to(FIXING_ROUTE, a_walk))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("earlier", "acted_at", "how_many"), [
+    pytest.param(0, None, "no action was taken", id="none"),
+    pytest.param(0, DONT_CARE_MOMENT_IT_WAS_TAKEN, "1 action was taken", id="one"),
+    pytest.param(1, DONT_CARE_MOMENT_IT_WAS_TAKEN, "2 actions were taken", id="two")
+])
+def test_a_walk_that_looks_for_a_fix_says_how_many_actions_it_took(
+        earlier: int, acted_at: datetime | None, how_many: str) -> None:
+    # The count is Argus's own, so it is said as a count. "1 action(s) were
+    # taken" reads as though Argus could not tell whether it had acted, and the
+    # model writing the postmortem is handed that sentence as it stands. None at
+    # all is the walk whose every candidate was passed over untested.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(incident_id,
+                                 [a_determined_hypothesis(incident_id)],
+                                 index=0,
+                                 rounds=_every_round()).model_copy(
+                update={"attempts": _earlier_attempts(earlier), "acted_at": acted_at}
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _the_walk_goes_to(FIXING_ROUTE, a_walk),
+            _what_it_said_names(how_many)))
+
+
+@pytest.mark.unit
+def test_a_walk_that_looks_for_a_fix_does_not_say_its_actions_were_undone() -> None:
+    # A restart puts nothing back, and a change left as found was not put back
+    # either, so "taken and undone" is false for both. Where a change was put
+    # back or left as found, its verdict's own line says so.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_that_restarted_the_service(
+                incident_id,
+                [_a_leak_worded_as(incident_id, "resident set climbing")],
+                index=0
+            ).model_copy(update={"rounds": _every_round()})
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _the_walk_goes_to(FIXING_ROUTE, a_walk),
+            _what_it_said_does_not_name("undone")))
 
 
 @pytest.mark.unit
@@ -341,7 +455,7 @@ def test_a_doubtful_candidate_is_tried_like_any_other() -> None:
 @pytest.mark.unit
 def test_a_candidate_blaming_a_flag_already_tried_is_skipped() -> None:
     # The same subject, twice on one list. Changing it again would be running
-    # the experiment that has already been run and undone, against a world that
+    # the experiment that has already been run, against a world that
     # answered once - so the walk passes over it and reaches the first
     # explanation that is actually new.
     incident_id = a_random_id()
@@ -446,12 +560,12 @@ def test_a_candidate_answered_by_a_discard_already_taken_is_skipped() -> None:
 
 @pytest.mark.unit
 def test_a_corruption_answered_by_a_rollback_already_taken_is_skipped() -> None:
-    # The guard once more, for the candidate whose answer is read off the deploy
-    # history. Two rounds word one corruption two ways, and both are answered
-    # by returning the deployment the platform recorded - which this node knows
-    # only while it is still passing that history down. Stop passing it and the
-    # second wording reads as answered by nothing, which the guard cannot match
-    # against the rollback already taken.
+    # The guard once more, for the candidate whose answer is checked against the
+    # deploy history. Two rounds blame one revision for the corruption, and both
+    # are answered by returning the deployment the platform recorded - which
+    # this node knows only while it is still passing that history down. Stop
+    # passing it and the second reads as answered by nothing, which the guard
+    # cannot match against the rollback already taken.
     incident_id = a_random_id()
     a_candidate_blaming_a_flag = a_candidate_blaming(incident_id, ANOTHER_FLAG)
 
@@ -459,8 +573,8 @@ def test_a_corruption_answered_by_a_rollback_already_taken_is_skipped() -> None:
         .given(
             a_walk := _a_walk_that_rolled_back(
                 incident_id,
-                [a_corruption_blamed_on(incident_id, "monthly totals look wrong"),
-                 a_corruption_blamed_on(incident_id, "the totals fell behind"),
+                [a_corruption_blamed_on(incident_id, a_deployment().reference),
+                 a_corruption_blamed_on(incident_id, a_deployment().reference),
                  a_candidate_blaming_a_flag],
                 index=0
             )
@@ -501,12 +615,33 @@ def _every_round() -> int:
     return SOME_ROUND_BUDGET
 
 
+def _earlier_attempts(how_many: int) -> list[Attempt]:
+    """Actions an earlier round took and saw refuted, each on a flag of its own.
+
+    Only how many there are is read, which is the count the ending says.
+    """
+    return [
+        Attempt(
+            identity=the_identity_of(RevertFeatureFlag(
+                flag=f"some-earlier-flag-{index}",
+                enabled=False,
+                undo_descriptor=FlagUndo(flag=f"some-earlier-flag-{index}",
+                                         was_enabled=True)
+            )),
+            enabled=False,
+            occurred_at=DONT_CARE_MOMENT
+        )
+        for index in range(how_many)
+    ]
+
+
 def _a_walk_at(incident_id: str,
                candidates: list[Hypothesis],
                index: int,
                acted_on: str = SOME_FLAG,
                acted_at: datetime = DONT_CARE_MOMENT_IT_WAS_TAKEN,
-               rounds: int = 1) -> IncidentState:
+               rounds: int = 1,
+               because: str | None = None) -> IncidentState:
     """An incident mid-walk: a candidate has just been tried and did not settle
     anything, and the state carries what it takes to decide what happens next.
 
@@ -540,7 +675,8 @@ def _a_walk_at(incident_id: str,
             enabled=False,
             undo_descriptor=FlagUndo(flag=acted_on, was_enabled=True)
         ),
-        acted_at=acted_at
+        acted_at=acted_at,
+        action_because=because
     )
 
 
@@ -718,6 +854,20 @@ def _the_attempts_recorded_are(expected: list[str]) -> Assertion[StateDelta]:
     return assertion
 
 
+def _the_attempt_recorded_was_refuted_because(expected: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        reasons = [attempt.refuted_because for attempt in updates.attempts or []]
+
+        if reasons != [expected]:
+            raise AssertionError(
+                f"Expected the one attempt recorded to say it was refuted because "
+                f"[{expected}], got {reasons}.")
+
+        return True
+
+    return assertion
+
+
 def _the_attempt_recorded_is_dated(expected: str) -> Assertion[StateDelta]:
     def assertion(updates: StateDelta) -> bool:
         dated = [attempt.occurred_at for attempt in updates.attempts or []]
@@ -737,7 +887,8 @@ def _the_candidate_selected_was(expected: Hypothesis,
 
     Published rather than left to be inferred from the ranked list: the walk
     skips any candidate it cannot act on, so a reader given only the ranking
-    cannot tell which one an attempt belongs to.
+    cannot tell which one an attempt belongs to. With its number, which is how
+    every line acting for it names it.
     """
     def assertion(dont_care_updates: StateDelta) -> bool:
         selected = [event for event in published if isinstance(event, CandidateSelected)]
@@ -748,10 +899,12 @@ def _the_candidate_selected_was(expected: Hypothesis,
                 f"{[event.kind for event in published]}."
             )
 
-        if selected[0].hypothesis_id != expected.id:
+        named = (selected[0].hypothesis_id, selected[0].candidate_number)
+
+        if named != (expected.id, expected.number):
             raise AssertionError(
-                f"Expected [{expected.id}] published, got "
-                f"[{selected[0].hypothesis_id}]."
+                f"Expected [{expected.id}] published as number [{expected.number}], got "
+                f"[{named[0]}] as number [{named[1]}]."
             )
 
         return True

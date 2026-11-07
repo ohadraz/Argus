@@ -1,23 +1,32 @@
-"""What the investigation considered: every candidate it ranked, how confident
+"""What the investigation considered: every candidate it formed, how confident
 it was, and what became of each - from the record, ruled-out ones included,
 since what was ruled out is half of what a reader is owed.
 
 A candidate names a revision as the model wrote it - whole, mostly, or by as
 much of it as the model liked - and the trigger and the timeline beside it say
 it short. So it is said short here too, and leads to its commit: one document
-naming one revision two ways reads as naming two.
+naming one revision two ways reads as naming two. Every other name it quotes in
+brackets is said as code, as the timeline says it - in what it said and in what
+became of it alike, the result being the walk's own words.
+
+An instant it names is said as a moment, for the same reason: the model writes
+it in the wire format its tools speak, and the rest of the document does not.
+Found as the page finds one (`the_instants_in`), so the two never disagree about
+which of a candidate's words are instants.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
 from typing import Final
 
 from argus_core import said_short
-from argus_core.models import CandidateConsidered, HypothesisConsidered, PostmortemDocument
+from argus_core.models import HypothesisConsidered, PostmortemDocument
+from argus_narration import as_shown, the_instants_in
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.lines import Line, Run
+from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
 
 _HEADINGS: Final = ("", "Hypothesis", "Confidence", "Result")
@@ -34,7 +43,7 @@ class HypothesisRow(BaseModel):
     label: str
     summary: Line
     confidence: str
-    result: str
+    result: Line
     also: tuple[str, ...] = ()
 
     @property
@@ -54,8 +63,13 @@ class HypothesesSection(BaseModel):
     absent: str | None
 
 
-def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
-    """Every candidate ranked, in the order the investigation ranked them.
+def the_hypotheses(postmortem: PostmortemDocument,
+                   day: date | None = None) -> HypothesesSection:
+    """Every candidate formed, in the order the investigation formed them.
+
+    `day` is the one the document is dated by: a clock time a candidate names
+    with the wire's zone marker is put on it, as the page puts one on the day
+    of its line - and is left as it was written where the document names none.
 
     Candidates the record merged are each a row of their own, in their own
     words and confidence, the result saying whose test reached it: on one row
@@ -66,9 +80,15 @@ def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
     """
     shorts = the_short_forms(postmortem.changes_read)
     addresses = the_revision_addresses(postmortem.changes_read)
+    bare = frozenset(shorts.values())
 
-    def said(summary: str) -> tuple[Run, ...]:
-        return Run(text=said_short(summary, shorts)).with_links(addresses)
+    def said(words: str) -> tuple[Run, ...]:
+        shown = as_shown(said_short(words, shorts), bare=bare)
+        return tuple(said
+                     for quoted in Run(text=shown).with_code_set_apart()
+                     for linked in ((quoted,) if quoted.role is Role.CODE
+                                    else quoted.with_links(addresses))
+                     for said in _with_moments(linked, day))
 
     rows = tuple(row
                  for hypothesis in postmortem.hypotheses
@@ -76,7 +96,7 @@ def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
                              else (HypothesisRow(label=hypothesis.label,
                                                  summary=Line(runs=said(hypothesis.summary)),
                                                  confidence=_to_two_places(hypothesis.confidence),
-                                                 result=hypothesis.result,
+                                                 result=Line(runs=said(hypothesis.result)),
                                                  also=tuple(hypothesis.also)),)))
 
     return HypothesesSection(headings=_HEADINGS,
@@ -92,16 +112,25 @@ def _the_rows_of_several(hypothesis: HypothesisConsidered,
         HypothesisRow(label=member.label,
                       summary=Line(runs=said(member.summary)),
                       confidence=_to_two_places(member.confidence),
-                      result=_its_result(member, hypothesis))
+                      result=Line(runs=said(hypothesis.result_of(member))))
         for member in hypothesis.members)
 
 
-def _its_result(member: CandidateConsidered, hypothesis: HypothesisConsidered) -> str:
-    """What became of a merged candidate: the result, and whose test it was
-    where that was another's."""
-    if hypothesis.decided_by and hypothesis.decided_by != member.label:
-        return f"{hypothesis.result}, as tested for {hypothesis.decided_by}"
-    return hypothesis.result
+def _with_moments(run: Run, day: date | None) -> tuple[Run, ...]:
+    """The run cut at every instant in its words, each said as a moment and
+    the words between them left as they were. A link is left whole."""
+    if run.role is not Role.PLAIN:
+        return (run,)
+
+    runs: list[Run] = []
+    written = 0
+    for instant in the_instants_in(run.text, day):
+        runs += [run.model_copy(update={"text": run.text[written:instant.start]}),
+                 Run.a_moment(instant.at)]
+        written = instant.end
+    runs.append(run.model_copy(update={"text": run.text[written:]}))
+
+    return tuple(each for each in runs if each.text)
 
 
 def _to_two_places(confidence: float | None) -> str:

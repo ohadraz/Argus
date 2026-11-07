@@ -72,7 +72,31 @@ def test_a_change_event_needs_no_actor() -> None:
             )
         ) \
         .then(
-            _nothing_was_assumed_about("actor", "source")
+            _nothing_was_assumed_about("actor", "revision_source")
+        )
+
+
+@pytest.mark.unit
+def test_a_change_recorded_with_a_source_still_loads_and_carries_none() -> None:
+    # `source` was a deploy's repository and path run together, which is no
+    # page GitHub serves, and nothing read it - except a model, shown it on
+    # every deploy. Where a deploy can be opened is `revision_source`. A change
+    # recorded before it went still loads: an incident's events are kept.
+    Scenario() \
+        .given(
+            a_change_recorded_with_a_source := {
+                "kind": ChangeKind.DEPLOY,
+                "occurred_at": an_iso_minute(),
+                "reference": DONT_CARE_REFERENCE,
+                "summary": DONT_CARE_SUMMARY,
+                "source": "https://github.com/kuki/k8s-configs/apps/io-shop"
+            }
+        ) \
+        .when(
+            lambda: ChangeEvent.model_validate(a_change_recorded_with_a_source).model_dump()
+        ) \
+        .then(
+            _it_carries_no("source")
         )
 
 
@@ -144,15 +168,13 @@ def an_iso_minute() -> str:
 def a_deploy_at(occurred_at: str, reference: str) -> ChangeEvent:
     some_summary = f"deployed {reference}"
     some_actor = "kuki"
-    some_source = "https://github.com/kuki/k8s-configs"
 
     return ChangeEvent(
         kind=ChangeKind.DEPLOY,
         occurred_at=occurred_at,
         reference=reference,
         summary=some_summary,
-        actor=some_actor,
-        source=some_source
+        actor=some_actor
     )
 
 
@@ -178,6 +200,17 @@ def _it_recorded(kind: ChangeKind,
                 f"Expected the change to record {wanted}, and {wrong} differed "
                 f"(expected, got)."
             )
+
+        return True
+
+    return assertion
+
+
+def _it_carries_no(field: str) -> Assertion[dict[str, object]]:
+    def assertion(change: dict[str, object]) -> bool:
+        if field in change:
+            raise AssertionError(f"Expected the change to carry no [{field}], and it "
+                                 f"carried [{change[field]}].")
 
         return True
 

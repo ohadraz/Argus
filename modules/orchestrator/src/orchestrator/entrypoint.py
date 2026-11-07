@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Final
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, Final, cast
 
-from argus_core import Connections, get_settings
+import psycopg
+from argus_core import Connections, Holding, get_settings
 from argus_core.events import StatusChanged
 from argus_core.mcp_transport import McpClient
 from argus_core.models import Alert, IncidentStatus
@@ -35,13 +36,15 @@ from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import metrics, trace
 from opentelemetry.metrics import Counter, Histogram, Meter
 from opentelemetry.trace import Status, StatusCode, Tracer
+from psycopg.rows import DictRow, dict_row
+from psycopg_pool import ConnectionPool
 
 from orchestrator.walk.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.state import IncidentState
 
 if TYPE_CHECKING:
-    from qdrant_client import QdrantClient
+    from incident_memory.recalling import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,14 @@ type Clock = Callable[[], float]
 # What one walk is called in a trace: the root every step of it hangs from.
 WALK_SPAN: Final = "walk"
 
+# What the checkpointer's connections must be, which is LangGraph's to say: the
+# settings its own `PostgresSaver.from_conn_string` opens a connection with.
+CHECKPOINTER_CONNECTIONS: Final[Mapping[str, Any]] = {
+    "autocommit": True,
+    "prepare_threshold": 0,
+    "row_factory": dict_row
+}
+
 # How a walk ended when it did not end at all - it raised, and the worker marks
 # the run failed. Not an incident status: the incident is wherever the walk left
 # it, and what the measurement is about is the walk.
@@ -68,39 +79,40 @@ _SCOPE = __name__
 
 
 def graph_for(connections: Connections,
+              checkpoints: ConnectionPool,
               read: McpClient,
               write: McpClient,
-              store: QdrantClient | None) -> GraphOf:
+              store: MemoryStore | None,
+              holding: Holding) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 
-    Built lazily and held, because compiling it sets up a checkpointer and the
-    whole node wiring, and a walk should not pay for that on every run. Held by
-    the closure rather than at module level, so two processes - or a suite and
-    the application inside it - are two graphs against two sets of connections
-    rather than one that whichever ran first got to decide.
+    Built lazily and held, because compiling it wires every node, and a walk
+    should not pay for that on every run. Held by the closure rather than at
+    module level, so two processes - or a suite and the application inside it -
+    are two graphs against two sets of connections rather than one that
+    whichever ran first got to decide.
 
     The three clients are passed through rather than built here, for the same
-    reason `connections` is: what this function owns is when the graph is
-    compiled, not what the process it belongs to has opened.
+    reason `connections` and `checkpoints` are: what this function owns is when
+    the graph is compiled, not what the process it belongs to has opened. So is
+    `holding`, the run the process is walking, which the pools are fenced with.
 
-    The checkpointer's context manager is kept alongside the graph deliberately:
-    it owns the connection the checkpointer writes on, and letting it be
-    collected would close that out from under the compiled graph.
+    The checkpointer writes on `checkpoints`, a pool whose connections are as
+    `CHECKPOINTER_CONNECTIONS` says, and never sets up its tables: the schema
+    job made them, and a process that walks runs applies no DDL.
     """
     graph: CompiledStateGraph[IncidentState] | None = None
-    checkpointer_cm: object | None = None
 
     def compiled() -> CompiledStateGraph[IncidentState]:
-        nonlocal graph, checkpointer_cm
+        nonlocal graph
 
         if graph is None:
-            checkpointer_cm = PostgresSaver.from_conn_string(
-                get_settings().database_url
-            )
-            checkpointer = checkpointer_cm.__enter__()
-            checkpointer.setup()
+            # Rows of dicts, because the connections were opened to read them so
+            # - which is a setting the pool's type cannot see.
+            reading_dicts = cast(ConnectionPool[psycopg.Connection[DictRow]], checkpoints)
             graph = build_graph(
-                checkpointer, against(connections, read, write, store)
+                PostgresSaver(reading_dicts),
+                against(connections, read, write, store, holding)
             )
 
         return graph
@@ -121,9 +133,13 @@ def run_incident(incident_id: str,
     run: it is already recorded there, and a second copy travelling with the
     run would be a second version of the same fact to keep in step.
 
-    Invoked on the incident's own id as the thread, so a run taken up after
-    its worker stopped resumes against what the checkpointer already holds
-    instead of walking the incident a second time.
+    Invoked on the incident's own id as the thread, and with no input where
+    that thread already holds a walk, so a run taken up after its worker
+    stopped - or requeued to be tried again - goes on from the node it stopped
+    in instead of walking the incident a second time. Both are needed:
+    LangGraph resumes a thread only when it is given nothing, and starts any
+    input over from the first node, investigating anew and free to act on the
+    world again.
 
     `graph_of` is a parameter so that which thread a walk resumes on can be
     asserted without a model, an MCP server or a real checkpointer behind it -
@@ -141,37 +157,26 @@ def run_incident(incident_id: str,
     if incident is None:
         raise LookupError(f"no incident [{incident_id}] to run")
 
+    graph = graph_of()
+    resumed = bool(graph.get_state({"configurable": {"thread_id": incident_id}}).values)
+
     # The first thing a walk does, before any node runs: the incident stops
     # being one nobody is on. Written here rather than by a node, because a
     # node's status is derived from the work it did (`status_after`) and this
     # one is derived from the fact that work has started at all.
     #
-    # Idempotent by way of the status it writes: a resumed run re-announces an
-    # investigation that is already under way, which is true again each time it
-    # is taken up.
+    # Not where the walk is resumed. Its incident was taken up when the walk
+    # began, and has been wherever the walk's nodes moved it since - mitigated,
+    # it may be, with only the write-up left - so announcing an investigation
+    # again would move it back to one, and nothing after the node it resumes in
+    # would move it on.
     #
     # Not said where the row refused it. A withdrawal can land between the
     # worker asking and this write, and then the incident stays withdrawn - an
     # account announcing an investigation of it would contradict the row. The
     # walk is still invoked, and its first node hears the withdrawal and stops.
-    with connections() as conn:
-        taken_up = incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING)
-
-        if taken_up:
-            # Beside the status, on the same connection, for the reason every
-            # other transition publishes beside its own: this is the only
-            # account there is, and a walk that started without saying so
-            # leaves a reader looking at an incident that was acknowledged and
-            # then simply changed.
-            publish_beside(
-                conn,
-                StatusChanged(
-                    incident_id=incident_id,
-                    to_status=IncidentStatus.INVESTIGATING,
-                    detail="a worker took the incident up"
-                ),
-                events_into_connection(conn)
-            )
+    if not resumed:
+        _taken_up(incident_id, connections)
 
     settings = get_settings()
     initial_state = IncidentState(
@@ -199,8 +204,8 @@ def run_incident(incident_id: str,
         logger.info("walk started")
 
         try:
-            ended = graph_of().invoke(
-                initial_state,
+            ended = graph.invoke(
+                None if resumed else initial_state,
                 config={
                     "configurable": {"thread_id": incident_id},
                     # The walk is a real cycle in the graph, so the default
@@ -224,6 +229,26 @@ def run_incident(incident_id: str,
         span.set_attribute(ARGUS_INCIDENT_OUTCOME, outcome)
         _measured(walks, walk_duration, walked, outcome)
         logger.info("walk ended", extra={"outcome": outcome, "duration_s": walked})
+
+
+def _taken_up(incident_id: str, connections: Connections) -> None:
+    """Moves the incident to `investigating`, and says so where the row took
+    the move."""
+    taking_up = StatusChanged(incident_id=incident_id,
+                              to_status=IncidentStatus.INVESTIGATING,
+                              detail="a worker took the incident up")
+
+    with connections() as conn:
+        taken_up = incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING,
+                                        at=taking_up.at)
+
+        if taken_up:
+            # Beside the status, on the same connection, for the reason every
+            # other transition publishes beside its own: this is the only
+            # account there is, and a walk that started without saying so
+            # leaves a reader looking at an incident that was acknowledged and
+            # then simply changed.
+            publish_beside(conn, taking_up, events_into_connection(conn))
 
 
 def _how_it_ended(ended: Any) -> str:

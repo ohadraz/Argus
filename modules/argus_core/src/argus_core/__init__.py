@@ -33,10 +33,20 @@ from argus_core.config import (
     WriteMcpEndpoint,
     get_settings,
 )
+from argus_core.days import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
 from argus_core.db import Connections, connect, connect_from_env, open_pool
+from argus_core.fencing import Fence, Holding, RunLost, fence, was_lost
 from argus_core.ids import UuidStr, new_id
-from argus_core.levels import said_as_a_level
+from argus_core.levels import (
+    MILLISECONDS_UNIT,
+    level_given_in,
+    level_said_in,
+    said_as_a_level,
+    said_as_a_share,
+)
+from argus_core.pytest_naming import is_a_test_file
 from argus_core.revisions import A_REVISION, said_short, short_form, the_revision_named
+from argus_core.spans import said_as_a_span
 from argus_core.timestamps import (
     in_real_time,
     parse_iso,
@@ -47,12 +57,17 @@ from argus_core.timestamps import (
 )
 
 __all__ = [
+    "A_DAY_SAID",
     "A_REVISION",
+    "MILLISECONDS_UNIT",
     "Clock",
     "Connections",
     "DatabaseSettings",
+    "Fence",
+    "Holding",
     "LLMSettings",
     "ReadMcpEndpoint",
+    "RunLost",
     "Settings",
     "SettingsSlice",
     "TelemetrySettings",
@@ -60,18 +75,28 @@ __all__ = [
     "WriteMcpEndpoint",
     "connect",
     "connect_from_env",
+    "fence",
     "get_settings",
     "in_real_time",
+    "is_a_test_file",
+    "level_given_in",
+    "level_said_in",
     "new_id",
     "open_pool",
     "parse_iso",
+    "said_as_a_day",
     "said_as_a_level",
+    "said_as_a_share",
+    "said_as_a_span",
+    "said_as_a_time",
     "said_short",
     "short_form",
     "sleep_on_the_clock",
     "the_clock_named_by",
+    "the_day_said",
     "the_revision_named",
     "to_iso",
     "to_iso_minute",
-    "utc_now"
+    "utc_now",
+    "was_lost"
 ]

@@ -1,12 +1,13 @@
 """The files the investigation's evidence names, found in the repository.
 
 Greedy on purpose, with the listing as the safety net: a name the evidence
-spells in any of the ways its log lines and prose spell one - a path with a
-line, a bare filename, a log's path inside the container, a dotted module, a
-stem - is looked for, and only what the repository holds is listed. What is
-said to be missing is narrower: only a name shaped like a file the repository
-could hold, because "not in the repository" said of `account.total_cents` is a
-stale-path warning about an attribute.
+spells in any of the ways its log lines and prose spell a file - a path with a
+line, a bare filename, a log's path inside the container, a dotted module - is
+looked for, and only what the repository holds is listed. A bare word is never
+one of those ways, whatever file's stem it matches. What is said to be missing
+is narrower: only a name shaped like a file the repository could hold, because
+"not in the repository" said of `account.total_cents` is a stale-path warning
+about an attribute.
 """
 
 from __future__ import annotations
@@ -33,10 +34,9 @@ NOTHING_NAMED = FilesNamed(held=[], absent=[])
     f"division by zero at /app/{SOME_PATH}:47",
     "modified spend_summary.py: the guard was removed",
     "io_shop.spend_summary.average_spend_per_item_this_month divides by the month",
-    "spend_summary divides by an empty month",
     "division by zero at /usr/local/lib/python3.12/site-packages/io_shop/spend_summary.py:47"
 ], ids=["path-and-line", "path-and-line-range", "path-inside-the-container",
-        "bare-filename", "dotted-module", "stem", "path-in-an-installed-package"])
+        "bare-filename", "dotted-module", "path-in-an-installed-package"])
 def test_a_file_the_evidence_names_is_listed_by_its_path_in_the_repository(
         claim: str) -> None:
     Scenario() \
@@ -117,17 +117,17 @@ def test_a_name_that_is_no_file_is_neither_listed_nor_said_missing(claim: str) -
 
 
 @pytest.mark.unit
-def test_a_stem_several_files_share_lists_every_one() -> None:
-    # Nothing in the word says which was meant.
-    some_namesake = "src/admin/spend_summary.py"
-
+def test_a_word_that_is_only_a_files_stem_names_no_file() -> None:
+    # "the rollout has converged" listed src/io_shop/rollout.py under "Files
+    # named in the evidence", and Code-Fix read it first; said of Code-Fix's
+    # reading, "accounts" was said to name src/io_shop/accounts.py. A module
+    # said by a bare word is still in plain view in the repository's listing.
     Scenario() \
         .when(
-            lambda: files_named_in(["spend_summary divides by an empty month"],
-                                   [*SOME_LISTING, some_namesake])
+            lambda: files_named_in(["spend_summary divides by an empty month"], SOME_LISTING)
         ) \
         .then(
-            the_answer_was(FilesNamed(held=[SOME_PATH, some_namesake], absent=[]))
+            the_answer_was(NOTHING_NAMED)
         )
 
 

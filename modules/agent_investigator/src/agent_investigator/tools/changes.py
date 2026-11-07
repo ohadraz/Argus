@@ -21,6 +21,7 @@ from datetime import timedelta
 from typing import Final
 
 from argus_core import parse_iso, to_iso
+from argus_core.anomaly import the_end_of_the_onset
 from argus_core.events import ChangesRetrieved, Narrator, RetrievalRequested
 from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
 
@@ -47,7 +48,7 @@ def changes_tool() -> ToolDefinition:
         description=(
             "What changed on the service over one window - deploys and other "
             "recorded changes. Sparse where the logs are dense, so the window can be "
-            "far wider. Defaults to a long lookback ending at the onset, because a "
+            "far wider. Defaults to a long lookback ending with the onset, because a "
             "change made after the incident began did not begin it - or at the alert "
             "where no reading covers the incident's minutes, since what ended the "
             "readings lies at or after the last one."
@@ -69,12 +70,15 @@ def read_changes(call: ToolCall,
     """The changes on the service over the window the model named, or the
     default one.
 
-    The default ends at the onset: a change made after the incident began did
-    not begin it, and offering later ones invites attribution by mere
-    proximity - which is the one mistake this channel is most likely to
-    produce. It reaches back by the configured lookback rather than by anything
-    the log window uses, because how far back a cause may plausibly lie is the
-    operator's judgement, not something inferable from the metrics.
+    The default ends with the onset (`the_end_of_the_onset`): a change made
+    after the incident began did not begin it, and offering later ones invites
+    attribution by mere proximity - which is the one mistake this channel is
+    most likely to produce. With its minute where the onset is dated to one,
+    because a flag switched on a few seconds into a minute breaks that minute,
+    and a window ended at the minute's start would leave out the change that
+    began it. It reaches back by the configured lookback rather than by
+    anything the log window uses, because how far back a cause may plausibly
+    lie is the operator's judgement, not something inferable from the metrics.
 
     Where no reading covers the incident's own minutes it ends at the alert
     instead. An onset dated off a window that stops is the last reading before
@@ -101,7 +105,7 @@ def read_changes(call: ToolCall,
     the_incident_could_have_begun_until = (
         parse_iso(alert_time)
         if not readings_cover_the_incident and alert_time is not None
-        else onset_at
+        else the_end_of_the_onset(onset_at)
     )
     window = window_of(
         call,

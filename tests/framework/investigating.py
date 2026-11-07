@@ -20,9 +20,20 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from agent_investigator.tools import READ_TIER_HELD
 from argus_core import get_settings
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, ServiceDependency
+from argus_core.models import (
+    ChangeEvent,
+    DeploymentChanges,
+    MetricBucket,
+    PodPlacement,
+    RolloutAccount,
+    ServiceDependency,
+    ToolDefinition,
+)
+
+from tests.framework.read_tier import what_the_read_tier_offers
 
 # The minute the departure lands in, and so the onset every one of these suites
 # measures from. Named because two of them assert against it.
@@ -95,24 +106,26 @@ def no_dependencies(dont_care_service: str) -> list[ServiceDependency]:
 
 
 def no_deployment_was_read(dont_care_service: str,
-                           dont_care_revision: str) -> list[str]:
+                           dont_care_revision: str) -> DeploymentChanges:
     """A deployment channel that answers about nothing.
 
     Which is honest for every case here: none of them stages a deployment whose
     diff decides anything, and a channel volunteering a diff would put a change
     in front of the model that the scenario never made.
     """
-    return []
+    return DeploymentChanges(said=[], lists_every_file=False)
 
 
-def no_rollout_was_read(dont_care_service: str) -> list[str]:
-    """A rollout channel that answers about nothing.
+def no_rollout_was_read(dont_care_service: str) -> RolloutAccount:
+    """A rollout channel nobody could read.
 
     Unread rather than converged, which is the one answer this must never give
     by default: "the deployment converged" rules a failure mode out, and a
     stand-in volunteering it would hand the model a finding no case here staged.
+    The channel answers with a value now, and no value says "unread" - so this
+    refuses, as an unreachable platform does.
     """
-    return []
+    raise LookupError("no rollout was staged for this case")
 
 
 def pods_that_never_moved(dont_care_service: str) -> list[PodPlacement]:
@@ -132,6 +145,12 @@ def pods_that_never_moved(dont_care_service: str) -> list[PodPlacement]:
         )
         for replica in range(3)
     ]
+
+
+def what_the_read_tier_offers_the_investigator() -> list[ToolDefinition]:
+    """The read tier's three reads the Investigator holds, as the tier declares
+    them - what a real investigation offers its model beside its own."""
+    return what_the_read_tier_offers(READ_TIER_HELD)
 
 
 def the_configured_thresholds() -> AnomalyThresholds:

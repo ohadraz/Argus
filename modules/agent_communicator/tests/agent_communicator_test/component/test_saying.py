@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from decimal import Decimal
 from typing import Any
 
 import httpx2
@@ -28,13 +27,15 @@ from agent_communicator.saying import a_chat_destination, a_destination_per_regi
 from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import (
     ActionTaken,
-    CandidateSelected,
     ChangesRetrieved,
     CommunicationFailed,
+    FixAttempted,
+    HypothesisFormed,
     IncidentEvent,
     OfferExpired,
     OnsetDetected,
     PostmortemWritten,
+    QuestionAnswered,
     ResolutionOffered,
     StatusChanged,
     WithdrawalOffered,
@@ -45,7 +46,9 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    FixOutcome,
     IncidentStatus,
+    OpenedPullRequest,
     Reference,
     Report,
     ReportChannel,
@@ -105,7 +108,7 @@ def test_an_announced_line_is_posted_to_the_channel(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -132,7 +135,7 @@ def test_the_first_message_becomes_the_conversation_the_incident_is_told_in(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -154,7 +157,7 @@ def test_a_followed_line_is_a_reply_in_the_incident_s_own_thread(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -183,7 +186,7 @@ def test_a_followed_line_with_no_thread_yet_goes_to_the_channel(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -210,7 +213,7 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -227,14 +230,15 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
 
 
 @pytest.mark.component
-def test_a_name_the_walk_quoted_is_said_without_its_brackets(
+def test_what_code_fix_said_of_the_code_reaches_the_thread_with_its_line(
         slack: str, a_clean_database: None) -> None:
-    # The brackets mark a name off for a model reading the record; in a channel
-    # they are clutter around a word - the marked word most of all.
+    # Somebody following the thread is owed what somebody on the page reads:
+    # no code-level fix here, and what Code-Fix says would have to change.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_explanation = "scrape.yaml would have to name the port http-metrics"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -242,10 +246,63 @@ def test_a_name_the_walk_quoted_is_said_without_its_brackets(
                 say := _a_destination_pointed_at(slack)
             ) \
             .when(lambda: say(incident_id,
-                                  a_narration_line(_a_candidate_quoting_names_on(incident_id)),
+                                  a_narration_line(_no_fix_found_on(incident_id,
+                                                                    some_explanation)),
+                                  Register.FOLLOWED)) \
+            .then(
+                _that_message_says(slack, some_explanation)
+            )
+
+
+@pytest.mark.component
+def test_an_answer_written_in_markdown_is_said_in_slack_s_own_markup(
+        slack: str, a_clean_database: None) -> None:
+    # The model answers in Markdown, and `**` in Slack is two stars. Not set
+    # apart as a whole either: an answer of several paragraphs inside one
+    # emphasis is unreadable.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(QuestionAnswered(
+                                  incident_id=incident_id,
+                                  message=Reference(source="some-chat", kind="some-kind",
+                                                    value="some-message"),
+                                  answer="**Investigation (14:15)**\n- Reverted the flag")),
+                              Register.FOLLOWED)) \
+            .then(
+                _that_message_says(slack,
+                                   "the thread: *Investigation (14:15)*\n- Reverted the flag")
+            )
+
+
+@pytest.mark.component
+def test_a_name_the_walk_quoted_is_said_as_code(
+        slack: str, a_clean_database: None) -> None:
+    # The brackets mark a name off for a model reading the record, and a reader
+    # of the channel needs it marked off too - in the marked word as well.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_a_postmortem_quoting_names_on(incident_id)),
                                   Register.ANNOUNCED)) \
             .then(
-                _that_message_marks(slack, "categoriser.model went from v1 to v2")
+                _that_message_marks(slack, "`categoriser.model` went from `v1` to `v2`")
             )
 
 
@@ -260,7 +317,7 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
     its_commit = f"https://github.invalid/acme/shop/commit/{some_revision}"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         events.record(conn, _a_deploy_read_on(incident_id, some_revision))
         conn.commit()
 
@@ -269,12 +326,119 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
                 say := _a_destination_pointed_at(slack)
             ) \
             .when(lambda: say(incident_id,
-                                  a_narration_line(_a_candidate_naming_on(incident_id,
-                                                                          some_revision)),
+                                  a_narration_line(_a_postmortem_naming_on(incident_id,
+                                                                           some_revision)),
                                   Register.ANNOUNCED)) \
             .then(
                 _that_message_marks(slack,
                                     f"<{its_commit}|{some_revision[:7]}> made every page slow")
+            )
+
+
+@pytest.mark.component
+def test_a_proposed_fix_is_said_by_its_name_and_opens_the_pull_request(
+        slack: str, a_clean_database: None) -> None:
+    # An address is a name for a browser. Said by the name Argus gives the pull
+    # request everywhere it mentions it, and leading there.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    where_it_can_be_read = "https://github.invalid/acme/shop/pull/7"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, the_proposal := _a_fix_proposed_on(incident_id,
+                                                                where_it_can_be_read))
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id, a_narration_line(the_proposal),
+                                  Register.ANNOUNCED)) \
+            .then(
+                _that_message_marks(slack, f"<{where_it_can_be_read}|PR #7>")
+            )
+
+
+@pytest.mark.component
+def test_the_escalation_a_proposed_fix_left_says_it_by_its_name_too(
+        slack: str, a_clean_database: None) -> None:
+    # The line moving the incident to escalated names the pull request it is
+    # waiting on, and says it as the proposal's own line does.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    where_it_can_be_read = "https://github.invalid/acme/shop/pull/7"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _a_fix_proposed_on(incident_id, where_it_can_be_read))
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(StatusChanged(
+                                      incident_id=incident_id,
+                                      to_status=IncidentStatus.ESCALATED,
+                                      detail=f"a draft pull request is open at "
+                                             f"{where_it_can_be_read}")),
+                                  Register.ANNOUNCED)) \
+            .then(
+                _that_message_says(slack, f"open at <{where_it_can_be_read}|PR #7>")
+            )
+
+
+@pytest.mark.component
+def test_a_candidate_formed_is_said_by_its_number_with_what_it_is(
+        slack: str, a_clean_database: None) -> None:
+    # Said each on its own message, "Formed 1 candidate cause, best first:" twice
+    # read as two lists of one. By its number as the walk page shows it instead,
+    # and never by its rank: rank restarts each round, so a second round's first
+    # would be said as the first round's - where the number counts on, as the
+    # postmortem's C labels do. This one is a second round's first.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_summary = "the scrape still selects the port by its old name"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_a_candidate_formed_on(incident_id,
+                                                                          some_summary,
+                                                                          rank=1,
+                                                                          number=3)),
+                                  Register.FOLLOWED)) \
+            .then(
+                _that_message_says(slack, f"Formed candidate cause #3: {some_summary}")
+            )
+
+
+@pytest.mark.component
+def test_a_flag_moved_says_from_what_to_what(
+        slack: str, a_clean_database: None) -> None:
+    # The page shows the move as two states, one struck through; a message has
+    # only the sentence, which ended on "moved" with nowhere it moved to.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_the_action_on(incident_id)),
+                                  Register.FOLLOWED)) \
+            .then(
+                _that_message_says(slack, "moved from ON to OFF")
             )
 
 
@@ -288,7 +452,7 @@ def test_an_offer_is_a_reply_whose_button_answers_the_person_s_own_message(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -320,7 +484,7 @@ def test_an_offer_is_remembered_so_that_it_can_be_retired(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -342,7 +506,7 @@ def test_a_line_that_offers_nothing_is_not_remembered_as_an_offer(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -363,7 +527,7 @@ def test_an_offer_slack_refused_leaves_no_offer_to_retire(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -390,7 +554,7 @@ def test_an_incident_past_resolving_takes_the_button_off_its_offer(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -422,7 +586,7 @@ def test_a_move_that_still_takes_a_resolution_leaves_the_offer_standing(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -451,7 +615,7 @@ def test_an_offer_not_confirmed_in_time_loses_its_button(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -485,7 +649,7 @@ def test_an_offer_s_button_says_what_pressing_it_does(
     offer_on = {"resolution": _the_offer_on, "withdrawal": _the_withdrawal_offer_on}[offered]
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -507,7 +671,7 @@ def test_an_offer_to_withdraw_is_remembered_as_one(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -533,7 +697,7 @@ def test_a_mitigated_incident_takes_the_button_off_an_offer_to_withdraw_only(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -568,7 +732,7 @@ def test_an_ending_past_resolving_or_an_expiry_takes_the_button_off_every_offer(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
         the_ending = {
@@ -605,7 +769,7 @@ def test_an_offer_slack_would_not_take_the_button_off_is_written_down(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -636,7 +800,7 @@ def test_a_message_refused_for_good_is_reported_as_never_landing(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -665,7 +829,7 @@ def test_a_line_refused_for_good_is_written_down_on_the_incident(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -694,7 +858,7 @@ def test_a_filed_line_goes_to_the_archive_and_everything_else_to_the_war_room(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -729,7 +893,7 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         its_page = f"{ARGUS_AT}/incidents/{incident_id}/postmortem"
 
@@ -761,7 +925,7 @@ def test_a_line_refused_for_good_is_logged_as_an_error(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -789,7 +953,7 @@ def test_an_offer_that_keeps_its_button_is_logged_as_a_warning(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -880,19 +1044,34 @@ def _the_incident_ending(incident_id: str) -> IncidentEvent:
 def _the_write_up_of(incident_id: str) -> IncidentEvent:
     return PostmortemWritten(
         incident_id=incident_id,
-        root_cause="monthly-spend-feature divided by a month with no purchases",
-        executive_summary="Account pages failed for a third of shoppers.",
-        customer_loss_estimate=Decimal("1240.50"),
-        estimate_currency="USD",
+        cause_in_plain_words="A month with no purchases broke the account pages.",
+        executive_summary="Account pages failed for a third of shoppers. A month with no "
+                          "purchases broke the account pages.",
         engineer_minutes=34
     )
 
 
-def _a_candidate_quoting_names_on(incident_id: str) -> IncidentEvent:
-    return CandidateSelected(incident_id=incident_id,
-                             hypothesis_id=new_id(),
-                             summary="[categoriser.model] went from [v1] to [v2]",
-                             confidence=None)
+def _no_fix_found_on(incident_id: str, explanation: str) -> IncidentEvent:
+    return FixAttempted(incident_id=incident_id,
+                        outcome=FixOutcome.NOT_WARRANTED,
+                        detail="dont care what the node said",
+                        explanation=explanation)
+
+
+def _a_fix_proposed_on(incident_id: str, url: str) -> IncidentEvent:
+    """A fix proposed as pull request #7, read at `url`."""
+    return FixAttempted(incident_id=incident_id,
+                        outcome=FixOutcome.PROPOSED,
+                        pull_request=OpenedPullRequest(number=7, url=url, branch="argus/fix-abc"),
+                        detail="dont care what the node said")
+
+
+def _a_postmortem_quoting_names_on(incident_id: str) -> IncidentEvent:
+    """A write-up whose cause - the part its line marks - quotes names."""
+    some_cause = "[categoriser.model] went from [v1] to [v2]"
+    return PostmortemWritten(incident_id=incident_id,
+                             executive_summary=some_cause,
+                             cause_in_plain_words=some_cause)
 
 
 def _a_deploy_read_on(incident_id: str, revision: str) -> IncidentEvent:
@@ -910,11 +1089,21 @@ def _a_deploy_read_on(incident_id: str, revision: str) -> IncidentEvent:
                                                    f"commit/{revision}")))])
 
 
-def _a_candidate_naming_on(incident_id: str, revision: str) -> IncidentEvent:
-    return CandidateSelected(incident_id=incident_id,
-                             hypothesis_id=new_id(),
-                             summary=f"[{revision}] made every page slow",
-                             confidence=None)
+def _a_postmortem_naming_on(incident_id: str, revision: str) -> IncidentEvent:
+    """A write-up whose cause - the part its line marks - names `revision`."""
+    some_cause = f"[{revision}] made every page slow"
+    return PostmortemWritten(incident_id=incident_id,
+                             executive_summary=some_cause,
+                             cause_in_plain_words=some_cause)
+
+
+def _a_candidate_formed_on(incident_id: str,
+                           summary: str,
+                           rank: int = 1,
+                           number: int = 1) -> IncidentEvent:
+    return HypothesisFormed(incident_id=incident_id, hypothesis_id=new_id(), summary=summary,
+                            failure_mode=None, confidence=None, subject=None, rank=rank,
+                            number=number)
 
 
 def _slack_will_refuse(base_url: str) -> None:
@@ -1058,6 +1247,17 @@ def _that_message_names(base_url: str, who: str) -> Assertion[Any]:
         said = messages_posted_to(base_url)[-1]["text"]
         if who not in said:
             raise AssertionError(f"Expected [{who}] named in [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _that_message_says(base_url: str, words: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        said = messages_posted_to(base_url)[-1]["text"]
+        if words not in said:
+            raise AssertionError(f"Expected [{words}] said in [{said}].")
 
         return True
 

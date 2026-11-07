@@ -16,7 +16,7 @@ from agent_investigator.retrieval import MetricsFetcher
 from agent_investigator.tools import METRICS_TOOL
 from agent_investigator.tools.metrics import metrics_tool
 from argus_core.models import MetricBucket, ToolDefinition, ToolResult
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, all_of
 
 from agent_investigator_test.framework.assertions.tool_results import the_result_failed
 from agent_investigator_test.framework.builders.dispatcher import (
@@ -139,6 +139,35 @@ def test_the_metrics_tool_says_what_the_rules_column_is() -> None:
         .then(
             _the_tool_description_names(THE_RULES_COLUMN)
         )
+
+
+@pytest.mark.unit
+def test_the_metrics_tool_says_the_rule_fired_not_that_it_paged() -> None:
+    # A rule fires; a person is paged - one word for each.
+    Scenario() \
+        .when(
+            lambda: metrics_tool()
+        ) \
+        .then(
+            all_of(
+                _the_tool_description_names("the alert rule that fired"),
+                _the_tool_description_avoids("paged")
+            )
+        )
+
+
+def _the_tool_description_avoids(word: str) -> Assertion[ToolDefinition]:
+    """That the offer never says one word to the model."""
+    def assertion(tool: ToolDefinition) -> bool:
+        if word in tool.description:
+            raise AssertionError(
+                f"Expected {tool.name}'s description never to say [{word}], "
+                f"got [{tool.description}]."
+            )
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.unit

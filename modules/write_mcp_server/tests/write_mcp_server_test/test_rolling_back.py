@@ -23,6 +23,7 @@ from unittest.mock import create_autospec
 
 import pytest
 from argus_core.mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
@@ -50,12 +51,27 @@ from write_mcp_server.rolling_back import (
     roll_back_deployment,
 )
 
+from write_mcp_server_test.framework.refusals import (
+    it_is_marked_unreachable,
+    it_left_behind,
+    it_was_refused_as,
+    what_it_left_is_known,
+)
+
 SOME_APPLICATION = "io-shop"
 
 THE_ENTRY_RUNNING = 2
 THE_ENTRY_BEFORE_IT = 1
 THE_REVISION_RUNNING = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 THE_REVISION_BEFORE_IT = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
+
+# What a rollback leaves where it suspended the sync and the revision never moved.
+THE_SUSPENSION = DeploymentRollbackUndo(
+    application=SOME_APPLICATION,
+    was_on_history_id=THE_ENTRY_RUNNING,
+    was_on_revision=THE_REVISION_RUNNING,
+    was_syncing_itself=True
+)
 
 
 def _a_deployment(history_id: int, revision: str) -> DeploymentRecord:
@@ -181,6 +197,21 @@ def test_an_application_that_has_never_deployed_is_refused() -> None:
 
 
 @pytest.mark.unit
+def test_an_application_with_no_earlier_entry_refuses_in_a_way_a_caller_can_recognise() -> None:
+    # The refusal that is an answer, as a deployment already at its ceiling
+    # refuses a scale-out: nothing was changed and the action has nowhere to
+    # go, so the walk tries its next explanation rather than waking a human, and
+    # the postmortem says nothing was changed rather than that nobody knows.
+    only_ever_deployed_once = [_a_deployment(THE_ENTRY_RUNNING, THE_REVISION_RUNNING)]
+    platform = a_platform(history=only_ever_deployed_once)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(_the_refusal_says_the_action_is_exhausted())
+
+
+@pytest.mark.unit
 def test_a_platform_that_will_not_answer_is_not_reported_as_rolled_back() -> None:
     platform = a_platform()
     platform.roll_back.side_effect = PlatformUnreachable("no route to host")
@@ -273,9 +304,9 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
 @pytest.mark.unit
 def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachable() -> None:
     # The suspension is the first thing a rollback changes, so a platform that
-    # refuses it has left the estate exactly as it found it.
+    # said it did not handle it has left the estate exactly as it found it.
     platform = a_platform()
-    platform.suspend_sync.side_effect = PlatformUnreachable("503")
+    platform.suspend_sync.side_effect = PlatformUnreachable("503", known_not_applied=True)
 
     Scenario() \
         .given(platform) \
@@ -289,7 +320,9 @@ def test_a_platform_that_died_before_a_rollback_that_changed_nothing_is_unreacha
     # request is the first write - and a platform that stopped answering before
     # it took nothing with it.
     platform = a_platform(syncing_itself=False)
-    platform.roll_back.side_effect = PlatformUnreachable("no route to host")
+    platform.roll_back.side_effect = PlatformUnreachable(
+        "no route to host", known_not_applied=True
+    )
 
     Scenario() \
         .given(platform) \
@@ -310,19 +343,112 @@ def test_a_rollback_that_left_sync_suspended_says_so_and_still_reports_the_platf
     # what makes marking safe: the earlier rule refused the mark because a
     # suspension was recorded nowhere, and now it is recorded here.
     platform = a_platform(syncing_itself=True)
-    platform.roll_back.side_effect = PlatformUnreachable("no route to host")
+    platform.roll_back.side_effect = PlatformUnreachable(
+        "no route to host", known_not_applied=True
+    )
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _rolling_back(platform))) \
         .then(all_of(
             _it_is_reported_as_an_unreachable_platform(),
-            _it_says_what_it_left_behind(DeploymentRollbackUndo(
-                application=SOME_APPLICATION,
-                was_on_history_id=THE_ENTRY_RUNNING,
-                was_on_revision=THE_REVISION_RUNNING,
-                was_syncing_itself=True
-            ))
+            _it_says_what_it_left_behind(THE_SUSPENSION)
+        ))
+
+
+@pytest.mark.unit
+def test_a_history_the_platform_would_not_give_is_known_to_have_changed_nothing() -> None:
+    # The history is read before anything is asked to change, so a refusal
+    # here says it left nothing - and is not written up as nobody knowing
+    # whether anything was changed.
+    platform = a_platform()
+    platform.deployments_of.side_effect = PlatformRefused("does not say what was asked")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(
+            it_was_refused_as(RollbackRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
+    # Read before the suspension, and in a step of its own: a timed-out read
+    # took nothing with it, so the platform is reported as gone and the estate
+    # as untouched.
+    platform = a_platform()
+    platform.is_syncing_itself.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(True),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing() -> None:
+    # The sync may be off by now, and nobody can say. Marked unreachable, the
+    # walk would narrow onto an estate that may have moved.
+    platform = a_platform()
+    platform.suspend_sync.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(
+            it_was_refused_as(RollbackRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_rejected_after_sync_was_suspended_says_the_suspension_is_left() -> None:
+    # A rollback the platform answered with a no, after the suspension landed:
+    # the application sits un-reconciled, and the refusal is the only record
+    # of it, so the suspension travels on it.
+    platform = a_platform(syncing_itself=True)
+    platform.roll_back.side_effect = PlatformRefused("400", known_not_applied=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(THE_SUSPENSION)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_no_more() -> None:
+    # The revision may be moving this second. The suspension is carried,
+    # because it is in place either way, and nothing is said to be all of it.
+    platform = a_platform(syncing_itself=True)
+    platform.roll_back.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False),
+            it_left_behind(THE_SUSPENSION)
         ))
 
 
@@ -525,6 +651,22 @@ def _the_sync_policy_was_not_touched(platform: Any) -> Assertion[object]:
             raise AssertionError(
                 f"Expected the sync policy to be left alone, and the platform was "
                 f"asked {platform.method_calls}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
+    """The refusal carries the marker the transport turns into a type - asserted
+    against the marker rather than the sentence, which is allowed to change."""
+    def assertion(refusal: Exception | None) -> bool:
+        if refusal is None or EXHAUSTED_ACTION_MARKER not in str(refusal):
+            raise AssertionError(
+                f"Expected the refusal to carry [{EXHAUSTED_ACTION_MARKER}], so "
+                f"that a caller can tell an exhausted action from a broken "
+                f"platform, and it said [{refusal}]."
             )
 
         return True

@@ -33,10 +33,13 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
-from argus_core.events import PATCH_LINE_INDENT
-from argus_core.models import ChangeEvent
+from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
+from argus_core.models import ChangeEvent, DeploymentChanges, DeploymentComparison
 from deployment_platform import DeploymentPlatformReads
 from repository_source import (
+    BEHIND,
+    DIVERGED,
+    ChangedFile,
     RepositorySourceSettings,
     SourceDifference,
     the_difference_between,
@@ -85,8 +88,9 @@ def what_a_deployment_changed(service: str,
                               *,
                               platform: DeploymentPlatformReads,
                               compare: SourceComparer = the_difference_between
-                              ) -> list[str]:
-    """What the deployment of `revision` changed, as lines a model reads.
+                              ) -> DeploymentChanges:
+    """What the deployment of `revision` changed, as lines a model reads - and
+    whether they name every file it changed, which only a comparison can say.
 
     The revision is the only subject. What it is compared against is found here,
     in the deployment history, and not asked of the caller: the revision deployed
@@ -105,7 +109,7 @@ def what_a_deployment_changed(service: str,
     landed = _where_in_the_history(revision, deployed)
 
     if landed is None:
-        return [
+        return DeploymentChanges(said=[
             f"No deployment of {service} has revision [{revision}]. The "
             f"deployment history holds "
             f"{[deploy.reference for deploy in deployed] or 'no deployment at all'}"
@@ -113,15 +117,15 @@ def what_a_deployment_changed(service: str,
             f"what changed about it is reported by "
             f"{THE_CHANNEL_THAT_REPORTS_FLAG_CHANGES} - a flag has no revision "
             f"and no diff to read."
-        ]
+        ], lists_every_file=False, comparison=DeploymentComparison.NOT_DEPLOYED)
 
     if landed == 0:
-        return [
+        return DeploymentChanges(said=[
             f"Revision [{revision}] is the earliest deployment of {service} the "
             f"history holds, so there is no earlier deployment to compare it "
             f"against. What it changed cannot be read; what it shipped can, by "
             f"reading the repository at that revision."
-        ]
+        ], lists_every_file=False, comparison=DeploymentComparison.NOTHING_BEFORE_IT)
 
     before = deployed[landed - 1].reference
     difference = compare(before, revision, the_source_settings(settings))
@@ -144,7 +148,7 @@ def _where_in_the_history(revision: str,
     return None
 
 
-def _said(service: str, difference: SourceDifference) -> list[str]:
+def _said(service: str, difference: SourceDifference) -> DeploymentChanges:
     """One comparison as lines, bounded, with every bound it hit stated.
 
     The header names both revisions. What reads this is a model rather than the
@@ -155,47 +159,109 @@ def _said(service: str, difference: SourceDifference) -> list[str]:
     diffs and never the names. Which files a deployment touched is the answer to
     the question this channel is for; what changed inside them is how a reader
     becomes sure of it.
+
+    A deploy that is not ahead of the one before it is said by how it stands to
+    it, and what it took away before what it brought (`_the_sides`). The budgets
+    count both sides, in that order.
     """
     said = [
         f"Deployment of revision {difference.head} to {service}, compared against "
         f"{difference.base} - the revision deployed before it."
     ]
 
-    if not difference.files:
+    if not difference.files and not difference.taken_away:
         said.append(
             "It changed no file at all: the two revisions are identical, so "
             "nothing this deployment carried can account for the symptoms."
         )
 
-        return said
+        return DeploymentChanges(said=said,
+                                 lists_every_file=not difference.more_files_than_listed)
 
-    named = difference.files[:MOST_FILES_NAMED]
+    files_left = MOST_FILES_NAMED
     lines_left = MOST_PATCH_LINES_ALL_TOLD
+    unnamed = 0
     unshown = 0
 
-    for changed in named:
-        said.append(f"{changed.status} {changed.path}")
+    for sentence, files in _the_sides(difference):
+        if sentence is not None:
+            said.append(sentence)
 
-        if changed.patch is None:
-            said.append(
-                f"{PATCH_LINE_INDENT}(no diff: the comparison carries none for this file - it is "
-                "not text, or its change was too large to list)"
-            )
-            continue
+        for changed in files:
+            if not files_left:
+                unnamed += 1
+                continue
 
-        patch = changed.patch.splitlines()
+            files_left -= 1
+            said.append(a_changed_file_line(changed.status, changed.path))
 
-        if len(patch) > lines_left:
-            unshown += 1
-            continue
+            if changed.copied_from is not None:
+                said.append(
+                    f"{PATCH_LINE_INDENT}(no diff: it was a copy of {changed.copied_from}, and "
+                    f"the comparison shows only how the copy differed from it)"
+                )
+                continue
 
-        said.extend(f"{PATCH_LINE_INDENT}{line}" for line in patch)
-        lines_left -= len(patch)
+            if changed.patch is None:
+                said.append(
+                    f"{PATCH_LINE_INDENT}(no diff: the comparison carries none for this file - "
+                    "it is not text, or its change was too large to list)"
+                )
+                continue
 
-    return said + _whatever_was_left_out(difference, unshown)
+            patch = changed.patch.splitlines()
+
+            if len(patch) > lines_left:
+                unshown += 1
+                continue
+
+            said.extend(f"{PATCH_LINE_INDENT}{line}" for line in patch)
+            lines_left -= len(patch)
+
+    return DeploymentChanges(
+        said=said + _whatever_was_left_out(difference, unnamed, unshown),
+        lists_every_file=not difference.more_files_than_listed and not unnamed
+    )
+
+
+def _the_sides(difference: SourceDifference) -> list[tuple[str | None, tuple[ChangedFile, ...]]]:
+    """The files the comparison found, each side under the sentence saying what
+    it is - and one side with nothing to say of it, for a deploy ahead of the
+    one before it, which is said as it always was.
+
+    What a deploy took away before what it brought: a file both sides changed
+    is listed twice, and its two patches compose only in the deploy's own
+    order - back to where the two lines part, then on to what it deployed.
+    """
+    base, head = difference.base, difference.head
+
+    if difference.relation == BEHIND:
+        return [(f"It went back: {head} is in the history of {base}, so it brought nothing "
+                 f"{base} did not have, and took away what {base} had changed since {head}:",
+                 difference.taken_away)]
+
+    if difference.relation != DIVERGED:
+        return [(None, difference.files)]
+
+    # Never "part at None": a model told that goes looking for the commit.
+    apart = (f"The two revisions are on lines of history that part at {difference.merge_base}."
+             if difference.merge_base is not None
+             else "The two revisions are on lines of history that have parted.")
+    took_away = f"took away what {base} had changed since then:"
+    brought = f"brought what {head} changed since then:"
+
+    if not difference.taken_away:
+        return [(f"{apart} It {brought}", difference.files)]
+
+    if not difference.files:
+        return [(f"{apart} It {took_away}", difference.taken_away)]
+
+    return [(f"{apart} It {took_away}", difference.taken_away),
+            (f"and {brought}", difference.files)]
 
 
 def _whatever_was_left_out(difference: SourceDifference,
+                           unnamed: int,
                            unshown: int) -> list[str]:
     """The notices, which are the half of a bound that makes it honest.
 
@@ -212,9 +278,9 @@ def _whatever_was_left_out(difference: SourceDifference,
             "than it will name, so what is above is not all of it - this "
             "deployment changed a great deal."
         )
-    elif len(difference.files) > MOST_FILES_NAMED:
+    elif unnamed:
         notices.append(
-            f"... and {len(difference.files) - MOST_FILES_NAMED} more files, not "
+            f"... and {unnamed} more files, not "
             f"named: this deployment changed more files than one answer carries, "
             f"so what is above is not all of it."
         )

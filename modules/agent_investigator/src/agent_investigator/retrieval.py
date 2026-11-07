@@ -6,9 +6,11 @@ from typing import Protocol
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     ChangeEvent,
+    DeploymentChanges,
     FlagChange,
     MetricBucket,
     PodPlacement,
+    RolloutAccount,
     ServiceDependency,
     as_a_change,
 )
@@ -73,13 +75,14 @@ class DeploymentDiffFetcher(Protocol):
     but there is more than one deployment, and which one is being asked about is
     the model's to name - so a revision goes in where the others take nothing.
 
-    Answers in lines rather than in a shape of its own. What comes back is a diff
-    and the two revisions it is between, which is prose by nature: a model reads
-    it, and a type with a `patch` field in it would be a shape three modules had
-    to agree on to carry text that is already text.
+    Answers in lines rather than in a shape of a diff's own. What comes back is a
+    diff and the two revisions it is between, which is prose by nature: a model
+    reads it, and a type with a `patch` field in it would be a shape three modules
+    had to agree on to carry text that is already text. Beside the lines, whether
+    they name every file - the one thing about them that is not for the model.
     """
 
-    def __call__(self, service: str, revision: str, /) -> list[str]: ...
+    def __call__(self, service: str, revision: str, /) -> DeploymentChanges: ...
 
 
 class RolloutFetcher(Protocol):
@@ -90,13 +93,13 @@ class RolloutFetcher(Protocol):
     running now, so there is nothing to date - and there is nothing for a model
     to name either, because the service is the incident's.
 
-    Answers in lines, as the deployment diff does and for the same reason. What
-    comes back is a replica count, two revisions and whether the update is
-    paused, said for a model to read; a shape carrying them as fields would be a
-    shape three modules had to agree on to carry a sentence.
+    Answers with a value - the counts, the revision going out and the one before
+    it - rather than in lines, unlike the deployment diff. A diff is said to
+    every reader as it was read; a rollout is said by each reader in its own
+    words, the model's among them, and they write those from the fields.
     """
 
-    def __call__(self, service: str, /) -> list[str]: ...
+    def __call__(self, service: str, /) -> RolloutAccount: ...
 
 
 class PlacementFetcher(Protocol):
@@ -191,7 +194,7 @@ def fetch_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
 def fetch_what_a_deployment_changed(service: str,
                                     revision: str,
                                     *,
-                                    client: McpClient) -> list[str]:
+                                    client: McpClient) -> DeploymentChanges:
     """What one deployment of this service changed, as lines a model reads.
 
     A named function rather than the client's own passed directly, for the reason
@@ -207,9 +210,9 @@ def fetch_what_a_deployment_changed(service: str,
     return get_what_a_deployment_changed(service, revision, client=client)
 
 
-def fetch_the_rollout(service: str, *, client: McpClient) -> list[str]:
-    """Whether this service's deployment has finished arriving, as lines a model
-    reads.
+def fetch_the_rollout(service: str, *, client: McpClient) -> RolloutAccount:
+    """Whether this service's deployment has finished arriving, and the
+    revisions it is between.
 
     A named function rather than the client's own passed directly, for the reason
     `fetch_metrics` is one: what the loop needs is the one calling shape it uses,

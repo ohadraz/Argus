@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core.models import ChangeKind, Trigger
+from argus_core.models import ChangeKind, ChannelReading, NoTrigger, Trigger, WhyNoTrigger
 from argus_testkit import Assertion, Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.trigger import TriggerSection, the_trigger
@@ -23,6 +23,9 @@ from postmortem_rendering_test.framework.builders import (
 )
 
 SOME_CHANGE = datetime(2026, 10, 11, 14, 2, tzinfo=UTC)
+SOME_OTHER_REVISION = "4c810f2aa1e9a6f3b7c9d0e1f2a3b4c5d6e7f809"
+SOME_THIRD_REVISION = "9a41c07be3d2f8165c0e7a92d4b8f3e6a1c5d720"
+SOME_FILE = "deploy/values-production.yaml"
 
 
 @pytest.mark.unit
@@ -207,6 +210,27 @@ def test_a_setting_a_deploy_nobody_is_named_for_carried_names_the_deploy_alone()
 
 
 @pytest.mark.unit
+def test_a_file_a_deploy_carried_is_said_to_have_changed_in_that_deploy() -> None:
+    # A file moves between no states, but a deploy changing it is still a
+    # change: said as one, rather than as a name the time and the deploy hang
+    # off.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                trigger=Trigger(subject="deploy/values-production.yaml",
+                                from_state=None, to_state=None,
+                                changed_at=None, carried_by="P1"),
+                changes_read=[a_deploy_read("P1")])
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).line
+        ) \
+        .then(
+            _it_reads(f"deploy/values-production.yaml changed, in the deploy of "
+                      f"{SOME_DEPLOYED_REVISION[:7]}."))
+
+
+@pytest.mark.unit
 def test_a_suspected_trigger_says_so_before_the_change_is_named() -> None:
     # Said first, so it is read before the change is.
     Scenario() \
@@ -256,7 +280,159 @@ def test_no_trigger_established_says_so() -> None:
         ) \
         .then(
             the_answer_was(TriggerSection(line=None, suspected=False, states_are_revisions=False,
-                                          absent="No trigger was established.")))
+                                          absent="No trigger was established.",
+                                          unestablished=None)))
+
+
+@pytest.mark.unit
+def test_a_confirmed_cause_with_no_trigger_says_why_in_place_of_none_established() -> None:
+    # "No trigger was established" beside a confirmed cause reads as the cause
+    # being in doubt. Said instead: what of the record left it without one.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(trigger=None, no_trigger=NoTrigger(
+                why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD, candidate="C1",
+                service="io-pricing"))
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert())
+        ) \
+        .then(
+            the_answer_was(TriggerSection(
+                line=None, suspected=False, states_are_revisions=False, absent=None,
+                unestablished=Line(runs=(Run(text="C1 was confirmed; it blames "),
+                                         Run(text="io-pricing", role=Role.CODE),
+                                         Run(text=", whose deploys Argus did not read."))))))
+
+
+@pytest.mark.unit
+def test_a_deploy_the_sentence_names_is_named_as_its_row_names_it_and_opens_its_commit() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                trigger=None,
+                no_trigger=NoTrigger(why=WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET,
+                                     candidate="C1", subject=SOME_FILE, deploys=["P1", "P2"]),
+                changes_read=[a_deploy_read("P1", SOME_OTHER_REVISION),
+                              a_deploy_read("P2")])
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).unestablished
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="C1 was confirmed, and the deploys of "),
+                Run(text=SOME_OTHER_REVISION[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_OTHER_REVISION}"),
+                Run(text=" and "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"),
+                Run(text=" both changed "),
+                Run(text=SOME_FILE, role=Role.CODE),
+                Run(text=" by the time the incident began; which of them set it off "
+                         "is not known.")))))
+
+
+_THREE_DEPLOYS = [a_deploy_read("P1", SOME_OTHER_REVISION),
+                  a_deploy_read("P2", SOME_THIRD_REVISION),
+                  a_deploy_read("P3")]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("no_trigger", "expected"), [
+    (NoTrigger(why=WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET, candidate="C1",
+               subject=SOME_FILE, deploys=["P1", "P2", "P3"]),
+     f"C1 was confirmed, and the deploys of {SOME_OTHER_REVISION[:7]}, "
+     f"{SOME_THIRD_REVISION[:7]} and {SOME_DEPLOYED_REVISION[:7]} all changed {SOME_FILE} by "
+     f"the time the incident began; which of them set it off is not known."),
+    (NoTrigger(why=WhyNoTrigger.CARRIED_BY_SEVERAL, candidate="C1",
+               subject=SOME_FILE, deploys=["P1", "P2"]),
+     f"C1 was confirmed, and the deploys of {SOME_OTHER_REVISION[:7]} and "
+     f"{SOME_THIRD_REVISION[:7]} both changed {SOME_FILE}; which of them set it off is not "
+     f"known."),
+    (NoTrigger(why=WhyNoTrigger.CARRIED_AFTER_THE_ONSET, candidate="C1",
+               subject=SOME_FILE, deploys=["P1"]),
+     f"C1 was confirmed; the deploy of {SOME_OTHER_REVISION[:7]} changed {SOME_FILE}, but "
+     f"after the incident began."),
+    (NoTrigger(why=WhyNoTrigger.CARRIED_AFTER_THE_ONSET, candidate="C1",
+               subject=SOME_FILE, deploys=["P1", "P2"]),
+     f"C1 was confirmed; the deploys of {SOME_OTHER_REVISION[:7]} and "
+     f"{SOME_THIRD_REVISION[:7]} changed {SOME_FILE}, but after the incident began."),
+    (NoTrigger(why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD, candidate="C1",
+               service="io-pricing"),
+     "C1 was confirmed; it blames io-pricing, whose deploys Argus did not read."),
+    (NoTrigger(why=WhyNoTrigger.NAMES_NOTHING_SPECIFIC, candidate="C2"),
+     "C2 was confirmed, but it names nothing specific, so no change could be matched to it."),
+    (NoTrigger(why=WhyNoTrigger.THE_SERVICE_ITSELF, candidate="C1", service="io-shop"),
+     "C1 was confirmed; it blames io-shop itself and names no change to it."),
+    (NoTrigger(why=WhyNoTrigger.NO_DEPLOYS_READ, candidate="C1"),
+     "C1 was confirmed, but Argus found no deploys in the window it read."),
+    (NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_CHANGED_IT, candidate="C1", subject=SOME_FILE),
+     f"C1 was confirmed, but none of the deploys Argus read changed {SOME_FILE}."),
+    (NoTrigger(why=WhyNoTrigger.NOT_EVERY_DEPLOY_READ_IN_FULL, candidate="C1",
+               subject=SOME_FILE, deploys=["P2"]),
+     f"C1 was confirmed; none of the deploys Argus read in full changed {SOME_FILE}, and "
+     f"Argus did not read all of what {SOME_THIRD_REVISION[:7]} changed."),
+    (NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_IN_FULL, candidate="C1", deploys=["P1", "P2"]),
+     f"C1 was confirmed, but Argus did not read all of what {SOME_OTHER_REVISION[:7]} and "
+     f"{SOME_THIRD_REVISION[:7]} changed."),
+    (NoTrigger(why=WhyNoTrigger.NOT_TIED, candidate="C1", subject="monthly-spend-feature"),
+     "C1 was confirmed, but Argus could not tie monthly-spend-feature to any change it read.")
+])
+def test_each_reason_a_confirmed_cause_has_no_trigger_is_said_as_its_own_sentence(
+    no_trigger: NoTrigger,
+    expected: str
+) -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(trigger=None, no_trigger=no_trigger,
+                                            changes_read=_THREE_DEPLOYS)
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).unestablished
+        ) \
+        .then(
+            _it_reads(expected))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("deploys", "flags", "expected"), [
+    (ChannelReading.NOT_ASKED, ChannelReading.READ,
+     "C1 was confirmed; no change Argus read was matched to it, and Argus did not read the "
+     "deploys."),
+    (ChannelReading.UNANSWERED, ChannelReading.READ,
+     "C1 was confirmed; no change Argus read was matched to it, and Argus asked for the "
+     "deploys and got no answer."),
+    (ChannelReading.READ, ChannelReading.UNANSWERED,
+     "C1 was confirmed; no change Argus read was matched to it, and Argus asked for the flag "
+     "history and got no answer."),
+    (ChannelReading.NOT_ASKED, ChannelReading.UNANSWERED,
+     "C1 was confirmed; no change Argus read was matched to it. Argus did not read the "
+     "deploys, and asked for the flag history and got no answer."),
+    (None, None,
+     "C1 was confirmed; no change Argus read was matched to it.")
+])
+def test_a_cause_with_changes_unread_says_which_and_how_beside_no_change_matched(
+    deploys: ChannelReading | None,
+    flags: ChannelReading | None,
+    expected: str
+) -> None:
+    # Two facts and no "so": a flag cannot be in the deploys, and the unread
+    # channel is not why nothing was tied to it. A document carrying no
+    # readings says the first alone.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                trigger=None,
+                no_trigger=NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"),
+                deploys_reading=deploys,
+                flags_reading=flags)
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).unestablished
+        ) \
+        .then(
+            _it_reads(expected))
 
 
 def _it_reads(expected: str) -> Assertion[Line | None]:

@@ -20,6 +20,7 @@ line while fpdf2 logs it, so the file is still made.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from itertools import accumulate, pairwise
@@ -31,10 +32,12 @@ from fpdf.enums import TableBordersLayout, TableBorderStyle, TableCellStyle
 from fpdf.fonts import FontFace
 from fpdf.util import Padding
 
+from postmortem_rendering.cause import RuledOutLine
 from postmortem_rendering.impact import Card
 from postmortem_rendering.lessons import LessonList
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.rendering import RenderedPostmortem
+from postmortem_rendering.review import ReviewRow
 
 _PACKAGE: Final = Path(__file__).parent
 _FONTS: Final = _PACKAGE / "fonts"
@@ -66,6 +69,9 @@ _FIGURE_PT: Final = 10.5
 # The smallest a row of figures is set at to keep each on one line.
 _SMALLEST_FIGURE_PT: Final = 8.0
 _LABEL_PT: Final = 7.9
+# A note set beside the figures, and the height of each of its lines.
+_QUIET_PT: Final = 7.9
+_QUIET_LINE: Final = 4.0
 _LINE: Final = 5.0
 
 _INK: Final = (27, 36, 48)
@@ -96,7 +102,7 @@ class _Sheet(FPDF):
                         if run.role is Role.MOMENT), "")
         self._written = f"Argus postmortem · written {written}"
         self.labels = rendered.labels
-        self.addresses = rendered.supporting.revision_addresses
+        self.addresses = rendered.supporting.prose_addresses
         self._citations: dict[str, int] = {}
 
     def citation(self, label: str) -> int:
@@ -225,11 +231,12 @@ def _the_masthead(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
                    new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4.5)
     # The two times a reader most easily takes for each other sit together under
-    # the title, each labelled; how finished it is and who ended it go below
-    # the rule.
+    # the title, each labelled; how finished it is, when people were first told
+    # and who ended it go below the rule.
+    told = (head.first_told,) if head.first_told is not None else ()
     rows = dict(zip(head.labels, (head.incident, head.date, head.status, head.written_by,
-                                  head.ended_by), strict=True))
-    incident, date, status, written_by, ended_by = head.labels
+                                  *told, head.ended_by), strict=True))
+    incident, date, status, written_by, *after = head.labels
     for label in (incident, date, written_by):
         _a_term(pdf, label, rows[label])
     pdf.set_right_margin(_SIDE)
@@ -239,7 +246,7 @@ def _the_masthead(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     pdf.set_line_width(0.4)
     pdf.line(_SIDE, rule_y, _SIDE + _WIDTH, rule_y)
     pdf.set_y(rule_y + 8)
-    for label in (status, ended_by):
+    for label in (status, *after):
         _a_term(pdf, label, rows[label])
 
 
@@ -248,7 +255,7 @@ def _furniture(pdf: _Sheet, text: str, spacing: float) -> None:
     pdf.set_font(_BODY, "B", _SMALL_PT)
     pdf.set_text_color(*_MUTED)
     pdf.set_char_spacing(spacing)
-    pdf.write(4, text)
+    _written(pdf, 4, [_a_label(text, _SMALL_PT)])
     pdf.set_char_spacing(0)
 
 
@@ -323,10 +330,19 @@ _TEXT_KEPT_WITH_A_SUBHEADING: Final = 2 * _LINE
 
 def _cited(pdf: _Sheet, runs: Sequence[Run]) -> Iterator[Run]:
     """The runs with every label the prose cites cut out as a citation of the
-    row it names, and every revision it names as a link to where it opens."""
+    row it names, and every revision it names - and the proposed fix - as a
+    link to where it opens."""
     for run in runs:
         yield from (run.with_references(pdf.labels, pdf.addresses) if run.role is Role.PROSE
                     else (run,))
+
+
+def _cited_cells(pdf: _Sheet, cells: Sequence[_Cell]) -> list[_Cell]:
+    """A row's cells, each line among them as `_cited` gives its runs - so a
+    line is measured, cut and written as the one text, and a quote's
+    backticks, left out of what is written, are left out of what is measured."""
+    return [Line(runs=tuple(_cited(pdf, cell.runs))) if isinstance(cell, Line) else cell
+            for cell in cells]
 
 
 def _link(pdf: _Sheet, run: Run) -> str | int:
@@ -382,19 +398,31 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
     the line runs out: "(A" on one line and "I-2)" on the next. So each such
     word is measured where it begins, across every run it goes on into and
     each in its own face, as `_where_the_lines_lie` measures a word: a soft
-    hyphen takes no room and a non-breaking space joins rather than parts. A
-    word wider than a whole line is left to fpdf2 to cut."""
+    hyphen takes no room and a non-breaking space joins rather than parts.
+
+    A word wider than a whole line is cut, and only after a joint in it - a
+    path's "/", an id's "-", a code name's "_" (`_where_each_piece_ends`) -
+    whose parts each still read as one: so each part is measured as a word
+    is, the joint ending it. A part wider than a whole line is left to fpdf2
+    to cut.
+
+    The one place inline text is written, a label of the layout's own
+    included: a caller writing a run itself writes it with nothing measuring
+    its first word, which is how a label under a check came to be cut."""
     said = "".join(look.text for _, look in runs)
     begins = list(accumulate((len(look.text) for _, look in runs), initial=0))
+    ends = _where_each_piece_ends(pdf, runs, begins, said)
 
     for place, (run, look) in enumerate(runs):
         start, end = begins[place], begins[place + 1]
         # Where a word fpdf2 cannot break before begins in this run: at its
-        # start, and after its last break where the word goes on past it.
+        # start, and after its last break where the word goes on past it -
+        # and each part of a word too wide for a line.
         last = max(said.rfind(each, start, end) for each in _BREAKS) + 1
-        checks = [at for at in {start, last}
+        checks = {at for at in {start, last}
                   if start <= at < end and _a_word_begins_at(said, at)
-                  and (at == start or _the_end_of_the_word(said, at) > end)]
+                  and (at == start or _the_end_of_the_word(said, at) > end)}
+        checks |= {at for at in ends if start <= at < end}
 
         written = start
         for at in [*sorted(checks), end]:
@@ -403,8 +431,52 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
                 pdf.write(height, said[written:at], link=_link(pdf, run))
             if at < end:
                 _room_for(pdf, height,
-                          _how_wide(pdf, runs, begins, at, _the_end_of_the_word(said, at)))
+                          _how_wide(pdf, runs, begins, at,
+                                    ends.get(at, _the_end_of_the_word(said, at))))
             written = at
+
+
+def _where_each_piece_ends(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]],
+                           begins: Sequence[int], said: str) -> dict[int, int]:
+    """Where each part of a word too wide for a whole line begins in `said`,
+    and where it ends: just after a joint in the word, or where the word does.
+    The word is parted at the first of `_JOINTS` it holds - a path at its
+    "/"s, so the file's name stays whole - and a part still too wide at the
+    next. A word that fits a line has no parts."""
+    room = pdf.w - pdf.l_margin - pdf.r_margin - 2 * pdf.c_margin
+    parts: dict[int, int] = {}
+    for word in re.finditer(r"[^ \n]+", said):
+        starts = _where_the_parts_begin(pdf, runs, begins, said, *word.span(), room, _JOINTS)
+        if len(starts) > 1:
+            parts |= dict(zip(starts, [*starts[1:], word.end()], strict=True))
+    return parts
+
+
+def _where_the_parts_begin(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]],
+                           begins: Sequence[int], said: str, start: int, end: int,
+                           room: float, joints: Sequence[str]) -> list[int]:
+    """Where each part of `said` from `start` to `end` begins: the whole of it
+    where it fits `room` or no joint is left to part it at, and otherwise its
+    pieces after each of the first of `joints` in it, each parted again at the
+    joints after that one."""
+    if not joints or _how_wide(pdf, runs, begins, start, end) <= room:
+        return [start]
+
+    piece_starts = [start, *(start + found.end()
+                             for found in re.finditer(re.escape(joints[0]), said[start:end])
+                             if start + found.end() < end)]
+    if len(piece_starts) == 1:
+        return _where_the_parts_begin(pdf, runs, begins, said, start, end, room, joints[1:])
+
+    return [part
+            for piece_start, piece_end in zip(piece_starts, [*piece_starts[1:], end], strict=True)
+            for part in _where_the_parts_begin(pdf, runs, begins, said, piece_start, piece_end,
+                                               room, joints[1:])]
+
+
+def _a_label(text: str, size: float) -> tuple[Run, _Look]:
+    """A label the layout prints, in small bold and muted."""
+    return Run(text=text), _Look(_BODY, "B", size, _MUTED, text)
 
 
 def _a_word_begins_at(said: str, at: int) -> bool:
@@ -435,9 +507,12 @@ def _how_wide(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]], begins: Sequence[i
 
 def _room_for(pdf: _Sheet, height: float, wide: float) -> None:
     """A new line where a word `wide` does not fit what is left of this one
-    and would fit a whole one."""
+    and would fit a whole one - each measured inside the margin fpdf2 keeps at
+    either side of what it writes, since that is the room it breaks a line in."""
     left, right = pdf.l_margin, pdf.w - pdf.r_margin
-    if pdf.get_x() > left + _LEEWAY and wide > right - pdf.get_x() and wide <= right - left:
+    kept = 2 * pdf.c_margin
+    if (pdf.get_x() > left + _LEEWAY and wide > right - pdf.get_x() - kept
+            and wide <= right - left - kept):
         pdf.ln(height)
 
 
@@ -460,10 +535,22 @@ def _a_paragraph(pdf: _Sheet, line: Line, size: float = _TEXT_PT, height: float 
 def _quiet(pdf: _Sheet, said: str) -> None:
     """A note set small and muted - a sentence said in place of something
     absent, or one beside the figures."""
-    pdf.set_font(_BODY, "", 7.9)
+    pdf.set_font(_BODY, "", _QUIET_PT)
     pdf.set_text_color(*_MUTED)
-    pdf.multi_cell(0, 4, said, align="L", new_x="LMARGIN", new_y="NEXT")
+    pdf.multi_cell(0, _QUIET_LINE, said, align="L", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*_INK)
+
+
+def _a_quiet_line(pdf: _Sheet, line: Line) -> None:
+    """A note set as `_quiet` sets one, but run by run - so a label in it
+    still leads to its row, in a link's colour, and the rest is muted."""
+    pdf.set_x(pdf.l_margin)
+    _written(pdf, _QUIET_LINE,
+             [(run, look._replace(colour=_MUTED) if look.colour == _INK else look)
+              for run in _cited(pdf, line.runs)
+              for look in (_the_look_of(run, _QUIET_PT),)])
+    pdf.set_text_color(*_INK)
+    pdf.ln(_QUIET_LINE)
 
 
 def _an_item(pdf: _Sheet, runs: Sequence[Run], size: float = _TEXT_PT, after: float = 1.0,
@@ -488,10 +575,10 @@ def _beneath(pdf: _Sheet, runs: Sequence[Run], indent: float, colour: tuple[int,
     left = pdf.l_margin
     pdf.set_left_margin(left + indent)
     pdf.set_x(left + indent)
-    for run in _cited(pdf, runs):
-        pdf.set_font(_BODY, "B" if run.role is Role.STATUS else "", size)
-        pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else colour))
-        pdf.write(height, run.text, link=_link(pdf, run))
+    _written(pdf, height, [(run, _Look(_BODY, "B" if run.role is Role.STATUS else "", size,
+                                       _LINK if run.role in (Role.CITATION, Role.LINK)
+                                       else colour, run.text))
+                           for run in _cited(pdf, runs)])
     pdf.ln(height + after)
     pdf.set_left_margin(left)
     pdf.set_text_color(*_INK)
@@ -507,7 +594,8 @@ def _tiles(pdf: _Sheet, cards: Sequence[Card]) -> None:
     # Each part's face, size, leading and colour, in the order a card says them.
     looks = ((_MONO, _figures_size(pdf, cards, inside), 5.6, _INK), (_BODY, 7.1, 3.4, _MUTED),
              (_BODY, 6.4, 3.1, _MUTED))
-    said = [(card.value, card.label, card.note or "") for card in cards]
+    said = [(_A_SPAN_S_BREAKS.sub(_NO_BREAK, card.value), card.label, card.note or "")
+            for card in cards]
 
     depths = []
     for part, (face, size, leading, _) in enumerate(looks):
@@ -534,6 +622,15 @@ def _tiles(pdf: _Sheet, cards: Sequence[Card]) -> None:
             y += depth
     pdf.set_text_color(*_INK)
     pdf.set_xy(_SIDE, top + height + 2)
+
+
+# The spaces between a span's parts - "7d 0h 0m 33s" - which a tile too narrow
+# for "at least" and the span breaks after "at least" rather than at: "7d 0h 0m"
+# over "33s" reads as two spans.
+_A_SPAN_S_BREAKS: Final = re.compile(r"(?<=\d[dhm]) (?=\d)")
+
+# A space no line breaks at.
+_NO_BREAK: Final = "\u00a0"
 
 
 def _figures_size(pdf: _Sheet, cards: Sequence[Card], width: float) -> float:
@@ -663,6 +760,7 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
     pdf.set_fill_color(pdf.DEFAULT_FILL_COLOR)
     pdf.set_line_width(0.26)
     aligned = list(align) if align else ["L"] * len(widths)
+    rows = [_cited_cells(pdf, cells) for cells in rows]
     pieces = _as_the_pages_hold_them(pdf, rows, widths, headings is not None, under_a_heading)
     starts = list(accumulate((len(each) for each in pieces[:-1]), initial=0))
     rows = [piece for each in pieces for piece in each]
@@ -877,7 +975,12 @@ def _the_most_that_fits(text: str, begins: int, ends_by: int,
     """Where the longest piece of `text` from `begins`, and ending by
     `ends_by`, that is `fitting` ends: before the last space or line break
     that leaves it fitting, or - where a word alone is wider than the cell -
-    wherever the measure says.
+    just after the last joint in it that does (`_JOINTS`, in the order they
+    are preferred): a path at a "/", so the file's name stays whole; an id or
+    a slug at a "-", between its groups; a name in code at a "_", as inline
+    text cuts one. Each part still reads as one, and a reader copying it puts
+    the two back together where they visibly join. Only a part still wider
+    than the cell is cut wherever the measure says.
 
     The longest is found by doubling a reach until it no longer fits and then
     halving between the two, so a cell many pages long is measured in pieces
@@ -898,7 +1001,16 @@ def _the_most_that_fits(text: str, begins: int, ends_by: int,
         return shortest
 
     space = max(text.rfind(each, begins, shortest) for each in _BREAKS)
-    return space if space > begins else shortest
+    if space > begins:
+        return space
+
+    for joint in _JOINTS:
+        # Past the piece's first character, so no piece is a joint alone.
+        at = text.rfind(joint, begins, shortest)
+        if at > begins:
+            return at + 1
+
+    return shortest
 
 
 # How far a piece is first reached for, in characters, before the reach doubles.
@@ -911,6 +1023,12 @@ _BREAKS: Final = (" ", "\n")
 # Where a word may be broken, and otherwise nothing. The font draws it as a
 # hyphen, so a line written character by character leaves it out.
 _SOFT_HYPHEN: Final = "\u00ad"
+
+# Where a word wider than its cell is cut, after the last that fits, in the
+# order tried: a path's separator, an id's or a slug's hyphen, a code name's
+# underscore. A path is tried first because its directories may hold hyphens
+# and underscores too, and cut there the file's name would go in two.
+_JOINTS: Final = ("/", "-", "_")
 
 
 def _set_in(pdf: _Sheet, style: FontFace | None) -> None:
@@ -954,15 +1072,16 @@ def _cell_lines(pdf: _Sheet, text: str, width: float) -> list[str]:
 def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
     """A line written in body text into the cell the table left for it, from
     the cell's top left corner where the page is now: broken where the table
-    would have broken it, and set run by run, so a citation in it is a link.
-    The page is left where it was found."""
+    would have broken it, and set run by run, so a citation in it is a link -
+    its runs already cited, as the table measured them (`_cited_cells`). The
+    page is left where it was found."""
     x, top = pdf.x, pdf.y
     pdf.set_font(_BODY, "", _TABLE_PT)
     text = line.said
     spans = _where_the_lines_lie(pdf, text, width)
     runs: list[tuple[int, Run]] = []
     start = 0
-    for run in _cited(pdf, line.runs):
+    for run in line.runs:
         runs.append((start, run))
         start += len(run.text)
 
@@ -997,9 +1116,14 @@ def _the_summary(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 def _the_impact(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     impact = rendered.impact
     _tiles(pdf, impact.cards)
-    for said in (impact.finding, impact.unobserved):
+    if impact.finding and impact.finding_label:
+        # What the alert said is said here alone, so its citations land here.
+        pdf.lands_at(impact.finding_label, pdf.page_no(), pdf.get_y())
+    for said in (impact.finding, impact.metrics_missing):
         if said:
             _quiet(pdf, said)
+    if impact.logs_in_the_gap is not None:
+        _a_quiet_line(pdf, impact.logs_in_the_gap)
 
 
 def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1012,7 +1136,8 @@ def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         _quiet(pdf, cause.chain_absent)
     for link in cause.chain:
         _a_link_in_the_chain(pdf, link.place, link.claim.runs,
-                             cause.evidence_label, link.evidence)
+                             cause.evidence_label, link.evidence,
+                             cause.ruled_out_label, link.ruled_out)
 
     _a_subheading(pdf, cause.factors_heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
     if cause.factors_absent:
@@ -1022,11 +1147,13 @@ def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
 
 def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence_label: str,
-                         evidence: Sequence[Line]) -> None:
+                         evidence: Sequence[Line], ruled_out_label: str,
+                         ruled_out: Sequence[RuledOutLine]) -> None:
     """One step: its place in a quiet column of its own, the claim beside it,
     and what it rests on under the claim, each item on a line of its own as
     the page sets them - each item's label leading to its row, and whatever
-    its row links, linked."""
+    its row links, linked. What else was ruled out there follows, each with
+    what ruled it out, as the page sets it."""
     left, label_width = pdf.l_margin, 16.0
     pdf.set_x(left)
     pdf.set_font(_BODY, "", _TABLE_PT)
@@ -1036,21 +1163,42 @@ def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence
     _runs(pdf, claim, _TEXT_PT, _LINE)
     pdf.ln(_LINE)
     if evidence:
+        _a_quiet_list(pdf, left + label_width, evidence_label, evidence)
+    if ruled_out:
         pdf.ln(0.4)
         pdf.set_x(left + label_width)
-        pdf.set_text_color(*_MUTED)
-        pdf.set_font(_BODY, "B", _SMALL_PT)
-        pdf.write(3.8, evidence_label)
-        for cited in evidence:
-            pdf.ln(3.8)
-            _written(pdf, 3.8, [(run, _Look(_BODY, "", _SMALL_PT,
-                                            _LINK if run.role in (Role.CITATION, Role.LINK)
-                                            else _MUTED, run.text))
-                                for run in _cited(pdf, cited.runs)])
+        _written(pdf, 3.8, [_a_label(ruled_out_label, _SMALL_PT)])
         pdf.ln(3.8)
+        for ruled in ruled_out:
+            pdf.set_x(left + label_width)
+            _runs(pdf, ruled.claim.runs, _SMALL_PT, 3.8)
+            pdf.ln(3.8)
+            for cited in ruled.evidence:
+                _a_cited_line(pdf, cited)
+                pdf.ln(3.8)
     pdf.ln(2.2)
     pdf.set_left_margin(left)
     pdf.set_text_color(*_INK)
+
+
+def _a_quiet_list(pdf: _Sheet, left: float, label: str, cited_lines: Sequence[Line]) -> None:
+    """A label in small bold, and each cited item under it on a line of its
+    own - its label leading to its row."""
+    pdf.ln(0.4)
+    pdf.set_x(left)
+    _written(pdf, 3.8, [_a_label(label, _SMALL_PT)])
+    for cited in cited_lines:
+        pdf.ln(3.8)
+        _a_cited_line(pdf, cited)
+    pdf.ln(3.8)
+
+
+def _a_cited_line(pdf: _Sheet, cited: Line) -> None:
+    """One cited item, small and quiet, its links in the link colour."""
+    _written(pdf, 3.8, [(run, _Look(_BODY, "", _SMALL_PT,
+                                    _LINK if run.role in (Role.CITATION, Role.LINK)
+                                    else _MUTED, run.text))
+                        for run in _cited(pdf, cited.runs)])
 
 
 def _a_factor(pdf: _Sheet, text: Sequence[Run], addressed_by: Line | None) -> None:
@@ -1091,7 +1239,7 @@ def _the_hypotheses_table(rendered: RenderedPostmortem) -> _Table:
     hypotheses = rendered.hypotheses
     return _Table(hypotheses.headings,
                   [[(", ".join(row.labels), _NUMBER, None), row.summary,
-                    (row.confidence, _TIME, None), (row.result, None, None)]
+                    (row.confidence, _TIME, None), row.result]
                    for row in hypotheses.rows],
                   widths=(18, 86, 26, 44), landings=[row.labels for row in hypotheses.rows])
 
@@ -1100,6 +1248,8 @@ def _the_trigger(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     trigger = rendered.trigger
     if trigger.line is not None:
         _a_paragraph(pdf, trigger.line)
+    elif trigger.unestablished is not None:
+        _a_paragraph(pdf, trigger.unestablished)
     elif trigger.absent:
         _quiet(pdf, trigger.absent)
 
@@ -1126,7 +1276,12 @@ def _the_resolution_table(rendered: RenderedPostmortem) -> _Table:
                     (step.by, None, None), (step.kind, None, None),
                     (step.outcome_in_the_table, None, None)]
                    for step in steps],
-                  widths=(12, 18, 48, 24, 34, 38),
+                  # The time column as wide as a time with its day, since a step
+                  # off the head's day says its day as a timeline row does; who as
+                  # wide as "Code-Fix Agent", and the outcome as "not judged,
+                  # still in place" - the action, which wraps anyway, gives way,
+                  # though no further than "Reverted the feature flag".
+                  widths=(10, 29, 40, 27, 31, 37),
                   landings=[(step.label,) if step.label else () for step in steps],
                   under_a_heading=_A_HEADING if taken.person is None else 0.0)
 
@@ -1258,7 +1413,7 @@ def _how_much_of_a_table_starts(pdf: _Sheet, table: _Table) -> float:
         return 0.0
     pdf.set_font(_BODY, "", _TABLE_PT)
     headings = _A_ROW + _CELL_LINE if table.headings is not None else 0.0
-    whole = headings + _how_tall_a_row_is(pdf, table.rows[0], table.widths)
+    whole = headings + _how_tall_a_row_is(pdf, _cited_cells(pdf, table.rows[0]), table.widths)
     if _fits_a_page_under_its_heading(pdf, whole, table.under_a_heading):
         return whole
     return headings + _A_ROW + _CELL_LINE * (_FEWEST_LINES_BEGUN + 1)
@@ -1348,7 +1503,7 @@ def _the_leads(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         pdf.ln(3.0)
 
 
-def _the_cost(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
+def _the_response_effort(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     _tiles(pdf, rendered.cost)
 
 
@@ -1359,9 +1514,10 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
     and the assumptions are the list's last entry.
 
     Between the two, the changes and the log messages read, what each
-    deployment looked into changed and what Code-Fix read in the source, each
-    a table of rows under the labels the prose cites them by - the last two
-    only where there is any."""
+    deployment looked into changed, what Code-Fix read in the source and each
+    file it names as it ran, each a table of rows under the labels the prose
+    cites them by - the last three only where there is any - and beneath each,
+    what is said of what it does not list."""
     supporting = rendered.supporting
     for line in supporting.links:
         opening, *rest = line.runs
@@ -1373,18 +1529,22 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
         (supporting.changes_heading, supporting.changes, supporting.changes_absent),
         (supporting.log_messages_heading, supporting.log_messages, supporting.log_messages_absent),
         (supporting.deployment_changes_heading, supporting.deployment_changes, None),
-        (supporting.code_read_heading, supporting.code_read, None)
+        (supporting.code_read_heading, supporting.code_read, None),
+        (supporting.as_it_ran_heading, supporting.as_it_ran, None),
+        (supporting.uses_outside_heading, supporting.uses_outside, None),
+        (supporting.cause_measured_heading, supporting.cause_measured, None)
     ):
         if not rows and absent is None:
             continue
-        if absent:
-            _a_subheading(pdf, heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
-            _quiet(pdf, absent)
-        else:
+        if rows:
             _a_table_under_a_subheading(pdf, heading, _Table(
                 None, [[(row.label, _NUMBER, None), row.said] for row in rows],
                 widths=(16, 158), landings=[(row.label,) for row in rows],
                 under_a_heading=_a_subheading_s_height()))
+        else:
+            _a_subheading(pdf, heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
+        if absent:
+            _quiet(pdf, absent)
     pdf.ln(2.0)
 
     assumptions = [[*assumption.runs] for assumption in supporting.assumptions]
@@ -1428,17 +1588,21 @@ def _the_reference(pdf: _Sheet, label: str, values: Sequence[Sequence[Run]]) -> 
         if place:
             pdf.ln(height + 1.0)
             pdf.set_x(left + label_width)
-        for run in _cited(pdf, runs):
-            if run.role is Role.LINK:
-                pdf.set_font(_MONO, "", 7.1)
-                pdf.set_text_color(*_LINK)
-            else:
-                pdf.set_font(_BODY, "B" if run.role is Role.STATUS else "", _TABLE_PT)
-                pdf.set_text_color(*(_LINK if run.role is Role.CITATION else _INK))
-            pdf.write(height, run.text, link=_link(pdf, run))
+        _written(pdf, height, [(run, _the_look_in_a_reference(run))
+                               for run in _cited(pdf, runs)])
     pdf.ln(height + 1.1)
     pdf.set_left_margin(left)
     pdf.set_text_color(*_INK)
+
+
+def _the_look_in_a_reference(run: Run) -> _Look:
+    """A link set as the address it is, in a monospaced face; anything else at
+    the table's size, a citation in the link colour."""
+    if run.role is Role.LINK:
+        return _Look(_MONO, "", 7.1, _LINK, run.text)
+
+    return _Look(_BODY, "B" if run.role is Role.STATUS else "", _TABLE_PT,
+                 _LINK if run.role is Role.CITATION else _INK, run.text)
 
 
 def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1447,31 +1611,54 @@ def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     status rather than as part of the criterion. What a person would do to
     meet it is a sentence, set quiet under the criterion in the criterion's
     own column, where it wraps rather than running into the status - written
-    run by run, so a label it cites leads to its row."""
+    run by run, so a label it cites leads to its row.
+
+    A row begun on a fresh page where it does not fit what is left of this
+    one and would fit a whole one: set where it stands, its status broke the
+    page and its mark, set back at the row's height, broke the next - a page
+    holding the status alone, and the row on the one after."""
     review = rendered.review
     if review.absent:
         _quiet(pdf, review.absent)
+    for row in review.rows:
+        tall = _how_tall_a_review_row_is(pdf, row)
+        if pdf.will_page_break(tall) and tall <= pdf.h - pdf.b_margin - _BELOW_THE_HEADER:
+            pdf.add_page()
+        _a_review_row(pdf, row)
+
+
+def _a_review_row(pdf: _Sheet, row: ReviewRow) -> None:
     width = _WIDTH - 5 - 42
     right = pdf.r_margin
-    for row in review.rows:
-        y = pdf.get_y()
-        pdf.set_font(_BODY, "", _LABEL_PT)
-        pdf.set_text_color(*_MUTED)
-        pdf.set_xy(_SIDE + _WIDTH - 40, y)
-        pdf.cell(40, _LINE, row.meaning, align="R")
-        pdf.set_xy(_SIDE, y)
-        pdf.set_font(_FALLBACK, "B", _TEXT_PT)
-        pdf.set_text_color(*{"yes": _GREEN, "left": _MUTED}.get(row.met, _RED))
-        pdf.cell(5, _LINE, row.mark)
-        pdf.set_font(_BODY, "", _TEXT_PT)
-        pdf.set_text_color(*_INK)
-        pdf.multi_cell(width, _LINE, row.criterion, align="L", new_x="LEFT", new_y="NEXT")
-        if row.because:
-            pdf.set_right_margin(right + 42)
-            _beneath(pdf, row.because.runs, indent=5, colour=_MUTED, height=4.0,
-                     size=_LABEL_PT, after=0)
-            pdf.set_right_margin(right)
-        pdf.ln(1.2)
+    y = pdf.get_y()
+    pdf.set_font(_BODY, "", _LABEL_PT)
+    pdf.set_text_color(*_MUTED)
+    pdf.set_xy(_SIDE + _WIDTH - 40, y)
+    pdf.cell(40, _LINE, row.meaning, align="R")
+    pdf.set_xy(_SIDE, y)
+    pdf.set_font(_FALLBACK, "B", _TEXT_PT)
+    pdf.set_text_color(*{"yes": _GREEN, "left": _MUTED}.get(row.met, _RED))
+    pdf.cell(5, _LINE, row.mark)
+    pdf.set_font(_BODY, "", _TEXT_PT)
+    pdf.set_text_color(*_INK)
+    pdf.multi_cell(width, _LINE, row.criterion, align="L", new_x="LEFT", new_y="NEXT")
+    if row.because:
+        pdf.set_right_margin(right + 42)
+        _beneath(pdf, row.because.runs, indent=5, colour=_MUTED, height=4.0,
+                 size=_LABEL_PT, after=0)
+        pdf.set_right_margin(right)
+    pdf.ln(1.2)
+
+
+def _how_tall_a_review_row_is(pdf: _Sheet, row: ReviewRow) -> float:
+    """How tall a review row is set from where the page is now, set with no
+    page breaks and the document then put back as it was."""
+    top = pdf.get_y()
+    with pdf.offset_rendering():
+        pdf.set_auto_page_break(False, margin=pdf.b_margin)
+        _a_review_row(pdf, row)
+        bottom = pdf.get_y()
+    return bottom - top
 
 
 # How each section is printed, by the key `render` names it by.
@@ -1487,7 +1674,7 @@ _SECTIONS: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], None]]] = {
     "lessons": _the_lessons,
     "timeline": _the_timeline,
     "leads": _the_leads,
-    "response-cost": _the_cost,
+    "response-effort": _the_response_effort,
     "supporting": _the_supporting_information,
     "review": _the_review
 }

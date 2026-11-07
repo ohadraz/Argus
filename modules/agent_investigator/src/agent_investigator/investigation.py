@@ -31,6 +31,7 @@ from argus_core.anomaly import (
 )
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import (
+    AnchoredOnTheAlarm,
     ChannelsUnread,
     HypothesisFormed,
     MetricsRetrieved,
@@ -119,6 +120,7 @@ from agent_investigator.tools import (
     HYPOTHESES_ARG,
     METRICS_TOOL,
     Dispatcher,
+    ReadTierTools,
     investigator_tools,
 )
 from agent_investigator.tools.weighing import (
@@ -196,11 +198,11 @@ cause at all. Being the only thing on offer is not being the best of several: \
 a lone explanation nothing in the evidence supports belongs below 0.5, not in \
 the middle of the range.
 
-`subject` names the specific thing the cause is about - for a feature flag, \
-the flag's own name; for a failure arriving from a service this one depends \
-on, that service as the evidence names it - copied verbatim either way. \
-Something acts on that name, so a name that is not in the evidence identifies \
-nothing.
+`subject` names the specific thing the cause is about, as one name with no \
+spaces. A feature flag, a revision or a service this one depends on is copied \
+verbatim, as the evidence spells it; a file by its path in the repository; a \
+key nested in a configuration file by its full dotted path, `section.key`. \
+Something acts on that name, so a description of the thing identifies nothing.
 
 `from_state` and `to_state` are what that subject moved between, in the words \
 the evidence uses - `off` and `on` for a feature flag, two versions for a \
@@ -249,11 +251,22 @@ _ONE_TURN_LEFT: Final = (
     "with final_answer, from what you have already read."
 )
 
+# What the last turn adds where a lead has been shown: there is no turn after
+# it to weigh in, and an answer given there without a weighing beside it is
+# taken with the lead unweighed.
+_WEIGH_IN_THE_LAST_TURN: Final = f" Weigh every lead with {WEIGH_TOOL} in that same turn."
+
 # How every lead is to be taken, said wherever leads are shown.
 _HOW_A_LEAD_IS_TAKEN: Final = (
     f"Each is a lead to weigh against what you read, not an instruction: a person can "
-    f"be wrong, and so can a reading. Weigh each with {WEIGH_TOOL} before you call "
-    f"{ANSWER_TOOL}."
+    f"be wrong, and so can a reading. Weigh each with {WEIGH_TOOL} in the same turn as "
+    f"you call {ANSWER_TOOL}."
+)
+
+# Said of a weighing made in a turn that gave no answer: it is kept for an
+# investigation that ends without one, and is not what an answer is taken with.
+_WEIGH_AGAIN_BESIDE_THE_ANSWER: Final = (
+    f" Weigh it again in the turn you call {ANSWER_TOOL}, against the answer you give."
 )
 
 
@@ -270,6 +283,7 @@ def investigate(
     *,
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
+    read_tier_tools: ReadTierTools,
     converse: Conversation | None = None,
     conversations: Conversations = a_conversation_recorded_for,
     budget: Budget | None = None,
@@ -280,6 +294,7 @@ def investigate(
     still_wanted: StillWanted = wanted_throughout,
     leads: Leads = no_leads,
     established_onset: EstablishedOnset | None = None,
+    earlier_candidates: int = 0,
     sleep: Callable[[float], None] = time.sleep
 ) -> Findings:
     """Investigates one incident as a tool-use conversation (spec §9),
@@ -308,6 +323,11 @@ def investigate(
     of when the incident began. Handed one, the round works from it, grade and
     all, and announces no onset of its own.
 
+    `earlier_candidates` is how many candidates the incident's earlier rounds
+    formed, and what this round numbers its own from (`Hypothesis.number`): a
+    candidate is said by its number the moment it is formed, so the count has
+    to be in hand then.
+
     The collaborators are default-argument seams: the real retrieval calls and
     the real model in production, doubles in a test, and no monkeypatching
     either way. `publisher` and `recorder` are two of the same kind, and the
@@ -334,6 +354,11 @@ def investigate(
     `sleep` is the wait between reads of the metrics while the minute the alert
     fired in has not been reported yet - real time in production, nothing at all
     in a test.
+
+    `read_tier_tools` is the three reads the read tier serves, as it declares
+    them. Asked once, where the model is first asked anything, and never by an
+    investigation that ends before then: nothing is offered to a model that is
+    never asked.
     """
     alert_time = to_iso(alert.started_at) if alert.started_at is not None else None
     narrator = Narrator(incident_id, publisher)
@@ -363,12 +388,14 @@ def investigate(
 
     try:
         metric_buckets = fetch_metrics(alert_time, alert.rule)
+        metrics_answered = True
     except Exception as unanswered:
         # The one read no channel guard can absorb, because it happens before
-        # there is a model to tell. Every window the model could ask for is
-        # anchored on an onset, the onset is measured from these minutes, and
-        # without them there is nothing to converse about - so this ends where
-        # the empty window ends, with one candidate and no turn bought.
+        # there is a model to tell. It goes on the way a window with no minutes
+        # in it goes on - from whatever minute there is: an onset an earlier
+        # round established, one the alert states, or the minute the alarm fired
+        # in. A service nobody can see in its metrics is the one whose deploys
+        # and logs matter most. Only where none of them exists does it end, below.
         #
         # Said first, though. Letting it out of here ended the walk with nothing
         # anywhere saying which read failed, and the incident's only account of
@@ -380,9 +407,10 @@ def investigate(
             because=str(unanswered)
         )
 
-        return _nothing_could_be_read(alert, incident_id, narrator)
+        metric_buckets = []
+        metrics_answered = False
 
-    if _a_flat_window_short_of_the_alarms_minute(
+    if metrics_answered and _a_flat_window_short_of_the_alarms_minute(
         alert, metric_buckets, thresholds, established_onset
     ):
         # A source that reports a minute only once it is over has nothing yet for
@@ -393,36 +421,41 @@ def investigate(
             alert, alert_time, metric_buckets, fetch_metrics, settings, sleep
         )
 
-    narrator.say(
-        MetricsRetrieved,
-        window_start=metric_buckets[0].bucket_id if metric_buckets else None,
-        window_end=metric_buckets[-1].bucket_id if metric_buckets else None,
-        buckets=metric_buckets,
-        # Measured here and said here, because the alert's firing time is not in
-        # the event and the story is told from the event alone.
-        stopped_before_the_alert=_where_the_rows_stop(metric_buckets, alert) is not None
-    )
-    # One of the two retrievals the dispatcher never sees - the placement is the
-    # other - and so one it cannot write down. Recorded here and now rather than at the end of the
-    # investigation: an incident whose metrics show nothing returns below
-    # without a model ever being asked, and that is exactly the run someone
-    # later asks what it actually had in front of it.
-    #
-    # Filed under the model's own name for this channel, because it is the same
-    # channel read by a different caller - a reader counting what an
-    # investigation retrieved should not have to know which of the two asked.
-    replay.record(
-        call_type=CallType.MCP,
-        target=METRICS_TOOL,
-        # No window of its own: the span belongs to the metrics source, and
-        # what identifies this read is the alert it was anchored on (spec §16).
-        request={"arguments": {}, "window_start": alert_time, "window_end": None},
-        # The buckets as they came back, rather than as the opening message
-        # renders them. Nothing rendered them at this point, and the numbers are
-        # what a later reader wants - the prose around them is reconstructible
-        # and the measurements are not.
-        response={"buckets": [bucket.model_dump(mode="json") for bucket in metric_buckets]}
-    )
+    # Only for a read that answered: one that did not is already said above, and
+    # a window of nothing said beside it would read as an answer.
+    if metrics_answered:
+        narrator.say(
+            MetricsRetrieved,
+            window_start=metric_buckets[0].bucket_id if metric_buckets else None,
+            window_end=metric_buckets[-1].bucket_id if metric_buckets else None,
+            buckets=metric_buckets,
+            # Measured here and said here, because the alert's firing time is not
+            # in the event and the story is told from the event alone.
+            stopped_before_the_alert=_where_the_rows_stop(metric_buckets, alert) is not None
+        )
+        # One of the two retrievals the dispatcher never sees - the placement is
+        # the other - and so one it cannot write down. Recorded here and now
+        # rather than at the end of the investigation: an incident whose metrics
+        # show nothing returns below without a model ever being asked, and that
+        # is exactly the run someone later asks what it actually had in front of
+        # it.
+        #
+        # Filed under the model's own name for this channel, because it is the
+        # same channel read by a different caller - a reader counting what an
+        # investigation retrieved should not have to know which of the two asked.
+        replay.record(
+            call_type=CallType.MCP,
+            target=METRICS_TOOL,
+            # No window of its own: the span belongs to the metrics source, and
+            # what identifies this read is the alert it was anchored on (spec §16).
+            request={"arguments": {}, "window_start": alert_time, "window_end": None},
+            # The buckets as they came back, rather than as the opening message
+            # renders them. Nothing rendered them at this point, and the numbers
+            # are what a later reader wants - the prose around them is
+            # reconstructible and the measurements are not.
+            response={"buckets": [bucket.model_dump(mode="json")
+                                  for bucket in metric_buckets]}
+        )
 
     # Measured first, and preferred wherever there is one. A measured onset is
     # evidence - derived from buckets Argus retrieved and re-derivable by anyone
@@ -459,32 +492,34 @@ def investigate(
         # having been able to see than to having seen a well service - and an
         # alarm closed on an empty window would be closed on no evidence.
         return _the_alarm_was_disproven(
-            alert, incident_id, metric_buckets, narrator
+            alert, incident_id, earlier_candidates, metric_buckets
         )
 
-    if onset is None and the_window_cannot_contradict_it:
-        # A rule whose subject this window does not carry, and no date. Nothing
-        # here contradicts the alarm, so the investigation goes on - but it has
-        # to be anchored on something, and the only minute anybody knows is the
-        # one the alarm fired in. That is where to look from and not when this
-        # began.
+    if onset is None and (the_window_cannot_contradict_it or not metric_buckets):
+        # Nothing here contradicts the alarm and nothing dates it: a rule whose
+        # subject this window does not carry, or a window with no minutes in it
+        # at all - read and empty, or never answered. So the investigation goes
+        # on, but it has to be anchored on something, and the only minute anybody
+        # knows is the one the alarm fired in. That is where to look from and not
+        # when this began.
         #
-        # Conditioned on the same measurement the branch above is conditioned on
-        # the other way round, and the gap between the two is a real case rather
-        # than a formality: a series alarm over a window with *no minutes in it*
-        # is disproved by nothing and anchored by nothing either. It ends below,
-        # where every undated incident ended before any of this - and the one
-        # time this condition was missing, that case walked a whole
-        # investigation of a service nothing had been read about.
+        # The window with no minutes is here on purpose. It disproves nothing,
+        # and ending on it left a service nobody could see in its metrics with
+        # its deploys and its logs unread - the two reads a person picking it up
+        # would make first.
         onset = _the_minute_the_alarm_fired_in(alert)
 
     if onset is None:
         # Nothing was read beyond the metrics, and nothing was spent. There is
         # also nothing to converse about: every window the model could ask for
-        # is anchored on an onset the metrics do not contain, and nothing else
-        # has offered one - not even the minute the alarm fired in, which this
-        # alert did not say.
-        return _nothing_to_say(alert, incident_id, metric_buckets, narrator)
+        # is anchored on a minute, the metrics offered none, and nothing else
+        # has - not even the minute the alarm fired in, which this alert did not
+        # say. Told as what the metrics did: a read nobody could take is the
+        # opposite claim to one that answered with nothing.
+        if not metrics_answered:
+            return _nothing_could_be_read(alert, incident_id, earlier_candidates, narrator)
+
+        return _nothing_to_say(alert, incident_id, earlier_candidates, metric_buckets, narrator)
 
     # The minute and its grade as one value, so a later round is handed both and
     # never grades a minute it was given by a window it read itself.
@@ -496,17 +531,24 @@ def investigate(
 
     # Announced by the round that found it and by no other: nothing was detected
     # by a round handed its onset, and an incident's record says once when it
-    # began.
+    # began. The alarm's own minute is announced as what it is - where the
+    # investigation looked from - and never as a start, which nothing dated.
     if established_onset is None:
-        narrator.say(OnsetDetected, onset=onset)
+        if how_the_minute_is_known is HowTheMinuteIsKnown.NOTHING_DATES_IT:
+            narrator.say(AnchoredOnTheAlarm, minute=onset)
+        else:
+            narrator.say(OnsetDetected, onset=onset)
 
     # Read here, after the onset and before the model is asked anything, for the
     # reason the metrics are read above: a pin to a card is decided from it, and
     # what a later node acts on cannot depend on whether the model thought to
     # ask. Against the onset, because which pods started at it is what makes a
-    # card a suspect.
+    # card a suspect - and said to be against the alarm's minute where that is
+    # all the minute is, since a pod placed then is not one placed as the
+    # incident began.
     placement = _the_placement_recorded(
-        alert.service, onset, fetch_placements, narrator, replay
+        alert.service, onset, fetch_placements, narrator, replay,
+        against_the_alarm=how_the_minute_is_known is HowTheMinuteIsKnown.NOTHING_DATES_IT
     )
 
     # Whether the window says anything at all about the incident's own minutes.
@@ -543,8 +585,10 @@ def investigate(
         # The metrics are read above, before the model's first turn, and their
         # buckets go into the opening message - so they are read, and asking
         # for the same fixed span again would return what is already in front
-        # of it.
-        having_read=[Reading(RetrievalChannel.METRICS, window_start=alert_time)],
+        # of it. Not where that read went unanswered: nothing is in front of it,
+        # and asking again is the one way it might be.
+        having_read=([Reading(RetrievalChannel.METRICS, window_start=alert_time)]
+                     if metrics_answered else []),
         fetch_metrics=fetch_metrics,
         fetch_logs=fetch_logs,
         fetch_change_events=fetch_change_events,
@@ -553,7 +597,7 @@ def investigate(
         fetch_rollout=fetch_rollout
     )
     spend = budget if budget is not None else a_budget_for(settings)
-    tools = investigator_tools()
+    tools = investigator_tools(read_tier_tools())
     # Every lead the model has been shown, in the order it was shown them -
     # which is the order they were written, and what their labels count by.
     shown = leads()
@@ -583,7 +627,8 @@ def investigate(
             # it and the gap is Argus's to state.
             rows_stop_at=_where_the_rows_stop(metric_buckets, alert),
             placement=placement,
-            leads=shown
+            leads=shown,
+            metrics_answered=metrics_answered
         ))
     ]
 
@@ -591,7 +636,7 @@ def investigate(
         if not still_wanted():
             logger.info("investigation stopped, incident no longer wanted")
 
-            return _stopped(alert, incident_id, dispatcher)
+            return _stopped(alert, incident_id, earlier_candidates, dispatcher)
 
         try:
             turn = speak(transcript, _the_tools_for(tools, shown))
@@ -612,7 +657,8 @@ def investigate(
             logger.warning("answer truncated")
 
             return replace(
-                _cut_short(alert, incident_id, metric_buckets, dispatcher, narrator),
+                _cut_short(alert, incident_id, earlier_candidates, metric_buckets, dispatcher,
+                           narrator),
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
                 leads_weighed=_the_leads_weighed(shown, weighed),
@@ -622,7 +668,8 @@ def investigate(
             logger.warning("model declined to answer")
 
             return replace(
-                _declined(alert, incident_id, metric_buckets, dispatcher, narrator),
+                _declined(alert, incident_id, earlier_candidates, metric_buckets, dispatcher,
+                          narrator),
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
                 leads_weighed=_the_leads_weighed(shown, weighed),
@@ -637,14 +684,30 @@ def investigate(
         reached = spend.bounds_reached()
 
         # Weighed before the answer is read, so a turn that weighs and answers
-        # together is answered with its weighings counted.
-        weighings = [_weigh(call, shown, weighed)
-                     for call in turn.tool_calls if call.name == WEIGH_TOOL]
-        answered = _the_answer_in(turn, incident_id)
-        unweighed = [label for label, _lead in labelled(shown) if label not in weighed]
+        # together is answered with its weighings counted. Only this turn's
+        # count: a weighing made a turn before the answer is one the answer
+        # can have moved on from, and the person who wrote the lead is told
+        # its reason beside that answer.
+        weighing_calls = [call for call in turn.tool_calls if call.name == WEIGH_TOOL]
+        weighings = [_weigh(call, shown, weighed) for call in weighing_calls]
+        weighed_beside = {call.arguments.get(LEAD_ARG)
+                          for call, weighing in zip(weighing_calls, weighings, strict=True)
+                          if not weighing.failed}
+        answered = _the_answer_in(turn, incident_id, earlier_candidates)
+        unweighed = [label for label, _lead in labelled(shown) if label not in weighed_beside]
+
+        if answered is None:
+            weighings = [_kept_until_the_answer(weighing) for weighing in weighings]
+
+        if isinstance(answered, ToolResult):
+            answered = _and_weighed_beside_the_next(answered, shown)
 
         if isinstance(answered, list) and unweighed and not reached:
             answered = _an_answer_past(unweighed, turn)
+
+        if isinstance(answered, list) and not reached:
+            loose = _an_answer_naming_loosely(answered, turn)
+            answered = _and_weighed_beside_the_next(loose, shown) if loose else answered
 
         if isinstance(answered, list):
             for candidate in answered:
@@ -652,13 +715,21 @@ def investigate(
 
             narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
 
+            # Only the weighings made beside it. Past the last turn an answer
+            # is taken without one, and the lead goes back unweighed rather
+            # than with a reason never weighed against that answer.
             return Findings(
                 candidates=answered,
                 already_read=dispatcher.readings,
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
-                leads_weighed=_the_leads_weighed(shown, weighed),
-                onset=established
+                leads_weighed=_the_leads_weighed(
+                    shown,
+                    {label: weighing for label, weighing in weighed.items()
+                     if label in weighed_beside}
+                ),
+                onset=established,
+                deployment_changes=dispatcher.deployment_changes
             )
 
         results = [
@@ -674,7 +745,8 @@ def investigate(
 
             return replace(
                 _ran_out(
-                    alert, incident_id, metric_buckets, reached, dispatcher, narrator
+                    alert, incident_id, earlier_candidates, metric_buckets, reached, dispatcher,
+                    narrator
                 ),
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
@@ -692,7 +764,8 @@ def investigate(
         transcript.append(_what_the_model_is_told_next(
             results,
             spend.is_on_its_last_call(),
-            news=_leads_written_since(written_since, first_new)
+            news=_leads_written_since(written_since, first_new),
+            leads_shown=bool(shown)
         ))
 
 
@@ -700,9 +773,11 @@ def _the_placement_recorded(service: str,
                             onset: str,
                             fetch_placements: PlacementFetcher,
                             narrator: Narrator,
-                            replay: Replay) -> RecordedPlacement | None:
+                            replay: Replay,
+                            against_the_alarm: bool = False) -> RecordedPlacement | None:
     """Where the service's pods are running, recorded against the onset - or
-    `None` where the platform would not say.
+    against the alarm's minute where nothing dated the incident - or `None`
+    where the platform would not say.
 
     Said either way, and written down where it answered. Published because it is
     the basis of an action and the one reading nothing else in the record holds;
@@ -727,7 +802,8 @@ def _the_placement_recorded(service: str,
 
         return None
 
-    placement = RecordedPlacement(onset=parse_iso(onset), pods=tuple(pods))
+    placement = RecordedPlacement(onset=parse_iso(onset), pods=tuple(pods),
+                                  against_the_alarm=against_the_alarm)
     narrator.say(PlacementRecorded, placement=placement)
     replay.record(
         call_type=CallType.MCP,
@@ -739,7 +815,9 @@ def _the_placement_recorded(service: str,
     return placement
 
 
-def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResult | None:
+def _the_answer_in(turn: Turn,
+                   incident_id: str,
+                   earlier_candidates: int) -> list[Hypothesis] | ToolResult | None:
     """The investigation's answer, if this turn carried one.
 
     Three outcomes, because the answer tool can be called well, called badly,
@@ -753,7 +831,7 @@ def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResul
         return None
 
     try:
-        return _hypotheses_in(answering, incident_id)
+        return _hypotheses_in(answering, incident_id, earlier_candidates)
     except (ValidationError, TypeError, AttributeError) as malformed:
         logger.warning("answer could not be read", exc_info=True)
 
@@ -770,12 +848,15 @@ def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResul
         )
 
 
-def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
+def _hypotheses_in(answering: ToolCall,
+                   incident_id: str,
+                   earlier_candidates: int) -> list[Hypothesis]:
     """The model's ranked explanations, joined to the incident they explain.
 
     The order is the model's own, because it was asked for one: the first is
     what a mitigation tries first. `rank` is written down rather than left as
-    list position, since rows come back from a table in no order at all.
+    list position, since rows come back from a table in no order at all. Each
+    is numbered on from `earlier_candidates`, in that order.
 
     `incident_id` is supplied here rather than asked of the model. It is not
     something the model knows, and a schema offering the field would be
@@ -801,7 +882,8 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
             from_state=explanation.get("from_state"),
             to_state=explanation.get("to_state"),
             faulting_service=explanation.get("faulting_service"),
-            rank=rank
+            rank=rank,
+            number=earlier_candidates + rank
         )
         for rank, explanation in enumerate(answering.arguments[HYPOTHESES_ARG], start=1)
     ]
@@ -826,7 +908,8 @@ def _a_cited_fact(cited: dict[str, Any]) -> Evidence:
 
 def _what_the_model_is_told_next(results: list[ToolResult],
                                  one_turn_left: bool,
-                                 news: str = "") -> Exchange:
+                                 news: str = "",
+                                 leads_shown: bool = False) -> Exchange:
     """The reply the model reads before its next turn.
 
     Results when it asked for something, and a plain remark when it did not:
@@ -839,8 +922,12 @@ def _what_the_model_is_told_next(results: list[ToolResult],
     condition under which everything else in this reply should be read. `news`
     - what people wrote in the thread since the last turn - rides the same way,
     for the reason it arrives at all: between two turns, never inside one.
+    Where a lead has been shown the warning also asks for it weighed in that
+    turn, and only there: a sentence about leads nobody wrote is a request
+    that changed for nothing.
     """
-    postscript = news + (_ONE_TURN_LEFT if one_turn_left else "")
+    last_turn = _ONE_TURN_LEFT + (_WEIGH_IN_THE_LAST_TURN if leads_shown else "")
+    postscript = news + (last_turn if one_turn_left else "")
 
     if not results:
         return Ask(text=_A_TURN_THAT_ANSWERED_NOTHING + postscript)
@@ -917,20 +1004,80 @@ def _the_leads_weighed(shown: Sequence[ThreadMessage],
 
 
 def _an_answer_past(unweighed: Sequence[str], turn: Turn) -> ToolResult:
-    """The answer refused, because a lead the model was shown is not weighed:
-    a lead is weighed, never obeyed and never ignored."""
+    """The answer refused, because a lead the model was shown is not weighed
+    beside it: a lead is weighed, never obeyed and never ignored, and weighed
+    against the answer it is reported with."""
     answering = next(call for call in turn.tool_calls if call.name == ANSWER_TOOL)
 
     return ToolResult(
         call_id=answering.id,
-        content=(f"that answer was not taken: {', '.join(unweighed)} not weighed yet. Call "
-                 f"{WEIGH_TOOL} for each, then {ANSWER_TOOL} again."),
+        content=(f"that answer was not taken: {', '.join(unweighed)} not weighed in this "
+                 f"turn. Call {WEIGH_TOOL} for each in the same turn as {ANSWER_TOOL}."),
+        failed=True
+    )
+
+
+def _kept_until_the_answer(weighing: ToolResult) -> ToolResult:
+    """A weighing made in a turn that gave no answer, said to be one the
+    answer is not taken with - so the turn the model answers in is the turn it
+    weighs in, rather than one more turn spent learning it from a refusal."""
+    if weighing.failed:
+        return weighing
+
+    return weighing.model_copy(update={"content": weighing.content
+                                       + _WEIGH_AGAIN_BESIDE_THE_ANSWER})
+
+
+def _and_weighed_beside_the_next(refused: ToolResult,
+                                 shown: Sequence[ThreadMessage]) -> ToolResult:
+    """An answer sent back for something other than a lead, told that the next
+    one is taken only with its leads weighed beside it - whether or not this
+    turn weighed them, since any it did went back with the answer. Unchanged
+    where no lead has been shown: the refusal it always was."""
+    if not shown:
+        return refused
+
+    labels = ", ".join(label for label, _lead in labelled(shown))
+
+    return refused.model_copy(update={"content": f"{refused.content} Send it again in the "
+                                                 f"turn you weigh {labels} in."})
+
+
+def _an_answer_naming_loosely(answered: list[Hypothesis], turn: Turn) -> ToolResult | None:
+    """The answer refused, because a candidate's subject is more than one name -
+    or `None` where every subject is one name or none.
+
+    Something acts on the subject, and a description is nothing it can act on:
+    "metrics port name" named no key a deploy could be matched to. Every subject
+    a recorded walk got wrong had whitespace in it and none it got right did - a
+    key, a flag, a revision, a service or a path is one name. Not "found
+    verbatim in the evidence", which refuses the right name for a nested key: a
+    YAML diff never spells `cache.port`.
+
+    Refused while a turn remains, and taken as it stands on the last one, as an
+    unweighed lead is: never quietly dropped, since a candidate shown with no
+    subject reads as one that blamed nothing.
+    """
+    loose = [(hypothesis.rank, hypothesis.subject) for hypothesis in answered
+             if hypothesis.subject is not None and len(hypothesis.subject.split()) != 1]
+    if not loose:
+        return None
+
+    answering = next(call for call in turn.tool_calls if call.name == ANSWER_TOOL)
+    named = "; ".join(f"explanation {rank} names [{subject}]" for rank, subject in loose)
+
+    return ToolResult(
+        call_id=answering.id,
+        content=(f"that answer was not taken: {named}. A subject is the one key, flag, "
+                 f"revision, service or path the explanation blames, as a single name - "
+                 f"or null. Call {ANSWER_TOOL} again."),
         failed=True
     )
 
 
 def _ran_out(alert: Alert,
              incident_id: str,
+             earlier_candidates: int,
              metric_buckets: list[MetricBucket],
              reached: list[Bound],
              dispatcher: Dispatcher,
@@ -949,14 +1096,17 @@ def _ran_out(alert: Alert,
     """
     spent = ", ".join(bound.value for bound in reached)
     ended = f"the investigation ran out of {spent} before it identified one"
-    undetermined = _undetermined(alert, incident_id, ended, metric_buckets)
+    undetermined = _undetermined(alert, incident_id, earlier_candidates, ended, metric_buckets)
     _say_formed(narrator, undetermined)
     narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
 
     return Findings(candidates=[undetermined], already_read=dispatcher.readings)
 
 
-def _stopped(alert: Alert, incident_id: str, dispatcher: Dispatcher) -> Findings:
+def _stopped(alert: Alert,
+             incident_id: str,
+             earlier_candidates: int,
+             dispatcher: Dispatcher) -> Findings:
     """The outcome when the incident stopped being wanted mid-investigation.
 
     Says nothing to the timeline - no hypothesis formed, no channels left
@@ -968,6 +1118,7 @@ def _stopped(alert: Alert, incident_id: str, dispatcher: Dispatcher) -> Findings
         candidates=[_undetermined(
             alert,
             incident_id,
+            earlier_candidates,
             "the investigation was stopped because the incident is no longer wanted",
             []
         )],
@@ -978,6 +1129,7 @@ def _stopped(alert: Alert, incident_id: str, dispatcher: Dispatcher) -> Findings
 
 def _cut_short(alert: Alert,
                incident_id: str,
+               earlier_candidates: int,
                metric_buckets: list[MetricBucket],
                dispatcher: Dispatcher,
                narrator: Narrator) -> Findings:
@@ -1002,6 +1154,7 @@ def _cut_short(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         "the model's turn was cut short before it finished, and asking again "
         "would put the same question with no more room to answer it",
         metric_buckets
@@ -1014,6 +1167,7 @@ def _cut_short(alert: Alert,
 
 def _declined(alert: Alert,
               incident_id: str,
+              earlier_candidates: int,
               metric_buckets: list[MetricBucket],
               dispatcher: Dispatcher,
               narrator: Narrator) -> Findings:
@@ -1028,6 +1182,7 @@ def _declined(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         "the model declined to answer, and asking again would put the same "
         "evidence to it",
         metric_buckets
@@ -1050,8 +1205,8 @@ def _a_flat_window_says_nothing_about(alert: Alert,
     about a sixth.
 
     A window with no minutes in it is not the second case. Nothing was read at
-    all, which disproves nothing and anchors nothing, and is told apart from
-    both by the caller.
+    all, which disproves nothing and dates nothing, and the caller tells it apart
+    from both - and then anchors it where it anchors them.
     """
     if alert.claim is AlarmClaim.ITS_OWN_FINDING:
         return True
@@ -1210,11 +1365,14 @@ def _the_onset_the_alert_states(alert: Alert) -> str | None:
 
 def _nothing_to_say(alert: Alert,
                     incident_id: str,
+                    earlier_candidates: int,
                     metric_buckets: list[MetricBucket],
                     narrator: Narrator) -> Findings:
-    """The outcome when the metrics show no incident to investigate."""
+    """The outcome when nothing gives a minute to look from: the metrics date
+    nothing, and the alert did not say when it fired."""
     undetermined = _undetermined(
-        alert, incident_id, _reason_nothing_was_found(metric_buckets), metric_buckets
+        alert, incident_id, earlier_candidates, _reason_nothing_was_found(metric_buckets),
+        metric_buckets
     )
     _say_formed(narrator, undetermined)
 
@@ -1223,8 +1381,8 @@ def _nothing_to_say(alert: Alert,
 
 def _the_alarm_was_disproven(alert: Alert,
                              incident_id: str,
-                             metric_buckets: list[MetricBucket],
-                             narrator: Narrator) -> Findings:
+                             earlier_candidates: int,
+                             metric_buckets: list[MetricBucket]) -> Findings:
     """The outcome when the window contradicts what the alarm claimed.
 
     A third shape beside `_nothing_to_say` and `_nothing_could_be_read`, and the
@@ -1241,8 +1399,12 @@ def _the_alarm_was_disproven(alert: Alert,
     rule's own series wherever the window carries it.
 
     It still carries an undetermined candidate, because `Findings.candidates` is
-    never empty and a reader walking the candidates should find the account there
-    like any other. What makes this ending its own is the disproof beside them.
+    never empty - and does not say it was formed. A candidate is an explanation
+    of a fault, and what this round found is that there was none: the walk
+    records no candidate on this path, so one narrated here would be a candidate
+    every other account says was never formed, and its reason would repeat the
+    disproof the walk says next. What makes this ending its own is the disproof
+    beside it.
     """
     disproof = Disproof(
         signals_judged=signals_judged_in(metric_buckets),
@@ -1253,6 +1415,7 @@ def _the_alarm_was_disproven(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         (
             f"the alarm reported a condition on a series, and no minute of the "
             f"{disproof.minutes_judged} read between {disproof.earliest_minute} "
@@ -1262,7 +1425,6 @@ def _the_alarm_was_disproven(alert: Alert,
         ),
         metric_buckets
     )
-    _say_formed(narrator, undetermined)
 
     return Findings(
         candidates=[undetermined], already_read=[], disproof=disproof
@@ -1271,8 +1433,10 @@ def _the_alarm_was_disproven(alert: Alert,
 
 def _nothing_could_be_read(alert: Alert,
                            incident_id: str,
+                           earlier_candidates: int,
                            narrator: Narrator) -> Findings:
-    """The outcome when the metrics could not be read at all.
+    """The outcome when the metrics could not be read at all, and the alert did
+    not say when it fired - so nothing gives a minute to look from.
 
     The same shape as `_nothing_to_say` above and deliberately not the same
     sentence. That one reports a window that was read and held no incident; this
@@ -1287,6 +1451,7 @@ def _nothing_could_be_read(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         (
             "the service's metrics could not be read, so nothing here says "
             "whether any minute departed from its baseline - which is not the "
@@ -1301,6 +1466,7 @@ def _nothing_could_be_read(alert: Alert,
 
 def _undetermined(alert: Alert,
                   incident_id: str,
+                  earlier_candidates: int,
                   reason: str,
                   metric_buckets: list[MetricBucket]) -> Hypothesis:
     """The honest outcome: no cause, and no confidence to go with it.
@@ -1318,7 +1484,8 @@ def _undetermined(alert: Alert,
         ),
         failure_mode=None,
         confidence=None,
-        supporting_evidence=[]
+        supporting_evidence=[],
+        number=earlier_candidates + 1
     )
 
 
@@ -1345,6 +1512,7 @@ def _say_formed(narrator: Narrator, hypothesis: Hypothesis) -> None:
         from_state=hypothesis.from_state,
         to_state=hypothesis.to_state,
         rank=hypothesis.rank,
+        number=hypothesis.number,
         evidence=hypothesis.supporting_evidence
     )
 
@@ -1358,7 +1526,8 @@ def _the_opening_message(alert: Alert,
                          how_the_minute_is_known: HowTheMinuteIsKnown,
                          rows_stop_at: str | None = None,
                          placement: RecordedPlacement | None = None,
-                         leads: Sequence[ThreadMessage] = ()) -> str:
+                         leads: Sequence[ThreadMessage] = (),
+                         metrics_answered: bool = True) -> str:
     """Everything about *this incident* the model is told before it decides.
 
     This incident, and nothing standing. What the Investigator is and what its
@@ -1382,6 +1551,7 @@ def _the_opening_message(alert: Alert,
     named as the shape of the fault, in the same breath as the minute it cannot be
     seen at.
     """
+    no_minute = _what_no_minute_means(metric_buckets, metrics_answered)
     said = [
         "## Alert",
         f"service: {alert.service}",
@@ -1393,7 +1563,8 @@ def _the_opening_message(alert: Alert,
         "## Onset",
         _the_onset_paragraph(
             alert, onset, how_the_minute_is_known, rows_stop_at,
-            _the_rule_whose_series_was_not_read(alert, metric_buckets)
+            _the_rule_whose_series_was_not_read(alert, metric_buckets),
+            no_minute
         )
     ]
 
@@ -1404,19 +1575,26 @@ def _the_opening_message(alert: Alert,
             "retrievable, and a window anchored on it may not contain the cause."
         )
 
-    # What the rows below are evidence *of*, which is not the same question in
-    # the two cases. Where the onset was measured they are what it was measured
-    # from; where it was stated they are what says the flatness is real, and a
-    # model told they are the minutes a departure was found in would be reading
-    # rows that contradict the sentence above them.
-    said.extend([
-        "",
-        "## Per-minute metrics",
-        f"One row per minute, in time order, comma-separated under the header. "
-        f"{_what_the_rows_are(how_the_minute_is_known, rows_stop_at)} An empty cell is a "
-        f"reading this service does not have at all, which is not the same as a "
-        f"reading of zero."
-    ])
+    if no_minute is not None:
+        # No rows to describe, and no header over nothing: an empty table under
+        # a sentence about what its rows are reads as a table that was cut off.
+        # Why there are none is the onset paragraph's, which always says it
+        # where there is no minute - said again here, it is said twice running.
+        said.extend(["", "## Per-minute metrics", "None."])
+    else:
+        # What the rows below are evidence *of*, which is not the same question
+        # in the two cases. Where the onset was measured they are what it was
+        # measured from; where it was stated they are what says the flatness is
+        # real, and a model told they are the minutes a departure was found in
+        # would be reading rows that contradict the sentence above them.
+        said.extend([
+            "",
+            "## Per-minute metrics",
+            f"One row per minute, in time order, comma-separated under the header. "
+            f"{_what_the_rows_are(how_the_minute_is_known, rows_stop_at)} An empty cell "
+            f"is a reading this service does not have at all, which is not the same as "
+            f"a reading of zero."
+        ])
 
     worse_when = _which_way_the_rules_series_is_worse(metric_buckets)
     if worse_when is not None:
@@ -1425,15 +1603,17 @@ def _the_opening_message(alert: Alert,
         # cannot say for themselves is which way the rule calls worse. Above the
         # rows rather than after them, where it would read as one more row.
         rule_named = (
-            f"the rule that paged ({alert.rule})" if alert.rule else "the rule that paged"
+            f"the rule that fired ({alert.rule})" if alert.rule else "the rule that fired"
         )
         said.append(
             f"rule_reading is the series {rule_named} evaluates, and that rule calls "
             f"it worse when {worse_when} its threshold. A departure in it is a "
-            f"departure in exactly what paged, even where every other column is flat."
+            f"departure in exactly what the rule fired on, even where every other "
+            f"column is flat."
         )
 
-    said.append(_the_minutes_as_rows(metric_buckets))
+    if no_minute is None:
+        said.append(_the_minutes_as_rows(metric_buckets))
 
     if placement is not None:
         said.extend(["", "## Where the replicas run", *_the_placement_as_lines(placement)])
@@ -1442,11 +1622,13 @@ def _the_opening_message(alert: Alert,
         said.extend([
             "",
             "## Already tried",
-            "Argus took these actions on this incident and undid each one. The service "
-            "did not return to its baseline after any of them.",
+            "Argus took these actions on this incident, and none of them helped:",
+            # Each said as the verification wait judged it: the rule kept
+            # firing, the level never came down, or the window never showed the
+            # incident at all - different evidence about the cause.
             *(
                 f"- {_what_was_done_in(attempt)} at {attempt.occurred_at}: "
-                f"the service did not recover"
+                f"{attempt.refuted_because or 'refuted'}"
                 for attempt in already_refuted
             )
         ])
@@ -1497,21 +1679,43 @@ def _the_placement_as_lines(placement: RecordedPlacement) -> list[str]:
 
     A node whose card the platform does not report is said to have none rather
     than left blank, because blank reads as a card nobody wrote down.
+
+    Read against the alarm's minute, the paragraph and the marks say so: a pod
+    placed then was placed as the alarm went off, and a model told it
+    started at the onset reads the replacement as the cause.
+
+    A placement of no pods is said as the platform's answer and nothing more: a
+    paragraph about what each pod line says, over no pod line, reads as a list
+    that was cut off.
     """
+    if not placement.pods:
+        return ["The platform reported no pods for the service."]
+
     after = placement.started_after_the_onset()
     at_the_onset = [pod for pod in placement.started_at_the_onset() if pod not in after]
-
-    return [
+    the_minute = "the alarm" if placement.against_the_alarm else "the onset"
+    what_it_was = (
+        "Each of the service's pods as the platform placed it, read at the minute the "
+        "alarm fired in, since nothing dates the incident: the node it runs on, the "
+        "accelerator card that node carries, and when the pod started. A pod marked "
+        "started at the alarm was placed within a minute of the alarm going off; one "
+        "marked started after the alarm was placed later. Neither is known to "
+        "have served only during the incident."
+        if placement.against_the_alarm else
         "Each of the service's pods as the platform placed it, read at the onset: "
         "the node it runs on, the accelerator card that node carries, and when the "
         "pod started. A pod marked started at the onset was placed within a minute "
         "of the incident beginning; one marked started after the onset was placed "
-        "later. Either has only ever served during the incident.",
+        "later. Either has only ever served during the incident."
+    )
+
+    return [
+        what_it_was,
         *(
             f"- {pod.pod} on {pod.node} "
             f"({pod.accelerator or 'no accelerator reported'}), "
             f"started {to_iso(pod.started_at)}"
-            f"{_the_onset_mark(pod, at_the_onset, after)}"
+            f"{_the_onset_mark(pod, at_the_onset, after, the_minute)}"
             for pod in placement.pods
         )
     ]
@@ -1519,11 +1723,12 @@ def _the_placement_as_lines(placement: RecordedPlacement) -> list[str]:
 
 def _the_onset_mark(pod: PodPlacement,
                     at_the_onset: list[PodPlacement],
-                    after: list[PodPlacement]) -> str:
+                    after: list[PodPlacement],
+                    the_minute: str) -> str:
     if pod in at_the_onset:
-        return " - started at the onset"
+        return f" - started at {the_minute}"
 
-    return " - started after the onset" if pod in after else ""
+    return f" - started after {the_minute}" if pod in after else ""
 
 
 def _where_the_rows_stop(metric_buckets: list[MetricBucket],
@@ -1547,11 +1752,58 @@ def _where_the_rows_stop(metric_buckets: list[MetricBucket],
     return last_minute if last_minute < to_iso_minute(alert.started_at) else None
 
 
+def _what_no_minute_means(metric_buckets: list[MetricBucket],
+                          metrics_answered: bool) -> str | None:
+    """Why the opening message has no minute of metrics to show, where it has
+    none - `None` where it has some.
+
+    Two absences told apart, because they are fixed by different people: a read
+    that answered with nothing, and one that never answered. Neither says
+    anything about the service - not that it is well, not that it is broken.
+    """
+    if metric_buckets:
+        return None
+
+    said = ("The service's metrics could not be read." if not metrics_answered
+            else "The service's metrics were read and came back with no minute in them.")
+
+    return (f"{said} So nothing here says how the service is doing, or has done, at "
+            f"all - not that it is well and not that it is broken.")
+
+
+def _the_onset_with_no_minute(onset: str,
+                              how_the_minute_is_known: HowTheMinuteIsKnown,
+                              no_minute: str) -> str:
+    """The minute worked from, where no minute of metrics is in front of the
+    model: said with why there are none, and nothing about rows below.
+
+    A measured minute is reached here only by a later round, handed the minute
+    an earlier one measured and reading nothing itself.
+    """
+    if how_the_minute_is_known is HowTheMinuteIsKnown.MEASURED:
+        return (f"The incident began at {onset}, measured from the per-minute metrics "
+                f"an earlier round read. {no_minute}")
+
+    if how_the_minute_is_known is HowTheMinuteIsKnown.STATED_BY_THE_ALERT:
+        return (f"The incident began at {onset}, stated by the alert rather than "
+                f"measured. {no_minute} The change that caused it is at that minute, "
+                f"not at the one the alert fired in.")
+
+    return (
+        f"Nothing dates this incident. {no_minute} Whatever raised this did not say "
+        f"when it began either - so {onset} is the minute the alarm fired in and is "
+        f"where to look from, not when anything started. Do not treat it as the onset "
+        f"and do not reach for a change at it: a change in that minute is a change "
+        f"that happened as the alarm went off."
+    )
+
+
 def _the_onset_paragraph(alert: Alert,
                          onset: str,
                          how_the_minute_is_known: HowTheMinuteIsKnown,
                          rows_stop_at: str | None,
-                         unread_rule: str | None) -> str:
+                         unread_rule: str | None,
+                         no_minute: str | None = None) -> str:
     """What the model is told about the minute it is working from.
 
     Four cases, and each of the last three is one a model gets wrong unprompted.
@@ -1568,11 +1820,17 @@ def _the_onset_paragraph(alert: Alert,
     find the one that was deploying while the alarm went off. Its last sentence
     says why nothing dates it, which `unread_rule` decides: a rule whose own
     series the window lacks, or something that knows what no series carries.
+    Where there is no window at all, `no_minute` says why instead, whatever the
+    grade: told of a window below in which no series departs, a model reads a
+    service nobody could see as one that looked flat.
 
     The first two are left as they were. Every incident built before a window
     could stop walks one of them, and the flat wording was written for a window
     that is flat.
     """
+    if no_minute is not None:
+        return _the_onset_with_no_minute(onset, how_the_minute_is_known, no_minute)
+
     if how_the_minute_is_known is HowTheMinuteIsKnown.MEASURED:
         return (
             f"The incident began at {onset}, measured from the per-minute metrics "
@@ -1587,7 +1845,7 @@ def _the_onset_paragraph(alert: Alert,
             f"when it began - so {onset} is the minute the alarm fired in and is "
             f"where to look from, not when anything started. Do not treat it as "
             f"the onset and do not reach for a change at it: a change in that "
-            f"minute is a change that happened while somebody was being paged. "
+            f"minute is a change that happened as the alarm went off. "
             f"{_what_raised_it(alert, unread_rule, rows_stop_at)}"
         )
 

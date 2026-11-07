@@ -20,8 +20,9 @@ from typing import Protocol
 
 from agent_mitigation import UndoAttempt
 from argus_core import Connections
-from argus_core.events import ChangeUndone, Publisher, nobody, publish
+from argus_core.events import ChangeUndone
 from argus_core.models import (
+    ActionProgress,
     TakenAction,
     UndoDescriptor,
     Undone,
@@ -29,6 +30,7 @@ from argus_core.models import (
     leaves_something_to_put_back,
     the_identity_recorded,
 )
+from argus_incidents import PublisherFor, events_into_connection, publish_beside
 from argus_incidents.repository import taken_actions
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,15 @@ logger = logging.getLogger(__name__)
 # assertable without a database behind it, and is the whole of what can go
 # wrong here.
 type TakenActionsOf = Callable[[str], list[TakenAction]]
+# What the unwind did with one change, kept on the change's row (by its id) and
+# said, as one write. A seam for the reason the reading is one.
+type RecordUndone = Callable[[str, ChangeUndone], None]
+
+# What leaves a change needing nothing more from an unwind, whichever undo
+# wrote it - the walk's own after a refutation, or an earlier unwind: the change
+# restored, left as somebody else set it, or owing nothing back. Not
+# `NOT_ESTABLISHED`, which is a change that may still be out there.
+_SETTLED = frozenset({Undone.RESTORED, Undone.LEFT_AS_FOUND, Undone.NO_UNDO_WAS_OWED})
 
 
 class UndoChange(Protocol):
@@ -73,6 +84,27 @@ def _changed_something_and_owed_nothing_back(taken_action: TakenAction) -> bool:
             and changes_something_persistent(recorded.action_type))
 
 
+def _a_change_nothing_was_kept_to_undo(taken_action: TakenAction) -> UndoAttempt | None:
+    """What a change of a kind that leaves something behind came to, where it
+    was or may have been made and nothing was kept to put it back - `None`
+    for every other row."""
+    if not taken_action.has_a_way_back or taken_action.undo_descriptor is not None:
+        return None
+
+    subject = taken_action.subject or ""
+
+    if taken_action.progress is ActionProgress.PERFORMED:
+        return UndoAttempt(subject=subject, outcome=Undone.NOT_ESTABLISHED,
+                           detail="was changed, and nothing was kept to put it back")
+
+    if taken_action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
+        return UndoAttempt(subject=subject, outcome=Undone.NOT_ESTABLISHED,
+                           detail="may have been changed, and nothing was kept to put "
+                                  "it back")
+
+    return None
+
+
 def taken_actions_from(connections: Connections) -> TakenActionsOf:
     """The incident's own changes, read through the connections given."""
 
@@ -83,26 +115,58 @@ def taken_actions_from(connections: Connections) -> TakenActionsOf:
     return the_taken_actions_of
 
 
+def undone_recorded_through(connections: Connections,
+                            publisher_for: PublisherFor = events_into_connection
+                            ) -> RecordUndone:
+    """What the unwind did with each change, kept on its row and said, through
+    the connections given - one transaction per change.
+
+    One, because the row decides what a later pass does. Kept and committed
+    before the line, a stop between the two would leave a row saying put back
+    and no line saying so - and the next pass, reading the row, would pass the
+    change over and never say it either. The line goes in a savepoint of its own
+    (`publish_beside`), so a line that cannot be written costs the row nothing.
+    """
+
+    def record_undone(action_id: str, said: ChangeUndone) -> None:
+        with connections() as conn:
+            taken_actions.record_undone(conn, action_id, said.outcome)
+            publish_beside(conn, said, publisher_for(conn))
+
+    return record_undone
+
+
 def unwind_incident(incident_id: str,
                     taken_actions_of: TakenActionsOf,
                     undo: UndoChange,
-                    publisher: Publisher = nobody) -> None:
+                    record_undone: RecordUndone) -> None:
     """Puts back every change the incident made, and says what became of each.
 
-    Nothing is filtered by what the walk made of an action. A change the walk
-    already put back is put back again, to the state it is already in: the only
-    thing the provider's record shows since Argus wrote is Argus's own restore,
-    which is nobody else's decision to protect. That is what makes this safe to
-    run over an incident that had already tidied up after itself, and safe to
-    run twice.
+    Except a change the walk already settled after refuting it - put back, or
+    left as somebody else had since set it - which its verdict's own line has
+    already said. Put back a second time it was said a second time, the
+    thread reading as the flag still changed until this ran. Every other row is
+    put back whatever the walk made of it, and a change the walk's own undo
+    could not establish is tried again here: the only thing the provider's
+    record can show since Argus wrote is Argus's own, which is nobody else's
+    decision to protect. That is what makes this safe to run twice.
 
     Three kinds of action have no descriptor to act on, and they are not the
     same thing. One leaves nothing to put back at all - a restart changes no
     persistent state, so there is no change out there and nothing an undo could
     address. One is of a kind that does leave something, and recorded no
-    descriptor: the gate refused it, or it never reached the provider. Neither
-    is reported as an undo that failed, because asking the provider about a
-    flag nobody set would be inventing a change to undo.
+    descriptor because it was never performed: the gate refused it, or it never
+    reached the provider. Neither is reported as an undo that failed, because
+    asking the provider about a flag nobody set would be inventing a change to
+    undo.
+
+    Unless the row says the change was made, or cannot say it was not. A
+    resumed walk that found a dead worker's change landed knows it was made and
+    not what it replaced; a claim nobody answered may have been made. Either is
+    a change out there, perhaps, with nothing kept to put it back - and silence
+    would tell a person the incident is tidy when somebody has to go and look.
+    Said as not established, the answer an undo gives where it cannot say what
+    the subject holds.
 
     The third changed something and owes nothing back. A discard of stale
     cached figures removed a copy of records it never touched, so there is no
@@ -116,37 +180,52 @@ def unwind_incident(incident_id: str,
     One flag that cannot be read does not stop the rest. This is the last thing
     that happens to an incident, and a failure that took the remaining changes
     with it would leave more behind rather than less.
+
+    Whatever is said about a change is kept on its row as well, as the walk's
+    own undo keeps it, and in the same write. The row is what the walk page
+    shows a change by, and said only on the timeline, a change a withdrawal put
+    back read on the list of candidates as the step that stopped. It is also
+    what a second pass asks: a change kept as settled here is passed over there.
     """
     for taken_action in taken_actions_of(incident_id):
+        if taken_action.undone in _SETTLED:
+            continue
+
+        unaccounted = _a_change_nothing_was_kept_to_undo(taken_action)
+        if unaccounted is not None:
+            _said_in_the_log(unaccounted)
+            record_undone(taken_action.id, ChangeUndone(
+                incident_id=incident_id,
+                subject=unaccounted.subject,
+                outcome=unaccounted.outcome,
+                detail=unaccounted.detail
+            ))
+
+            continue
+
         if not taken_action.has_a_way_back or taken_action.undo_descriptor is None:
             if _changed_something_and_owed_nothing_back(taken_action):
-                publish(
-                    ChangeUndone(
-                        incident_id=incident_id,
-                        subject=taken_action.subject or "",
-                        outcome=Undone.NO_UNDO_WAS_OWED,
-                        detail=(
-                            "what it removed was derived from records it never "
-                            "touched, so there was nothing of Argus's to write "
-                            "back"
-                        )
-                    ),
-                    publisher
-                )
+                record_undone(taken_action.id, ChangeUndone(
+                    incident_id=incident_id,
+                    subject=taken_action.subject or "",
+                    outcome=Undone.NO_UNDO_WAS_OWED,
+                    detail=(
+                        "needed nothing put back: what it removed was derived "
+                        "from records it never touched, so there was nothing "
+                        "of Argus's to write back"
+                    )
+                ))
 
             continue
 
         attempt = undo(taken_action.undo_descriptor)
         _said_in_the_log(attempt)
-        publish(
-            ChangeUndone(
-                incident_id=incident_id,
-                subject=attempt.subject,
-                outcome=attempt.outcome,
-                detail=attempt.detail
-            ),
-            publisher
-        )
+        record_undone(taken_action.id, ChangeUndone(
+            incident_id=incident_id,
+            subject=attempt.subject,
+            outcome=attempt.outcome,
+            detail=attempt.detail
+        ))
 
 
 def _said_in_the_log(attempt: UndoAttempt) -> None:

@@ -15,6 +15,7 @@ nothing about who publishes or who reads.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 
 import psycopg
 from argus_core import Connections
@@ -113,7 +114,9 @@ def calls_into(connections: Connections) -> Recorder:
 def acknowledge_alert(conn: psycopg.Connection,
                       incident_id: str,
                       alert: Alert,
-                      publisher_for: PublisherFor) -> None:
+                      publisher_for: PublisherFor,
+                      *,
+                      at: datetime) -> None:
     """Says that Argus has the alert and has looked at nothing yet.
 
     The first line of every incident's story, and the only one the graph cannot
@@ -130,9 +133,12 @@ def acknowledge_alert(conn: psycopg.Connection,
     Its own function rather than three lines inside `start_incident` because
     that function creates a row and queues a walk: the seam that makes this
     checkable is a function whose entire job is the sentence it publishes.
+
+    `at` is the moment the row was opened at: the sentence that opens the
+    account and the row it accounts for are one instant.
     """
     publish_beside(
         conn,
-        AlertAcknowledged(incident_id=incident_id, alert=alert),
+        AlertAcknowledged(incident_id=incident_id, alert=alert, at=at),
         publisher_for(conn)
     )

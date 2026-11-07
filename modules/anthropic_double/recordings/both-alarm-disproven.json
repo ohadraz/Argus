@@ -2,178 +2,71 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I need to write this postmortem carefully without inventing any figures myself, using placeholder names in braces for them instead. Since the investigation disproved the incident\u2014metrics never left baseline\u2014the symptom should be framed as the alert firing without any actual user-facing failure, so I'm working out the causal chain starting from that false alarm.\n\nI need to be careful throughout to reference durations, thresholds, and timestamps only via their bracketed placeholder names rather than spelling out numbers, since the actual cause of the spurious firing isn't shown by the evidence. For contributing factors, I should recommend action items like capturing the rule's evaluation inputs at fire time to understand why it triggered despite no underlying service issue.\n\n",
+      "signature": "CAQSxRwKEAgTGAI4AUIIdGhpbmtpbmcSDAfyioa0YjiVnBFBohoM5KA/aQo4sgdJCf5OIjCiw9nAOvBgDKG/lH+a0OOuiSrjUnTdqwE4qjgxWrKEDOCJG7mL7EKL99d/EmOYNKYq4hvDbQB6pnCp1mZFfGkUTDl7kKjtqOgTQ2ndiQl5h8znVvxSkWiylkTlsE94pq7psvQXE3xCERv7yVXKJWvwDDPjM+Jd355tBcwaPxqQ3Y+mNENZsUG+81GStdoYQ70/J8BMU6RvLGfUTfZbNm1qSko+bdOlb+Aqf80/K5UfzqLB8+fliGQinJFy/REXvtHNoHm5CoCo40vJFaLM4vrheNCUIY3ykUgwHR51dQyrLUmHoJRrG+hLojUacWXl3460h2mCioX5J7loJm528KFlL/MbwBClVCw1PGYz8HBEmHwOfEqUh0ITSZULhbUnIuM79fIDvFNuTdR2NlpVtFN6Cm8kKFNFwjg4a4LG3YWhvR2vyhNvbx0ZQ9x+jN64OJYVDCoFZrC6b2ERCfpI5URhVmWV6u4DBOLueSTlJMojGjBOXkG4vqm7xCiFKp8mRAx/VXU6VUXVlHcspFhSJgGZ5FtuQ9c4NO+vZf8XcsvcY9kqh+3rZeXNttxITghBgYomMpmoWO6XezQCyRl73YFMPqQGVZjYFjFu9vyLh9JhHfLGMRn9FLAcSwl7SY5XkJrCAdzWtK5vSsssdhzJpRkyZEwtef2ehgZSasqPXz9cRePcNF3kIncrn4CQsk+O7vrd8MEZUWY2nIuT4O2JZYg4XSrI5LkYR06SQLratOaBSb9nAQxGEIqWz0Fqm7RZeExGhXa8dmlMPUOu7HBKyvZ9ABJLIPd1pN/skyP+tlAfUEEsL1tjjZyaGJWdDD1WB8qXKwA8pVE2J2bmGXm+EM9YPQzi+hPqE03SP61hMTkWc0i8U69450Lwg1qnKSQrnf0DpLT2Vw2dhrlkSAsp57SUBWF+AzfTva3Ha0C3O2c+uFu0HfXqQwSDO6FO2sjRMQHXmZGj4D2tz03wxMu8XvbxYKRvsiO86bFfyXp/i3ZZvhzaV5wNEx2RvGcuKG+LpBwX6B/1YN3yXvLB+AbCbQjrjANky9ZblQqPJlj1qAU0O5rOOCtPaFkD5sb9DtT+p229mep7qzAz2Jv+ata3+pVX+Fw+z7cLtiwc5e7wyt0jV65j0BYZhTIKRPdZ9n7cIRSCTiweBs0UNQU/5mtykrOWFfjaGBLvjefVpS39HiNV65g8MR3dgQZMyTqZrjEswDLboHGG5V9pCHx15303Ggs2OwEw7WtUnYkAtZQhRYtNcoB/SkMRtqoy0boUsoX33yreONRctAzANBH+sOW+m+rDRm+S9ZFYEK2MJpWO0SM8pGObPzm/QVzvtzx9VSpWOsBHKTqLO2gFMqHbR2XsmaFdABflFgZP/R+Plc6qL04GvzgjP+YODIn1SHq8ykdnR6a7c4Js/r8FgWb42CxDsZ8IRJx5j9acahLAA10CE2dFlDKZmnBGgvqTHFjvSCLfHYHgmB81rmXjUyOKQwNU2Sx0ZP3g11BiYBJ0KEDJ1Tf3nfZGn7/z0ehVxn35V4ZNeZh8IrZwdQMEAeUZkOgXFudrTgyc6IDEXMTQA73HxK1WKi9OHbGGL0RVhRiXYsoaYkGwg1LkXTA66sUVogvOEr9MkhZBVFKmXgdjElmEeNyonNza81dTWuUIATolUxtMhz/3Jvq+0np+QC64yESM86p42h0oFw9Wj815i3c0xXhyl8BWh/F7pG/qnHYxxoJp16nCle9XbsaPfoFPz9Z3I7dxU8ITAcajvSR1vmgF8Tdc/DFTQQ+6fik0qlETBogDYF5nQV66CcumRvvJxCX0fKY+iKc+KcOHsOaOgemQTDjha/DsefdR2lUcKMszu7Ctqa8vP7W2XKlRViklYuYb7ND36D+SsWpNh67zReA24mwAdx/+Z2XOtu9bfpxCWKrRUlgb29Rl3iUDNxB/tjPtm22n0JrYHMEP1rOKtWcc4kBKVzax2FGik/tPFkhDBfQXNhA8GYXohVeEBqAB4zkc+4lkVGERLmnoGgfq079W5q6TZczefAMAhfsfTAOw0/0liE5LULJsHK0i+DEcrWqBe6T9GRNUx5gm/oAIjYaJ5LtBkpc8A2knHovUpJJmQaY77w5MwZl7x8KTP6yHD4GKMdaGSbBkMoiDkFJtRFe6rk9YI3YDSdmDJn7QM75yg/WzP9Rx+hef0npExeNmkpSLRtH3oVyXc7SnPkuYIuLCTAg9LRMXJmfNYvTw3QH791670XVd6Rz94timL7Y3QiX9E/g8etYJQEWlF6tvl9bvEeeJf4JVI7gSCTHjFyOca3dKc4n/IBA3ITSNYw918HuPV3eAgAu2gSehxlWZWsqdXle73bpSFJlsmi33FHyz1p5vfto6vztU5/XB5fVFjcS2h4/M3aAGkdIw0RPfDBPbjGv6Xigs1rRSPnWzdeThRYTGD9BOmHvPM+kyGu1TVQ1Orv2ZTmKbvOb4Bx2sbzx0a1J+F0d7KH6d4cTCghdt0hb4LmYJXA+0zgiY74BKhGQrjXGjjgULIaNSyOmsvX2fvCP7LRIayiIazVyAqwCnoc/+PUevoIbz5k0LEMgezPqPHqsoQMIhrHCBclD2EymoeV6MyWoFLoksOjacCaXHGZ82gmmnFvBr7ckJskEKT8X7Z9Gnf/Kdj4xjzzeHUu2U7T/NODaFP2+NUCtLLwh1oQGfwmZhdqkuIct4Agh/aIuKmv6TiWhqIaCQgY+lT19cWZt2/ZIaez4yBWOfplo7Q5vRDLRnZLw3/FrYk9YtcX3HN7vrsEFcKF17NG0cqKdSu9Gv1Q5r0SCXJ3WnuGEdbweFm0WYxYNp6b/1hKpJaXfXbjPBTFyzm4HL45vdlQY1TAGS+ZYF0tdo3dY8bb1p0bcskWGJYzGCifbNCYtkCRDwhnuIp8ODv+P0O6t8/+Z+Gkj2l/Q6ITCmkJH7SIVblyGFPF8wPFePoabQXg2UAyTceGNAZ64TU8wnRgAnO9+KNFRaofm5QNkj0LQM22sYMioBBJDKvy/8SJ0cZGG6AQYKoCaf/ykFhXWQTdnyOyWAt5J6T1eipo4IwEjyUAgsXmLcW6M+xdWIM29puEO2sH42OamIZ8dcWepdTonmvKIULNumE+szSLZdVZRERUCCrBqVfD69k/7I9uSddYkBXDorqdZA4HMx0cq23IUPV9l9FEdLdseta2FVKv7uJDbfJKkR+ovZgBdY40hx3T/R0ShO0oSFajOtBr/s0Lk2SRJg1uSxRBEbF/FuoLtBKcPOidNMbFlYpzaBA74uiZAhvQJN/fiSZzUEtNwQaRlVVNEcfXKqAGRD5BoItbrUIF9FYouBhf1nXQzJXCawBT3RqnbNx8sf2LuCtvnO0z3uyonhzE5wn15SfA2/+Nkt3Cr3XEC9WvacysZUzAAIxrLio+b0iXoP52AhLk5HvSBzTnW2IK7Ch9l6DCwi27XIRZJivAYOwFHwmA4YD9a5GTJI71dan2hezbldzglqjDu41sUYnqMZAK2BMMG1rc3gfBYiEXtTm3SiwItAgJpjehAx/xmktXxCLfOcapPc/rKqiCOur7jK1ukiU3al0XSJ1SuS3m+Q4/pbxeqxkfg2S6ik9XOQpZMEMd8D3V4bUiWgg+/sB4Q+X7M/P9hmdnJ1knpTxo9Gq4hZzx8xIUCw9wakg96X95Ia9IaQ0j1VdDSikgoRlzEkTJ0cR3nXpz7Cz5Dz5Cplc2WLB4NDaEqx2pn3VrMzW/oTqqQXwP5YYTMhaHqMduQe+ucgG0Q3AA5JgUmSKKsVVXfoC4Typ7Ci/fA60re1/81SJtZA54No1Qhiei2jAcSXjJHQ4MXkdPCgfL71xTGOUbBRynAobcjHPQM6MdI359bwySCmRdTXWF4muvIe5ztiVMLxNjkGoIvG7opvOoWulw7F0NIXUPRG25oayKHjsWjeHOIBsX8DNSB9l4CV/wwixZZlTTxrnUeolwr0ouRW85DgUoUpff3bsCTHGgUjb61cKJNd6PelLi2htrDyKqWfE/COuch7Qv3LgJfMJtyjg5PNVX+7iCpG+R5b1MVewVOuFxybW+tSMq0ymbswhbNARREb9EdqEQglcnUfOWGMMB87PqUTId6kC0Uhj+L6x8HWe295oRj5NtHPcXAiJQKEckfkUIjIL1L61zVHIPxVvgubP8sVimLuoMjE97sEJCoMhnbOahEaLjXj4BGGz8nDNY4P5n0gOCGjS2fl/f2o+4HGKOIm2g2Z7Arm3BigfFWCClYAuet4uL0Ql3VzeyTLX9FXNDM1ZACxzlPv1GIuOluVY1kInbVmuWWwCAOo3Ersymjx1K8hOPjwe6zp507R8RXlpiVRGrboaqtX3X794aa8JXj/z6AujDq6Sk/FED63cHpHzZP4p3VQpsvBI25qufFJCkpLxK6CjEs++VAbUduejb3Ww8mjiiEYVjIORohVNzWcaKXloUI4NGGt+A3T4HV6X+5BrCTd7K2fBu3lR+/mL4d5aLmxv3XtP9S6bshn+2Fnj04ki/z/OWoW5F3DLteJK0OWo8KM3VwD85San880YEvxJSCyHCvq3vswqxYrDbo6vaT+zYHFwFpx8W1AAhRI+TghktyeOs+gnmby53KPVxlfcXSyjI03r+fl6+o14RUmTz169uZiRjOTbXtcdM4Ppaup0zXRx180gCza5439HmEcQCB39QFjJC8OJCKrFBWBGVi/7RWNPA0P6Xv6ZjcsQ9t6ZmPPh9Y/sQl6l6zpaEgCKiou5uJv7TGnTr1T6b5GubDF+DRdShEljD/G3eeiwzLK5YX0g8iIVJpPFDCgKLumARgB",
+      "thinking": "This looks like a disproven alarm \u2014 no user actually experienced a failure, yet the error-rate alert fired anyway. I'm tracing the causal chain starting from T6 and AL1: the rule triggered without the underlying service actually erroring, so I need to figure out why the alert fired when nothing was wrong on the user side.\n\nEvidence doesn't show why the rule fired - not even the rule's own metric series showed any departure from baseline, so the trail stops there. Chain length is only 1-2 steps, and it doesn't reach a definitive cause. I'm now weighing whether the lack of paging counts as a contributing factor, but since nobody was actually harmed in this false alarm, it doesn't seem to qualify - the root cause seems to just be that the rule fired on something invisible in its own data.\n\nAction items should focus on investigating why the rule fired and checking paging routing, while noting I shouldn't flag unread deploys/flags/logs as something that \"went wrong\" since I never examined them. For went-well, Argus did successfully disprove the alarm by reading metrics after the alert fired. For went-wrong, the key finding is that no on-call incident was linked despite the rule firing. For still-at-risk, I can note that since the firing cause remains unknown, the rule could fire falsely again.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_0131DqziEwrAEx4brx3NLqct",
+      "id": "toolu_01VXYY1Cj2v737CrPv2fAXQn",
       "input": {
         "action_items": [
           {
-            "item": "Make the Investigator read metrics up to and including the alert time, and say explicitly when none were read from the alerting period, so that a no-departure finding can be told apart from missing data.",
+            "answers": [],
+            "item": "Find out why the HighErrorRate rule on io-shop fired when its own series in the window Argus read showed no breach, by comparing what the rule evaluated at the time it fired with the series as stored.",
             "type": "detect"
           },
           {
-            "item": "Capture the paging rule's evaluated series and values when HighErrorRate fires, and check that rule against the service's error_rate series to find why it fired with no baseline departure.",
-            "type": "detect"
+            "answers": [],
+            "item": "Find out why no on-call page was linked to the HighErrorRate alert on io-shop, and route the alert to on-call if it is meant to page.",
+            "type": "process"
           }
         ],
         "causal_chain": [
           {
             "cites": [
-              "T1",
-              "AL1"
+              "AL1",
+              "T5",
+              "T6"
             ],
-            "step": "The HighErrorRate alert fired on io-shop, claiming the error rate had been above threshold for the rule's wait of {rule_waits}. No error rate from while the service was supposedly broken was measured, so no user-visible failure is confirmed."
+            "ruled_out": [],
+            "step": "Nobody using io-shop was seen to hit a failure. What happened instead was that the HighErrorRate alert fired, claiming the error rate had been above threshold for {A1}. In the window Argus read, no minute departed from the service's baseline in errors, p50, p95, p99 or memory."
           },
           {
             "cites": [
-              "T5",
               "T6",
               "T7"
             ],
-            "step": "The metrics read back covered {T5.2} minutes, from {T7.4} to {T7.5}. In that window no minute departed from baseline in error_rate, p50_ms, p95_ms, p99_ms, memory_used_bytes or rule_reading, so nothing matched the alarm's own claim."
-          },
-          {
-            "cites": [
-              "T7",
-              "T8"
-            ],
-            "step": "Because the service's own series showed nothing, Argus concluded that what fired was the rule and not the service, and moved the incident to DISPROVEN."
-          },
-          {
-            "cites": [
-              "T7",
-              "T8"
-            ],
-            "step": "Why the rule fired is not shown by the record. No change, log line or action was recorded, and no metric from while the alert was active was read, so the chain stops here."
+            "ruled_out": [],
+            "step": "The alert fired without a failure behind it. The alert rule's own series, read over the same window, did not show the breach the alarm claimed. The evidence stops here: the record does not show why the rule fired."
           }
         ],
-        "contributing_factors": [
-          {
-            "addressed_by": [
-              "AI-1"
-            ],
-            "factor": "The metrics read ended at {T7.5}, so none came from while the alert was active. That left the cause of the alert undecidable: it could not be told whether the rule misfired or the service briefly failed."
-          },
-          {
-            "addressed_by": [
-              "AI-2"
-            ],
-            "factor": "No record was seen of what inputs the paging rule evaluated when it fired, so a firing that disagrees with the service's metrics cannot be explained."
-          }
-        ],
-        "executive_summary": "An automated high-error-rate alert fired for the shop service and an automated responder investigated at once. It read the service's recent metrics, covering the hours before the alert. None showed errors, slowness or memory use outside normal. The responder concluded that the alert had fired and the service had not failed, and closed the incident as disproven. No customer impact was measured. Nothing from the period the alert described was available, so impact is unknown and any duration is only a lower bound of {duration}. No change or fix was applied. The reason the alert fired is still unexplained.",
+        "cause_in_plain_words": "An alarm about errors went off even though the service's measurements, including the ones the alarm itself watches, showed nothing out of the ordinary, and the record does not show why it went off.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [],
         "lessons": {
-          "got_lucky": [
-            "No evidence of real user harm was seen. If the service had been failing, the metrics window that ended before the alert could have hidden it."
-          ],
+          "got_lucky": [],
           "went_well": [
-            "Argus took up the alert immediately and checked the alarm's claim against the metrics it read.",
-            "Argus did not invent a cause or an action when the evidence showed none. It closed the incident as disproven."
+            "Argus read the service's per-minute metrics and found, {T6.1 - alert_raised} after the alert was raised, that nothing in the window matched the alarm's claim. That let it close the incident as disproven without taking any action on production."
           ],
           "went_wrong": [
-            "The reason the alert fired was left unexplained.",
-            "No metrics from while the service was said to be broken were available, so impact could not be measured."
+            "The HighErrorRate alert fired but nobody was paged: no on-call incident was linked to it. Had the failure been real, nobody on call would have been brought in by a page."
           ]
         },
         "reaches_a_cause": false,
-        "root_cause": "The cause was not determined. The HighErrorRate rule fired, but none of the service's metrics read for the window departed from baseline, so the evidence points to the alerting rule and not to a failing service. The record does not show why the rule fired.",
-        "symptom": "Error-rate alert fired but no service failure was found"
-      },
-      "name": "submit_postmortem",
-      "type": "tool_use"
-    },
-    {
-      "caller": {
-        "type": "direct"
-      },
-      "id": "toolu_013sH4LSEdVe96PteZ4DCw3b",
-      "input": {
-        "action_items": [
-          {
-            "item": "Make the Investigator read metrics up to and including the alert time, and say explicitly when none were read from the alerting period, so that a no-departure finding can be told apart from missing data.",
-            "type": "detect"
-          },
-          {
-            "item": "Capture the paging rule's evaluated series and values when HighErrorRate fires, and check that rule against the service's error_rate series to find why it fired with no baseline departure.",
-            "type": "detect"
-          }
-        ],
-        "causal_chain": [
-          {
-            "cites": [
-              "T1",
-              "AL1"
-            ],
-            "step": "The HighErrorRate alert fired on io-shop, claiming the error rate had been above threshold for the rule's wait of {rule_waits}. No error rate from while the service was supposedly broken was measured, so no user-visible failure is confirmed."
-          },
-          {
-            "cites": [
-              "T5",
-              "T6",
-              "T7"
-            ],
-            "step": "The metrics read back covered {T5.2} minutes, from {T7.4} to {T7.5}. In that window no minute departed from baseline in error_rate, p50_ms, p95_ms, p99_ms, memory_used_bytes or rule_reading, so nothing matched the alarm's own claim."
-          },
-          {
-            "cites": [
-              "T7",
-              "T8"
-            ],
-            "step": "Because the service's own series showed nothing, Argus concluded that what fired was the rule and not the service, and moved the incident to DISPROVEN."
-          },
-          {
-            "cites": [
-              "T7",
-              "T8"
-            ],
-            "step": "Why the rule fired is not shown by the record. No change, log line or action was recorded, and no metric from while the alert was active was read, so the chain stops here."
-          }
-        ],
-        "contributing_factors": [
-          {
-            "addressed_by": [
-              "AI-1"
-            ],
-            "factor": "The metrics read ended at {T7.5}, so none came from while the alert was active. That left the cause of the alert undecidable: it could not be told whether the rule misfired or the service briefly failed."
-          },
-          {
-            "addressed_by": [
-              "AI-2"
-            ],
-            "factor": "No record was seen of what inputs the paging rule evaluated when it fired, so a firing that disagrees with the service's metrics cannot be explained."
-          }
-        ],
-        "executive_summary": "An automated high-error-rate alert fired for the shop service and an automated responder investigated at once. It read the service's recent metrics, covering the hours before the alert. None showed errors, slowness or memory use outside normal. The responder concluded that the alert had fired and the service had not failed, and closed the incident as disproven. No customer impact was measured. Nothing from the period the alert described was available, so impact is unknown and any duration is only a lower bound of {duration}. No change or fix was applied. The reason the alert fired is still unexplained.",
-        "lessons": {
-          "got_lucky": [
-            "No evidence of real user harm was seen. If the service had been failing, the metrics window that ended before the alert could have hidden it."
-          ],
-          "went_well": [
-            "Argus took up the alert immediately and checked the alarm's claim against the metrics it read.",
-            "Argus did not invent a cause or an action when the evidence showed none. It closed the incident as disproven."
-          ],
-          "went_wrong": [
-            "The reason the alert fired was left unexplained.",
-            "No metrics from while the service was said to be broken were available, so impact could not be measured."
-          ]
-        },
-        "reaches_a_cause": false,
-        "root_cause": "The cause was not determined. The HighErrorRate rule fired, but none of the service's metrics read for the window departed from baseline, so the evidence points to the alerting rule and not to a failing service. The record does not show why the rule fired.",
-        "symptom": "Error-rate alert fired but no service failure was found"
+        "root_cause": "The evidence does not show why the HighErrorRate rule fired: across the window Argus read, no minute departed from the service's baseline in errors, p50, p95, p99, memory or the alert rule's own series, so no mechanism of failure was found and the alarm was disproven.",
+        "still_at_risk": "Nobody found out why the rule fired, so it could fire again when nothing has failed.",
+        "symptom": "Nobody using io-shop saw a failure; an error-rate alarm fired with no errors rising"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgA1Mnojho8g9iQtzSM5q",
-  "model": "claude-sonnet-5-5",
+  "id": "msg_011Cga6HXaWXsbdhjs8hBP1Y",
+  "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -182,15 +75,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 1254
+      "ephemeral_5m_input_tokens": 6023
     },
-    "cache_creation_input_tokens": 1254,
-    "cache_read_input_tokens": 2531,
+    "cache_creation_input_tokens": 6023,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
     "input_tokens": 4,
-    "output_tokens": 3470,
+    "output_tokens": 2082,
     "output_tokens_details": {
-      "thinking_tokens": 872
+      "thinking_tokens": 1065
     },
     "service_tier": "standard",
     "speed": "standard"

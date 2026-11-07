@@ -112,11 +112,13 @@ def nobody(entry: ReplayEntry) -> None:
 def record(entry: ReplayEntry, recorder: Recorder = nobody) -> None:
     """Hands one entry to a recorder, and cannot fail.
 
-    The same swallowed exception as `publish`, for the same reason and with the
+    The swallowed exception `publish` has, for the same reason and with the
     same narrow licence: the receipt is never part of the work. An incident that
     would have resolved must resolve even when nothing could write down what it
     spent, so a recorder having a bad day costs the log a row and costs the
-    investigation nothing.
+    investigation nothing. Unlike `publish`, a write refused for a lost run is
+    swallowed too: the walk's next write that matters is refused for the same
+    reason, and that one stops it.
 
     Logged at warning rather than silently, so a log that has stopped recording
     is discoverable before an eval run is planned around rows that are not

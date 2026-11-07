@@ -31,13 +31,10 @@ import time
 from collections.abc import Callable
 from typing import Final
 
-from argus_core.mcp_transport import an_unreachable_platform
-from argus_core.models import DEPLOYMENT_PLATFORM, RestartedService
-from deployment_platform import (
-    DeploymentPlatformError,
-    DeploymentPlatformWrites,
-    PlatformUnreachable,
-)
+from argus_core.models import RestartedService
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+
+from write_mcp_server.refusing import a_platform_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -67,29 +64,25 @@ class ServiceNotRestarted(Exception):
     """
 
 
-def _not_restarted(said: str, error: DeploymentPlatformError) -> ServiceNotRestarted:
-    """This module's failure, marked where the platform was never reached.
+def _not_restarted(said: str, error: DeploymentPlatformError, *,
+                   asked_to_change: bool) -> ServiceNotRestarted:
+    """This module's failure, marked as `a_platform_refusal` marks it.
 
     One exception still, because what a caller does about this restart is
-    unchanged: it did not happen. What the mark adds is about the other three
-    actions, not this one - the platform they share is not answering either, so
-    reaching for them costs a request each to learn what is already known.
+    unchanged: it did not happen. What the mark adds is about the estate and
+    the other actions - whether anything was changed, and whether the platform
+    they share is answering at all.
 
-    Reached only from before the action is accepted, and that is the whole of
-    why it needs no flag saying so. The other three actions mark a failure that
-    came after they changed something and send the descriptor with it; a restart
-    cannot, and the reason is verification rather than undo. Once the platform
-    has taken the action, pods may be rolling this second and nothing here can
-    establish whether they are - so a walk that narrowed to another action would
-    measure its recovery against a service that may be coming back on its own,
-    and confirm a hypothesis the restart had answered. The failures after that
-    point raise `ServiceNotRestarted` plainly and escalate, which is the honest
-    report of a state Argus cannot describe.
+    Reached only up to the restart request, and never with anything left
+    behind: nothing before the restart changes anything. Once the platform has
+    taken the action, pods may be rolling this second and nothing here can
+    establish whether they are - so a walk that narrowed to another action
+    would measure its recovery against a service that may be coming back on
+    its own, and confirm a hypothesis the restart had answered. The failures
+    after that point raise `ServiceNotRestarted` plainly and escalate, which is
+    the honest report of a state Argus cannot describe.
     """
-    if isinstance(error, PlatformUnreachable):
-        return ServiceNotRestarted(an_unreachable_platform(DEPLOYMENT_PLATFORM, said))
-
-    return ServiceNotRestarted(said)
+    return ServiceNotRestarted(a_platform_refusal(said, error, asked_to_change=asked_to_change))
 
 
 def restart_service(service: str,
@@ -115,13 +108,15 @@ def restart_service(service: str,
         # never reached the request would otherwise report nothing about the
         # platform at all. Nothing has been asked for yet, so the mark is honest.
         raise _not_restarted(
-            f"could not read what is serving [{service}]: {error}", error
+            f"could not read what is serving [{service}]: {error}", error,
+            asked_to_change=False
         ) from error
 
     try:
         platform.restart(service)
     except DeploymentPlatformError as error:
-        raise _not_restarted(f"could not restart [{service}]: {error}", error) from error
+        raise _not_restarted(f"could not restart [{service}]: {error}", error,
+                             asked_to_change=True) from error
 
     started_at = _wait_until_a_new_process_serves(service, was_started_at, platform, sleep)
 

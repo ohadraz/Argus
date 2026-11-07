@@ -30,7 +30,7 @@ from argus_testkit.assertions import eventually
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
-    RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_PAGED,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
@@ -65,8 +65,8 @@ def test_an_incident_somebody_was_paged_for_reports_the_minutes_they_spent() -> 
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("feature-flag-toggle",
-                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE)),
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_PAGED)),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_PAGED)),
             calling(the_on_call_platform_holds(
                 some_on_call_incident,
                 paged_for=some_alert,

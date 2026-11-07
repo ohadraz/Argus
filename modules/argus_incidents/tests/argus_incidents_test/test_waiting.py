@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import connect_from_env, new_id
+from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import OfferExpired
 from argus_core.models import (
     Alert,
@@ -126,7 +126,7 @@ def test_a_message_not_yet_classified_is_waited_on_until_it_is() -> None:
 def test_an_offer_is_waited_on_until_a_person_ends_the_incident(ending: IncidentStatus) -> None:
     # The press is the answer, and it reaches the walk as the incident's
     # ending. So does anybody else's ending meanwhile: an incident somebody
-    # took back is no longer waiting on a confirmation either.
+    # withdrew is no longer waiting on a confirmation either.
     a_clock = _AClock(SOME_MOMENT)
     happened: list[object] = []
     some_incident = new_id()
@@ -144,7 +144,7 @@ def test_an_offer_is_waited_on_until_a_person_ends_the_incident(ending: Incident
 
 @pytest.mark.unit
 def test_a_request_to_stand_down_is_waited_on_until_the_person_withdraws_the_incident() -> None:
-    # A step started while somebody is about to take the incident back is a
+    # A step started while somebody is about to withdraw the incident is a
     # change they will watch Argus put back a minute later.
     a_clock = _AClock(SOME_MOMENT)
     happened: list[object] = []
@@ -382,7 +382,8 @@ def test_an_expiry_is_kept_on_the_incident_and_told_among_its_events() -> None:
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop",
-                                                   alert_name="HighErrorRate"))
+                                                   alert_name="HighErrorRate"),
+                                                   at=utc_now())
         conn.commit()
         conversation.write(conn, _written(incident_id, SOME_MESSAGE, at=SOME_MOMENT))
         conn.commit()

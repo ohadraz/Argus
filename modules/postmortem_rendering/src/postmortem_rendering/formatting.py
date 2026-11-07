@@ -10,25 +10,16 @@ amount written two ways is two figures to a reader comparing them.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from datetime import UTC, date, datetime, timedelta
 from typing import Final
 
-_A_CENT: Final = Decimal("0.01")
+from argus_core import said_as_a_day, said_as_a_time
 
 # A whole commit as git names one: forty hex digits, lower case.
 _A_WHOLE_COMMIT: Final = re.compile(r"[0-9a-f]{40}")
 
 # How much of a commit git shows, and so how much a reader pastes back into it.
 _A_SHORT_COMMIT: Final = 7
-
-
-def as_money(amount: Decimal) -> str:
-    """An amount to the cent, its thousands grouped: `1,736.68`.
-
-    Half a cent rounds up, as a reader checking the figure by hand rounds it.
-    """
-    return f"{amount.quantize(_A_CENT, rounding=ROUND_HALF_UP):,}"
 
 
 def as_span(span: timedelta) -> str:
@@ -78,8 +69,9 @@ def as_revision(revision: str) -> str:
     return revision
 
 
-def in_utc(moment: datetime, pattern: str = "%Y-%m-%d %H:%M") -> str:
-    """A moment, rendered in UTC and saying so.
+def in_utc(moment: datetime) -> str:
+    """A moment, rendered in UTC and saying so: its date, then its time as the
+    kernel says one - to the second only where it has one.
 
     The zone is written out rather than assumed. The Target Service's console
     stamps its minutes in UTC and labels them; an unlabelled time beside it
@@ -90,14 +82,43 @@ def in_utc(moment: datetime, pattern: str = "%Y-%m-%d %H:%M") -> str:
     whatever zone the connection is set to, and formatting it as it comes would
     make the label a guess.
     """
-    return f"{moment.astimezone(UTC).strftime(pattern)} UTC"
+    return f"{moment.astimezone(UTC):%Y-%m-%d} {said_as_a_time(moment)} UTC"
 
 
-def on_the_clock(moment: datetime, pattern: str = "%H:%M:%S") -> str:
-    """A moment in UTC, unlabelled - for a column whose heading says UTC once.
+def on_the_clock(moment: datetime, pattern: str) -> str:
+    """A moment in UTC, unlabelled and in `pattern` - for markup a script reads.
 
-    The same conversion `in_utc` does and none of its suffix: a table that
-    repeats the zone on every row of forty spends a column's width saying one
-    thing forty times, and that width is the message column's.
+    Every moment a person reads is said through the kernel's time, which no
+    pattern here could keep in step with. A script reads a pattern of its own,
+    and it is that one this is asked for.
     """
     return moment.astimezone(UTC).strftime(pattern)
+
+
+def on_the_day(moment: datetime, then: str = "") -> str:
+    """The day a moment falls on in UTC, said as the kernel says one, and
+    after it whatever of the moment `then` says.
+
+    The kernel's day rather than `strftime`'s `%b`, which follows the locale:
+    narration's lines on the same page say their days the kernel's way, and
+    the two would agree only while the process stayed in the C locale.
+    """
+    at = moment.astimezone(UTC)
+
+    return f"{said_as_a_day(at)}{at.strftime(then)}"
+
+
+def on_the_clock_of(moment: datetime, day: date) -> str:
+    """A moment as a table's time column says one: its time alone on `day`,
+    the day the head names, and its day before its time on any other - a time
+    alone below a head dated one day reads as a time of that day."""
+    if moment.astimezone(UTC).date() == day:
+        return said_as_a_time(moment)
+
+    return f"{on_the_day(moment)} {said_as_a_time(moment)}"
+
+
+def on_the_day_and_clock(moment: datetime) -> str:
+    """A moment in UTC with its day and year, and its time as the kernel says
+    one - to the second only where it has one: "Oct 21, 2026, 19:12:55"."""
+    return f"{on_the_day(moment, ', %Y, ')}{said_as_a_time(moment)}"

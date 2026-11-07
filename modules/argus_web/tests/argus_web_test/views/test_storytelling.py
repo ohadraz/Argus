@@ -7,9 +7,10 @@ find one table with that minute in it, not the fourth of six fragments that
 each contain a copy.
 
 So most of these are about identity: what counts as the same minute, the same
-line, the same change. A bucket is its minute and a log line is its text; a
-flag change is a flag *and* a moment, because the flag that moved twice - tried
-and then put back - is exactly the one whose second move a reader must not lose.
+line, the same change. A bucket is its minute and a log line is its text, kept
+as often as any one read holds it; a flag change is a flag *and* a moment,
+because the flag that moved twice - tried and then put back - is exactly the
+one whose second move a reader must not lose.
 
 The rest are about the header: how long the incident has been running, and the
 version the page polls against. That version has to change when the content
@@ -23,25 +24,30 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from argus_core import new_id
 from argus_core.events import (
-    CandidateSelected,
+    ActionTaken,
     ChangesRetrieved,
+    FixAttempted,
     FlagChangesRetrieved,
     IncidentEvent,
     LogsRetrieved,
     MetricsRetrieved,
+    OnsetDetected,
+    PostmortemWritten,
     StatusChanged,
 )
 from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    FixOutcome,
     FlagChange,
     Incident,
     IncidentStatus,
     MetricBucket,
+    OpenedPullRequest,
     RevisionSource,
 )
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
 from postmortem_rendering import Role, Run
 
@@ -52,6 +58,7 @@ AN_EARLIER_MINUTE = "2026-08-30T10:13:00Z"
 SOME_FLAG = "some-ramped-flag"
 SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 SOME_REPOSITORY = "https://github.invalid/acme/shop"
+SOME_PULL_REQUEST = "https://github.invalid/acme/shop/pull/7"
 
 
 @pytest.mark.unit
@@ -165,6 +172,35 @@ def test_the_same_log_line_read_twice_is_shown_once() -> None:
 
 
 @pytest.mark.unit
+def test_a_line_written_twice_in_one_read_is_shown_twice() -> None:
+    # One read holding a line twice is a service that wrote it twice - two
+    # replicas failing in the same minute are two failures. Shown once, the page
+    # held fewer lines than the line above it said were read back.
+    some_line = f"{SOME_MINUTE} ERROR io-shop: account page request failed"
+
+    Scenario() \
+        .given(a_line_written_twice := [_logs_showing(some_line, some_line)]) \
+        .when(lambda: build_story(a_line_written_twice)) \
+        .then(_the_lines_shown_are([some_line, some_line]))
+
+
+@pytest.mark.unit
+def test_a_line_written_twice_and_read_again_is_shown_as_often_as_one_read_held_it() -> None:
+    # The two rules together: a later read of the same minutes adds nothing,
+    # whichever of the two held the line more often.
+    some_line = f"{SOME_MINUTE} ERROR io-shop: account page request failed"
+
+    Scenario() \
+        .given(
+            written_twice_and_read_again := [_logs_showing(some_line),
+                                             _logs_showing(some_line, some_line),
+                                             _logs_showing(some_line)]
+        ) \
+        .when(lambda: build_story(written_twice_and_read_again)) \
+        .then(_the_lines_shown_are([some_line, some_line]))
+
+
+@pytest.mark.unit
 def test_a_flag_that_moved_twice_keeps_both_of_its_moves() -> None:
     # Keyed by flag and moment together, because this is the case the key
     # exists for: a flag Argus tried and then put back moved twice, and the
@@ -178,6 +214,56 @@ def test_a_flag_that_moved_twice_keeps_both_of_its_moves() -> None:
         ) \
         .when(lambda: build_story(a_flag_tried_and_put_back)) \
         .then(_the_flag_moves_shown_are([("OFF", "ON"), ("ON", "OFF")]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("read_at", "said"), [
+    (datetime(2026, 8, 30, 10, 15, tzinfo=UTC), "10:13"),
+    (datetime(2026, 8, 31, 9, 0, tzinfo=UTC), "Aug 30 10:13")
+], ids=["on-the-day-it-was-read", "a-day-before-it-was-read"])
+def test_when_a_flag_was_moved_is_said_as_a_change_read_is(read_at: datetime,
+                                                            said: str) -> None:
+    # Read against the line that read it, as a deploy is, so a flag switched
+    # on a week before the alert does not read as switched at its minute.
+    Scenario() \
+        .given(
+            a_flag_move_read := [_flag_history([
+                FlagChange(flag=SOME_FLAG, enabled=True, occurred_at=AN_EARLIER_MINUTE)
+            ]).model_copy(update={"at": read_at})]
+        ) \
+        .when(lambda: build_story(a_flag_move_read)) \
+        .then(_the_flag_moves_were_made([said]))
+
+
+@pytest.mark.unit
+def test_the_onset_leads_to_its_minute_where_the_metrics_table_holds_it() -> None:
+    # The lines are told what the page holds by the story that gathered it:
+    # the minutes of its metrics table.
+    Scenario() \
+        .given(
+            an_onset_inside_the_metrics := list[IncidentEvent]([
+                _metrics_showing(SOME_MINUTE, 0.5),
+                OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)])
+        ) \
+        .when(lambda: build_story(an_onset_inside_the_metrics)) \
+        .then(_a_line_shown_points_at(f"#minute-{SOME_MINUTE}"))
+
+
+@pytest.mark.unit
+def test_an_action_leads_to_its_flag_where_the_flag_history_holds_it() -> None:
+    # And the flags of its flag history, where the action's own row is.
+    Scenario() \
+        .given(
+            an_action_on_a_flag_in_the_history := list[IncidentEvent]([
+                _flag_history([
+                    FlagChange(flag=SOME_FLAG, enabled=True, occurred_at=AN_EARLIER_MINUTE)
+                ]),
+                ActionTaken(incident_id=new_id(), hypothesis_id=new_id(),
+                            action_type="revert-feature-flag", subject=SOME_FLAG,
+                            enabled=False)])
+        ) \
+        .when(lambda: build_story(an_action_on_a_flag_in_the_history)) \
+        .then(_a_line_shown_points_at(f"#flag-{SOME_FLAG}"))
 
 
 @pytest.mark.unit
@@ -204,18 +290,18 @@ def test_a_change_channel_nobody_asked_is_not_reported_as_read() -> None:
 
 
 @pytest.mark.unit
-def test_a_name_the_walk_quoted_is_shown_without_its_brackets() -> None:
-    # The brackets mark a name off for a model reading the record; on the page
-    # they are clutter around a word. The marked word is shown alike.
+def test_a_name_the_walk_quoted_is_shown_as_code() -> None:
+    # The brackets mark a name off for a model reading the record, and a reader
+    # of the page needs it marked off too. The marked word is shown alike.
     Scenario() \
         .given(
-            a_candidate_quoting_names := [
-                _a_candidate_selected("[categoriser.model] went from [v1] to [v2]")]
+            a_postmortem_quoting_names := [
+                _a_postmortem_written("[categoriser.model] went from [v1] to [v2]")]
         ) \
-        .when(lambda: build_story(a_candidate_quoting_names)) \
+        .when(lambda: build_story(a_postmortem_quoting_names)) \
         .then(_the_narration_shown_is([
-            ("Moving on to categoriser.model went from v1 to v2",
-             "categoriser.model went from v1 to v2")
+            ("Wrote the postmortem - `categoriser.model` went from `v1` to `v2`",
+             "`categoriser.model` went from `v1` to `v2`")
         ]))
 
 
@@ -225,12 +311,13 @@ def test_a_revision_the_incident_read_is_shown_short() -> None:
     # Short as the postmortem says it, and only where the line is shown.
     Scenario() \
         .given(
-            a_candidate_naming_a_revision := [
+            a_postmortem_naming_a_revision := [
                 _changes_showing_a_deploy_of(SOME_REVISION),
-                _a_candidate_selected(f"[{SOME_REVISION}] made every page slow")]
+                _a_postmortem_written(f"[{SOME_REVISION}] made every page slow")]
         ) \
-        .when(lambda: build_story(a_candidate_naming_a_revision)) \
-        .then(_a_line_shown_reads(f"Moving on to {SOME_REVISION[:7]} made every page slow",
+        .when(lambda: build_story(a_postmortem_naming_a_revision)) \
+        .then(_a_line_shown_reads(f"Wrote the postmortem - {SOME_REVISION[:7]} made every "
+                                  f"page slow",
                                   f"{SOME_REVISION[:7]} made every page slow"))
 
 
@@ -239,12 +326,29 @@ def test_a_revision_a_line_names_opens_its_commit() -> None:
     # Short, it is a name a reader cannot look up by hand.
     Scenario() \
         .given(
-            a_candidate_naming_a_revision := [
+            a_postmortem_naming_a_revision := [
                 _changes_showing_a_deploy_of(SOME_REVISION),
-                _a_candidate_selected(f"[{SOME_REVISION}] made every page slow")]
+                _a_postmortem_written(f"[{SOME_REVISION}] made every page slow")]
         ) \
-        .when(lambda: build_story(a_candidate_naming_a_revision)) \
+        .when(lambda: build_story(a_postmortem_naming_a_revision)) \
         .then(_a_line_shown_links({SOME_REVISION[:7]: _the_commit_of(SOME_REVISION)}))
+
+
+@pytest.mark.unit
+def test_a_pull_request_a_line_names_is_shown_by_its_name_and_opens_it() -> None:
+    # Said by its address in the record. On the page, by the name Argus gives
+    # it everywhere - the escalation it left the incident in too.
+    Scenario() \
+        .given(
+            a_proposal_and_its_escalation := [
+                _a_fix_proposed_as(7, SOME_PULL_REQUEST),
+                _escalated_with(f"a draft pull request is open at {SOME_PULL_REQUEST}")]
+        ) \
+        .when(lambda: build_story(a_proposal_and_its_escalation)) \
+        .then(all_of(
+            _a_line_shown_reads("Moved the incident to ESCALATED - a draft pull request is open "
+                                "at PR #7", "ESCALATED"),
+            _a_line_shown_links({"PR #7": SOME_PULL_REQUEST})))
 
 
 @pytest.mark.unit
@@ -269,6 +373,25 @@ def test_a_change_with_nowhere_to_open_is_named_as_a_name() -> None:
         ) \
         .when(lambda: build_story(a_flag_move_read)) \
         .then(_the_changes_are_named([Run(text=SOME_FLAG, role=Role.CODE)]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("read_at", "said"), [
+    (datetime(2026, 8, 30, 10, 15, tzinfo=UTC), "10:13"),
+    (datetime(2026, 8, 31, 9, 0, tzinfo=UTC), "Aug 30 10:13")
+], ids=["on-the-day-it-was-read", "a-day-before-it-was-read"])
+def test_when_a_change_was_made_is_said_as_the_timeline_says_it(read_at: datetime,
+                                                                 said: str) -> None:
+    # Beside the metrics' minutes and the timeline's clock, a wire-format
+    # instant reads as another kind of fact. Read against the line that read
+    # it, so a change made on another day keeps its date.
+    Scenario() \
+        .given(
+            a_deploy_read := [_changes_showing_a_deploy_of(SOME_REVISION).model_copy(
+                update={"at": read_at})]
+        ) \
+        .when(lambda: build_story(a_deploy_read)) \
+        .then(_the_changes_were_made([said]))
 
 
 @pytest.mark.unit
@@ -369,12 +492,13 @@ def _metrics_showing(bucket_id: str, error_rate: float) -> MetricsRetrieved:
     )
 
 
-def _logs_showing(line: str) -> LogsRetrieved:
+def _logs_showing(*lines: str) -> LogsRetrieved:
+    """One logs read that came back with `lines`, in that order."""
     return LogsRetrieved(
         incident_id=new_id(),
         window_start=AN_EARLIER_MINUTE,
         window_end=SOME_MINUTE,
-        lines=[line]
+        lines=list(lines)
     )
 
 
@@ -434,6 +558,19 @@ def _a_line_shown_reads(text: str, emphasis: str) -> Assertion[Story]:
     return assertion
 
 
+def _a_line_shown_points_at(target: str) -> Assertion[Story]:
+    """Some line as the page shows it has a link beside it to `target`."""
+    def assertion(story: Story) -> bool:
+        pointed = [line.link_target for line in story.narration]
+
+        if target not in pointed:
+            raise AssertionError(f"Expected a line pointing at [{target}], got {pointed}.")
+
+        return True
+
+    return assertion
+
+
 def _a_line_shown_links(expected: dict[str, str]) -> Assertion[Story]:
     """Some line as the page shows it leads exactly where `expected` says."""
     def assertion(story: Story) -> bool:
@@ -459,6 +596,18 @@ def _the_changes_are_named(expected: list[Run]) -> Assertion[Story]:
     return assertion
 
 
+def _the_changes_were_made(expected: list[str]) -> Assertion[Story]:
+    def assertion(story: Story) -> bool:
+        made = [change.when for change in story.changes]
+
+        if made != expected:
+            raise AssertionError(f"Expected the changes said made at {expected}, got {made}.")
+
+        return True
+
+    return assertion
+
+
 def _what_the_changes_did_opens(expected: list[list[tuple[str, str | None]]]) -> Assertion[Story]:
     """Each change's words that open somewhere, and where."""
     def assertion(story: Story) -> bool:
@@ -474,9 +623,21 @@ def _what_the_changes_did_opens(expected: list[list[tuple[str, str | None]]]) ->
     return assertion
 
 
-def _a_candidate_selected(summary: str) -> CandidateSelected:
-    return CandidateSelected(incident_id=new_id(), hypothesis_id=new_id(),
-                             summary=summary, confidence=None)
+def _a_fix_proposed_as(number: int, url: str) -> IncidentEvent:
+    return FixAttempted(incident_id=new_id(), outcome=FixOutcome.PROPOSED,
+                        pull_request=OpenedPullRequest(number=number, url=url,
+                                                       branch="argus/fix-abc"),
+                        detail="dont care")
+
+
+def _escalated_with(detail: str) -> IncidentEvent:
+    return StatusChanged(incident_id=new_id(), to_status=IncidentStatus.ESCALATED, detail=detail)
+
+
+def _a_postmortem_written(cause: str) -> PostmortemWritten:
+    """A write-up whose cause - the part its line marks - is `cause`."""
+    return PostmortemWritten(incident_id=new_id(), executive_summary=cause,
+                             cause_in_plain_words=cause)
 
 
 def _it_has_been_running_for(expected: int) -> Assertion[LiveIncident]:
@@ -537,6 +698,18 @@ def _the_flag_moves_shown_are(expected: list[tuple[str, str]]) -> Assertion[Stor
 
         if shown != expected:
             raise AssertionError(f"Expected the moves {expected}, got {shown}")
+
+        return True
+
+    return assertion
+
+
+def _the_flag_moves_were_made(expected: list[str]) -> Assertion[Story]:
+    def assertion(story: Story) -> bool:
+        made = [row.when for row in story.flag_changes]
+
+        if made != expected:
+            raise AssertionError(f"Expected the flag moves said made at {expected}, got {made}.")
 
         return True
 

@@ -43,7 +43,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager, suppress
 from types import TracebackType
@@ -54,11 +54,19 @@ import uvicorn
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, ContentBlock, TextContent
+from mcp.types import (
+    CallToolResult,
+    ContentBlock,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
 from opentelemetry import context, metrics, propagate, trace
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
 
+from argus_core.fencing import Holding, RunLost
 from argus_core.models.undo_descriptor import UndoDescriptor, parse_undo_descriptor
 from argus_core.telemetry import (
     ERROR_TYPE,
@@ -74,6 +82,9 @@ from argus_core.telemetry import (
 )
 
 logger = logging.getLogger(__name__)
+
+# MCP's method for listing a server's tools, as a refusal names what was asked.
+_TOOLS_LIST_METHOD: Final = "tools/list"
 
 # Reading the clock a call's duration is measured on, so a test can hand over
 # one that reads exactly what it says.
@@ -122,6 +133,32 @@ UNREACHABLE_PLATFORM_MARKER: Final = "argus:platform-unreachable"
 # to be encoded around.
 LEFT_BEHIND_MARKER: Final = "argus:left-behind="
 
+# What a write tool puts in an ordinary refusal to say the refusal is the tier's own
+# and says the whole of what it left behind - nothing, where no descriptor
+# follows. Its own token because the absence of it means something too: a tool
+# that raised for a reason nobody foresaw, or a change request whose answer was
+# lost, has said nothing about the estate, and is not to be read as having said
+# it was untouched. The two markers above promise it already, so neither needs
+# this beside it.
+LEFT_BEHIND_KNOWN_MARKER: Final = "argus:left-behind-known"
+
+# What a write tool puts at the front of a refusal of a change asked for by a
+# claim the run has moved past (`argus_core.fencing`). Its own token, because it
+# means something no other refusal does: the caller's walk is somebody else's
+# now, and the caller is to stop rather than try anything else.
+RUN_LOST_MARKER: Final = "argus:run-lost"
+
+# What the MCP SDK's own server puts in front of the words of a tool that raised
+# (`mcp.server.fastmcp.tools.base.Tool.run`), the tool's name in it. The words
+# after it are the tool's.
+FASTMCP_TOOL_ERROR: Final = "Error executing tool {name}: "
+
+# Where in a call's `_meta` the claim it is made for is said, as `Fence.spoken`
+# says it. In `_meta` rather than a header for the trace's reason: the session
+# is held, and its headers were fixed before any run was claimed. Prefixed with
+# the project's name, as MCP asks of a key that is not its own.
+FENCE_META_KEY: Final = "argus/fence"
+
 
 class McpToolError(RuntimeError):
     """A tool was reached, and it reported a failure.
@@ -129,7 +166,27 @@ class McpToolError(RuntimeError):
     Its own type because the retry is built on the distinction: a server that
     said no has been reached, and a second session would carry the same answer.
     Every other failure means the connection, not the answer.
+
+    It carries what the failure left behind, as far as the tool said. A write
+    tool can refuse after it has changed something - a suspension that landed
+    before the action's own write was refused - and that change is recorded
+    nowhere but here. `undo_descriptor` is what the tool said it left, `None`
+    where it said nothing; `left_behind_known` is whether the tool said that is
+    all of it. The two are apart because they come apart: a change request
+    whose answer was lost after an earlier one landed carries the earlier one,
+    and nothing may say the estate holds no more than that.
+
+    `left_behind_known` is false unless something said otherwise, which is the
+    point of having it: a failure nobody accounted for is not one that changed
+    nothing.
     """
+
+    def __init__(self, said: str,
+                 undo_descriptor: UndoDescriptor | None = None,
+                 left_behind_known: bool = False) -> None:
+        super().__init__(said)
+        self.undo_descriptor = undo_descriptor
+        self.left_behind_known = left_behind_known
 
 
 class ActionExhausted(McpToolError):
@@ -151,7 +208,13 @@ class ActionExhausted(McpToolError):
     Recognised here rather than in the tier's own client, because this is the
     point where `isError` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
+
+    What it left behind is known, and is nothing: the marker is only ever
+    applied to a refusal raised before anything was touched.
     """
+
+    def __init__(self, said: str) -> None:
+        super().__init__(said, undo_descriptor=None, left_behind_known=True)
 
 
 class PlatformUnreachable(McpToolError):
@@ -202,12 +265,15 @@ class PlatformUnreachable(McpToolError):
     Recognised here rather than in the tier's own client, because this is the
     point where `isError` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
+
+    What it left behind is known, whatever it carries: a marked failure says
+    what it left, and one that may have changed more is not marked at all
+    (`an_unreachable_platform`).
     """
 
     def __init__(self, said: str,
                  undo_descriptor: UndoDescriptor | None = None) -> None:
-        super().__init__(said)
-        self.undo_descriptor = undo_descriptor
+        super().__init__(said, undo_descriptor=undo_descriptor, left_behind_known=True)
 
 
 class McpUnreachable(RuntimeError):
@@ -259,15 +325,53 @@ def an_unreachable_platform(platform: str, said: str,
     the reason `PlatformUnreachable` gives: what a caller branches on comes from
     the action's kind, and this is what a person reads.
     """
-    marked = f"{UNREACHABLE_PLATFORM_MARKER} {platform} {said}"
+    return with_what_it_left(f"{UNREACHABLE_PLATFORM_MARKER} {platform} {said}",
+                             undo_descriptor)
 
-    if undo_descriptor is None:
-        return marked
 
-    return (
-        f"{marked} {LEFT_BEHIND_MARKER}"
-        f"{undo_descriptor.model_dump_json()}"
-    )
+def a_refusal_saying_what_it_left(said: str,
+                                  left_behind: UndoDescriptor | None = None) -> str:
+    """`said`, marked as a refusal that says the whole of what it left behind.
+
+    For a write tool's own refusal where it can say so: one raised before any
+    change was asked for, which left nothing, and one at a change request the
+    platform answered it did not handle, which left what the earlier calls
+    answered for. Not for a change request whose answer was lost - that one may
+    have changed more, and `with_what_it_left` carries what it knows without
+    saying it is all.
+
+    The marker goes first and the descriptor last, for `what_was_left_behind`:
+    the descriptor runs to the end of the message.
+    """
+    return with_what_it_left(f"{LEFT_BEHIND_KNOWN_MARKER} {said}", left_behind)
+
+
+def with_what_it_left(said: str, left_behind: UndoDescriptor | None) -> str:
+    """`said`, carrying what a failure left behind where it left anything, and
+    saying nothing about whether that is all of it.
+
+    The spelling every marked failure carries its descriptor in, and the whole
+    of what an unmarked one says: a change request whose answer was lost after
+    an earlier change landed has that change to report, and no more it can
+    vouch for. Appended last, because nothing may follow the descriptor.
+    """
+    if left_behind is None:
+        return said
+
+    return f"{said} {LEFT_BEHIND_MARKER}{left_behind.model_dump_json()}"
+
+
+def a_lost_run(said: str) -> str:
+    """`said`, marked so a caller recognises a change refused for a lost run.
+
+    For a write tier to wrap the words of a refusal it raises *before changing
+    anything*, when the claim the call was made for is one the run has moved
+    past. Only then: a call that named no run, or one whose run could not be
+    asked after, is an ordinary refusal that says it left nothing - neither says
+    the run was lost, and a walk told it was would stop where it should have
+    reached a human.
+    """
+    return f"{RUN_LOST_MARKER} {said}"
 
 
 def what_was_left_behind(spoken: str) -> UndoDescriptor | None:
@@ -280,8 +384,8 @@ def what_was_left_behind(spoken: str) -> UndoDescriptor | None:
     The descriptor runs to the end of the message, because JSON is not
     self-terminating in a way a split can find: an object with a space inside it
     would be cut in half by taking the first word. Nothing follows it, which is
-    what makes that safe, and what `an_unreachable_platform` guarantees by
-    appending it last.
+    what makes that safe, and what `with_what_it_left` guarantees by appending it
+    last.
 
     A payload that will not parse is treated as no payload rather than raised on.
     What is in hand at this point is already a failure, and replacing a caller's
@@ -309,6 +413,18 @@ def _the_words_of(result: CallToolResult) -> str:
     return " ".join(
         block.text for block in result.content if isinstance(block, TextContent)
     )
+
+
+def _the_tools_own_words(name: str, spoken: str) -> str:
+    """What a tool that failed said, without what its server put in front of it.
+
+    A tool that raises is answered by the MCP SDK's server with the exception's
+    words behind `FASTMCP_TOOL_ERROR`; a tool that said nothing is named, so the
+    failure still says whose it was.
+    """
+    own = spoken.removeprefix(FASTMCP_TOOL_ERROR.format(name=name)).strip()
+
+    return own if own else f"[{name}] failed and said nothing"
 
 
 def without_the_payload(said: str) -> str:
@@ -345,14 +461,21 @@ class McpClient:
     client's loop: the loop's thread has no idea which agent asked, and a span
     opened there would start a trace of its own. `tracer` and `meter` default to
     the process's own, which are no-ops until `argus_telemetry` installs an SDK.
+
+    Each call also says which claim of a run it is made for, where the process
+    `holding` one holds it: the write tier makes a change only for the claim
+    that holds the run. Read as the call is made rather than when the client is
+    built, because one client serves every run its process walks.
     """
 
     def __init__(self,
                  url: str,
                  tracer: Tracer | None = None,
                  meter: Meter | None = None,
-                 clock: Clock = time.monotonic) -> None:
+                 clock: Clock = time.monotonic,
+                 holding: Holding | None = None) -> None:
         self._url = url
+        self._holding = holding
         self._tracer = tracer if tracer is not None else trace.get_tracer(_SCOPE)
         measured_by = meter if meter is not None else metrics.get_meter(_SCOPE)
         self._duration = measured_by.create_histogram(
@@ -415,14 +538,29 @@ class McpClient:
 
         return returns(answer)
 
+    def list_tools(self) -> list[Tool]:
+        """Every tool the server serves, as it declares them, in its own order.
+
+        The server owns a tool's definition (MCP, `tools/list`) and a caller
+        offers what it declares rather than keeping a copy. Every tool, as
+        declared: which of them anybody offers a model, and whether one can be,
+        is the offer's to decide - a server may serve a tool no offer could
+        carry, and reading it into one here would make the whole list
+        unreadable. Every page is read; a list stopped at its first is a part
+        of what is served.
+        """
+        return asyncio.run_coroutine_threadsafe(
+            self._listed(), self._running_loop()
+        ).result()
+
     @contextmanager
     def _a_tool_call(self, name: str) -> Iterator[dict[str, Any]]:
         """One call's span and duration, and the `_meta` that carries it across.
 
         Yields the carrier the span's context was injected into, which is what
-        the call sends - so a server reading it answers inside this span. A
-        failure is said on the span and in the measurement, then raised on as
-        it was.
+        the call sends - so a server reading it answers inside this span - and
+        the claim held now, where one is. A failure is said on the span and in
+        the measurement, then raised on as it was.
         """
         measured: dict[str, str] = {
             MCP_METHOD_NAME: MCP_TOOLS_CALL_METHOD,
@@ -442,6 +580,11 @@ class McpClient:
         ) as span:
             carrier: dict[str, Any] = {}
             propagate.inject(carrier)
+            held = self._holding.current() if self._holding is not None else None
+
+            if held is not None:
+                carrier[FENCE_META_KEY] = held.spoken()
+
             started_at = self._clock()
 
             try:
@@ -561,7 +704,7 @@ class McpClient:
             try:
                 async with (
                     streamable_http_client(self._url) as (read, write, _),
-                    ClientSession(read, write) as session,
+                    ClientSession(read, write) as session
                 ):
                     await session.initialize()
                     await self._publish(session, None)
@@ -618,14 +761,15 @@ class McpClient:
         """One tool call, and the one retry a held session needs.
 
         The retry is about the connection and nothing else. A tool that reported
-        an error was reached, so it is raised as it came; anything else means the
+        an error was reached, so it is raised as it came - a lost run among them,
+        which is lost over every session there is; anything else means the
         session this call was made over is no longer one - which is what a
         restarted server or an idle timeout looks like from here - and the answer
         is a new session rather than a failed incident.
         """
         try:
             return await self._ask(name, arguments, meta)
-        except McpToolError:
+        except (McpToolError, RunLost):
             raise
         except Exception:
             logger.warning("tool call asked again over a new session", exc_info=True,
@@ -638,6 +782,35 @@ class McpClient:
                    arguments: dict[str, object],
                    meta: dict[str, Any]) -> object:
         """Calls the tool over whatever session is currently published."""
+        session = await self._the_session_for(name)
+
+        return _answered(name, await session.call_tool(name, arguments=arguments, meta=meta))
+
+    async def _listed(self) -> list[Tool]:
+        """Every tool listed, and the one retry a held session needs - for
+        `_asked_again_if_the_connection_failed`'s reason."""
+        try:
+            return await self._every_tool_listed_now()
+        except McpUnreachable:
+            raise
+        except Exception:
+            logger.warning("tools listed again over a new session", exc_info=True,
+                           extra={"url": self._url})
+            await self._rebuilt()
+            return await self._every_tool_listed_now()
+
+    async def _every_tool_listed_now(self) -> list[Tool]:
+        """Every tool listed over whatever session is currently published."""
+        session = await self._the_session_for(_TOOLS_LIST_METHOD)
+
+        return await every_tool_listed(
+            lambda cursor: session.list_tools(
+                params=PaginatedRequestParams(cursor=cursor) if cursor else None
+            )
+        )
+
+    async def _the_session_for(self, asking: str) -> ClientSession:
+        """The session currently published, once there is one to use."""
         async with self._cycled:
             await self._cycled.wait_for(
                 lambda: self._generation > 0 or self._closing
@@ -646,13 +819,13 @@ class McpClient:
 
         if self._closing:
             raise McpUnreachable(
-                f"the client for [{self._url}] closed while [{name}] was in flight"
+                f"the client for [{self._url}] closed while [{asking}] was in flight"
             )
 
         if session is None:
             raise McpUnreachable(f"no session to [{self._url}]") from failure
 
-        return _answered(name, await session.call_tool(name, arguments=arguments, meta=meta))
+        return session
 
     async def _rebuilt(self) -> None:
         """Asks the holder for a new session and waits until it has one.
@@ -677,16 +850,43 @@ class McpClient:
             )
 
 
+async def every_tool_listed(
+    page: Callable[[str | None], Awaitable[ListToolsResult]]
+) -> list[Tool]:
+    """Every tool a server lists, page after page, in the order it lists them.
+
+    MCP pages `tools/list`: an answer naming a next cursor has more to come,
+    and `page` is asked for the page after it until one names none.
+    """
+    listed: list[Tool] = []
+    cursor: str | None = None
+
+    while True:
+        answered = await page(cursor)
+        listed.extend(answered.tools)
+        cursor = answered.nextCursor
+
+        if not cursor:
+            return listed
+
+
 def _answered(name: str, result: CallToolResult) -> object:
-    """What the tool said, unwrapped, or the error it reported instead."""
+    """What the tool said, unwrapped, or the error it reported instead.
+
+    An error is raised saying what the tool said and nothing else, because a
+    person reads it - in an escalation's reason, the timeline, the postmortem
+    and a Slack line - and the content blocks it arrived in are this
+    transport's business. The markers are looked for in the same words, and a
+    descriptor is read out of them: one reading of one string.
+    """
     if result.isError:
-        said = f"MCP tool call [{name}] failed: {result.content!r}"
-        # What the tool said, rather than how the line above displays it. The
-        # two differ by a `repr`, which escapes the quotes inside a payload and
-        # would have a descriptor carrying an apostrophe arrive as something
-        # that is no longer JSON. The markers are looked for here for the same
-        # reason: one reading of one string, not one of each.
         spoken = _the_words_of(result)
+        said = _the_tools_own_words(name, spoken)
+
+        # The walk's own exception rather than a kind of tool error, because
+        # what it means is not about the tool: the walk is to stop.
+        if RUN_LOST_MARKER in spoken:
+            raise RunLost(said)
 
         if EXHAUSTED_ACTION_MARKER in spoken:
             raise ActionExhausted(said)
@@ -694,7 +894,11 @@ def _answered(name: str, result: CallToolResult) -> object:
         if UNREACHABLE_PLATFORM_MARKER in spoken:
             raise PlatformUnreachable(said, what_was_left_behind(spoken))
 
-        raise McpToolError(said)
+        # Any refusal may carry what it left, the unmarked ones too: a change
+        # request whose answer was lost still reports the suspension before it.
+        raise McpToolError(said,
+                           undo_descriptor=what_was_left_behind(spoken),
+                           left_behind_known=LEFT_BEHIND_KNOWN_MARKER in spoken)
 
     structured = result.structuredContent
 
@@ -774,7 +978,20 @@ class TracedFastMCP(FastMCP):
         meta = request.meta.model_dump() if request.meta is not None else None
 
         with serving_a_tool_call(name, meta):
-            return await super().call_tool(name, arguments)
+            return await self.answer(name, arguments, meta)
+
+    async def answer(self,
+                     name: str,
+                     arguments: dict[str, Any],
+                     meta: Mapping[str, Any] | None) -> Sequence[ContentBlock] | dict[str, Any]:
+        """What a call is answered with, inside its span: the tool's own answer.
+
+        The one place a server built from this decides more about a call than
+        FastMCP does, so that whatever it refuses is refused inside the caller's
+        trace - and said there, as any tool that raised is. `meta` is the
+        request's `_meta`, already read.
+        """
+        return await super().call_tool(name, arguments)
 
     def serve(self, run: Callable[..., None] = uvicorn.run) -> None:
         """Serves this server over streamable HTTP until the process is stopped.

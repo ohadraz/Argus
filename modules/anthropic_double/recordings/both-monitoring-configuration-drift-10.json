@@ -1,0 +1,158 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_019JgtjJQpkH4yHvjmZisnjX",
+      "input": {
+        "action_items": [
+          {
+            "answers": [],
+            "item": "Deploy a revision that carries the corrected deploy/scrape.yaml selecting `http-metrics`. Revision c3c36da's own scrape.yaml still selects `metrics`, and PR #358 was written against main, so the change has to be on the branch that actually deploys.",
+            "type": "mitigate"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Run the port-name agreement test proposed in PR #358 as a required pre-merge check on every change under deploy/.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Add an alert or rollout gate that fires when io-shop's ServiceMonitor resolves to no scrape targets.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Route MetricsAbsent on io-shop to the on-call rotation so that a person is paged when it fires.",
+            "type": "process"
+          },
+          {
+            "answers": [],
+            "item": "Check the scrape configurations of other services that adopted the estate-wide `<protocol>[-<purpose>]` port naming for selectors that still use old port names.",
+            "type": "prevent"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T5",
+              "G46bc",
+              "Gbac1",
+              "Gad41"
+            ],
+            "ruled_out": [],
+            "step": "Nobody using the shop saw anything wrong. What was seen instead was that the shop's metrics stopped after the minute at {T5.2} and no samples arrived after that, which raised MetricsAbsent."
+          },
+          {
+            "cites": [
+              "S1",
+              "S2"
+            ],
+            "ruled_out": [],
+            "step": "The metrics stopped because the scrape found no target. The ServiceMonitor that ran picks the endpoint to scrape by the port name `metrics`, but the running values file names the metrics port `http-metrics`. The ServiceMonitor's own header says that a name matching no port is not an error to the operator but a target list with nothing in it."
+          },
+          {
+            "cites": [
+              "P2",
+              "D1",
+              "T13",
+              "S1"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "P1",
+                  "T5",
+                  "T6"
+                ],
+                "what": "The earlier deploy of revision 2c8f7311966cf37dee314695fe0060867e1ca954 at {P1.1}: the shop's metrics were still being collected with it in place, up to the minute at {T5.2}."
+              },
+              {
+                "cites": [
+                  "T16"
+                ],
+                "what": "A feature-flag change: the flag provider showed {T16.2} flag changes by anyone but Argus in the {T16.3} hour before {T16.4}, and no flags came back when read."
+              }
+            ],
+            "step": "No port was named `metrics` because the deploy of revision c3c36da at {P2.1} changed the metrics port's portName from `metrics` to `http-metrics` (and the web and admin ports to `http` and `http-admin`) in deploy/values-production.yaml only. The diff shows no change to deploy/scrape.yaml, so the scrape kept selecting the old name. As of {T13.1}, every replica was running revision c3c36da."
+          }
+        ],
+        "cause_in_plain_words": "A configuration change renamed the port the shop publishes its measurements on, but the monitoring system still looked for the old name, so it stopped finding the shop and stopped collecting its measurements.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-1"
+            ],
+            "factor": "Nothing checks that the port name the ServiceMonitor selects matches `metrics.portName` in the values file; the scrape configuration says so itself. No check of the two files against each other was seen on the change that renamed the port.",
+            "had_it_been_otherwise": "A rename that touched only the values file would have been caught before it shipped, and the scrape would have kept finding its target.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "A scrape whose target list is empty is not reported as an error to the operator. The fault was found only when the MetricsAbsent alert saw the series go missing.",
+            "had_it_been_otherwise": "The empty target list would have been flagged when the rollout happened, instead of only after the series had been missing for the alert's window.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "MetricsAbsent on io-shop was not linked to any on-call incident, so nobody was paged.",
+            "had_it_been_otherwise": "A person would have been told as soon as the alert fired and could have made the scrape-configuration change that Argus would not make, shortening the time without metrics.",
+            "label": "CF-3"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            "Argus confirmed that every replica was running revision c3c36da {T13.1 - alert_raised} after the alert was raised, and it had already read that revision's diff, which shows the metrics port rename.",
+            "Argus declined to roll back a change that was made on purpose to test the leading candidate, rather than undoing a deliberate platform-wide rename.",
+            "Code-Fix opened draft PR #358 {T20.1 - alert_raised} after the alert was raised, proposing a change to deploy/scrape.yaml and a new test."
+          ],
+          "went_wrong": [
+            "Code-Fix read main, which does not contain the running revision c3c36da, so its proposal was written against a revision other than the one that ran. The same change is needed on whichever branch deploys."
+          ]
+        },
+        "logs_show_serving_as_before": true,
+        "reaches_a_cause": true,
+        "root_cause": "The deploy renamed the metrics port in deploy/values-production.yaml from `metrics` to `http-metrics` to follow the platform's `<protocol>[-<purpose>]` naming convention. The ServiceMonitor in deploy/scrape.yaml that ran with it still picks its scrape endpoint by the port name `metrics`. Because no port has that name any more, Prometheus's target list for the shop is empty, and that is not reported as an error, so no samples are collected.",
+        "still_at_risk": "The running scrape configuration still looked for a port name that no port in the running deployment had, so the shop's metrics would stay uncollected, and any real trouble in the shop would not show in them or in the alerts built on them.",
+        "symptom": "Nobody using the shop saw anything wrong; the shop's metrics stopped arriving"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgQgqQs1T7aM6boHF6jcc",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2365
+    },
+    "cache_creation_input_tokens": 2365,
+    "cache_read_input_tokens": 11389,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 2274,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

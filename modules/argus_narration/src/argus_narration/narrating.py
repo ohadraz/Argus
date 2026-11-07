@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import assert_never
+from typing import Final, assert_never
 
 from argus_core import to_iso
 from argus_core.events import (
@@ -32,6 +32,7 @@ from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     AwaitingRecovery,
     CandidateSelected,
     CandidatesReordered,
@@ -62,30 +63,36 @@ from argus_core.events import (
     ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
+    RolloutRead,
+    ServiceRegisterRead,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
     WithdrawalOffered,
 )
 from argus_core.models import (
+    RULE_READING_FIELD,
     ActionType,
     Actor,
     ChangeEvent,
+    DeploymentComparison,
     FixOutcome,
     FlagChange,
     IncidentStatus,
     Meaning,
     PodPlacement,
+    RecalledIncident,
     RecordedPlacement,
     Reference,
-    Refusal,
     ReportChannel,
     RetrievalChannel,
-    Undone,
+    RolloutAccount,
+    Verdict,
+    why_it_was_refused,
 )
 from pydantic import BaseModel, Field
 
-from argus_narration.clock import a_minute, a_moment, a_window
+from argus_narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window
 from argus_narration.findings import Finding, a_finding
 from argus_narration.flags import on_or_off, said_as_a_state
 from argus_narration.logs import LogLine, a_log_line
@@ -107,6 +114,27 @@ _INTENT = "Intent Agent"
 # been handed a chore rather than a person.
 _A_PERSON = "A person"
 
+# Why an alarm was closed as disproven, said wherever the ending is - the move's
+# own line, the channel's announcement and the postmortem's head - in one set of
+# words, so a reader matching them reads one finding rather than two.
+THE_CLAIM_WAS_NOT_IN_THE_WINDOW: Final = "the alarm's own claim was not in the window"
+
+# Each signal a window is judged on, by the heading of its column in the walk
+# page's metrics table (`argus_web`'s `evidence.html`). The rule's series as a
+# noun a sentence can end on, where the column heading drops the article.
+_A_SIGNAL_AS_THE_TABLE_HEADS_IT: Final[dict[str, str]] = {
+    "error_rate": "errors",
+    "p50_ms": "p50",
+    "p95_ms": "p95",
+    "p99_ms": "p99",
+    "memory_used_bytes": "memory",
+    RULE_READING_FIELD: "the alert rule's series"
+}
+
+# How what Code-Fix said of the code is introduced beside its line: a static
+# reading, which no test or run confirmed, and Code-Fix's rather than Argus's.
+_A_READING_NOTHING_RAN = "Code-Fix's reading of the code, which nothing ran"
+
 _AGENTS = {
     Actor.ORCHESTRATOR: _ARGUS,
     Actor.INVESTIGATOR: _INVESTIGATOR,
@@ -116,58 +144,14 @@ _AGENTS = {
     Actor.POSTMORTEM: _POSTMORTEM
 }
 
-# Why the gate would not let an action through, in a reader's words. Derived
-# from the value rather than stored beside it: two sentences that must agree
-# with one enum is one of them eventually disagreeing.
-_WHY_IT_WAS_REFUSED = {
-    Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed",
-    # Said as what it is rather than as an absence. This one is Argus having
-    # understood the incident and having nothing that reaches it - a reader who
-    # took it for a thin investigation would go looking for evidence instead of
-    # for whoever can call the third party.
-    Refusal.NOTHING_ANSWERS_THIS_MODE: "nothing Argus can do answers this kind "
-                                       "of failure",
-    Refusal.NOT_A_GENERIC_MITIGATION: "is not a mitigation Argus may take unasked",
-    # The cap, said as the count it is rather than as a failure. A reader who
-    # took this for something going wrong would look for a fault; what happened
-    # is a control working.
-    Refusal.ALREADY_TRIED_ENOUGH: "has already been tried on this subject as "
-                                  "often as this incident allows",
-    # Said as the estate rather than as the action, because that is the half
-    # somebody can correct. The kind was fine and the address was not, and a
-    # reader who read this as "Argus may not do that" would go looking at the
-    # declared set instead of at the service register.
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH: "is addressed to a service outside "
-                                          "the estate Argus may act on",
-    # Said as what nobody could find out rather than as what Argus declined,
-    # because the action is not what was wrong with it. A reader who took this
-    # for Argus doubting the diagnosis would go looking for better evidence of
-    # the cause; what is missing is evidence of the *outcome*, which no amount
-    # of investigating supplies. The action still stands, and somebody has to
-    # take it.
-    Refusal.NOTHING_COULD_CONFIRM_IT: "is sound, and nothing would have said "
-                                      "whether it worked inside the time Argus "
-                                      "waits - so it is recommended rather than "
-                                      "taken"
-}
-
-# The reasons said of the action rather than of the investigation. Each opens
-# on its verb, so the line gives it its subject; the other two carry their own.
-_SAID_OF_THE_ACTION = frozenset({
-    Refusal.NOT_A_GENERIC_MITIGATION,
-    Refusal.ALREADY_TRIED_ENOUGH,
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
-    Refusal.NOTHING_COULD_CONFIRM_IT
-})
-
-
 # What each retrieval channel is, said so that somebody who has never read the
-# spec knows what was asked for. "changes" in particular: it means deploys and
-# releases that landed on the service, not changes Argus made.
+# spec knows what was asked for. "changes" in particular: it means deploys,
+# releases and flag changes that landed on the service, not changes Argus made.
 _CHANNELS = {
     RetrievalChannel.METRICS: "the service's per-minute metrics",
     RetrievalChannel.LOGS: "the service's log lines",
-    RetrievalChannel.CHANGES: "production change events - deploys and releases on the service"
+    RetrievalChannel.CHANGES: ("production change events - deploys, releases and flag changes "
+                               "on the service")
 }
 
 # Where a person's report reached Argus, said as the place a reader would go to
@@ -203,7 +187,9 @@ class CandidateLine(BaseModel):
     # The hypothesis this is, so whatever lays the candidates out elsewhere -
     # the write-up, under labels of its own - can tell which line formed which.
     hypothesis_id: str
-    rank: int
+    # Which candidate of the incident it is (`HypothesisFormed.number`), which
+    # every destination says it by.
+    number: int
     summary: str
     subject: str | None
     confidence: str | None
@@ -213,6 +199,13 @@ class CandidateLine(BaseModel):
     moved_from: str = ""
     moved_to: str = ""
     evidence: list[Finding]
+
+
+class CandidateNamed(BaseModel):
+    """The candidate a line acted for, and the words the line names it in."""
+
+    hypothesis_id: str
+    said_as: str
 
 
 class NarrationLine(BaseModel):
@@ -259,6 +252,22 @@ class NarrationLine(BaseModel):
     # attempt the marked word is the refusal, so a destination that linked
     # whatever a line happened to mark would offer a reader prose to click on.
     names_url: str = ""
+    # The other incident this line is about, where it is about one - so far, the
+    # closest match memory found. Carried as the id rather than as a link, as the
+    # minute is: a destination with a page per incident leads there, and one
+    # without simply reads the sentence.
+    names_incident: str = ""
+    # The candidate this line acted for, where it names one - which hypothesis,
+    # and the words naming it in `text`. Carried so a destination with labels
+    # of its own for the candidates - the write-up's `C3` - can say it by the
+    # label, rather than beside a row going by one name in words of another.
+    names_candidate: CandidateNamed | None = None
+    # A sentence to show under the line rather than in it - so far, what
+    # Code-Fix said of the code where no pull request holds its explanation,
+    # labelled as a reading nothing ran so it is not taken for a plan of
+    # Argus's. Markdown, as Code-Fix wrote it for a pull request's body. Left
+    # out of `said_in_full`: the postmortem carries it already.
+    aside: str = ""
     # Each word of the line as it is shown that opens somewhere, and where - so
     # far, a revision the incident read, said short and leading to its commit.
     # Set where a line is shown (`shown`) and nowhere else: the record and what
@@ -276,13 +285,13 @@ class NarrationLine(BaseModel):
     # endings take it away again.
     offers_to_end_as: IncidentStatus | None = None
     # Whether, after this line, the incident can no longer be resolved -
-    # resolved already, taken back, or found to be no incident. Not the same
+    # resolved already, withdrawn, or found to be no incident. Not the same
     # as an ending: `mitigated` ends Argus's part and still takes a person's
     # resolution, so a destination closing an offer on every ending would take
     # a button away while it could still do what it says.
     leaves_nothing_to_resolve: bool = False
     # Whether, after this line, the incident can no longer be withdrawn - which
-    # is every ending, `mitigated` included: there is no work left to take back
+    # is every ending, `mitigated` included: there is no work left to take over
     # once Argus has stopped. A destination holding an offer to withdraw closes
     # it on this, and one holding an offer to resolve does not.
     leaves_nothing_to_withdraw: bool = False
@@ -299,6 +308,11 @@ class NarrationLine(BaseModel):
     # destination numbering the walk's lines numbers these apart: counted with
     # them, a message written a second earlier renumbers everything after it.
     outside_the_walk: bool = False
+    # Whether the marked part was written in Markdown - so far, a model's answer
+    # to a question from the thread. Said rather than rendered here: each
+    # destination renders it in its own markup, and one that set it apart as a
+    # word would wrap paragraphs and lists in one emphasis.
+    emphasis_is_markdown: bool = False
     # How many identical looks this line stands for. The wait polls every few
     # seconds and says the same thing each time; a dozen rows saying it is
     # noise, and none at all is a page that looks stuck.
@@ -361,6 +375,39 @@ def each_wait_told_once(narration: list[NarrationLine]) -> list[NarrationLine]:
                     and _the_walk_looks_again(narration[position + 1:]))]
 
 
+def said_as_meant(line: NarrationLine, meaning: Meaning, name: str | None) -> NarrationLine:
+    """A person's message said as what it turned out to mean, by the person
+    who wrote it - for a destination telling the incident once it is over.
+
+    Told as it arrived, the line can say only that somebody wrote; what it
+    meant is decided after, and said on a line of its own. A telling written
+    afterwards has both, and a report said as no more than something written
+    reads as one Argus was free to pass over - so the two that end an incident
+    are said as the report and the request they were. Any other meaning is said
+    as written: what came of it is its own line.
+
+    `name` is who the chat platform says wrote it, `None` where it could not
+    say, and then the line keeps the person unnamed.
+    """
+    match meaning:
+        case Meaning.RESOLVE:
+            text = f"Reported the incident resolved in the thread: {line.emphasis}"
+        case Meaning.WITHDRAW:
+            text = f"Asked Argus to stand down in the thread: {line.emphasis}"
+        case Meaning.QUESTION | Meaning.INFORMATION | Meaning.OTHER:
+            return line
+        case _:
+            assert_never(meaning)
+
+    before, marked, after = _set_apart(text, line.emphasis)
+
+    return line.model_copy(update={"who": name or _A_PERSON,
+                                   "text": text,
+                                   "before_emphasis": before,
+                                   "emphasis": marked,
+                                   "after_emphasis": after})
+
+
 def a_narration_line(event: IncidentEvent) -> NarrationLine:
     """One event, said in words, by somebody.
 
@@ -407,11 +454,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # A count where the rows run on, and an absence where they stop. The
             # count is true either way and it describes the wrong thing in the
             # second case: every minute it counts is from before the incident, and
-            # the incident is that there are none after.
+            # the incident is that there are none after. The end is the start
+            # of the last minute read, so said as a minute that was read:
+            # "stop at" it reads as though that minute were missing too. A read
+            # that stopped with no end read no minute, and its count says so.
             text = (
-                f"Read the service's metrics - they stop at {event.window_end} and "
-                f"nothing covers the minutes since"
-                if event.stopped_before_the_alert else
+                f"Read the service's metrics - they stop after the minute at "
+                f"{a_minute(event.window_end, beside=to_iso(event.at))}, and nothing "
+                f"covers the minutes since"
+                if event.stopped_before_the_alert and event.window_end is not None else
                 f"Read back {len(event.buckets)} minutes of metrics"
             )
         case LogsRetrieved():
@@ -424,13 +475,36 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = f"Read back {read} production change{'s' if read != 1 else ''}"
         case DeploymentChangesRead():
             who = _INVESTIGATOR
-            text = f"Read what the deployment of {event.revision} changed"
+            text = _what_a_deployment_read_found(event)
+        case RolloutRead():
+            who = _INVESTIGATOR
+            text = (f"Read how far the deployment had rolled out - "
+                    f"{_how_far_it_rolled_out(event.account, beside=to_iso(event.at))}")
+        case ServiceRegisterRead():
+            who = _INVESTIGATOR
+            # Whose each dependency is, beside its name: a cause resting on one
+            # rests on whose it is, which decided whether anything could be done.
+            text = ("Read the service register - " + (
+                "the service calls " + ", ".join(
+                    f"{dependency.name} ({dependency.ownership}, owned by {dependency.owner})"
+                    for dependency in event.dependencies)
+                if event.dependencies else
+                "it records nothing the service calls"))
         case FlagChangesRetrieved():
-            who = _MITIGATION
-            recent = len(event.changes)
+            # The walk's own read, made every round before any agent is called
+            # in to act on it.
+            # Over the window it was read, and by whom: "none changed lately"
+            # has no span, and the read leaves Argus's own toggles out. An
+            # event written before the window was carried says "recent", as it
+            # always did, rather than a span made up for it.
+            who = _ARGUS
+            read = len(event.changes)
+            changes = f"flag change{'s' if read != 1 else ''}"
             text = (
-                f"Read the flag provider's history - "
-                f"{recent} recent flag change{'s' if recent != 1 else ''}"
+                f"Read the flag provider's history - {read} {changes} by anyone but Argus, "
+                f"{a_window(event.window_start, event.window_end, beside=to_iso(event.at))}"
+                if event.window_start is not None and event.window_end is not None
+                else f"Read the flag provider's history - {read} recent {changes}"
             )
         case ChannelsUnread():
             who = _INVESTIGATOR
@@ -452,6 +526,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                 f"Placed the start of the incident at "
                 f"{a_minute(event.onset, beside=to_iso(event.at))}"
             )
+        case AnchoredOnTheAlarm():
+            who = _INVESTIGATOR
+            # Where it looked from and, in the same breath, that this is not
+            # when it began: said as a start, it dated the incident from the
+            # moment the alarm went off.
+            text = (
+                f"Looked from {a_minute(event.minute, beside=to_iso(event.at))}, the "
+                f"minute the alarm fired in - nothing dates when the incident began"
+            )
         case PlacementRecorded():
             who = _INVESTIGATOR
             emphasis, text = _where_the_replicas_ran(event.placement)
@@ -466,8 +549,13 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                 moved_from, moved_to = on_or_off(not event.enabled), on_or_off(event.enabled)
         case AwaitingRecovery():
             who = _MITIGATION
+            # A blind spot's wait as what it waits for: no level was read while
+            # its minutes were missing, so none is left to be still at.
+            waiting_for = ("its metrics can be read again" if event.until_read_again
+                           else "the service is still at the incident's level")
             text = (
-                f"Waiting for the service to answer, from {a_minute(event.from_minute)} - "
+                f"Waiting to see whether {waiting_for}, "
+                f"from {a_minute(event.from_minute)} - "
                 f"up to {int(event.seconds_allowed)}s"
             )
         case RecoveryChecked():
@@ -491,45 +579,76 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # room should be able to find it without reading the line.
             emphasis = event.outcome.upper()
             text = f"Judged the action {emphasis}"
+            # Nothing was judged: a person ended the incident while the service
+            # was watched, and a verdict in capitals would read as one reached.
+            if event.outcome is Verdict.STOPPED:
+                emphasis = ("Stopped before judging the action" if event.performed
+                            else "Stopped before taking the action")
+                text = f"{emphasis} - a person ended the incident"
+            # Nothing was done either: the attempt ended before its write, so
+            # no line above announced it, and "judged" would claim a test.
+            # Why, in the tier's words, where a tier said: the only reason
+            # this line has for an explanation passed over untested.
+            elif not event.performed:
+                why = (f": {event.not_performed_because}"
+                       if event.not_performed_because else "")
+                text = (f"{_what_was_reached_for_and_not_done(event)}"
+                        f"{_for_its_candidate(event.candidate_number)} - {emphasis}{why}")
+            # Done, and never read: every look at the service went unanswered.
+            elif not event.judged:
+                text = f"Could not judge the action - {emphasis}"
+            # Refuted, and the change put back or left as found: in the undo's
+            # own words, the cleanup line's, since nothing else live says it.
+            # Not an escalated undo's, whose words the move line beside it
+            # already says.
+            elif event.outcome is Verdict.REFUTED and event.undone_detail and event.subject:
+                text = f"Judged the action {emphasis} - {event.subject} {event.undone_detail}"
         case FixAttempted():
             who = _CODEFIX
             emphasis, text = _what_came_of_looking_at_the_code(event)
         case PostmortemWritten():
             who = _POSTMORTEM
             # The cause is marked because it is what a reader scanning a list
-            # of endings is looking for. Where there is none the line still
-            # exists: "a postmortem was written and could not name a cause" is
-            # itself worth reading, and an empty mark simply marks nothing.
-            emphasis = event.root_cause or ""
+            # of endings is looking for - inside the summary, which says it.
+            # Where there is none the line still exists, and an empty mark
+            # simply marks nothing.
+            emphasis = event.cause_in_plain_words or ""
             text = _the_postmortem_in_short(event)
         case CandidateSelected():
             who = _ARGUS
-            # The summary rather than the rank. Which number in the list this
-            # was is a fact about the list; what is being tested now is what
-            # the next few lines are about.
-            emphasis = event.summary
-            text = f"Moving on to {emphasis}"
+            # The number rather than the summary, as every line acting for the
+            # candidate names it. The summary is the Investigator's claims, and
+            # said on Argus's own line they read as what happened; they stay in
+            # the candidate's row, which the number leads to. The number is the
+            # candidate's from when it was formed, so a list added to since
+            # does not move it.
+            text = (f"Moving on to {a_candidate_cause(event.candidate_number)}"
+                    if event.candidate_number is not None else
+                    "Moving on to the next candidate cause")
         case ActionRefused():
             who = _ARGUS
             # The reason, for the same reason a refused message marks its
             # refusal: the two are different findings, and which of them
             # happened is the only part a person can act on.
-            emphasis = _WHY_IT_WAS_REFUSED[event.refusal]
-            subject = "the action " if event.refusal in _SAID_OF_THE_ACTION else ""
-            text = f"Refused to act - {subject}{emphasis}"
+            emphasis = why_it_was_refused(event.refusal)
+            text = (f"Refused to act on {a_candidate_cause(event.candidate_number)} - {emphasis}"
+                    if event.candidate_number is not None else
+                    f"Refused to act - {emphasis}")
         case ActionRecommended():
             who = _ARGUS
             # The subject rather than the kind, because the kind is not
             # something anybody can go and do: "revert a feature flag" is a
             # category, and the flag's name is the instruction.
             emphasis = event.subject or ""
-            # The gerund the demotion line and the tried-and-filed line share,
-            # rather than a third spelling of the same action. This is a third
-            # place the same fact is said - Argus would have done this - and a
-            # reader matching the three should not have to read three tenses.
+            # The gerund the demotion line, the tried-and-filed line and the
+            # recall share, rather than another spelling of the same action.
+            # This is one more place the same fact is said - Argus would have
+            # done this - and a reader matching them should not have to read
+            # two tenses.
             text = (
                 f"Left for a person to do - "
                 f"{what_the_action_does(event.action_type, emphasis)}"
+                f"{_for_its_candidate(event.candidate_number)}"
             )
         case AlarmDisproven():
             who = _ARGUS
@@ -543,12 +662,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # scanning the timeline is the last check there is. A window that
             # holds fewer minutes than its ends suggest is the one a disproof
             # should be doubted over, and that is invisible unless both are said.
+            # Its ends as every other row says a minute, and its signals as the
+            # metrics table beside it heads them.
             text = (
                 f"Nothing in the window matched the alarm's own claim - "
-                f"{emphasis} - across {', '.join(event.signals_judged)}, over "
+                f"{emphasis} - in {_any_of(event.signals_judged)}, over "
                 f"{event.minutes_judged} minute"
                 f"{'' if event.minutes_judged == 1 else 's'} read between "
-                f"{event.earliest_minute} and {event.latest_minute}. "
+                f"{a_minute(event.earliest_minute, beside=event.latest_minute)} and "
+                f"{a_minute(event.latest_minute, beside=event.earliest_minute)}. "
                 f"The rule fired rather than the service failing"
             )
         case MitigationResumed():
@@ -564,7 +686,12 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # it reverses are the same subject a page apart, and a reader
             # matching them up should not have to read two spellings.
             emphasis = event.subject
-            text = f"{emphasis} {_what_became_of_it(event.outcome)} - {event.detail}"
+            # What became of it is the answer's own detail, verb and all: only
+            # the kind of change knows which verb fits - a flag was put back ON,
+            # a write that failed could not be put back, one half done was only
+            # partly put back. A heading of this line's own in front of it said
+            # the outcome twice, and over a failed write said "could not be read".
+            text = f"{emphasis} {event.detail}"
         case SimilarIncidentsRecalled():
             who = _ARGUS
             # How many, marked, rather than the ids. The count is what a reader
@@ -577,11 +704,19 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # Named as the closest match rather than as the head of an order. One
             # match is the ordinary case, and "nearest first" is a claim about a
             # sequence that a single incident does not have.
-            found = len(event.incident_ids)
+            #
+            # With what the closest one tried and what came of each, because
+            # that is what a reader can use: an id alone sends them to look it
+            # up, and an action this incident is about to take again, refuted
+            # there, is a recurrence - the evidence that bears most on whether
+            # the cause it answers is the cause at all. Said in the words the
+            # line that filed it used, so the two read as one fact.
+            found = len(event.recalled)
+            closest = event.recalled[0]
             emphasis = f"{found} earlier incident{'s' if found != 1 else ''}"
             text = (
                 f"Found {emphasis} like this one in memory, the closest match "
-                f"being incident {event.incident_ids[0]}"
+                f"being incident {closest.incident_id}{_what_it_tried(closest)}"
             )
         case CandidatesReordered():
             who = _ARGUS
@@ -593,7 +728,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             emphasis = what_the_action_does(event.action_type, event.subject)
             text = (
                 f"Moved {emphasis} down the list - it was tried on incident "
-                f"{event.on_the_strength_of} and the service did not recover"
+                f"{event.on_the_strength_of} and refuted there"
             )
         case IncidentRemembered():
             who = _ARGUS
@@ -736,6 +871,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         moved_to=moved_to,
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
+        names_incident=_the_incident_it_names(event),
+        names_candidate=_the_candidate_it_names(event, text),
+        aside=_what_it_says_beside_itself(event),
         asks_to_confirm=(event.message
                          if isinstance(event, ResolutionOffered | WithdrawalOffered)
                          else None),
@@ -746,6 +884,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                                     and not event.to_status.accepts_withdrawal()),
         expires_the_offers=isinstance(event, OfferExpired),
         outside_the_walk=_outside_the_walk(event),
+        emphasis_is_markdown=isinstance(event, QuestionAnswered),
         buckets=(
             [a_bucket_row(bucket) for bucket in event.buckets]
             if isinstance(event, MetricsRetrieved)
@@ -764,17 +903,36 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
     )
 
 
+def _what_a_deployment_read_found(event: DeploymentChangesRead) -> str:
+    """A read of what a deployment changed, said as what came back: a diff
+    read, or the fact about the history that stood in for one - for where
+    nothing was compared, "read what it changed" would say a diff was read."""
+    asked = f"Asked what the deployment of {event.revision} changed"
+
+    match event.comparison:
+        case DeploymentComparison.COMPARED:
+            return f"Read what the deployment of {event.revision} changed"
+        case DeploymentComparison.NOTHING_BEFORE_IT:
+            return (f"{asked} - it is the earliest deployment of {event.service} the "
+                    f"history holds, so there was nothing before it to compare it against")
+        case DeploymentComparison.NOT_DEPLOYED:
+            return f"{asked} - no deployment of {event.service} has that revision"
+
+
 def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
-    """One explanation the investigation formed, with what it cited for it."""
+    """One explanation the investigation formed, with what it cited for it -
+    the findings said beside the line's moment, as the summary is."""
+    formed_at = to_iso(event.at)
+
     return CandidateLine(
         hypothesis_id=event.hypothesis_id,
-        rank=event.rank,
-        summary=said_plainly(event.summary, beside=to_iso(event.at)),
+        number=event.number,
+        summary=said_plainly(event.summary, beside=formed_at),
         subject=event.subject,
         confidence=_a_percentage(event.confidence) if event.confidence else None,
         moved_from=said_as_a_state(event.from_state),
         moved_to=said_as_a_state(event.to_state),
-        evidence=[a_finding(cited) for cited in event.evidence]
+        evidence=[a_finding(cited, beside=formed_at) for cited in event.evidence]
     )
 
 
@@ -843,6 +1001,47 @@ def what_was_done(action_type: ActionType, subject: str) -> str:
     return f"{_an_action_said(action_type)} {subject}"
 
 
+def what_was_not_done(action_type: ActionType, subject: str) -> str:
+    """An action Argus reached for and never performed, said as not done.
+
+    The words `what_was_done` uses, negated, so the attempt and the change it
+    would have been read as one action. Never the past tense on its own: an
+    attempt that ended before its write - a platform that did not answer, an
+    action with nowhere left to go - said as "Rolled back" tells a reader the
+    service was changed when nothing was.
+    """
+    return f"{_an_action_not_said(action_type)} {subject}"
+
+
+def what_to_do(action_type: ActionType, subject: str) -> str:
+    """An action left for a person, said as the instruction an action item is.
+
+    The verb `what_the_action_does` uses, so the item and the line that left
+    it read as one action; but told rather than named, since the list it sits
+    in says everything else as something to do - "Review and merge the
+    proposed fix" - and a gerund there reads as a phrase left unfinished.
+
+    Exhaustive on the tag, with no fallback, for the reason that one is.
+    """
+    match action_type:
+        case "revert-feature-flag":
+            return f"Revert {subject}"
+        case "restart-service":
+            return f"Restart {subject}"
+        case "roll-back-deployment":
+            return f"Roll {subject} back"
+        case "scale-out":
+            return f"Scale {subject} out"
+        case "pin-autoscaler":
+            return f"Hold {subject}'s autoscaler still"
+        case "discard-cache-entries":
+            return f"Discard {subject}'s stale cached figures"
+        case "pin-to-accelerator":
+            return f"Hold {subject}'s pods to one accelerator card"
+
+    assert_never(action_type)
+
+
 def said_in_full(line: NarrationLine) -> str:
     """One line as a single sentence, for a destination with no page around it.
 
@@ -900,11 +1099,12 @@ def _the_ending_offered_by(event: IncidentEvent) -> IncidentStatus | None:
 def _the_minute_it_names(event: IncidentEvent) -> str:
     """The one minute a line is about, where it is about one.
 
-    Two events name one: the onset names where the incident began, and a look
-    that found the service back names where it ended. Both are a single minute
-    picked out of a window of ninety, which is what a destination with a table
-    of minutes anchors on, and neither is reachable from the prose - the
-    sentence says `10:13` where the table is keyed by the whole instant.
+    Three events name one: the onset names where the incident began, the anchor
+    where the investigation looked from when nothing dated it, and a look that
+    found the service back names where it ended. Each is a single minute picked
+    out of a window of ninety, which is what a destination with a table of
+    minutes anchors on, and none is reachable from the prose - the sentence says
+    `10:13` where the table is keyed by the whole instant.
 
     A look that is still waiting names none, and a confirmation nothing could
     date names none either: the field is the minute this line is *about*, and a
@@ -913,10 +1113,45 @@ def _the_minute_it_names(event: IncidentEvent) -> str:
     if isinstance(event, OnsetDetected):
         return event.onset
 
+    if isinstance(event, AnchoredOnTheAlarm):
+        return event.minute
+
     if isinstance(event, RecoveryChecked) and event.recovered_minute is not None:
         return event.recovered_minute
 
     return ""
+
+
+def _the_incident_it_names(event: IncidentEvent) -> str:
+    """The one other incident a line is about, where it is about one.
+
+    So far the closest match memory found: the record the line after it may
+    move a candidate on the strength of, and named by a whole id - a name a
+    reader can only use where a destination leads them to it.
+    """
+    if isinstance(event, SimilarIncidentsRecalled):
+        return event.recalled[0].incident_id
+
+    return ""
+
+
+def _what_it_tried(recalled: RecalledIncident) -> str:
+    """What an incident memory found tried, and what each came to - ", which
+    tried reverting checkout (refuted)" - or nothing where it tried nothing.
+
+    Each action as `what_the_action_does` says it, the gerund the line filing
+    it used; each verdict as the record has it, which is only ever one that was
+    reached."""
+    if not recalled.tried:
+        return ""
+
+    said = ", ".join(
+        f"{what_the_action_does(attempt.identity.action_type, attempt.identity.subject)} "
+        f"({attempt.verdict.value})"
+        for attempt in recalled.tried
+    )
+
+    return f", which tried {said}"
 
 
 def _what_the_look_settled(event: RecoveryChecked) -> str:
@@ -932,7 +1167,21 @@ def _what_the_look_settled(event: RecoveryChecked) -> str:
     service back to normal, which is a different question and is not asked here:
     a fix landing mid-minute leaves that minute off the incident's level and still
     outside the range the service keeps when nothing is wrong.
+
+    A look with no minute since the change to judge says that rather than a
+    level: nothing was measured, so neither answer is.
+
+    Nor a level where the look found a blind spot's minutes published again:
+    no level was read while they were missing, so none was left, and what came
+    back is the metrics themselves.
     """
+    if event.saw_no_minute:
+        return "no new minute read yet"
+
+    if event.read_again:
+        return ("its metrics could be read again" if event.recovered_minute is None
+                else f"its metrics could be read again from {a_minute(event.recovered_minute)}")
+
     if not event.recovered:
         return "still at the incident's level"
 
@@ -940,6 +1189,45 @@ def _what_the_look_settled(event: RecoveryChecked) -> str:
         return "no longer at the incident's level"
 
     return f"no longer at the incident's level since {a_minute(event.recovered_minute)}"
+
+
+def _how_far_it_rolled_out(account: RolloutAccount, beside: str) -> str:
+    """A rollout said from the read tier's value: how many replicas run which
+    revision, and whether the update is paused - described, never judged,
+    since a rollout part way through is the ordinary state of every deployment
+    for a minute or two.
+
+    A revision the history does not hold is said not to be named, rather than
+    left out: a split said with one subject reads as no split at all."""
+    progress = account.progress
+    serving = progress.replicas_serving
+
+    if progress.has_converged:
+        every = "its 1 replica runs" if serving == 1 else f"all {serving} replicas run"
+        if account.going_out is None:
+            return f"{every} one revision, which the history does not name"
+
+        return (f"{every} revision {account.going_out.reference}, "
+                f"deployed at {a_moment(account.going_out.occurred_at, beside=beside)}")
+
+    updated = progress.replicas_updated
+    going_out = (f"revision {account.going_out.reference}, deployed at "
+                 f"{a_moment(account.going_out.occurred_at, beside=beside)},"
+                 if account.going_out is not None
+                 else "a revision the history does not name")
+    before_it = (f"revision {account.before_it.reference}" if account.before_it is not None
+                 else "an earlier revision the history does not name")
+    # The size where the update runs more or fewer than it: the count serving
+    # alone reads as the fleet the rollout finishes with.
+    sized = (f", of a deployment sized for {progress.replicas_wanted}"
+             if serving != progress.replicas_wanted else "")
+    paused = "; its rolling update is paused" if progress.is_paused else ""
+
+    behind = serving - updated
+
+    return (f"{updated} of {serving} replica{'' if serving == 1 else 's'} "
+            f"run{'s' if updated == 1 else ''} {going_out} and {behind} "
+            f"still run{'s' if behind == 1 else ''} {before_it}{sized}{paused}")
 
 
 def _the_address_it_names(event: IncidentEvent) -> str:
@@ -953,6 +1241,23 @@ def _the_address_it_names(event: IncidentEvent) -> str:
         return event.pull_request.url
 
     return ""
+
+
+def _what_it_says_beside_itself(event: IncidentEvent) -> str:
+    """What Code-Fix said of the code, where no pull request holds it.
+
+    By whether a pull request holds the explanation rather than by a list of
+    outcomes: a proposal's explanation is in the pull request it opened, and
+    every other outcome that carries one - nothing to change, a fix not kept,
+    a model that declined and said why - is the one place a reader learns what
+    would have to change instead.
+    """
+    if (not isinstance(event, FixAttempted)
+            or event.outcome is FixOutcome.PROPOSED
+            or not event.explanation):
+        return ""
+
+    return f"{_A_READING_NOTHING_RAN}: {event.explanation}"
 
 
 def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
@@ -990,40 +1295,35 @@ def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
         case FixOutcome.DECLINED:
             # Neither an outage nor a verdict. Said plainly so that nobody
             # goes looking for something to repair: the model was asked and
-            # said no, and the same question would be declined again.
-            return "", f"The model declined to propose a fix - {event.detail}"
+            # said no, and the same question would be declined again. A
+            # refusal comes with no reason, so there is usually none to add.
+            declined = "The model declined to propose a fix"
+            return "", f"{declined} - {event.detail}" if event.detail else declined
         case FixOutcome.NOT_OPENED:
-            # Neither a proposal nor a verdict: a fix exists, and what else it
-            # needs is the reason it is not on a branch.
-            return "", f"Wrote a fix and did not open it - {event.detail}"
+            # Neither a proposal nor a verdict: a fix was written and none of it
+            # kept, and what else it needs is the reason. Said as not kept: "did not
+            # open it" read as a draft waiting somewhere, and two write-ups asked for
+            # it to be opened.
+            return "", f"Wrote a fix and kept none of it - {event.detail}"
         case unreachable:
             assert_never(unreachable)
 
 
 def _the_postmortem_in_short(event: PostmortemWritten) -> str:
-    """The write-up in the few lines a reader stops at, and no more.
+    """The write-up in the few lines a reader stops at: its summary, and the
+    minutes people spent on it.
 
-    Built from whatever the document managed to say rather than from a fixed
-    shape: a postmortem that named no cause, or was written about an incident
-    nobody recorded hours against, is still a postmortem - and a line reading
-    "root cause: None" would be the account inventing a finding.
-
-    The money is to the penny and labelled with the currency it was measured
-    in. A figure rounded in one place and not in another reads as two
-    different figures, and an unlabelled one reads as whatever the reader's
-    own currency is.
+    The summary and no more of the document: it already says the cause in
+    plain words and what customers lost, as the page says it - and said again
+    beside it, each was said twice, the loss the second time as a final
+    figure where the summary says a floor. A postmortem with no summary is
+    still a postmortem, and the line says it was written and nothing it did
+    not say.
     """
     said = [
-        f"Wrote the postmortem - {event.root_cause}" if event.root_cause
-        else "Wrote the postmortem, naming no cause"
+        f"Wrote the postmortem - {event.executive_summary}" if event.executive_summary
+        else "Wrote the postmortem"
     ]
-
-    if event.executive_summary:
-        said.append(event.executive_summary)
-
-    if event.customer_loss_estimate is not None:
-        currency = f"{event.estimate_currency} " if event.estimate_currency else ""
-        said.append(f"Estimated customer loss {currency}{event.customer_loss_estimate:.2f}")
 
     # Not at zero: nobody paged, or nobody engaged, is no news in a channel.
     if event.engineer_minutes:
@@ -1057,9 +1357,14 @@ def _why_it_moved(event: StatusChanged) -> str:
     detail on that transition is the candidate's summary, and "moved to
     mitigating - <a paragraph about a flag>" reads as though the paragraph were
     the reason for moving rather than the thing being acted on.
+
+    "A candidate" and not which: the move is made once a round, as the walk
+    first reaches for one, and the walk passes over a candidate it has no
+    action for without moving again - so a move naming the leading candidate
+    named one nobody acted on. The action's own line says which it was for.
     """
     if event.to_status is IncidentStatus.MITIGATING:
-        return " to act on the leading candidate"
+        return " to act on a candidate"
 
     return f" - {event.detail}" if event.detail else ""
 
@@ -1126,6 +1431,28 @@ def _an_action_said(action_type: ActionType) -> str:
     assert_never(action_type)
 
 
+def _an_action_not_said(action_type: ActionType) -> str:
+    """An action type as a sentence opens that says it was not done - the
+    verbs `_an_action_said` uses, and exhaustive on the tag for its reason."""
+    match action_type:
+        case "revert-feature-flag":
+            return "Did not revert the feature flag"
+        case "restart-service":
+            return "Did not restart"
+        case "roll-back-deployment":
+            return "Did not roll back the deployment of"
+        case "scale-out":
+            return "Did not scale out the deployment of"
+        case "pin-autoscaler":
+            return "Did not raise the autoscaler floor of"
+        case "discard-cache-entries":
+            return "Did not discard the stale cached figures of"
+        case "pin-to-accelerator":
+            return "Did not hold the pods of"
+
+    assert_never(action_type)
+
+
 def _and_then_some(action_types: Sequence[ActionType]) -> str:
     """The actions a platform carries, said as a list a person reads.
 
@@ -1149,50 +1476,37 @@ def _and_then_some(action_types: Sequence[ActionType]) -> str:
     return f"{', '.join(said[:-1])} and {said[-1]} were"
 
 
-def _what_became_of_it(outcome: Undone) -> str:
-    """What became of one change an incident made, said after the subject.
+def _any_of(signals: Sequence[str]) -> str:
+    """The signals a disproof was judged on, each by the heading of its column
+    in the metrics table, said as a list a person reads.
 
-    Four phrases rather than four shades of "done": a flag left as found is
-    somebody else's now, one nobody could read is a question still open, and
-    figures thrown away were never owed back.
-
-    A match rather than the dictionary this used to be, and the member added to
-    it is the reason. A lookup answers a kind nobody has handled with a
-    `KeyError` at the moment a page is rendered - after the incident, in front
-    of the person reading it, out of the one module whose job is to not be the
-    thing that fails. `assert_never` asks the type checker the same question
-    instead, before anything runs.
+    The table's word rather than the field's: the line and the table sit on one
+    page, and `p95_ms` above a column headed `p95` is one signal said two ways.
+    A signal the table has no column for is said as it arrived, as `clock` says
+    a value that is not a time.
     """
-    match outcome:
-        case Undone.RESTORED:
-            return "was put back"
-        case Undone.LEFT_AS_FOUND:
-            return "was left as found"
-        case Undone.NOT_ESTABLISHED:
-            return "could not be read"
-        case Undone.NO_UNDO_WAS_OWED:
-            # Not "was left alone", which is what an action the gate refused
-            # gets, and not "could not be put back", which says an attempt was
-            # made and failed. Something was done here, and nothing was owed
-            # back for it.
-            return "needed nothing put back"
+    said = [_A_SIGNAL_AS_THE_TABLE_HEADS_IT.get(signal, signal) for signal in signals]
 
-    assert_never(outcome)
+    if len(said) == 1:
+        return said[0]
+
+    return f"{', '.join(said[:-1])} or {said[-1]}"
 
 
 def what_the_action_does(action_type: ActionType, subject: str) -> str:
     """An action named as the thing it does, whenever it was done.
 
     A gerund rather than the past tense `_an_action_said` opens with, and the
-    tense is the reason two lines share this. One is about an action Argus is
-    declining to take again, the other about actions it took and filed: past
+    tense is the reason several lines share this. Among them, one is about an
+    action Argus is declining to take again, one about actions it took and
+    filed, and one about what an earlier incident memory found had tried: past
     tense would make the first say the restart happened on this incident, and
-    the gerund leaves both free to say when in their own words.
+    the gerund leaves each free to say when in its own words.
 
-    It also keeps them saying an action the same way. The line that demotes a
-    candidate and the line that files what was tried are the same fact a
-    record apart, and a reader matching them up should not have to read two
-    spellings.
+    It also keeps them saying an action the same way. The line that files what
+    was tried, the line that recalls it on a later incident and the line that
+    demotes a candidate on the strength of it are the same fact a record apart,
+    and a reader matching them up should not have to read two spellings.
 
     Exhaustive on the tag, and with no fallback, for the reason that one is:
     a kind nobody has written words for rendering as its own identifier reads
@@ -1200,7 +1514,10 @@ def what_the_action_does(action_type: ActionType, subject: str) -> str:
     """
     match action_type:
         case "revert-feature-flag":
-            return f"putting {subject} back"
+            # "Reverting", as the account's own line says "Reverted". "Putting
+            # it back" is what undoing a change is called, and a revert beside
+            # its own undo would read as two of one thing.
+            return f"reverting {subject}"
         case "restart-service":
             return f"restarting {subject}"
         case "roll-back-deployment":
@@ -1228,6 +1545,17 @@ def what_the_action_does(action_type: ActionType, subject: str) -> str:
     assert_never(action_type)
 
 
+def _what_was_reached_for_and_not_done(event: VerdictReached) -> str:
+    """The action an attempt that ended before its write was for, said as not
+    done - or that an action was not taken, where an older event named none."""
+    if event.action_type is None:
+        return "Did not take the action"
+
+    subject = f" {event.subject}" if event.subject else ""
+
+    return f"{_an_action_not_said(event.action_type)}{subject}"
+
+
 def _an_action_taken(event: ActionTaken) -> str:
     """What was done to the service.
 
@@ -1252,8 +1580,37 @@ def _an_action_taken(event: ActionTaken) -> str:
     # placement line above.
     card = f" to {event.accelerator}" if event.accelerator else ""
 
-    return f"{said}{subject}{card}{whose}" \
+    return f"{said}{subject}{card}{whose}{_for_its_candidate(event.candidate_number)}" \
            f"{', moved ' if event.enabled is not None else ''}"
+
+
+def a_candidate_cause(number: int) -> str:
+    """A candidate as every destination names it - the line that formed it,
+    and the lines acting on it. Public because the chat says the formed line
+    itself, and two spellings of one candidate read as two."""
+    return f"candidate cause #{number}"
+
+
+def _the_candidate_it_names(event: IncidentEvent, text: str) -> CandidateNamed | None:
+    """The candidate a line acting for one names, where `text` names it - the
+    move on to it, an action taken or reached for, a refusal, a recommendation."""
+    match event:
+        case (CandidateSelected() | ActionTaken() | VerdictReached() | ActionRefused()
+              | ActionRecommended()):
+            if event.hypothesis_id is None or event.candidate_number is None:
+                return None
+            said_as = a_candidate_cause(event.candidate_number)
+            return (CandidateNamed(hypothesis_id=event.hypothesis_id, said_as=said_as)
+                    if said_as in text else None)
+        case _:
+            return None
+
+
+def _for_its_candidate(number: int | None) -> str:
+    """Which candidate an action was for, said after the action - or nothing,
+    where its event names none. The move to mitigating names none, so this is
+    the one place a reader learns which cause an action answered."""
+    return f" for {a_candidate_cause(number)}" if number is not None else ""
 
 
 def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
@@ -1269,24 +1626,52 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     A placement of no pods is said as that. It is the platform answering, which
     is a different thing from a platform that would not, and said as an empty
     list the line ends on a dash and reads as one that lost what followed it.
+
+    Several pods all on one card, every one serving long before the onset, are
+    said as how many and which card: listed pod by pod the line is a paragraph
+    telling nothing apart, and every destination carries it. So are several on
+    one card all started together well after the onset, with when: the same
+    card and the same moment said once for each was the same paragraph. The
+    moment sits beside "started" and the onset after it: "started after the
+    onset at" a moment reads as when the onset was.
+
+    Recorded against the alarm's minute, where nothing dated the incident, the
+    minute is said as that and never as the onset: a pod placed then was placed
+    as the alarm went off, and said as started at the onset it reads as
+    the cause.
     """
     if not placement.pods:
         return "", "Recorded where the service's replicas run - the platform reported no pods"
 
+    the_minute = "the alarm" if placement.against_the_alarm else "the onset"
+    cards = {pod.accelerator for pod in placement.pods}
+    card = next(iter(cards))
+    on_one_card = len(placement.pods) > 1 and len(cards) == 1 and card is not None
+    if on_one_card and not placement.started_at_the_onset():
+        return "", f"Recorded where the {len(placement.pods)} replicas run - all on {card}"
+
     after = placement.started_after_the_onset()
+    if (on_one_card and len(after) == len(placement.pods)
+            and len({pod.started_at for pod in placement.pods}) == 1):
+        return "", (f"Recorded where the {len(placement.pods)} replicas run - all on {card}, "
+                    f"started at "
+                    f"{a_moment_with_its_day(to_iso(placement.pods[0].started_at))}, "
+                    f"after {the_minute}")
+
     before = ", ".join(_a_pod_said(pod) for pod in placement.started_before_the_onset())
     at_the_onset = ", ".join(_a_pod_said(pod) for pod in placement.started_at_the_onset()
                              if pod not in after)
     # Each with when it came up, because "after the onset" alone reads as any
     # time after it - a pod placed a week later was taken for the rollout
-    # that began the incident.
-    onset = to_iso(placement.onset)
-    since = ", ".join(f"{_a_pod_said(pod)} at {a_moment(to_iso(pod.started_at), beside=onset)}"
+    # that began the incident. With its day whichever day that is: the line
+    # is dated by when it was recorded, and a time alone in it reads as that
+    # day's.
+    since = ", ".join(f"{_a_pod_said(pod)} at {a_moment_with_its_day(to_iso(pod.started_at))}"
                       for pod in after)
 
     clauses = (before,
-               f"started at the onset: {at_the_onset}" if at_the_onset else "",
-               f"started after the onset: {since}" if since else "")
+               f"started at {the_minute}: {at_the_onset}" if at_the_onset else "",
+               f"started after {the_minute}: {since}" if since else "")
     first, *rest = [told for told in clauses if told]
 
     return at_the_onset, (f"Recorded where the service's replicas run - {first}"

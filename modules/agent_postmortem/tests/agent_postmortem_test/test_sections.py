@@ -9,42 +9,68 @@ beside it, so each case names a record and the section it must come out as.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
-from agent_postmortem import CandidateRecord, DeploymentChangesRecord
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
+from agent_postmortem import (
+    ActionRecord,
+    CandidateRecord,
+    DeploymentChangesRecord,
+    RefusalRecord,
+)
+from agent_postmortem.estimate import (
+    ErrorRates,
+    LatencyLevels,
+    RuleSeriesLevels,
+    RuleSeriesSpan,
+    Unmeasured,
+)
+from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.sections import (
+    a_put_back_left_the_harm,
     detection_of,
     hypotheses_of,
     impact_of,
+    logs_in_the_gap_of,
     record_action_items_of,
     resolution_of,
     timeline_of,
     trigger_of,
+    why_no_trigger,
 )
 from argus_core import parse_iso, to_iso
-from argus_core.events import PATCH_LINE_INDENT
+from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    ActionProgress,
     CandidateConsidered,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedEvidence,
     Detection,
     ErrorRateLevels,
+    FirstTold,
+    ForCandidate,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
+    LatencyHarm,
+    LogsInTheGap,
+    NoTrigger,
     OpenedPullRequest,
+    Refusal,
+    ReportChannel,
     ResolutionStep,
+    RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
     Trigger,
     Verdict,
+    WhyNoTrigger,
 )
 from argus_testkit import Scenario, the_answer_was
 
@@ -54,6 +80,7 @@ from agent_postmortem_test.framework.builders import (
     STARTED_AT,
     a_candidate,
     a_measured_incident,
+    a_resolution,
     a_timeline_entry,
     an_action,
     an_evidence_bundle,
@@ -63,6 +90,10 @@ SOME_FLAG = "monthly-spend-feature"
 SOME_RULE = "kuki-rule"
 SOME_REVISION = "5e07d73148d0a704b8fefe5f379bc652bb773655"
 SOME_EARLIER_REVISION = "70dbcfde2b549d110a3817d92d60b6dd9786e78b"
+SOME_THIRD_REVISION = "9a41c07be3d2f8165c0e7a92d4b8f3e6a1c5d720"
+SOME_FILE = "deploy/values-production.yaml"
+SOME_OTHER_FILE = "src/io_shop/pricing_service.py"
+SOME_DEPENDENCY = "io-pricing"
 
 
 @pytest.mark.unit
@@ -147,6 +178,25 @@ def test_detection_carries_what_the_alert_said_under_the_label_it_is_cited_by() 
 
 
 @pytest.mark.unit
+def test_detection_carries_when_argus_first_posted_about_the_incident() -> None:
+    # Written by code rather than left to the model: a write-up told only that
+    # nobody was paged said nobody was told at all, of an incident Argus had
+    # announced in its thread.
+    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": some_post})
+        ) \
+        .when(
+            lambda: detection_of(evidence).first_told
+        ) \
+        .then(
+            the_answer_was(some_post)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("rule_waits", "rule_wait_unread"), [
     (timedelta(minutes=5), False),
     (None, True)
@@ -224,7 +274,8 @@ def test_the_trigger_is_the_change_the_confirmed_candidate_blamed() -> None:
                                    from_state="off",
                                    to_state="on",
                                    changed_at=parse_iso(the_change),
-                                   kind=ChangeKind.FLAG_TOGGLE))
+                                   kind=ChangeKind.FLAG_TOGGLE,
+                                   dated_by="P2"))
         )
 
 
@@ -351,6 +402,67 @@ def test_a_revision_is_found_among_the_words_of_the_state_it_moved_to() -> None:
 
 
 @pytest.mark.unit
+def test_a_revision_blamed_by_name_moved_from_the_one_deployed_before_it() -> None:
+    # The investigation named the revision as its subject and gave no states,
+    # so the trigger said a deploy happened and not what it put out. What it
+    # replaced is the deploy just before it - the one its diff is compared
+    # against - not an older one, and not one that came after.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_REVISION)],
+                changes=[_a_deploy_of("some-older-revision", at="2026-10-15T11:41:00Z"),
+                         _a_deploy_of(SOME_EARLIER_REVISION, at="2026-10-15T15:41:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-10-15T19:41:00Z"),
+                         _a_deploy_of("some-later-revision", at="2026-10-15T23:41:00Z")])
+        ) \
+        .when(
+            lambda: _the_move(trigger_of(evidence))
+        ) \
+        .then(
+            the_answer_was((SOME_EARLIER_REVISION, SOME_REVISION))
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_blamed_by_name_with_no_deploy_read_before_it_moved_from_unknown() -> None:
+    # What it put out is its own; what it replaced is only known where that
+    # deploy was read, and is not guessed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_REVISION)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-10-15T19:41:00Z")])
+        ) \
+        .when(
+            lambda: _the_move(trigger_of(evidence))
+        ) \
+        .then(
+            the_answer_was((None, SOME_REVISION))
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_blamed_by_name_did_not_replace_itself() -> None:
+    # Deployed again with nothing changed - a re-sync - it is still the
+    # revision it replaced that the trigger names, not itself.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_REVISION)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-10-15T15:41:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-10-15T19:41:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-10-15T19:51:00Z")])
+        ) \
+        .when(
+            lambda: _the_move(trigger_of(evidence))
+        ) \
+        .then(
+            the_answer_was((SOME_EARLIER_REVISION, SOME_REVISION))
+        )
+
+
+@pytest.mark.unit
 def test_a_reference_that_is_only_part_of_a_word_dates_nothing() -> None:
     # A whole word of the state or nothing: a short reference found inside a
     # longer one is a coincidence of spelling, not the same change.
@@ -435,7 +547,32 @@ def test_a_leading_candidate_never_tested_names_a_suspected_trigger() -> None:
                                    to_state="on",
                                    changed_at=parse_iso(the_change),
                                    kind=ChangeKind.FLAG_TOGGLE,
-                                   suspected=True))
+                                   suspected=True,
+                                   dated_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_trigger_names_its_own_change_where_another_shares_its_instant() -> None:
+    # A decoy flag moved at the same instant. Found again by its instant, the
+    # trigger's change was whichever of the two was listed first - so the
+    # change chosen is carried out under its row's label.
+    the_instant = "2026-09-02T11:59:52Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to("some-decoy-flag", at=the_instant),
+                         _a_change_to(SOME_FLAG, at=the_instant)])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "dated_by", None)
+        ) \
+        .then(
+            the_answer_was("P2")
         )
 
 
@@ -642,6 +779,31 @@ def test_a_deploy_after_the_onset_carried_nothing_that_began_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_deploy_inside_the_onset_s_minute_carried_what_began_it() -> None:
+    # The onset is dated to its minute, and a deploy a few seconds into the
+    # minute it broke is how a real deployment platform dates one: taken as
+    # after the onset, the page would say it changed the setting but after the
+    # incident began.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at=to_iso(ONSET + timedelta(seconds=5)))],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    " categoriser:", "-  model: v1", "+  model: v2"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
 def test_a_comment_or_a_blank_line_over_a_setting_does_not_hide_its_parent() -> None:
     # Walking up from the setting to its parent, a comment set in less far and
     # a blank line name nothing: the parent is the nearest line that names
@@ -693,6 +855,910 @@ def test_a_setting_written_flat_is_carried_by_the_deploy_that_moved_it() -> None
 
 
 @pytest.mark.unit
+def test_a_setting_named_with_its_file_is_carried_by_the_deploy_that_moved_it_there() -> None:
+    # The investigation names a nested key with the file it lives in -
+    # `path:key`. Read as one dotted name, the file became a parent no line
+    # names, and the deploy that moved the key carried nothing: the document
+    # said no trigger was established beside a root cause naming that deploy.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName",
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+def test_a_setting_named_with_its_file_moving_in_another_file_carries_nothing() -> None:
+    # The file is part of the name: the same key moving in another file is
+    # another setting.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/scrape.yaml:ports.metrics.portName",
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_file_s_setting_with_no_states_is_carried_by_the_deploy_that_changed_it() -> None:
+    # The investigation names a key with its file and says no states: what
+    # carried it is the deploy whose part of the diff about that file changes
+    # the key itself.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName")],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="deploy/values-production.yaml:ports.metrics.portName",
+                                   from_state=None,
+                                   to_state=None,
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   suspected=True,
+                                   carried_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_s_setting_with_no_states_is_not_carried_by_another_change_to_it() -> None:
+    # The key is the setting, not the file it lives in: a deploy that changed
+    # the file and left the key alone did not carry it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,5 +1,5 @@",
+                    "-replicas: 2",
+                    "+replicas: 3",
+                    " ports:",
+                    "   metrics:",
+                    "     portName: metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_comment_naming_a_file_s_setting_does_not_carry_it() -> None:
+    # A comment that names the key is not the key's line: a deploy that added
+    # one and left the setting alone did not carry it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,5 @@",
+                    " ports:",
+                    "   metrics:",
+                    "+    # portName must match the scrape",
+                    "     portName: metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_comment_moving_between_a_setting_s_states_does_not_carry_it() -> None:
+    # A comment can spell a setting and its states without being it: a deploy
+    # that rewrote the comment and left the value moved nothing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    " categoriser:",
+                    "-  # model: v1 until the catalogue grows",
+                    "+  # model: v2 once the catalogue grows",
+                    "   model: v1"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_value_followed_by_a_comment_is_carried_by_the_deploy_that_moved_it() -> None:
+    # A comment after the value is no part of it: the key still goes from the
+    # one state to the other.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="metrics port name",
+                                        from_state="metrics", to_state="http-metrics")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,3 +1,3 @@ ports:",
+                    "   metrics:",
+                    "-    portName: metrics  # what the scrape selects",
+                    "+    portName: http-metrics  # the platform's convention"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+def test_a_comment_naming_a_setting_in_words_does_not_hide_its_value_moving() -> None:
+    # A comment that happens to spell the investigation's own words for the
+    # setting is not a line naming the setting, so the value is still read.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="metrics port name",
+                                        from_state="metrics", to_state="http-metrics")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,3 +1,4 @@ ports:",
+                    "   metrics:",
+                    "+    # the metrics port name follows the platform's convention",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("from_state", "to_state", "changed"), [
+    ("6379", "6380", [" cache:", "-  port: 6379", "+  port: 6380"]),
+    (None, None, [" cache:", "-  port: 6379", "+  port: 6380"])],
+    ids=["with-its-states", "with-no-states"])
+def test_a_file_s_setting_set_off_by_a_space_is_carried_by_the_deploy_that_moved_it(
+        from_state: str | None, to_state: str | None, changed: list[str]) -> None:
+    # The investigation sets the file before the key with a space between them
+    # rather than a colon: the file is still the file the diff names, and the
+    # rest is the key in it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml cache.port",
+                                        from_state=from_state, to_state=to_state)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION,
+                                                        ["@@ -1,3 +1,3 @@", *changed])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", ["deploy/scrape.yaml ports.metrics.portName",
+                                     "deploy/scrape.yaml portName",
+                                     "deploy/scrape.yaml metrics port",
+                                     "deploy/scrape.yaml"],
+                         ids=["a-dotted-key", "a-last-name", "words", "the-file-alone"])
+def test_a_setting_in_another_file_carries_nothing(subject: str) -> None:
+    # The file is part of the name however it is set off from the key - by a
+    # space too, where no diff read names it - and named alone it is the whole
+    # of it: the same value moving in another file is another setting, though
+    # that file's key shares the words of the one named.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=subject,
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_file_named_with_states_is_carried_by_the_deploy_moving_one_key_between_them() -> None:
+    # The investigation names the file alone and the two states: the setting is
+    # the one key in that file's part of the diff going from the one to the
+    # other.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/values-production.yaml",
+                                        from_state="metrics", to_state="http-metrics")],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,7 +1,7 @@ ports:",
+                    "   web:",
+                    "-    portName: web",
+                    "+    portName: http",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="deploy/values-production.yaml",
+                                   from_state="metrics",
+                                   to_state="http-metrics",
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   suspected=True,
+                                   carried_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_named_with_states_two_of_its_keys_moved_between_carries_nothing() -> None:
+    # Two keys in the file going between the same two states, and the diff
+    # cannot say which of them the investigation meant.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/values-production.yaml",
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,7 +1,7 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics",
+                    " scrape:",
+                    "-  selects: metrics",
+                    "+  selects: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_suspect_naming_a_file_is_carried_by_the_deploy_that_changed_it() -> None:
+    # The investigation blames a file, not a setting in it, and says no states:
+    # the file is what the diff names a deploy as changing. That deploy, made by
+    # the onset, is the change - dated and credited as it is, and suspected.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/values-production.yaml")],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,1 +1,1 @@ ports:",
+                    "-  portName: metrics",
+                    "+  portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="deploy/values-production.yaml",
+                                   from_state=None,
+                                   to_state=None,
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   suspected=True,
+                                   carried_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_named_only_inside_a_deploys_patch_was_not_changed_by_it() -> None:
+    # A comment pointing at another file names it without changing it: only
+    # the line the diff names a changed file on says the deploy changed it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/scrape.yaml")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,1 +1,2 @@ ports:",
+                    "+# selected by deploy/scrape.yaml",
+                    "   portName: metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_trigger_established_leaves_nothing_to_say_why_there_is_none() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to(SOME_FLAG, at="2026-09-02T11:58:00Z")])
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_nothing_confirmed_leaves_nothing_to_say_why_there_is_no_trigger() -> None:
+    # The document's own "No trigger was established." is true there, and
+    # says it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="some-dependency",
+                                        tested=True, result=Verdict.REFUTED)])
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_file_two_deploys_changed_by_the_onset_names_both() -> None:
+    # Which of two set it off is not something a diff can say, so neither is
+    # the trigger - but both are tied to the cause, and "none is" would be
+    # false. One at the onset's own minute counts as by then. Each named by
+    # its place among every change read, as the page looks it up - a flag
+    # toggle before them included.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to("some-other-flag",
+                                      at=to_iso(ONSET - timedelta(minutes=20))),
+                         _a_deploy_of(SOME_EARLIER_REVISION,
+                                      at=to_iso(ONSET - timedelta(minutes=10))),
+                         _a_deploy_of(SOME_REVISION, at=to_iso(ONSET))],
+                deployment_changes=[_what_the_deploy_of(SOME_EARLIER_REVISION, _A_CHANGE),
+                                    _what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P2", "P3"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_two_deploys_changed_with_no_onset_names_both_and_no_moment() -> None:
+    # With no onset, every deploy that changed it counts, and there is no
+    # moment to say they changed it by.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=None,
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-09-02T11:50:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_EARLIER_REVISION, _A_CHANGE),
+                                    _what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CARRIED_BY_SEVERAL,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P1", "P2"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_changed_only_after_the_onset_names_the_deploys_that_changed_it() -> None:
+    # A change made after the incident began did not begin it - but it is
+    # tied to the cause, and the reader is owed which one it was.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at=to_iso(ONSET + timedelta(minutes=5)))],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CARRIED_AFTER_THE_ONSET,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P1"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_in_another_service_names_the_service_whose_deploys_went_unread() -> None:
+    # Only the alerting service's deploys are read: "no change was tied to it"
+    # would say Argus looked at the dependency's, and it never did.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject=SOME_DEPENDENCY,
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD,
+                                     candidate="C1",
+                                     service=SOME_DEPENDENCY))
+        )
+
+
+@pytest.mark.unit
+def test_another_service_is_named_by_the_service_that_failed_not_by_what_the_cause_names() -> None:
+    # A cause naming a setting inside the dependency would otherwise be said
+    # to have deploys.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject="pricing.timeoutMs",
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "service", None)
+        ) \
+        .then(
+            the_answer_was(SOME_DEPENDENCY)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_in_another_service_naming_nothing_specific_is_still_that_service_s() -> None:
+    # It names a service, if nothing in it: "names nothing specific" would be
+    # false of it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject=None,
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "why", None)
+        ) \
+        .then(
+            the_answer_was(WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_in_another_service_two_deploys_read_changed_names_both() -> None:
+    # The deploys read that changed it are facts about what was read, which
+    # "whose deploys Argus did not read" says nothing of.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION,
+                                      at=to_iso(ONSET - timedelta(minutes=10))),
+                         _a_deploy_of(SOME_REVISION, at=to_iso(ONSET - timedelta(minutes=2)))],
+                deployment_changes=[_what_the_deploy_of(SOME_EARLIER_REVISION, _A_CHANGE),
+                                    _what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "why", None)
+        ) \
+        .then(
+            the_answer_was(WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_that_names_nothing_specific_says_so() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=None,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NAMES_NOTHING_SPECIFIC,
+                                     candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_whose_deploys_nobody_asked_for_says_what_went_unread() -> None:
+    # Which channels went unread, and how, the document already carries: the
+    # sentence reads them from there.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.NOT_ASKED,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_whose_deploys_nobody_asked_for_is_not_said_to_have_none_in_a_window() -> None:
+    # No window was read, so "found no deploys in the window it read" would be
+    # false: what went unread is said first.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[],
+                deploys_reading=ChannelReading.NOT_ASKED,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_whose_deploys_went_unanswered_is_not_said_to_have_none_in_a_window() -> None:
+    # Asked for and never answered is no window read either.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[],
+                deploys_reading=ChannelReading.UNANSWERED,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_whose_flag_history_went_unanswered_says_so() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.UNANSWERED)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_history_read_only_since_argus_acted_was_read() -> None:
+    # The history was read; what came back was only what changed once Argus
+    # acted. Not a channel left unread.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.ONLY_SINCE_ARGUS_ACTED)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "why", None)
+        ) \
+        .then(
+            the_answer_was(WhyNoTrigger.NOT_TIED)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_blaming_the_service_itself_says_it_names_no_change_to_it() -> None:
+    # A deploy of the service is read but never tied to it: its reference is a
+    # revision, never the service's name.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject="io-shop",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.THE_SERVICE_ITSELF,
+                                     candidate="C1",
+                                     service="io-shop"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_no_deploy_read_in_full_changed_says_none_did() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_everything_the_deploy_of(SOME_REVISION, SOME_OTHER_FILE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_CHANGED_IT,
+                                     candidate="C1",
+                                     subject=SOME_FILE))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_with_no_deploys_read_says_none_came_back() -> None:
+    # "None of the deploys Argus read" is true of none, and says nothing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NO_DEPLOYS_READ, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_a_deploy_was_not_read_in_full_for_names_that_deploy() -> None:
+    # Lines that do not list every file say nothing of a file they leave out,
+    # and a deploy whose changes were never asked for says nothing at all.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-09-02T11:40:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-09-02T11:50:00Z"),
+                         _a_deploy_of(SOME_THIRD_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[
+                    _everything_the_deploy_of(SOME_EARLIER_REVISION, SOME_OTHER_FILE),
+                    DeploymentChangesRecord(
+                        revision=SOME_REVISION,
+                        said=[a_changed_file_line("modified", SOME_OTHER_FILE)],
+                        lists_every_file=False)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NOT_EVERY_DEPLOY_READ_IN_FULL,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P2", "P3"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_no_deploy_was_read_in_full_for_names_each() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_IN_FULL,
+                                     candidate="C1",
+                                     deploys=["P1"]))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", [SOME_FLAG, "ports.metrics.portName"])
+def test_any_other_cause_could_not_be_tied_to_a_change_read(subject: str) -> None:
+    # A flag no change read names, or a key named with no file - whose changes
+    # are never looked for in a diff. Either way Argus tied nothing to it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=subject,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to("some-other-flag", at="2026-09-02T11:58:00Z")],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NOT_TIED,
+                                     candidate="C1",
+                                     subject=subject))
+        )
+
+
+@pytest.mark.unit
+def test_the_cause_without_a_trigger_is_named_by_its_own_label() -> None:
+    # The first confirmed, under the label the Hypotheses table shows it by.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.REFUTED),
+                            a_candidate("dont care", subject=None,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "candidate", None)
+        ) \
+        .then(
+            the_answer_was("C2")
+        )
+
+
+@pytest.mark.unit
 def test_resolution_lists_each_action_as_argus_took_it() -> None:
     # In the order taken, with what each came to and whether it still stands -
     # one sentence, because the reader of this table wants both at once.
@@ -703,7 +1769,7 @@ def test_resolution_lists_each_action_as_argus_took_it() -> None:
             evidence := an_evidence_bundle(actions=[
                 an_action("revert-feature-flag on monthly-spend-feature",
                           verdict=Verdict.CONFIRMED, standing="still in place",
-                          reversible=True, taken_at=some_moment)
+                          has_a_way_back=True, taken_at=some_moment)
             ])
         ) \
         .when(
@@ -714,10 +1780,72 @@ def test_resolution_lists_each_action_as_argus_took_it() -> None:
                 at=some_moment,
                 action="revert-feature-flag on monthly-spend-feature",
                 by="Argus",
-                reversible=True,
+                has_a_way_back=True,
                 outcome="confirmed, still in place",
+                came_to="confirmed",
+                standing="still in place",
                 label="M1"
             )])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("left_behind_known", [True, False], ids=["known", "not-known"])
+def test_resolution_says_whether_what_each_action_left_is_known(
+        left_behind_known: bool) -> None:
+    # What the page's Kind column is read from: an action nobody can account
+    # for is not one with nothing to put back.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.ESCALATED,
+                          standing="not known whether anything was changed",
+                          has_a_way_back=False, left_behind_known=left_behind_known)
+            ])
+        ) \
+        .when(
+            lambda: [step.left_behind_known for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([left_behind_known])
+        )
+
+
+@pytest.mark.unit
+def test_resolution_lists_a_refusal_to_act_in_its_place_among_the_actions() -> None:
+    # Declining an action is how an incident ended as much as taking one is -
+    # the one rollback that would answer it undoing a change made on purpose.
+    # Said and dated as the timeline's line says it, and under no label:
+    # nothing was done, so no prose cites it as an action. And which refusal it
+    # was, which is what the review reads to say whose the next step is. What
+    # each came to and whether it stands, apart as well as together - a refusal
+    # stands as nothing.
+    the_refusal = STARTED_AT + timedelta(minutes=1)
+    the_action = STARTED_AT + timedelta(minutes=2)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("Refused to act - some reason", at=the_refusal)],
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED,
+                                   standing="still in place", has_a_way_back=True,
+                                   taken_at=the_action)]
+            ).model_copy(update={"refusals": [
+                RefusalRecord(line=0, refusal=Refusal.WOULD_UNDO_A_MEANT_CHANGE)]})
+        ) \
+        .when(
+            lambda: [(step.at, step.action, step.has_a_way_back, step.outcome, step.came_to,
+                      step.standing, step.label, step.refused)
+                     for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([
+                (the_refusal, "Refused to act - some reason", False, "not taken", "not taken",
+                 None, None, Refusal.WOULD_UNDO_A_MEANT_CHANGE),
+                (the_action, "dont care", True, "confirmed, still in place", "confirmed",
+                 "still in place", "M1", None)
+            ])
         )
 
 
@@ -734,6 +1862,65 @@ def test_an_action_no_verdict_was_reached_on_says_so() -> None:
         ) \
         .then(
             the_answer_was(["no verdict recorded, put back when it did not help"])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_was_not_judged() -> None:
+    # Nothing was measured, so nothing was judged - and "withdrawn" said a
+    # person withdrew an incident they may have resolved.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.STOPPED, standing="still in place")
+            ])
+        ) \
+        .when(
+            lambda: [step.outcome for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["not judged, still in place"])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_before_it_was_done_was_not_taken() -> None:
+    # A person ended the incident between the walk choosing the action and
+    # taking it. Nothing was judged because nothing was done - "not judged"
+    # would say a test was begun.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.STOPPED,
+                          standing="nothing was changed").model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED})
+            ])
+        ) \
+        .when(
+            lambda: [step.outcome for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["not taken, nothing was changed"])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_never_performed_keeps_the_verdict_it_came_back_with() -> None:
+    # Why it was not done is the verdict's to say - a platform that did not
+    # answer is a different finding from a person's ending.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.PLATFORM_UNREACHABLE,
+                          standing="nothing was changed").model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED})
+            ])
+        ) \
+        .when(
+            lambda: [step.outcome for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["platform-unreachable, nothing was changed"])
         )
 
 
@@ -804,6 +1991,125 @@ def test_every_candidate_is_listed_with_what_became_of_it() -> None:
                 HypothesisConsidered(summary="a bad deployment", confidence=0.1,
                                      result="never tried", label="C2")
             ])
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_never_tried_says_why_where_its_row_recorded_it() -> None:
+    # The gate writes on the row why it held the test back, and "never tried"
+    # alone dropped it - so the table, and the brief that says it in the same
+    # words, left a reader to guess whether the investigation ran out or Argus
+    # declined.
+    some_reason = "some reason the gate held its test back"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care", result=some_reason)])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([f"never tried: {some_reason}"])
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_acted_on_and_never_judged_was_tried_not_judged() -> None:
+    # A person ended the incident while the service was watched, so the row was
+    # left untested - nothing was measured. The action was its test all the
+    # same, and "never tried" said no test was begun.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={
+                    "progress": ActionProgress.PERFORMED, "verdict_recorded": True})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["tried, not judged"])
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_acted_on_with_no_verdict_on_file_was_tried_with_none_recorded() -> None:
+    # The worker died with the change made: before the wait judged it, or
+    # before it wrote down what the wait judged - and the row cannot say which.
+    # "Not judged" would claim the first.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={
+                    "progress": ActionProgress.PERFORMED, "verdict_recorded": False})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["tried, no verdict recorded"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_a_candidate_whose_action_nobody_can_account_for_is_not_known_to_be_tried(
+        progress: ActionProgress) -> None:
+    # The claim never said more. The change may have been made, so "never
+    # tried" would tell a reader the service was left alone when nobody knows.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={"progress": progress})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["not known whether tried"])
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_whose_attempt_ended_before_its_action_says_its_action_was_not_taken() -> None:
+    # A platform that never answered, an action with nowhere left to go: a row
+    # is written, and nothing was done - so the cause was not tried. Said as
+    # its action not taken rather than never tried, which beside the action's
+    # own row about this cause reads as no attempt at all.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={
+                    "progress": ActionProgress.NOT_PERFORMED, "verdict_recorded": True})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["action not taken"])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_says_the_candidate_it_was_for_under_that_candidate_s_label() -> None:
+    # The label the candidate's row goes by, so the resolution can point at it:
+    # nothing else says which cause an action answered, and a reader left to
+    # guess takes it for the leading candidate's.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Rolled back the deployment of io-shop").model_copy(
+                    update={"candidate": 3}),
+                an_action("dont care")])
+        ) \
+        .when(
+            lambda: [step.candidate for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["C3", None])
         )
 
 
@@ -933,10 +2239,11 @@ def test_the_record_implies_its_action_items_and_numbers_them_first() -> None:
                          an_action("revert-feature-flag on monthly-spend-feature",
                                    verdict=Verdict.CONFIRMED)],
                 pull_request=some_fix,
-                recommended_action="restarting io-shop")
+                recommended_action="restarting io-shop"),
+            the_service_back := STARTED_AT + timedelta(minutes=9)
         ) \
         .when(
-            lambda: record_action_items_of(evidence)
+            lambda: record_action_items_of(evidence, the_service_back)
         ) \
         .then(
             the_answer_was([
@@ -963,6 +2270,69 @@ def test_the_record_implies_its_action_items_and_numbers_them_first() -> None:
 
 
 @pytest.mark.unit
+def test_a_fix_written_and_not_kept_is_an_item_to_write_it_again_on_both_sides() -> None:
+    # Code-Fix kept none of it, so there is nothing to review: what is left is
+    # writing it again, the repository's half with the one outside. Left to the
+    # model, write-ups asked for the outside half alone.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                actions=[an_action("rolled back io-shop", verdict=Verdict.CONFIRMED)]
+            ).model_copy(update={"fix_needs_code_outside": True}),
+            the_service_back := STARTED_AT + timedelta(minutes=9)
+        ) \
+        .when(
+            lambda: [(item.number, item.text, item.type, item.status)
+                     for item in record_action_items_of(evidence, the_service_back)]
+        ) \
+        .then(
+            the_answer_was([
+                ("AI-1", "rolled back io-shop", ActionItemType.MITIGATE, ActionItemStatus.DONE),
+                ("AI-2", "Write the fix again: its change to the repository and the change "
+                         "outside the repository that Code-Fix's reading names, made together "
+                         "- Code-Fix kept none of the fix it wrote",
+                 ActionItemType.PREVENT, ActionItemStatus.OPEN)
+            ])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("branch", "item"), [
+    ("argus/fix-abc", "Open a draft pull request from argus/fix-abc - Code-Fix wrote the "
+                      "fix there and could not open one"),
+    (None, "Write the fix again - Code-Fix wrote one and could not put it on a branch")
+], ids=["left-on-a-branch", "on-no-branch"])
+@pytest.mark.parametrize(("the_service_back", "kind"), [
+    (STARTED_AT + timedelta(minutes=9), ActionItemType.PREVENT),
+    (None, ActionItemType.MITIGATE)
+], ids=["back", "never-back"])
+def test_a_fix_written_and_not_proposed_is_an_item_to_propose_it(
+        branch: str | None, item: str, the_service_back: datetime | None,
+        kind: ActionItemType) -> None:
+    # GitHub refused the pull request, and the fix Code-Fix wrote sat on its
+    # branch with no item asking anyone to open it - the write-up's items lost
+    # the fix to review. Where the branch failed too, nothing is left to open,
+    # and the fix is written again. Typed as every fix item is: what prevents
+    # the next incident once the service is back, and what mitigates this one
+    # while it is not - the incident this was found on never recovered.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                actions=[an_action("rolled back io-shop", verdict=Verdict.CONFIRMED)]
+            ).model_copy(update={"fix_unproposed": True, "fix_branch_written": branch})
+        ) \
+        .when(
+            lambda: [(each.number, each.text, each.type)
+                     for each in record_action_items_of(evidence, the_service_back)][1:]
+        ) \
+        .then(
+            the_answer_was([
+                ("AI-2", item, kind)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
     # The resolution says sync was left off; this is somebody turning it back
     # on, without which nothing merged reaches the service. After the fix, since
@@ -979,11 +2349,12 @@ def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
                                    standing="still in place", paused_sync_of="io-shop"),
                          an_action("rolled back io-shop", verdict=Verdict.CONFIRMED,
                                    standing="still in place", paused_sync_of="io-shop")],
-                pull_request=some_fix)
+                pull_request=some_fix),
+            the_service_back := STARTED_AT + timedelta(minutes=9)
         ) \
         .when(
             lambda: [(item.number, item.text, item.type, item.status)
-                     for item in record_action_items_of(evidence)]
+                     for item in record_action_items_of(evidence, the_service_back)]
         ) \
         .then(
             the_answer_was([
@@ -991,9 +2362,70 @@ def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
                 ("AI-2", "rolled back io-shop", ActionItemType.MITIGATE, ActionItemStatus.DONE),
                 ("AI-3", "Review and merge the proposed fix", ActionItemType.PREVENT,
                  ActionItemStatus.OPEN),
-                ("AI-4", "Turn automatic sync of io-shop back on - until then, nothing "
-                         "merged reaches it", ActionItemType.MITIGATE, ActionItemStatus.OPEN)
+                ("AI-4", "Turn automatic sync of io-shop back on once its repository says "
+                         "what should run - until then nothing merged reaches it, and turned "
+                         "on sooner it puts back what the repository says, undoing what Argus "
+                         "changed by hand", ActionItemType.MITIGATE, ActionItemStatus.OPEN)
             ])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("actions", "back_to_normal_at", "left_standing"), [
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED, put_back=True)],
+                 None, True, id="put-back-with-nothing-ending-the-harm"),
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED, put_back=True)],
+                 STARTED_AT + timedelta(minutes=9), False, id="service-back"),
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED, put_back=True),
+                  an_action("dont care either", verdict=Verdict.CONFIRMED)],
+                 None, False, id="another-action-helped"),
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED,
+                            standing="left as found when it did not help")],
+                 None, False, id="nothing-put-back")
+])
+def test_a_change_put_back_leaves_the_harm_standing_only_while_nothing_ended_it(
+        actions: list[ActionRecord], back_to_normal_at: datetime | None,
+        left_standing: bool) -> None:
+    # Put back, a change is as it was before the action, doing whatever harm it
+    # did. With the service back, or another action confirmed, the harm is over;
+    # left as found, nothing of Argus's was put back.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=actions)
+        ) \
+        .when(
+            lambda: a_put_back_left_the_harm(evidence, back_to_normal_at)
+        ) \
+        .then(
+            the_answer_was(left_standing)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("back_to_normal_at", "kind"), [
+    (STARTED_AT + timedelta(minutes=9), ActionItemType.PREVENT),
+    (None, ActionItemType.MITIGATE)
+], ids=["measured-back", "never-measured-back"])
+def test_the_fix_is_a_mitigation_until_the_metrics_show_the_service_back(
+        back_to_normal_at: datetime | None, kind: ActionItemType) -> None:
+    # Typed prevent whatever happened, the fix read as a safeguard for next
+    # time on an incident it was the only way out of. Where the metrics show
+    # the service back it prevents a recurrence; where they do not, merging it
+    # is what ends the incident.
+    some_fix = OpenedPullRequest(number=7,
+                                 url="https://github.invalid/ohadraz/io-shop/pull/7",
+                                 branch="argus/fix-abc")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(pull_request=some_fix)
+        ) \
+        .when(
+            lambda: [item.type for item in record_action_items_of(evidence, back_to_normal_at)
+                     if item.tracking == some_fix.url]
+        ) \
+        .then(
+            the_answer_was([kind])
         )
 
 
@@ -1065,6 +2497,61 @@ def test_the_impact_ends_after_the_action_that_ended_it_at_the_same_moment() -> 
                 TimelineMarker.MITIGATION_APPLIED,
                 TimelineMarker.IMPACT_ENDS
             ])
+        )
+
+
+@pytest.mark.unit
+def test_an_end_a_person_reported_is_marked_on_the_line_of_their_report() -> None:
+    # A row of its own would say the service was back to normal - the metrics'
+    # word for an end they never showed - and say the report a second time
+    # beside the line that already says it, by whom and when.
+    the_report = STARTED_AT + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                started_at=STARTED_AT,
+                timeline=[a_timeline_entry("dont care", at=STARTED_AT),
+                          a_timeline_entry("dont care either", at=the_report,
+                                           outside_the_walk=True)],
+                resolution=a_resolution(the_report, line=1))
+        ) \
+        .when(
+            lambda: [(entry.marker, entry.label) for entry in
+                     timeline_of(evidence, back_to_normal_at=the_report, ended_by_a_report=True)]
+        ) \
+        .then(
+            the_answer_was([
+                (TimelineMarker.IMPACT_BEGINS, None),
+                (TimelineMarker.DETECTED, None),
+                (None, "T1"),
+                (TimelineMarker.IMPACT_ENDS, "XW1")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_an_end_a_person_reported_with_no_line_of_theirs_is_a_row_saying_their_report() -> None:
+    # Where the account holds no line of the report, the end still has a row -
+    # said as the report it was, by whom, never as back to normal.
+    the_report = STARTED_AT + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                started_at=STARTED_AT,
+                timeline=[a_timeline_entry("dont care", at=STARTED_AT)],
+                resolution=a_resolution(the_report, by="Some Person"))
+        ) \
+        .when(
+            lambda: [entry.text for entry in
+                     timeline_of(evidence, back_to_normal_at=the_report, ended_by_a_report=True)
+                     if entry.marker is TimelineMarker.IMPACT_ENDS]
+        ) \
+        .then(
+            the_answer_was(["Some Person reported the incident resolved"])
         )
 
 
@@ -1144,6 +2631,52 @@ def test_a_line_that_formed_candidates_names_them_by_the_labels_their_rows_go_by
         ) \
         .then(
             the_answer_was(["Formed 2 candidate causes, best first: C1, C2"])
+        )
+
+
+@pytest.mark.unit
+def test_a_line_acting_for_a_candidate_names_it_by_the_label_its_row_goes_by() -> None:
+    # In the narration's words, "candidate cause #3" beside a row, an action
+    # and a resolution saying C3 reads as a second candidate.
+    some_line = a_timeline_entry(
+        "Did not roll back the deployment of io-shop for candidate cause #3 - ESCALATED"
+    ).model_copy(update={"for_candidate": ForCandidate(place=2,
+                                                       said_as="candidate cause #3")})
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, timeline=[some_line])
+        ) \
+        .when(
+            lambda: [entry.text for entry in timeline_of(evidence, back_to_normal_at=None)
+                     if entry.marker is None]
+        ) \
+        .then(
+            the_answer_was(["Did not roll back the deployment of io-shop for C3 - ESCALATED"])
+        )
+
+
+@pytest.mark.unit
+def test_a_refusal_in_the_resolution_names_its_candidate_as_the_timeline_does() -> None:
+    # Said as the document's timeline says its line - by the candidate's
+    # label - and not as the narration wrote it, which would give the one
+    # candidate two names a section apart.
+    some_line = a_timeline_entry(
+        "Refused to act on candidate cause #3 - some reason"
+    ).model_copy(update={"for_candidate": ForCandidate(place=2,
+                                                       said_as="candidate cause #3")})
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(timeline=[some_line]).model_copy(update={
+                "refusals": [RefusalRecord(line=0, refusal=Refusal.WOULD_UNDO_A_MEANT_CHANGE)]})
+        ) \
+        .when(
+            lambda: [(step.action, step.candidate) for step in resolution_of(evidence)
+                     if step.refused]
+        ) \
+        .then(
+            the_answer_was([("Refused to act on C3 - some reason", "C3")])
         )
 
 
@@ -1290,6 +2823,25 @@ def test_the_onset_marker_says_the_incident_began_and_not_how() -> None:
 
 
 @pytest.mark.unit
+def test_an_onset_the_metrics_stopped_at_is_marked_as_where_they_stopped() -> None:
+    # Where the metrics carry no minute from the onset on, what the onset dates
+    # is the metrics stopping. The service may have gone on serving as before,
+    # and "impact begins" would say it was hurt from then.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=ONSET, timeline=[])
+        ) \
+        .when(
+            lambda: [(entry.at, entry.marker, entry.text) for entry in
+                     timeline_of(evidence, back_to_normal_at=None, metrics_stopped_at_onset=True)
+                     if entry.marker is not TimelineMarker.DETECTED]
+        ) \
+        .then(
+            the_answer_was([(ONSET, TimelineMarker.METRICS_STOP, "the metrics stopped")])
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("back_before_the_action", "said"), [
     (False, "the service was back to normal"),
     (True, "the service was back to normal, before the action credited with it")
@@ -1317,6 +2869,26 @@ def test_the_impact_ends_where_the_service_was_back_to_normal(
 
 
 @pytest.mark.unit
+def test_an_end_where_the_metrics_resumed_is_said_as_their_resuming() -> None:
+    # What showed the service back to normal was the metrics coming back:
+    # "the service was back to normal" alone reads as a level falling, of a
+    # stretch no level was read in.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=ONSET, timeline=[])
+        ) \
+        .when(
+            lambda: [entry.text for entry in
+                     timeline_of(evidence, back_to_normal_at=RECOVERED_AT,
+                                 metrics_stopped_at_onset=True, metrics_resumed=True)
+                     if entry.marker is TimelineMarker.IMPACT_ENDS]
+        ) \
+        .then(
+            the_answer_was(["the metrics resumed, showing the service back to normal"])
+        )
+
+
+@pytest.mark.unit
 def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
     # Carried rather than left to the page to subtract from the markers, for
     # the gap's reason: two renderers subtracting are two chances to disagree.
@@ -1329,7 +2901,7 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
                                        usual_ceiling=0.02, usual_worst=0.04))
         ) \
         .when(
-            lambda: impact_of(measured)
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[], disproven=False)
         ) \
         .then(
             the_answer_was(Impact(duration=timedelta(minutes=30),
@@ -1337,6 +2909,217 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
                                   peak_error_rate=0.42,
                                   error_rates=ErrorRateLevels(before=0.01, while_broken=0.3,
                                                               rose=True)))
+        )
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_has_no_impact_but_the_rules_series_it_was_judged_on() -> None:
+    # There was no incident: no stretch, no failed requests, no harm - measured
+    # from the alert to the close, it read as a service broken for seconds and
+    # never back. In place of the figures, what the rule's series read over the
+    # minutes the alarm claimed its condition held in, in the unit the rest of
+    # the page says the series in.
+    some_minute = ONSET - timedelta(minutes=6)
+
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                onset_at=None, back_to_normal_at=None, loss=None,
+                error_rates=ErrorRates(baseline=0.01, while_broken=0.01, at_its_worst=0.015,
+                                       usual_ceiling=0.02, usual_worst=0.04),
+                rule_series_unit="percentunit", rule_series_is_the_error_rate=True,
+                rule_series_before_the_alert=RuleSeriesSpan(lowest=0.0, highest=0.015,
+                                                            first_minute=some_minute,
+                                                            last_minute=ONSET, line=0.1))
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[], disproven=True)
+        ) \
+        .then(
+            the_answer_was(Impact(duration=timedelta(0),
+                                  extent=ImpactExtent.DISPROVEN,
+                                  peak_error_rate=None,
+                                  before_the_alert=RuleSeriesBeforeTheAlert(
+                                      lowest=0.0, highest=0.015, first_minute=some_minute,
+                                      last_minute=ONSET, line=0.1, unit="percentunit",
+                                      is_the_error_rate=True)))
+        )
+
+
+@pytest.mark.unit
+def test_an_impact_a_person_reported_the_end_of_is_said_to_end_at_their_report() -> None:
+    # Not a measurement - the metrics showed no end - and not a floor either:
+    # the person's report is the end (spec §16), and every figure is counted to
+    # it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(reported_by="Some Person")
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
+        ) \
+        .then(
+            the_answer_was(ImpactExtent.REPORTED)
+        )
+
+
+@pytest.mark.unit
+def test_the_logs_in_a_stretch_the_metrics_missed_are_carried_with_how_far_they_reach() -> None:
+    # Impact said the error rate was not measured, and never that the service's
+    # own logs measured it through the gap. Which lines reach in and how far,
+    # and where the reading of them ended - at the alert, where it ended there,
+    # which is where it ends unless the investigation asked for more.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"]
+    the_alert = ONSET + timedelta(minutes=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines, alerted_at=the_alert,
+                                           log_reading_ended=the_alert),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=True,
+                                        labels=labels_reaching_into(some_lines, ONSET),
+                                        reach_until=ONSET + timedelta(minutes=4),
+                                        read_until=the_alert,
+                                        read_until_the_alert=True))
+        )
+
+
+@pytest.mark.unit
+def test_a_line_logged_once_the_metrics_resumed_does_not_reach_into_the_stretch() -> None:
+    # The stretch ends where they resumed. A line logged after that is the
+    # service measured again, and named as reaching in, it reads as what the
+    # service did while nobody measured it.
+    the_resumption = ONSET + timedelta(minutes=6)
+    some_line_inside = f"{to_iso(the_resumption - timedelta(minutes=2))} WARN io-shop: inside"
+    some_line_after = f"{to_iso(the_resumption + timedelta(minutes=2))} INFO io-shop: after"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside, some_line_after],
+                                           log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=the_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=the_resumption)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=True,
+                                        labels=labels_reaching_into([some_line_inside], ONSET),
+                                        reach_until=the_resumption - timedelta(minutes=2),
+                                        read_until=None,
+                                        read_until_the_alert=False))
+        )
+
+
+@pytest.mark.unit
+def test_whether_the_logs_show_the_service_serving_as_before_is_carried_beside_them() -> None:
+    # The model's reading of the lines, and the one thing in the note it gives:
+    # the document says it from this, so the model need not say it anywhere.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines, log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured, serving_as_before=False)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=True,
+                                        labels=labels_reaching_into(some_lines, ONSET),
+                                        reach_until=ONSET + timedelta(minutes=4),
+                                        read_until=None,
+                                        read_until_the_alert=False,
+                                        serving_as_before=False))
+        )
+
+
+@pytest.mark.unit
+def test_no_line_reaching_in_carries_no_reading_of_how_the_service_was_serving() -> None:
+    # Nothing reaches in for it to be a reading of, so it is not asked - and
+    # an answer given anyway says nothing the lines can bound.
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=4))} WARN io-shop: dont care"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines, log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured, serving_as_before=True)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=True, labels=[], reach_until=None,
+                                        read_until=None, read_until_the_alert=False,
+                                        serving_as_before=None))
+        )
+
+
+@pytest.mark.unit
+def test_logs_nobody_read_are_carried_as_unread() -> None:
+    # Not as read and empty: where the metrics stopped, the service gone quiet
+    # in its logs too is not nobody having looked.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[], log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=False, labels=[], reach_until=None,
+                                        read_until=None, read_until_the_alert=False))
+        )
+
+
+@pytest.mark.unit
+def test_metrics_that_never_stopped_leave_no_stretch_for_the_logs_to_reach_into() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"]),
+            measured := a_measured_incident(metrics_stopped_at=None)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("unmeasured", "read"), [
+    (Unmeasured.NOTHING_READ, False),
+    (Unmeasured.NO_MINUTE_WHILE_BROKEN, True),
+    (None, True)
+], ids=["nothing-came-back", "some-came-back", "measured"])
+def test_impact_carries_whether_any_minute_of_the_metrics_came_back(
+        unmeasured: Unmeasured | None, read: bool) -> None:
+    # For the review: a window that came back empty is one Argus can collect
+    # no more of, and a window that came back is not, whatever it held.
+    Scenario() \
+        .given(
+            measured := a_measured_incident().model_copy(
+                update={"error_rates_unmeasured": unmeasured})
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).metrics_read
+        ) \
+        .then(
+            the_answer_was(read)
         )
 
 
@@ -1350,7 +3133,8 @@ def test_impact_carries_how_many_requests_failed() -> None:
                                        failed_requests=4210))
         ) \
         .when(
-            lambda: impact_of(measured).requests_failed
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).requests_failed
         ) \
         .then(
             the_answer_was(4210)
@@ -1365,7 +3149,8 @@ def test_impact_still_running_when_the_metrics_ran_out_is_a_lower_bound() -> Non
             measured := a_measured_incident(back_to_normal_at=None)
         ) \
         .when(
-            lambda: impact_of(measured).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
         ) \
         .then(
             the_answer_was(ImpactExtent.AT_LEAST)
@@ -1373,18 +3158,40 @@ def test_impact_still_running_when_the_metrics_ran_out_is_a_lower_bound() -> Non
 
 
 @pytest.mark.unit
-def test_impact_whose_metrics_stopped_is_unobserved() -> None:
+def test_impact_whose_metrics_stopped_is_metrics_missing() -> None:
     # Not a stretch the service is known to have spent broken - a stretch
     # nobody could see, which a lower bound would misdescribe.
     Scenario() \
         .given(
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
-            lambda: impact_of(measured).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
         ) \
         .then(
-            the_answer_was(ImpactExtent.UNOBSERVED)
+            the_answer_was(ImpactExtent.METRICS_MISSING)
+        )
+
+
+@pytest.mark.unit
+def test_impact_whose_metrics_stopped_and_resumed_is_metrics_resumed() -> None:
+    # How long they were missing, which is no floor - and still nothing of
+    # whether the service was failing, which a measurement would say.
+    some_resumption = ONSET + timedelta(minutes=6)
+
+    Scenario() \
+        .given(
+            measured := a_measured_incident(back_to_normal_at=some_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_resumption)
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
+        ) \
+        .then(
+            the_answer_was(ImpactExtent.METRICS_RESUMED)
         )
 
 
@@ -1395,7 +3202,8 @@ def test_impact_states_no_peak_where_the_metrics_could_not_be_read() -> None:
             measured := a_measured_incident(error_rates=None)
         ) \
         .when(
-            lambda: impact_of(measured).peak_error_rate
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).peak_error_rate
         ) \
         .then(
             the_answer_was(None)
@@ -1407,10 +3215,12 @@ def test_impact_states_no_peak_where_the_metrics_could_not_be_read() -> None:
     (ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42,
                 usual_ceiling=0.02, usual_worst=0.04), True),
     (ErrorRates(baseline=0.01, while_broken=0.009, at_its_worst=0.02,
-                usual_ceiling=0.02, usual_worst=0.04), False)
-], ids=["rose", "did-not-rise"])
+                usual_ceiling=0.02, usual_worst=0.04), False),
+    (ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42,
+                usual_ceiling=None, usual_worst=None), None)
+], ids=["rose", "did-not-rise", "variation-unknown"])
 def test_impact_carries_the_error_rate_before_and_while_broken_and_whether_it_rose(
-        error_rates: ErrorRates, rose: bool) -> None:
+        error_rates: ErrorRates, rose: bool | None) -> None:
     # A rate that did not rise is still shown, as one that did not: left off,
     # a reader cannot tell it from one nobody measured, and a summary saying
     # pages kept loading rests on it.
@@ -1419,7 +3229,8 @@ def test_impact_carries_the_error_rate_before_and_while_broken_and_whether_it_ro
             measured := a_measured_incident(error_rates=error_rates)
         ) \
         .when(
-            lambda: impact_of(measured).error_rates
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).error_rates
         ) \
         .then(
             the_answer_was(ErrorRateLevels(before=error_rates.baseline,
@@ -1437,7 +3248,8 @@ def test_impact_carries_no_error_rate_levels_where_the_metrics_could_not_be_read
             measured := a_measured_incident(error_rates=None)
         ) \
         .when(
-            lambda: impact_of(measured).error_rates
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).error_rates
         ) \
         .then(
             the_answer_was(None)
@@ -1457,11 +3269,53 @@ def test_impact_carries_the_rules_series_where_it_got_worse() -> None:
                                              line=0.8))
         ) \
         .when(
-            lambda: impact_of(measured).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=0.899, while_broken=0.459,
                                           at_its_worst=0.391, worse_when="below", line=0.8))
+        )
+
+
+@pytest.mark.unit
+def test_impact_carries_the_unit_of_the_rules_series() -> None:
+    # The page says the levels in it, as the brief does.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=120.0, while_broken=640.0,
+                                             at_its_worst=910.0, worse_when="above"),
+                rule_series_unit="ms")
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
+        ) \
+        .then(
+            the_answer_was(RuleSeriesHarm(before=120.0, while_broken=640.0,
+                                          at_its_worst=910.0, worse_when="above", unit="ms"))
+        )
+
+
+@pytest.mark.unit
+def test_impact_carries_that_the_rules_series_is_the_error_rate() -> None:
+    # Then the page already has the error rate's own figures for it, and says
+    # only what those do not.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=0.01, while_broken=0.28,
+                                             at_its_worst=0.38, worse_when="above"),
+                rule_series_is_the_error_rate=True)
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
+        ) \
+        .then(
+            the_answer_was(RuleSeriesHarm(before=0.01, while_broken=0.28, at_its_worst=0.38,
+                                          worse_when="above", is_the_error_rate=True))
         )
 
 
@@ -1476,10 +3330,34 @@ def test_impact_carries_no_rules_series_that_held() -> None:
                                              at_its_worst=0.91, worse_when="below"))
         ) \
         .when(
-            lambda: impact_of(measured).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_impact_carries_how_long_requests_took_at_each_quantile_it_is_told() -> None:
+    # What the people using the service felt, where nothing else on the page
+    # says it: a postmortem of a service whose requests took about six and a
+    # half times as long at worst gave only the memory its alert watched as the
+    # harm, which nobody using the service felt. Which quantiles is the brief's
+    # to say, so the page shows the ones it tells.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(),
+            latency_told := [LatencyLevels(quantile="p95", baseline=215.13, while_broken=586.4,
+                                           at_its_worst=1449.0, departed=True)]
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=latency_told,
+                              disproven=False).latency_harm
+        ) \
+        .then(
+            the_answer_was([LatencyHarm(quantile="p95", before=215.13, while_broken=586.4,
+                                        at_its_worst=1449.0)])
         )
 
 
@@ -1491,11 +3369,30 @@ def _a_deploy_of(revision: str, at: str, actor: str | None = None) -> ChangeEven
                        actor=actor)
 
 
+def _the_move(trigger: Trigger | None) -> tuple[str | None, str | None] | None:
+    return (trigger.from_state, trigger.to_state) if trigger is not None else None
+
+
 def _a_change_to(subject: str, at: str) -> ChangeEvent:
     return ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
                        occurred_at=at,
                        reference=subject,
                        summary="dont care")
+
+
+# A change to `SOME_FILE`, the file `_what_the_deploy_of` names - any will do,
+# since a file named with no key and no states is carried by any change to it.
+_A_CHANGE = ["@@ -1,1 +1,1 @@", "-replicas: 2", "+replicas: 3"]
+
+
+def _everything_the_deploy_of(revision: str, changed_file: str) -> DeploymentChangesRecord:
+    """What the deploy of `revision` changed, read in full: a listing of every
+    file it changed, which is `changed_file` alone."""
+    return DeploymentChangesRecord(revision=revision, said=[
+        f"Deployment of revision {revision} to io-shop, compared against "
+        f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
+        a_changed_file_line("modified", changed_file)
+    ], lists_every_file=True)
 
 
 def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesRecord:
@@ -1504,6 +3401,6 @@ def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesR
     return DeploymentChangesRecord(revision=revision, said=[
         f"Deployment of revision {revision} to io-shop, compared against "
         f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
-        "modified deploy/values-production.yaml",
+        a_changed_file_line("modified", SOME_FILE),
         *(f"{PATCH_LINE_INDENT}{line}" for line in changed)
     ])

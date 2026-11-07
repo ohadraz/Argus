@@ -24,6 +24,13 @@ while the independence contract held, so both rules are carried over the suites
 here. Both read their membership from the contract that argues it rather than
 restating it: two lists of one thing is one of them going stale.
 
+And it holds the walk to the half of its own contract that import-linter cannot
+see: no package that walks an incident reaches a vendor's SDK for a store the
+fence cannot reach. import-linter sees a third party only with
+`include_external_packages`, which is global, and turns every `["*"]` contract
+against the standard library - so the graph with third parties in it is built
+here, for this rule alone.
+
 A script rather than the `lint-imports` shim, for the reason every other tool
 here is invoked as a module: going through the interpreter avoids the
 locally-generated `.exe` stubs in `.venv/Scripts/`, which Windows Smart App
@@ -32,9 +39,12 @@ Control has blocked before. See the `smart-app-control-blocks` skill.
 import ast
 import sys
 import tomllib
+from collections.abc import Iterable
 from io import TextIOWrapper
 from pathlib import Path
 
+import grimp
+from grimp import ImportGraph
 from importlinter.cli import lint_imports_command
 
 REPOSITORY = Path(__file__).resolve().parent.parent
@@ -69,6 +79,21 @@ CONFIGURATION = REPOSITORY / "pyproject.toml"
 KERNEL = "argus_core"
 FRONT_DOOR_CONTRACT = "the kernel is reached through its front doors, not by module path"
 INDEPENDENCE_CONTRACT = "an agent knows the kernel and its own sources, never another agent"
+WALK_CONTRACT = "the walk writes to no store the fence cannot reach"
+
+# The vendors' SDKs a walk may not reach: the vector store long-term memory is
+# searched in, and the chat platform people are told in. Neither has a fence, so
+# a write through either from a walk whose run was taken back is a write nothing
+# refuses. Named here rather than in the contract, which cannot name a third
+# party at all.
+STORES_THE_FENCE_CANNOT_REACH = ("qdrant_client", "slack_sdk")
+
+# The one way a walk reaches one of them, and why it may: recall reads, and a
+# read made for a run since taken back changes nothing anybody else holds. The
+# reading side of the store is the module the walk searches through, and nothing
+# beyond it - the writing side reaches the same SDK, and is the contract's to
+# forbid.
+THE_WAY_RECALL_READS = ("incident_memory.recalling", "qdrant_client")
 
 # Test support and the doubles, which no contract has anything to say about:
 # they are installed as dev dependencies, never imported by anything that ships,
@@ -189,6 +214,85 @@ def _the_independent_modules() -> set[str]:
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def _the_walk() -> set[str]:
+    """The packages that walk an incident, as the walk's contract names them.
+
+    Read from the contract for the reason the agents are: the contract is where
+    the membership is argued, and the rule over the SDKs is the same rule's
+    other half.
+    """
+    for contract in _the_contracts():
+        if contract.get("name") != WALK_CONTRACT:
+            continue
+
+        modules = contract.get("source_modules", [])
+
+        if isinstance(modules, list):
+            return {str(module) for module in modules}
+
+        break
+
+    print(
+        f"no contract named [{WALK_CONTRACT}] in pyproject.toml, so the packages "
+        "that walk an incident cannot be read and held to it.",
+        file=sys.stderr
+    )
+    sys.exit(1)
+
+
+def the_chains_to_a_store_the_fence_cannot_reach(
+    graph: ImportGraph, walk: Iterable[str]
+) -> list[tuple[str, ...]]:
+    """Every way a package that walks an incident reaches a store with no fence.
+
+    Each chain begins in one of `walk` and ends at one of the SDKs, directly or
+    through anything in between - a walk calling the store's writer writes as
+    surely as one holding the client. Recall's one read is taken out of `graph`
+    first, so a chain that ends in it is no chain; `graph` is changed by that,
+    and is the caller's to have built for this.
+
+    Empty where the walk holds to the rule, which is the whole of what passing
+    means.
+    """
+    reader, read = THE_WAY_RECALL_READS
+
+    if reader in graph.modules and graph.direct_import_exists(importer=reader, imported=read):
+        graph.remove_import(importer=reader, imported=read)
+
+    return sorted(
+        chain
+        for package in sorted(walk) if package in graph.modules
+        for store in STORES_THE_FENCE_CANNOT_REACH if store in graph.modules
+        for chain in graph.find_shortest_chains(importer=package, imported=store)
+    )
+
+
+def _the_walk_reaches_no_store_the_fence_cannot_reach(walk: set[str]) -> None:
+    """Refuses a walk that can write somewhere the fence cannot stop it.
+
+    Over the graph of the whole workspace, with the third parties in it - built
+    here and nowhere else, because import-linter's would then hold every one of
+    its contracts against them too.
+    """
+    graph = grimp.build_graph(
+        *sorted(_the_modules_the_contracts_see()),
+        include_external_packages=True,
+        cache_dir=None
+    )
+    reached = the_chains_to_a_store_the_fence_cannot_reach(graph, walk)
+
+    if reached:
+        print(
+            "these reach a store the fence cannot reach, from a package that walks "
+            "an incident:\n"
+            + "\n".join(f"  {' -> '.join(chain)}" for chain in reached)
+            + "\nThe walk files what it means to keep as a row, and tells people "
+              "through the event log.",
+            file=sys.stderr
+        )
+        sys.exit(1)
 
 
 def _the_packages_named_by(path: Path) -> list[tuple[int, str]]:
@@ -360,9 +464,10 @@ def _the_suites_use_the_front_doors(doors: dict[str, set[str]]) -> None:
 
 
 def main() -> None:
-    """Checks the graph is whole and the suites behave, then runs every contract.
+    """Checks the graph is whole, the suites behave and the walk reaches no
+    unfenced store, then runs every contract.
 
-    The suites are checked before import-linter rather than after, because
+    Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
     would never run.
 
@@ -374,6 +479,7 @@ def main() -> None:
     _every_module_is_analyzed()
     _the_suites_use_the_front_doors(_the_front_doors())
     _the_suites_keep_the_agents_apart(_the_independent_modules())
+    _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
     sys.exit(lint_imports_command())
 
 

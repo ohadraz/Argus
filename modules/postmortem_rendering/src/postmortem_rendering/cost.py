@@ -1,5 +1,5 @@
-"""What the response cost: the people's minutes and what they were, and Argus's
-tokens.
+"""The effort the response took: the people's minutes and what they were, and
+Argus's tokens.
 
 What the minutes cost in pay is not here, though it is stored: divided by the
 minutes, any figure for it is a responder's rate of pay - and with one
@@ -13,7 +13,7 @@ from argus_core.models import PostmortemDocument
 from postmortem_rendering.impact import Card
 
 
-def the_cost(postmortem: PostmortemDocument) -> tuple[Card, ...]:
+def the_response_effort(postmortem: PostmortemDocument) -> tuple[Card, ...]:
     """The same cards as the impact, figure first: person-minutes, with how
     many people and what they were, and the tokens Argus spent."""
     label = "engineer time"
