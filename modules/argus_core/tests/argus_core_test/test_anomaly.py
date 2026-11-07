@@ -1129,6 +1129,97 @@ def test_find_onset_ignores_an_earlier_departure_the_service_recovered_from() ->
 
 
 @pytest.mark.unit
+def test_find_onset_dates_a_flapping_service_from_where_its_flapping_began() -> None:
+    # A capacity that will not settle: two minutes broken, one clear, repeating.
+    # Each clear minute ends a run, and dated from the latest run the incident
+    # lasted a minute - every figure measured over it covered a single minute
+    # of a quarter of an hour. A clear gap the service keeps taking is not a
+    # recovery, by the rule recovery is judged by, so the runs either side of it
+    # are one incident.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    a_flapping_stretch = [
+        some_degradation_rate, some_degradation_rate, some_steady_rate
+    ] * 4
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + a_flapping_stretch
+    )
+
+    where_the_flapping_began = some_window[CALM_MINUTES]
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(where_the_flapping_began.bucket_id)
+        )
+
+
+@pytest.mark.unit
+def test_find_onset_bridges_the_pause_a_flapping_service_keeps_taking_however_long() -> None:
+    # Two minutes broken and two clear, repeating. The pause that is no recovery
+    # is the one this service keeps taking, measured, not a number fitted to
+    # one flap: a bridge of a single minute would date this incident from its
+    # last two minutes.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    a_flapping_stretch = [
+        some_degradation_rate, some_degradation_rate, some_steady_rate, some_steady_rate
+    ] * 4
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES + a_flapping_stretch
+    )
+
+    where_the_flapping_began = some_window[CALM_MINUTES]
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(where_the_flapping_began.bucket_id)
+        )
+
+
+@pytest.mark.unit
+def test_find_onset_does_not_reach_back_to_a_lone_minute_before_a_flap() -> None:
+    # One minute departing alone is not an incident, and a pause before it is
+    # not one the incident took: only runs that are themselves a state are
+    # joined, so a stray a minute before the flapping began does not date it.
+    some_steady_rate = 0.01
+    dont_care_stray_rate = some_steady_rate * 30
+    some_degradation_rate = some_steady_rate * 30
+    a_flapping_stretch = [
+        some_degradation_rate, some_degradation_rate, some_steady_rate
+    ] * 3
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + [dont_care_stray_rate, some_steady_rate]
+        + a_flapping_stretch
+    )
+
+    where_the_incident_began = some_window[CALM_MINUTES + 2]
+
+    Scenario() \
+        .given(
+            some_window
+        ) \
+        .when(
+            lambda: find_onset(some_window, SOME_THRESHOLDS)
+        ) \
+        .then(
+            _the_onset_is(where_the_incident_began.bucket_id)
+        )
+
+
+@pytest.mark.unit
 def test_find_recovery_reports_the_minute_the_incident_fell_away_and_stayed_away() -> None:
     # The moment every measured window has to end at. Recovery is a fact about
     # the service; when the walk closed the incident is a fact about Argus, and
@@ -1174,6 +1265,37 @@ def test_a_recovery_is_never_dated_before_the_incident_it_ends_began() -> None:
         .when(lambda: find_recovery(some_window, SOME_THRESHOLDS,
                                     since=the_incident_began.bucket_id)) \
         .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
+
+
+@pytest.mark.unit
+def test_a_flapping_service_recovers_after_its_last_bad_minute_not_in_its_last_pause() -> None:
+    # Two minutes broken and one clear, then one broken minute and calm. The
+    # pause before that minute is one the service kept taking, so it was no
+    # recovery: dated there, the incident ended a minute before a minute still
+    # at its level. A recovery is a clear stretch long enough to be one, and it
+    # begins after the last minute the incident was in.
+    some_steady_rate = 0.01
+    some_degradation_rate = some_steady_rate * 30
+    a_flapping_stretch = [
+        some_degradation_rate, some_degradation_rate, some_steady_rate
+    ] * 3
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + a_flapping_stretch
+        + [some_degradation_rate]
+        + [some_steady_rate] * 4
+    )
+
+    the_incident_began = some_window[CALM_MINUTES]
+    first_calm_minute_after_its_last_bad_one = some_window[
+        CALM_MINUTES + len(a_flapping_stretch) + 1
+    ]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS,
+                                    since=the_incident_began.bucket_id)) \
+        .then(_the_recovery_is(first_calm_minute_after_its_last_bad_one.bucket_id))
 
 
 @pytest.mark.unit

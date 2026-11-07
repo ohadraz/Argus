@@ -171,7 +171,10 @@ def find_onset(buckets: Sequence[MetricBucket],
     one from it would put the onset before minutes the service was measurably
     healthy in, and every window derived from that onset - the logs read, the
     changes considered, the money counted - would cover mostly calm time. The
-    state the service is in now began the last time it entered it.
+    state the service is in now began the last time it entered it - reached back
+    across every pause the service keeps taking, because a pause that recurs is
+    no recovery, and a service broken two minutes in three entered its state
+    where the flapping began (`_back_across_the_pauses_it_keeps_taking`).
 
     The question is asked of both calm stretches and the earlier answer is
     taken. The two ask different things of the same numbers - one what is
@@ -229,9 +232,66 @@ def _the_onset_against(buckets: Sequence[MetricBucket],
         length = _run_length_from(departures, index)
 
         if length >= required or index + length == len(departures):
-            return index
+            return _back_across_the_pauses_it_keeps_taking(departures, index, thresholds)
 
     return None
+
+
+def _back_across_the_pauses_it_keeps_taking(departures: Sequence[bool],
+                                            index: int,
+                                            thresholds: AnomalyThresholds) -> int:
+    """Where the incident whose latest run begins at `index` began, reached back
+    across every pause shorter than the clear stretch a recovery from it has to
+    show.
+
+    The latest run is the onset because a service that departs and comes back
+    has had an incident that is over - and a pause the service keeps taking is
+    not one. A capacity that will not settle is broken two minutes in three, and
+    read run by run its incident began a minute before the window ended: every
+    figure measured from that onset covered one minute of a quarter of an hour.
+    Whether a pause ended the incident is the question recovery already answers,
+    so it is asked the same way - `_clear_minutes_a_recovery_has_to_show` - and a
+    pause shorter than that answer is the incident still going on.
+
+    Measured rather than set, for the reason the recovery's wait is: a bridge of
+    one minute fits two bad minutes for one good and is wrong about the next
+    ratio. Read from where the incident first persisted, as the recovery's is,
+    so strays in the calm before it are no rhythm of its own. Only runs that are
+    themselves a state are joined: a minute departing alone is not an incident,
+    and a pause before it is not one the incident took. Where no pause recurs a
+    recovery asks for one clear minute, no pause is shorter, and the latest run
+    stands - every incident that does not flap is dated as before.
+    """
+    persisted_from = next(
+        (start for start, departed in enumerate(departures)
+         if departed and (start == 0 or not departures[start - 1])
+         and _run_length_from(departures, start) >= thresholds.persistence_minutes),
+        None
+    )
+    if persisted_from is None:
+        return index
+
+    clear_minutes = _clear_minutes_a_recovery_has_to_show(departures[persisted_from:],
+                                                          thresholds)
+
+    while index > persisted_from:
+        before = index - 1
+        while before >= 0 and not departures[before]:
+            before -= 1
+
+        if before < 0 or index - before - 1 >= clear_minutes:
+            return index
+
+        start = before
+        while start > 0 and departures[start - 1]:
+            start -= 1
+
+        if _run_length_from(departures, start) < thresholds.persistence_minutes:
+            return index
+
+        index = start
+
+    return index
 
 
 def _the_start_the_opening_can_claim(index: int | None,
@@ -515,6 +575,15 @@ def find_recovery(buckets: Sequence[MetricBucket],
     still read off the whole window, that episode included: how far this
     service falls and how long it pauses are about the service, not about where
     the scan starts.
+
+    The minute dated is itself the start of a clear stretch long enough to be a
+    recovery. `_stays_clear_of_the_incident` asks whether any such stretch follows
+    and forgives a lone departed minute on the way, which is right for a verdict
+    on an action and wrong for a date: on a service broken two minutes in three
+    whose last bad minute came alone, the pause before that minute was dated the
+    end, a minute before a minute still at the incident's level. Only here, where
+    a minute is being named; `has_recovered_since` keeps asking for any stretch,
+    for the reason its docstring gives.
     """
     began = _where_the_incident_persisted_from(buckets, thresholds)
 
@@ -529,12 +598,21 @@ def find_recovery(buckets: Sequence[MetricBucket],
                   if parse_iso(bucket.bucket_id) >= onset), len(buckets))
         )
 
+    clear_minutes = _clear_minutes_a_recovery_has_to_show(
+        _departures_from_the_incident(buckets, thresholds), thresholds
+    )
+
     for index in range(began + 1, len(buckets)):
         still_the_incident = _minutes_still_at_the_incidents_level(
             buckets, thresholds, the_action=index
         )
 
         if still_the_incident[index]:
+            continue
+
+        clear = [not unwell for unwell in _the_unwell_minutes(buckets, still_the_incident,
+                                                               thresholds)]
+        if _run_length_from(clear, index) < clear_minutes:
             continue
 
         if _stays_clear_of_the_incident(
@@ -720,13 +798,7 @@ def _stays_clear_of_the_incident(buckets: Sequence[MetricBucket],
     run it is in, so one noisy minute would deny a verdict for as long as anybody
     waited.
     """
-    departures = _departures(buckets, thresholds, _THE_QUIETEST_MINUTES)
-    unwell = (
-        departures
-        if _where_the_incident_persisted_from(buckets, thresholds) is None
-        else still_the_incident
-    )
-    stretch = unwell[from_index:]
+    stretch = _the_unwell_minutes(buckets, still_the_incident, thresholds)[from_index:]
 
     return (
         _stays_clear_for_long_enough_to_be_a_recovery(
@@ -737,6 +809,19 @@ def _stays_clear_of_the_incident(buckets: Sequence[MetricBucket],
         )
         and not _departs_for_long_enough_to_be_the_incident(stretch, thresholds)
     )
+
+
+def _the_unwell_minutes(buckets: Sequence[MetricBucket],
+                        still_the_incident: Sequence[bool],
+                        thresholds: AnomalyThresholds) -> list[bool]:
+    """Which minutes count as unwell for a recovery: those at the incident's
+    level, or those that departed at all where nothing in the window persisted -
+    see `_stays_clear_of_the_incident`, which says why the two are one question.
+    """
+    if _where_the_incident_persisted_from(buckets, thresholds) is None:
+        return _departures(buckets, thresholds, _THE_QUIETEST_MINUTES)
+
+    return list(still_the_incident)
 
 
 def _clear_minutes_a_recovery_has_to_show(departures: Sequence[bool],
