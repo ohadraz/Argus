@@ -137,7 +137,7 @@ def _nothing_written(*dont_care_arguments: Any) -> None:
 def _a_fresh_shop() -> Any:
     """A shop with nothing staged, flags in memory, and no history to forget."""
     world = state.ScenarioState(
-        _AFlag("flag"), _AFlag("fallback"),
+        _AFlag("flag"), _AFlag("fallback"), _AFlag("typical-purchase"),
         forget_the_flag_history=lambda *arguments, **keywords: None,
         backdate_the_flag_history=lambda *arguments, **keywords: None
     )
