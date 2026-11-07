@@ -1,0 +1,255 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: The service is still serving normally, but the metrics stopped. The deploy at 2026-11-07T19:10:07Z changed one value, metrics.portName, from metrics to http-metrics in deploy/values-production.yaml. The scrape appears to select the port by name, so it can no longer find it. The rows stop at 2026-11-07T19:09:00Z, and the logs keep answering normally afterwards.\n\nWhat that rests on:\n  - Metrics rows stop at 2026-11-07T19:09:00Z; every earlier row sits at baseline (error_rate ~0.01, p95 ~215ms)\n  - Deploy 9f4ad14582c99c497eb6c2d2af87566cd4493020 changed metrics.portName from 'metrics' to 'http-metrics' (a single value in values-production.yaml)\n  - Logs across 19:10-19:15 show only the usual ClientDisconnected errors at 0.5-2% error rate, so the shop is serving as before\n\nFiles named in the evidence:\n  deploy/values-production.yaml\nThese are what the evidence names, which is not always where the fault lives.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_015mQXfrxYMy145wBCzGBPLt",
+          "input": {
+            "path": "deploy/scrape.yaml"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_015xce9CVNjoCwKUpV5rVSM5",
+          "input": {
+            "path": "deploy/values-production.yaml"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "# How the platform's Prometheus collects the shop's metrics.\n#\n# The ServiceMonitor the platform applies with the shop's chart, kept in the\n# repository beside how the shop is deployed, so that how it is collected\n# changes in the same pull request as what it is collected from.\n#\n# It selects the shop's Service by label, then the endpoint to scrape on that\n# Service by the port's *name* - never its number - so a port can move without\n# anything here being touched.\n#\n# The name here has to be the one `metrics.portName` in values-production.yaml\n# gives the port. Nothing checks that the two agree: a name that matches no port\n# is not an error to the operator, it is a target list with nothing in it.\napiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: io-shop\n  labels:\n    release: prometheus\nspec:\n  selector:\n    matchLabels:\n      app: io-shop\n  endpoints:\n    - port: metrics\n      path: /metrics\n      interval: 15s\n",
+          "tool_use_id": "toolu_015mQXfrxYMy145wBCzGBPLt",
+          "type": "tool_result"
+        },
+        {
+          "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 0\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
+          "tool_use_id": "toolu_015xce9CVNjoCwKUpV5rVSM5",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01E6RdX3h62PEdxCSeuTiPvj",
+          "input": {
+            "explanation": "The fault: `deploy/scrape.yaml` says it picks the endpoint to scrape by the port's name (`endpoints: - port: metrics`). Its own comment says that name has to match `metrics.portName` in `deploy/values-production.yaml`, and that nothing checks the two agree. A name that matches no port leaves Prometheus with no targets, and nothing reports an error. Deploy 9f4ad14 renamed the port to `http-metrics` in values-production.yaml but did not change scrape.yaml, so the selector matched nothing. That is why the metrics stopped while the service kept serving.\n\nThe fix: change the ServiceMonitor endpoint to `port: http-metrics`, so it matches the name the deploy now gives the port. The deploy stays in place, nothing is reverted.\n\nThe test: I added `tests/io_shop/test_scrape_config.py` to cover the missing check. It reads `metrics.portName` from values-production.yaml and every `port:` entry under the ServiceMonitor's `endpoints` in scrape.yaml, using plain line parsing so it needs no YAML library. It asserts that every scraped port name equals the configured portName. Against the current files it should fail ('metrics' vs 'http-metrics'). With this change it should pass, and it will catch the next rename that updates only one of the two files.",
+            "files": [
+              {
+                "content": "# How the platform's Prometheus collects the shop's metrics.\n#\n# The ServiceMonitor the platform applies with the shop's chart, kept in the\n# repository beside how the shop is deployed, so that how it is collected\n# changes in the same pull request as what it is collected from.\n#\n# It selects the shop's Service by label, then the endpoint to scrape on that\n# Service by the port's *name* - never its number - so a port can move without\n# anything here being touched.\n#\n# The name here has to be the one `metrics.portName` in values-production.yaml\n# gives the port. Nothing checks that the two agree: a name that matches no port\n# is not an error to the operator, it is a target list with nothing in it.\napiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: io-shop\n  labels:\n    release: prometheus\nspec:\n  selector:\n    matchLabels:\n      app: io-shop\n  endpoints:\n    - port: http-metrics\n      path: /metrics\n      interval: 15s\n",
+                "path": "deploy/scrape.yaml"
+              },
+              {
+                "content": "\"\"\"The ServiceMonitor must scrape the port name the deployment actually gives.\n\nThe scrape selects its endpoint by port *name*. A name that matches no port is\nnot an error anywhere - Prometheus just ends up with no targets and the metrics\nstop silently. So the two files are checked against each other here.\n\"\"\"\n\nfrom pathlib import Path\n\nREPO_ROOT = Path(__file__).resolve().parents[2]\nVALUES = REPO_ROOT / \"deploy\" / \"values-production.yaml\"\nSCRAPE = REPO_ROOT / \"deploy\" / \"scrape.yaml\"\n\n\ndef _strip(value):\n    value = value.split(\"#\", 1)[0].strip()\n    return value.strip(\"'\\\"\")\n\n\ndef _configured_port_name():\n    in_metrics = False\n    for raw in VALUES.read_text().splitlines():\n        line = raw.split(\"#\", 1)[0].rstrip()\n        if not line.strip():\n            continue\n        if not raw.startswith((\" \", \"\\t\")):\n            in_metrics = line.strip() == \"metrics:\"\n            continue\n        if in_metrics and line.strip().startswith(\"portName:\"):\n            return _strip(line.strip()[len(\"portName:\"):])\n    raise AssertionError(\"metrics.portName not found in values-production.yaml\")\n\n\ndef _scraped_port_names():\n    names = []\n    in_endpoints = False\n    endpoints_indent = None\n    for raw in SCRAPE.read_text().splitlines():\n        line = raw.split(\"#\", 1)[0].rstrip()\n        if not line.strip():\n            continue\n        indent = len(line) - len(line.lstrip())\n        stripped = line.strip()\n        if stripped == \"endpoints:\":\n            in_endpoints = True\n            endpoints_indent = indent\n            continue\n        if in_endpoints and indent <= endpoints_indent and not stripped.startswith(\"-\"):\n            in_endpoints = False\n        if in_endpoints:\n            item = stripped[1:].strip() if stripped.startswith(\"-\") else stripped\n            if item.startswith(\"port:\"):\n                names.append(_strip(item[len(\"port:\"):]))\n    return names\n\n\ndef test_scrape_selects_the_configured_metrics_port_name():\n    configured = _configured_port_name()\n    scraped = _scraped_port_names()\n    assert scraped, \"the ServiceMonitor scrapes no named port\"\n    for name in scraped:\n        assert name == configured, (\n            f\"scrape.yaml selects port {name!r} but values-production.yaml \"\n            f\"names the metrics port {configured!r}\"\n        )\n",
+                "path": "tests/io_shop/test_scrape_config.py"
+              }
+            ],
+            "summary": "Point the ServiceMonitor at the renamed metrics port (http-metrics) and test that scrape.yaml and values-production.yaml agree"
+          },
+          "name": "submit_fix",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your patch has arrived. One question before it is opened: does this change help this incident's users only once code outside this repository changes as well? If yes, it is not opened - say in the explanation what would have to change there. Answer with answer_question.",
+          "tool_use_id": "toolu_01E6RdX3h62PEdxCSeuTiPvj",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
+      "strict": true
+    }
+  ]
+}

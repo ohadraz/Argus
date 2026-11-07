@@ -2,10 +2,14 @@
   "container": null,
   "content": [
     {
+      "text": "Logs are normal while metrics are missing. Check the deploy diff.",
+      "type": "text"
+    },
+    {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_014XM1hnTHrse7JRoCuD47rY",
+      "id": "toolu_012KViG7YtT8kUnDivCPGAZw",
       "input": {
         "revision": "9f4ad14582c99c497eb6c2d2af87566cd4493020"
       },
@@ -14,7 +18,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgAFx3RtRLsouCJTShqfo",
+  "id": "msg_011Cgp6uZadTDsQj3acWZAw1",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -24,13 +28,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 1393
+      "ephemeral_5m_input_tokens": 1515
     },
-    "cache_creation_input_tokens": 1393,
-    "cache_read_input_tokens": 28619,
+    "cache_creation_input_tokens": 1515,
+    "cache_read_input_tokens": 28796,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 82,
+    "output_tokens": 106,
     "output_tokens_details": {
       "thinking_tokens": 0
     },
