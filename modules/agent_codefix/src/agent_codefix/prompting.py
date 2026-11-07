@@ -44,6 +44,7 @@ import json
 from collections.abc import Iterable
 from typing import Any, Final
 
+from argus_core import is_a_test_file
 from argus_core.models import ToolDefinition
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -159,11 +160,6 @@ _A_CLOSING_CONTENT_TAG: Final = f"</{CONTENT_FIELD}>"
 # not a guess at the content, because a file whose name says Python is one whose
 # reader will treat it as Python whatever it holds.
 _A_PYTHON_SUFFIX: Final = ".py"
-
-# What pytest collects as a test file when nothing tells it otherwise:
-# `test_*.py` or `*_test.py`.
-_A_TEST_FILE_PREFIX: Final = "test_"
-_A_TEST_FILE_SUFFIX: Final = "_test.py"
 
 # What a configuration file's name ends in. Data a program reads, never a
 # program: a script or a Dockerfile runs, and is code however it is deployed.
@@ -300,7 +296,7 @@ def brings_a_test(files: Iterable[ProposedFile]) -> bool:
     submission back.
     """
     return any(
-        _is_a_test_file(proposed.path.rsplit("/", 1)[-1]) for proposed in files
+        is_a_test_file(proposed.path) for proposed in files
     )
 
 
@@ -318,13 +314,6 @@ def changes_only_configuration(paths: Iterable[str]) -> bool:
     listed = list(paths)
 
     return bool(listed) and all(path.endswith(_CONFIGURATION_ENDINGS) for path in listed)
-
-
-def _is_a_test_file(name: str) -> bool:
-    return (
-        (name.startswith(_A_TEST_FILE_PREFIX) and name.endswith(_A_PYTHON_SUFFIX))
-        or name.endswith(_A_TEST_FILE_SUFFIX)
-    )
 
 
 def _parses(content: str) -> bool:

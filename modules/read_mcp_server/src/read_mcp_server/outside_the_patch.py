@@ -15,8 +15,10 @@ field it writes as it did is not a change, however much else the function's
 text moved. A function the patch adds is not a change either: nothing outside
 the patch was written against it, and a test the patch adds builds its fixtures
 by keyword - read as fields the patch writes, those buried the rows that
-mattered. Python only: a file the tree cannot parse says nothing it could be
-wrong about, so it is passed over rather than guessed at.
+mattered. A changed function in a test file writes none either, for the same
+reason: its keywords build fixtures. Python only: a file the tree cannot parse
+says nothing it could be wrong about, so it is passed over rather than guessed
+at.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import re
 from collections.abc import Iterator, Mapping
 from typing import Final, NamedTuple
 
+from argus_core import is_a_test_file
 from argus_core.models import CodeOutsideThePatch, CodeUse
 
 PYTHON_SUFFIX: Final = ".py"
@@ -116,6 +119,13 @@ def _what_it_changes(source: Mapping[str, str],
                     changes.methods.add(name)
                 else:
                     changes.functions[name] = module
+
+                # A test builds its fixtures by keyword, and a test the patch
+                # changes is no more a writer of the service's fields than one
+                # it adds: read as fields, its keywords listed every read of the
+                # same names across the service.
+                if is_a_test_file(path):
+                    continue
 
                 wrote = _fields_written_by(was, _module_functions(before), classes)
                 changes.fields.update(
@@ -216,6 +226,7 @@ def _uses_in(path: str,
                         for child in ast.iter_child_nodes(node)}
     lines = text.splitlines()
     modules = _modules_imported_by(tree)
+    names_from = _the_module_each_name_is_imported_from(tree)
     returns = _what_each_one_line_function_returns(tree, text)
 
     for node in ast.walk(tree):
@@ -224,21 +235,32 @@ def _uses_in(path: str,
                           function=_the_function_around(node, parents),
                           does=_what_it_does(node, parents, text, lines, returns),
                           set_against_a_call=_is_set_against_a_call(node, parents, returns))
-        elif isinstance(node, ast.Call) and (called := _a_changed_call(node, changes, modules)):
+        elif isinstance(node, ast.Call) and (
+            called := _a_changed_call(node, changes, modules, names_from)
+        ):
             yield CodeUse(name=called, path=path, line=node.lineno,
                           function=_the_function_around(node, parents),
                           does=f"calls it: {lines[node.lineno - 1].strip()}")
 
 
-def _a_changed_call(call: ast.Call, changes: _Changes, modules: Mapping[str, str]) -> str | None:
+def _a_changed_call(call: ast.Call,
+                    changes: _Changes,
+                    modules: Mapping[str, str],
+                    names_from: Mapping[str, str]) -> str | None:
     """The changed function or method a call calls - `None` where it calls none.
 
-    A module's function is called by its name, or through its module by
-    whatever name the file imported that module as; a method, through an
-    object. `cache.average(...)` calls whatever the cache's `average` is, and
-    is not the changed function of a module that defines one."""
-    if isinstance(call.func, ast.Name) and call.func.id in changes.functions:
-        return call.func.id
+    A module's function is called by its own name, where the file imported it
+    from that module, or through its module by whatever name the file imported
+    that module as; a method, through an object. `cache.average(...)` calls whatever the
+    cache's `average` is, and is not the changed function of a module that
+    defines one."""
+    if isinstance(call.func, ast.Name):
+        # By its name only where its file imported that name from the module
+        # defining it: a file's own function of the same name - a test's helper
+        # beside the changed one in another test - is not it.
+        name = call.func.id
+        return (name if name in changes.functions
+                and names_from.get(name) == changes.functions[name] else None)
 
     if not isinstance(call.func, ast.Attribute):
         return None
@@ -254,6 +276,15 @@ def _a_changed_call(call: ast.Call, changes: _Changes, modules: Mapping[str, str
         return name
 
     return None
+
+
+def _the_module_each_name_is_imported_from(tree: ast.Module) -> dict[str, str]:
+    """Each name a file imports from a module, with the module, by the last
+    part of its dotted name - as a changed function's module is known."""
+    return {alias.asname or alias.name: node.module.rsplit(".", 1)[-1]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+            for alias in node.names}
 
 
 def _modules_imported_by(tree: ast.Module) -> dict[str, str]:

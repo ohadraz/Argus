@@ -44,6 +44,7 @@ from argus_core.levels import (
     said_as_a_level,
     said_as_a_share,
 )
+from argus_core.pytest_naming import is_a_test_file
 from argus_core.revisions import A_REVISION, said_short, short_form, the_revision_named
 from argus_core.spans import said_as_a_span
 from argus_core.timestamps import (
@@ -77,6 +78,7 @@ __all__ = [
     "fence",
     "get_settings",
     "in_real_time",
+    "is_a_test_file",
     "level_given_in",
     "level_said_in",
     "new_id",

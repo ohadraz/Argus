@@ -3472,6 +3472,65 @@ def test_a_restart_is_not_confirmed_by_a_window_that_never_departed() -> None:
 
 
 @pytest.mark.unit
+def test_a_verdict_reached_on_the_actions_own_receipt_announces_no_wait() -> None:
+    # The receipt settles the action on the first window that comes back, and
+    # reads no minute to do it. Announced, the page said it was waiting "from
+    # 15:04 - up to 104s" and gave the verdict 44 ms later, judged from no minute
+    # at all.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(discard=a_discard_removing(1)),
+                fetch_metrics=metrics_reading([]),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                onset=THE_ONSET,
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_wait_was_announced(published, times=0)
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_a_window_that_never_departed_announces_no_wait() -> None:
+    # The other verdict that reads no minute since the action: nothing departed,
+    # so nothing could come back, and no wait was ever under way.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_restarting(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(restart=_a_restarter_bringing_up(SOME_APPLICATION)),
+                fetch_metrics=metrics_reading(a_window_that_never_departed()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_was_announced(published, times=0)
+        ))
+
+
+@pytest.mark.unit
 def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
     # The half that must not move. Everything above is about a window with no
     # departure in it; this is a window with one, and asking whether it holds a

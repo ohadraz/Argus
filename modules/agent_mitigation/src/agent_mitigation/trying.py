@@ -838,6 +838,10 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     # of the two questions above is asked. `None` until a read answers, because it
     # is measured from a window rather than declared by a caller.
     the_sight_was_absent: bool | None = None
+    # The wait as measured off the first window that answered, held until a
+    # verdict is read off the minutes it names - `None` once said, or where none
+    # is due.
+    the_wait: AwaitingRecovery | None = None
     # Whether the rule that paged was ever read, and whether any evaluation read
     # covered only the time since the change. The second is what decides what
     # running out of time means on that path, as `anything_was_read` does on
@@ -938,18 +942,24 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 reporting_lag_minutes=settings.metrics_reporting_lag_minutes
             )
 
-            # Announced here rather than before the first read, because the
+            # Measured here rather than before the first read, because the
             # figure is measured off that window: said earlier it would be a
             # guess, and the page and the Slack line both say it aloud. A wait
             # whose reads never answer therefore announces nothing - what the
             # page carries then is a line per unanswered read, which is the same
             # thing this was there to prevent.
+            #
+            # Held rather than said, and said before the first verdict read off
+            # the minutes it names. The receipt and a window that never departed
+            # settle this same pass on no minute at all, and announced before
+            # them the page said "Waiting ... up to 104s" and gave the verdict
+            # 44 ms later.
             if incident_id is not None:
-                say(AwaitingRecovery(
+                the_wait = AwaitingRecovery(
                     incident_id=incident_id,
                     from_minute=first_whole_minute,
                     seconds_allowed=(watch_until - arrived_at).total_seconds()
-                ))
+                )
 
         anything_was_read = True
         # An incident paged by a rule watching a series is judged by that rule.
@@ -1086,6 +1096,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             )
 
         if the_sight_was_absent and has_a_reading_since(buckets, first_whole_minute):
+            if the_wait is not None:
+                say(the_wait)
+
             return _Settled(
                 Verdict.CONFIRMED, "the service could be read again"
             )
@@ -1168,6 +1181,10 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             find_recovery(buckets, thresholds, since=incident_began)
             if recovered else None
         )
+
+        if the_wait is not None:
+            say(the_wait)
+            the_wait = None
 
         if incident_id is not None:
             say(RecoveryChecked(

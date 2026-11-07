@@ -192,6 +192,9 @@ def test_every_call_outside_the_patch_of_a_function_whose_definition_it_changes_
         "    return account.month // count if count else 0\n"
     )
     some_page_calling_the_summary = (
+        "from shop.summary import average\n"
+        "\n"
+        "\n"
         "def render(account):\n"
         "    figure = average(account, 3)\n"
         "    return figure\n"
@@ -205,12 +208,97 @@ def test_every_call_outside_the_patch_of_a_function_whose_definition_it_changes_
         .then(
             the_answer_was(CodeOutsideThePatch(
                 uses=[
-                    CodeUse(name="average", path=PAGE, line=2, function="render",
+                    CodeUse(name="average", path=PAGE, line=5, function="render",
                             does="calls it: figure = average(account, 3)")
                 ],
                 defined={"record": [LEDGER], "reconcile": [RECONCILIATION],
                          "render": [PAGE]}
             ))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_page", [
+    "def average(account, count):\n"
+    "    return 0\n"
+    "\n"
+    "\n"
+    "def render(account):\n"
+    "    return average(account, 3)\n",
+    "from shop.other import average\n"
+    "\n"
+    "\n"
+    "def render(account):\n"
+    "    return average(account, 3)\n"
+], ids=["its-own", "imported-from-elsewhere"])
+def test_a_bare_call_of_a_name_not_imported_from_the_changed_module_is_not_a_call_of_it(
+        some_page: str) -> None:
+    # Two recorded walks listed a test file's own helper, named as the helper the
+    # patch changed in another test file, as a call of the changed one - three
+    # rows each. A bare name is the changed function only where its file
+    # imported it from the module that defines it.
+    some_guarded_summary = (
+        "def average(account, count):\n"
+        "    return account.month // count if count else 0\n"
+    )
+
+    Scenario() \
+        .when(
+            lambda: code_outside_the_patch({**THE_SHOP, PAGE: some_page},
+                                           {SUMMARY: some_guarded_summary}).uses
+        ) \
+        .then(
+            the_answer_was([])
+        )
+
+
+@pytest.mark.unit
+def test_a_changed_function_in_a_test_file_writes_no_field() -> None:
+    # A test the patch changes builds its fixtures by keyword, as a test it adds
+    # does - read as fields the patch writes, its fixture keywords listed every
+    # read of the same names across the service as code the fix affects.
+    some_accounts = "src/shop/accounts.py"
+    some_test = "tests/shop/test_ledger.py"
+
+    Scenario() \
+        .when(
+            lambda: code_outside_the_patch(
+                {**THE_SHOP,
+                 some_accounts: "class Account:\n    pass\n",
+                 some_test: "def an_account():\n    return Account(owner='a')\n"},
+                {some_test: "def an_account():\n    return Account(owner='a', month=0)\n"}
+            ).uses
+        ) \
+        .then(
+            the_answer_was([])
+        )
+
+
+@pytest.mark.unit
+def test_a_field_the_services_change_writes_is_listed_beside_a_changed_test_writing_it() -> None:
+    # The half of the rule above that must not move: a patch fixes a source file
+    # and its test together, and what the source now writes is read across the
+    # service whatever the test writes.
+    some_accounts = "src/shop/accounts.py"
+    some_test = "tests/shop/test_ledger.py"
+
+    Scenario() \
+        .when(
+            lambda: code_outside_the_patch(
+                {**THE_SHOP,
+                 some_accounts: "class Account:\n    pass\n",
+                 some_test: "def an_account():\n    return Account(owner='a')\n"},
+                {LEDGER: LEDGER_WRITING_THE_MONTH_TOO,
+                 some_test: "def an_account():\n    return Account(owner='a', month=0)\n"}
+            ).uses
+        ) \
+        .then(
+            the_answer_was([
+                CodeUse(name="month", path=RECONCILIATION, line=2, function="reconcile",
+                        does="compares it with bought(account)"),
+                CodeUse(name="month", path=SUMMARY, line=2, function="average",
+                        does="divides with it: account.month // count")
+            ])
         )
 
 
