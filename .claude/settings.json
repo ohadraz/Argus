@@ -1,9 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Read(.claude/HANDOVER.md)",
-      "Edit(.claude/HANDOVER.md)",
-      "Write(.claude/HANDOVER.md)",
+      "Read(.claude/HANDOVER*.md)",
+      "Edit(.claude/HANDOVER*.md)",
+      "Write(.claude/HANDOVER*.md)",
       "WebSearch"
     ],
     "deny": [
