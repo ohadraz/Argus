@@ -171,6 +171,30 @@ def test_a_proposed_fix_is_written_under_the_credential_that_can_write() -> None
 
 
 @pytest.mark.unit
+def test_a_pull_request_opened_with_no_credential_configured_carries_none() -> None:
+    # GitHub then refuses it in its own words. "Bearer" with nothing after it
+    # is refused before the request leaves, in words that name no credential.
+    repository = a_repository_that_opens_pull_requests()
+
+    Scenario() \
+        .when(
+            lambda: open_pull_request(
+                head_branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                title=DONT_CARE_TITLE,
+                body=DONT_CARE_BODY,
+                settings=some_repository_settings(token=""),
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _the_request_was_authorized_with(repository, None)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_an_opened_pull_request_carries_where_a_human_can_read_it() -> None:
     # The number and the link are the whole point of the return value: this is
     # the one action in the walk that finishes with somebody else's turn, and an
@@ -436,7 +460,7 @@ def _the_request_went_to(repository: _Repository, url: str) -> Assertion[Any]:
 
 
 def _the_request_was_authorized_with(repository: _Repository,
-                                     credential: str) -> Assertion[Any]:
+                                     credential: str | None) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         sent = repository.post.call_args.kwargs["headers"].get("Authorization")
 

@@ -187,6 +187,29 @@ def test_the_repository_is_read_under_a_credential_that_cannot_write() -> None:
 
 
 @pytest.mark.unit
+def test_a_repository_read_with_no_credential_configured_carries_none() -> None:
+    # A public repository reads without one. "Bearer" with nothing after it is
+    # refused before the request leaves, so every read failed wherever the
+    # token was left unset - CI's included.
+    repository = a_repository_whose_file_says("dont care source")
+
+    Scenario() \
+        .when(
+            lambda: read_repository_file(
+                path=DONT_CARE_PATH,
+                ref=DONT_CARE_REF,
+                settings=some_settings(read_token=""),
+                get=repository.get
+            )
+        ) \
+        .then(
+            all_of(
+                _the_request_was_authorized_with(repository, None)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_file_that_is_not_there_is_said_to_be_missing_rather_than_empty() -> None:
     # An empty string is a file that exists and says nothing, which is a real
     # thing a repository can hold. A model handed one for a path that does not
@@ -625,7 +648,7 @@ def _the_request_named_the_ref(repository: _Repository, ref: str) -> Assertion[A
 
 
 def _the_request_was_authorized_with(repository: _Repository,
-                                     credential: str) -> Assertion[Any]:
+                                     credential: str | None) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         sent = repository.get.call_args.kwargs["headers"].get("Authorization")
 

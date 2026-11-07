@@ -23,8 +23,8 @@ from typing import Any, Final
 
 import httpx2
 
+from repository_source.headers import headers_for
 from repository_source.reading import (
-    ACCEPT_HEADER,
     HttpGet,
     RepositorySourceSettings,
     RepositoryUnreadable,
@@ -126,7 +126,7 @@ def _compared(base: str,
 
     try:
         response = get(
-            url, headers=_headers(settings), timeout=COMPARISON_TIMEOUT_SECONDS
+            url, headers=headers_for(settings), timeout=COMPARISON_TIMEOUT_SECONDS
         )
         response.raise_for_status()
         compared: dict[str, Any] = response.json()
@@ -137,10 +137,3 @@ def _compared(base: str,
         ) from error
 
     return compared
-
-
-def _headers(settings: RepositorySourceSettings) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.github_read_token}",
-        "Accept": ACCEPT_HEADER
-    }

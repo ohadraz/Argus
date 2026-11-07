@@ -324,7 +324,13 @@ def _repository(settings: RepositoryWriteSettings) -> str:
 
 
 def _headers(settings: RepositoryWriteSettings) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.github_token}",
-        "Accept": ACCEPT_HEADER
-    }
+    """The API's media type, and the token where one is configured. With none,
+    GitHub refuses the write in its own words; "Bearer" with nothing after it is
+    refused before the request leaves, in words that name no credential."""
+    credential = (
+        {"Authorization": f"Bearer {settings.github_token}"}
+        if settings.github_token
+        else {}
+    )
+
+    return {**credential, "Accept": ACCEPT_HEADER}

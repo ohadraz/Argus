@@ -353,7 +353,13 @@ def _repository(settings: RepositoryReadSettings) -> str:
 
 
 def _headers(settings: RepositoryReadSettings) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.github_read_token}",
-        "Accept": ACCEPT_HEADER
-    }
+    """The API's media type, and the read token where one is configured: a
+    public repository reads without one, and "Bearer" with nothing after it is
+    refused before the request leaves."""
+    credential = (
+        {"Authorization": f"Bearer {settings.github_read_token}"}
+        if settings.github_read_token
+        else {}
+    )
+
+    return {**credential, "Accept": ACCEPT_HEADER}

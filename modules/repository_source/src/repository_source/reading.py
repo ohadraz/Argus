@@ -27,9 +27,9 @@ from typing import Final
 import httpx2
 from argus_core import SettingsSlice
 
-HttpGet = Callable[..., httpx2.Response]
+from repository_source.headers import headers_for
 
-ACCEPT_HEADER: Final = "application/vnd.github+json"
+HttpGet = Callable[..., httpx2.Response]
 
 # Longer than an ordinary API call's budget. This one transfers a repository
 # rather than a JSON document, and the wait is paid once for the whole of it
@@ -81,7 +81,7 @@ def the_source_at(ref: str,
     try:
         response = get(
             url,
-            headers=_headers(settings),
+            headers=headers_for(settings),
             timeout=ARCHIVE_TIMEOUT_SECONDS,
             follow_redirects=True
         )
@@ -126,10 +126,3 @@ def _the_text_in(archive: tarfile.TarFile, member: tarfile.TarInfo) -> str | Non
         return held.read().decode()
     except (UnicodeDecodeError, binascii.Error):
         return None
-
-
-def _headers(settings: RepositorySourceSettings) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.github_read_token}",
-        "Accept": ACCEPT_HEADER
-    }

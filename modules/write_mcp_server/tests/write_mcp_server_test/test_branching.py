@@ -96,6 +96,31 @@ def test_the_whole_fix_arrives_as_one_commit() -> None:
 
 
 @pytest.mark.unit
+def test_a_fix_written_with_no_credential_configured_carries_none() -> None:
+    # GitHub then refuses it in its own words. "Bearer" with nothing after it
+    # is refused before the request leaves, in words that name no credential.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(token=""),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _no_request_carried_a_credential(repository)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_gets_a_branch_of_its_own_pointing_at_the_commit_it_became() -> None:
     some_branch = "argus/fix-monthly-spend-divisor"
     repository = a_repository_whose_head_is(SOME_BASE_HEAD)
@@ -745,6 +770,24 @@ def _written_times(repository: _Repository, to: str, times: int) -> Assertion[An
         if len(written) != times:
             raise AssertionError(
                 f"Expected [{to}] written {times} times, it was written {len(written)}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_request_carried_a_credential(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        carried = [
+            made.kwargs["headers"]["Authorization"]
+            for made in [*repository.get.call_args_list, *repository.post.call_args_list]
+            if "Authorization" in made.kwargs.get("headers", {})
+        ]
+
+        if carried:
+            raise AssertionError(
+                f"Expected no request to carry a credential, {len(carried)} carried {carried}."
             )
 
         return True

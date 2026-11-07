@@ -20,8 +20,8 @@ from typing import Any, Final
 import httpx2
 
 from repository_source.comparing import AHEAD, BETWEEN, IDENTICAL, RELATION_FIELD
+from repository_source.headers import headers_for
 from repository_source.reading import (
-    ACCEPT_HEADER,
     HttpGet,
     RepositorySourceSettings,
     RepositoryUnreadable,
@@ -49,7 +49,7 @@ def the_branch_contains(branch: str,
     )
 
     try:
-        response = get(url, headers=_headers(settings), timeout=CONTAINING_TIMEOUT_SECONDS)
+        response = get(url, headers=headers_for(settings), timeout=CONTAINING_TIMEOUT_SECONDS)
         response.raise_for_status()
         compared: dict[str, Any] = response.json()
     except Exception as error:
@@ -61,10 +61,3 @@ def the_branch_contains(branch: str,
     # The two of the four words that put the revision in the branch's history:
     # the branch has moved past it, or is it.
     return compared.get(RELATION_FIELD) in (AHEAD, IDENTICAL)
-
-
-def _headers(settings: RepositorySourceSettings) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.github_read_token}",
-        "Accept": ACCEPT_HEADER
-    }

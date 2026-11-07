@@ -71,7 +71,7 @@ def main() -> int:
 
     base = f"{settings.github_api_url}/repos/{settings.github_repository}"
     headers = {
-        "Authorization": f"Bearer {settings.github_token}",
+        **({"Authorization": f"Bearer {settings.github_token}"} if settings.github_token else {}),
         "Accept": _ACCEPT_HEADER
     }
 

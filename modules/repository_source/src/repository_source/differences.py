@@ -48,8 +48,8 @@ from repository_source.comparing import (
     RELATION_FIELD,
     SHA_FIELD,
 )
+from repository_source.headers import headers_for
 from repository_source.reading import (
-    ACCEPT_HEADER,
     HttpGet,
     RepositorySourceSettings,
     RepositoryUnreadable,
@@ -197,7 +197,7 @@ def _compared(base: str,
 
     try:
         response = get(
-            url, headers=_headers(settings), timeout=COMPARISON_TIMEOUT_SECONDS
+            url, headers=headers_for(settings), timeout=COMPARISON_TIMEOUT_SECONDS
         )
         response.raise_for_status()
         compared: dict[str, Any] = response.json()
@@ -297,10 +297,3 @@ def _text_or_nothing(value: Any) -> str | None:
     saying nothing, and as a previous path it could try to read.
     """
     return value if isinstance(value, str) else None
-
-
-def _headers(settings: RepositorySourceSettings) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.github_read_token}",
-        "Accept": ACCEPT_HEADER
-    }
