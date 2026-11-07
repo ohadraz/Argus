@@ -1,0 +1,310 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: Capacity will not settle: cpu_limit_cores flips between 3.0 and 6.0 from 2026-11-07T13:12:00Z onward while traffic climbs. In the minutes served at 3.0 cores, CPU is pinned at the limit and p95 jumps to 1.3-1.8s. In the minutes served at 6.0 cores, p95 returns to about 212ms. Nothing was deployed.\n\nWhat that rests on:\n  - cpu_limit_cores 6.0 at 13:12, 3.0 at 13:13 and 13:14, 6.0 at 13:15, then 3.0 at 13:16 and 13:17, 6.0 at 13:18, 3.0 at 13:19 and 13:20, 6.0 at 13:21, 3.0 at 13:22 and 13:23\n  - 13:19 p95 1345ms with cpu_used 3.0 of limit 3.0; 13:21 limit 6.0 and p95 213ms despite 5400 req/min; 13:22 limit 3.0 and p95 1730ms\n  - No recorded changes to io-shop from 2026-11-06T13:16:00Z to 2026-11-07T13:17:00Z\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01W5qTisctph3RZgxEpaq944",
+          "input": {
+            "query": "cpu_limit"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_017AfEQBidvM1UueZYkbXJrt",
+          "input": {
+            "path": "deploy/values-production.yaml"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "no line in the repository matches that",
+          "tool_use_id": "toolu_01W5qTisctph3RZgxEpaq944",
+          "type": "tool_result"
+        },
+        {
+          "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 0\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
+          "tool_use_id": "toolu_017AfEQBidvM1UueZYkbXJrt",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01QdNs73VA51WrPY4ru4yFBv",
+          "input": {
+            "query": "scaleDownStabilization"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01MECdcRp2mtXoBnPs4Zvsvc",
+          "input": {
+            "description": "autoscaler decides replica count or cpu limit from current CPU utilization"
+          },
+          "name": "search_repository_by_meaning",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "deploy/values-production.yaml:23: # `scaleDownStabilizationSeconds` is how far back the controller looks before it\ndeploy/values-production.yaml:31: scaleDownStabilizationSeconds: 0",
+          "tool_use_id": "toolu_01QdNs73VA51WrPY4ru4yFBv",
+          "type": "tool_result"
+        },
+        {
+          "content": "deploy/values-production.yaml:1-60\n# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 0\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n\nsrc/io_shop/visits.py:34-40\ndef forget_every_visit() -> None:\n    \"\"\"Drops the lot.\n\n    What a new process starts with anyway - the shop's own reset, for a\n    deployment that wants one without waiting for a restart.\n    \"\"\"\n    _LAST_SEEN.clear()\n\ntests/io_shop/test_categorising.py:45-48\ndef test_every_model_is_loadable_by_the_version_the_deployment_names() -> None:\n    assert {version: model.version for version, model in MODELS.items()} == {\n        \"v1\": \"v1\", \"v2\": \"v2\"\n    }\n\ndeploy/values-production.yaml:51-61\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n\ntests/io_shop/test_account_page.py:191-195\n\n\nSOME_CACHE_ENDPOINT = CacheEndpoint(host=\"cache.io-shop.svc.cluster.local\", port=6379)\n\n",
+          "tool_use_id": "toolu_01MECdcRp2mtXoBnPs4Zvsvc",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01UWDnEKZQXAiLyHFSsgqMLU",
+          "input": {
+            "query": "values-production"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "deploy/scrape.yaml:11: # The name here has to be the one `metrics.portName` in values-production.yaml\nsrc/io_shop/categorising.py:19: `deploy/values-production.yaml`.",
+          "tool_use_id": "toolu_01UWDnEKZQXAiLyHFSsgqMLU",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01QDtWYNXW6zvjCTq3XFmXHh",
+          "input": {
+            "explanation": "deploy/values-production.yaml renders the shop's HorizontalPodAutoscaler with minReplicas 3, maxReplicas 6, targetCpuPercent 70 and scaleDownStabilizationSeconds 0. The file's own comment says what that window is for: Kubernetes defaults it to 300 seconds, so the controller acts on the highest recommendation from the last five minutes. Otherwise it acts on a reading that its own last action produced.\n\nAt 0 the loop flaps. At 3 replicas CPU is pinned, so the controller scales to 6. At 6 replicas the per-replica CPU falls below target, and with no window the controller scales straight back to 3 on that reading, which pins CPU again. That fits the capacity the investigation saw moving between 3.0 and 6.0 cores. The 6-to-3 flip is one minute after a scale-up, while traffic is still climbing.\n\nThis change sets scaleDownStabilizationSeconds to 300, the Kubernetes default. Scale-up is unchanged and happens as soon as it is needed. Scale-down now only happens once the higher recommendation has held for five minutes, so the post-scale-up dip can no longer undo the scale-up.\n\nNothing under src/ reads the autoscaling block (a search for scaleDownStabilization matches only this file), so no service code or tests need to change. There is no test because the fix is in deployment configuration, not code this repository's tests exercise.",
+            "files": [
+              {
+                "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 300\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
+                "path": "deploy/values-production.yaml"
+              }
+            ],
+            "summary": "Restore 300s HPA scale-down stabilization so io-shop stops flapping between 3 and 6 replicas"
+          },
+          "name": "submit_fix",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your patch has arrived. One question before it is opened: does this change help this incident's users only once code outside this repository changes as well? If yes, it is not opened - say in the explanation what would have to change there. Answer with answer_question.",
+          "tool_use_id": "toolu_01QDtWYNXW6zvjCTq3XFmXHh",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
+      "strict": true
+    }
+  ]
+}
