@@ -1643,6 +1643,35 @@ def test_what_comes_back_is_where_the_proposal_can_be_read() -> None:
 
 
 @pytest.mark.unit
+def test_a_proposal_bringing_no_test_comes_back_saying_so() -> None:
+    # A fix to configuration alone is opened with no test, and the postmortem's
+    # review must not send its reader to run the proposal's tests.
+    some_pull_request = OpenedPullRequest(
+        number=41,
+        url="https://github.invalid/io-shop/target/pull/41",
+        branch="argus/fix-incident-41"
+    )
+    repository = a_repository()
+    repository.open_pull_request.return_value = some_pull_request
+    model = a_model_that(
+        submits_a_fix_bringing_no_test("deploy/values-production.yaml", content="replicas: 6\n"),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_what_came_back_is(some_pull_request.model_copy(update={"brings_a_test": False})))
+
+
+@pytest.mark.unit
 def test_a_model_reporting_nothing_to_change_writes_nothing_and_proposes_nothing() -> None:
     # "The fault is not in the code" is a conclusion, and a real one - the flag
     # scenarios are caused by code that is working as written. An empty pull

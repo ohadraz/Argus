@@ -38,6 +38,11 @@ class OpenedPullRequest(BaseModel):
     # and a later incident touching the same fault wants to know a branch for it
     # already exists.
     branch: str
+    # Whether the fix carries a test. A fix to configuration alone may come
+    # without one (§7.4), and the postmortem's review must not then send its
+    # reader to run the fix's tests. Set by Code-Fix, which sees the files; the
+    # write tier that opens the pull request never does.
+    brings_a_test: bool = True
 
     @property
     def name(self) -> str:

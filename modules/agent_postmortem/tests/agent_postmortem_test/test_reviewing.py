@@ -519,6 +519,35 @@ def test_a_test_refused_as_not_argus_s_names_the_fix_whose_tests_confirm_its_rea
 
 
 @pytest.mark.unit
+def test_a_test_refused_as_not_argus_s_beside_a_fix_bringing_no_test_says_it_brings_none() -> None:
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care", brings_a_test=False)
+
+    Scenario() \
+        .given(
+            a_document_with_a_fix_bringing_no_test := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")],
+                resolution=[_a_refusal(Refusal.WOULD_UNDO_A_MEANT_CHANGE)],
+                pull_request=some_fix,
+                action_items=[ActionItem(number="AI-1", text="dont care",
+                                         type=ActionItemType.MITIGATE, owner=None,
+                                         tracking=some_fix.url,
+                                         status=ActionItemStatus.OPEN)])
+        ) \
+        .when(
+            lambda: review_of(a_document_with_a_fix_bringing_no_test, faults=[],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because=f"{why_it_was_refused(Refusal.WOULD_UNDO_A_MEANT_CHANGE)}; "
+                                  f"the proposed fix (AI-1) brings no test that would confirm "
+                                  f"Code-Fix's reading")
+        )
+
+
+@pytest.mark.unit
 def test_a_test_held_back_for_a_change_nothing_recorded_is_left_to_a_person() -> None:
     # The candidate named its change and the record held none to undo: the
     # analysis went as far as Argus could take it, and undoing the change is a
@@ -755,6 +784,65 @@ def test_a_reading_the_root_cause_already_names_is_left_to_it_beside_the_fix_s_i
                           because="running the proposed fix's tests against the current code "
                                   "would confirm the reading, not that the code it reads is "
                                   "what ran (AI-2)")
+        )
+
+
+@pytest.mark.unit
+def test_a_proposed_fix_bringing_no_test_is_said_to_bring_none() -> None:
+    # A fix to configuration alone comes with no test, and the box sent its
+    # reader to run tests that did not exist.
+    some_fix = OpenedPullRequest(number=7, url="https://github.invalid/acme/shop/pull/7",
+                                 branch="argus/fix", brings_a_test=False)
+
+    Scenario() \
+        .given(
+            a_document_with_a_fix_bringing_no_test := _a_document(
+                causal_chain=[_a_step("account pages failed"),
+                              ChainStep(text="the window was zero",
+                                        cites=[CitedEvidence(label="F1", text="dont care")])],
+                pull_request=some_fix,
+                action_items=[ActionItem(number="AI-2", text="dont care",
+                                         type=ActionItemType.PREVENT, owner=None,
+                                         tracking=some_fix.url,
+                                         status=ActionItemStatus.OPEN)])
+        ) \
+        .when(
+            lambda: review_of(a_document_with_a_fix_bringing_no_test, faults=[],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="the cause rests on F1, a reading of the source nothing ran; "
+                                  "the proposed fix (AI-2) brings no test that would confirm it")
+        )
+
+
+@pytest.mark.unit
+def test_a_proposed_fix_bringing_no_test_is_said_to_bring_none_beside_the_root_cause() -> None:
+    some_fix = OpenedPullRequest(number=7, url="https://github.invalid/acme/shop/pull/7",
+                                 branch="argus/fix", brings_a_test=False)
+
+    Scenario() \
+        .given(
+            a_document_whose_root_cause_names_the_reading := _a_document(
+                root_cause="dont care",
+                causal_chain=[_a_step("account pages failed"),
+                              ChainStep(text="the window was zero",
+                                        cites=[CitedEvidence(label="F1", text="dont care")])],
+                pull_request=some_fix,
+                action_items=[ActionItem(number="AI-2", text="dont care",
+                                         type=ActionItemType.PREVENT, owner=None,
+                                         tracking=some_fix.url,
+                                         status=ActionItemStatus.OPEN)])
+        ) \
+        .when(
+            lambda: review_of(a_document_whose_root_cause_names_the_reading, faults=[],
+                              reaches_a_cause=True, rests_on_an_unrun_reading=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="the proposed fix (AI-2) brings no test that would confirm "
+                                  "the reading")
         )
 
 

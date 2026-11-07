@@ -38,10 +38,13 @@ _NONE_READ: Final = "None read."
 OPENED_AS_A_DRAFT: Final = "opened as a draft"
 
 # What Code-Fix read in the source, headed by what came of it: "and proposed"
-# only where a pull request holds what it proposed, and "its test or its fix"
-# only where there is one to have run.
+# only where a pull request holds what it proposed, "its fix" only where there
+# is one to have run, and "its test" only where the fix brought one - a fix to
+# configuration alone may come without.
 _CODE_READ_AND_PROPOSED: Final = ("What Code-Fix read in the source and proposed - "
                                   "nothing ran its test or its fix")
+_CODE_READ_AND_PROPOSED_WITHOUT_A_TEST: Final = ("What Code-Fix read in the source and "
+                                                 "proposed - nothing ran its fix")
 _CODE_READ_ALONE: Final = "What Code-Fix read in the source - nothing ran to check it"
 
 # Who a change no one is named for was made by, as the model is told it too.
@@ -164,8 +167,9 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              log_messages_absent=(None if log_messages
                                                   else _no_log_messages(postmortem.logs_reading)),
                              deployment_changes=deployment_changes,
-                             code_read_heading=(_CODE_READ_AND_PROPOSED if fix is not None
-                                                else _CODE_READ_ALONE),
+                             code_read_heading=(_CODE_READ_ALONE if fix is None
+                                                else _CODE_READ_AND_PROPOSED if fix.brings_a_test
+                                                else _CODE_READ_AND_PROPOSED_WITHOUT_A_TEST),
                              code_read=tuple(EvidenceRow(label=cited.label,
                                                          said=_as_its_markdown_sets_it(
                                                              cited.text, shorts,

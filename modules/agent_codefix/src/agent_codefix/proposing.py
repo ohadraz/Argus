@@ -478,7 +478,9 @@ def propose_fix(hypothesis: Hypothesis | None,
         raise FixNotProposed(str(error) or type(error).__name__,
                              reading=reading, branch=written) from error
 
-    return reading.model_copy(update={"pull_request": opened})
+    return reading.model_copy(update={"pull_request": opened.model_copy(
+        update={"brings_a_test": brings_a_test(submitted.files)}
+    )})
 
 
 def _what_the_model_submitted(hypothesis: Hypothesis | None,
