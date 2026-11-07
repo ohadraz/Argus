@@ -165,6 +165,14 @@ _A_PYTHON_SUFFIX: Final = ".py"
 _A_TEST_FILE_PREFIX: Final = "test_"
 _A_TEST_FILE_SUFFIX: Final = "_test.py"
 
+# What a configuration file's name ends in. Data a program reads, never a
+# program: a script or a Dockerfile runs, and is code however it is deployed.
+# Endings rather than suffixes, so a bare `.env` counts.
+_CONFIGURATION_ENDINGS: Final = (
+    ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf", ".env",
+    ".properties", ".xml"
+)
+
 
 def _the_patch_in(written: str) -> list[Any] | None:
     """The files written after a parameter tag, or `None` where there are none.
@@ -294,6 +302,22 @@ def brings_a_test(files: Iterable[ProposedFile]) -> bool:
     return any(
         _is_a_test_file(proposed.path.rsplit("/", 1)[-1]) for proposed in files
     )
+
+
+def changes_only_configuration(paths: Iterable[str]) -> bool:
+    """Whether every one of these paths is a configuration file - a patch that
+    may come without a test.
+
+    A test for a values file reads the value back and checks it, which is the
+    diff said twice: it proves nothing about what the value does. So a patch
+    whose every file is configuration is proposed as it came, and one with any
+    other file in it brings its test, because that file is what a test is for.
+
+    Public, because the fix grader holds recorded patches to the same rule.
+    """
+    listed = list(paths)
+
+    return bool(listed) and all(path.endswith(_CONFIGURATION_ENDINGS) for path in listed)
 
 
 def _is_a_test_file(name: str) -> bool:

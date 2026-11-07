@@ -2644,12 +2644,9 @@ def test_a_patch_whose_content_is_not_source_is_sent_back_for_another_attempt() 
 
 @pytest.mark.unit
 def test_a_patch_bringing_no_test_is_sent_back_for_another_attempt() -> None:
-    # What a recorded run did: the fix changed a values file and nothing else,
-    # saying nothing read that file so no test could exercise it - where the
-    # same fix recorded before brought a test that read the file. The
-    # submission's own description asks for the test. Without one the fix is a
-    # claim: the grader had nothing to run against the shop, and the postmortem
-    # sent its reader to run tests that did not exist.
+    # A fix to code with no test is a claim: the submission's own description
+    # asks for the test, the grader has nothing to run against the shop, and
+    # the postmortem sends its reader to run tests that do not exist.
     #
     # Sent back rather than raised, as a patch that is not source is: the model
     # has decided what to change and is one turn from showing it.
@@ -2745,6 +2742,105 @@ def test_a_test_is_known_by_the_name_pytest_collects_it_under(path: str, sent_ba
         ) \
         .then(_the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
                                                   proposed: SOME_TEST_SOURCE}))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", [
+    "deploy/values-production.yaml",
+    "deploy/scrape.yml",
+    "config/settings.toml",
+    "config/flags.json",
+    "config/app.ini",
+    "config/app.cfg",
+    "config/nginx.conf",
+    "config/.env",
+    "config/app.properties",
+    "config/beans.xml"
+], ids=["yaml", "yml", "toml", "json", "ini", "cfg", "conf", "env", "properties", "xml"])
+def test_a_patch_changing_only_configuration_is_proposed_without_a_test(path: str) -> None:
+    # What a recorded run did: the fix set a value in a values file and nothing
+    # else. A test for it reads the file back and checks the value - the diff
+    # said twice, proving nothing about what the value does - so a patch whose
+    # every file is configuration is opened as it came.
+    some_configuration = "scaleDownStabilizationSeconds: 300\n"
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(path, content=some_configuration),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_patch_written_was(repository, {path: some_configuration}))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", [
+    "deploy/run.sh",
+    "deploy/Dockerfile"
+], ids=["shell", "dockerfile"])
+def test_a_patch_changing_anything_but_configuration_still_brings_a_test(path: str) -> None:
+    # The limit of the rule above. A script or a Dockerfile runs, so it is code
+    # however it is deployed, and a patch to one brings its test like any other.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(path),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_told(model, WHAT_NO_TEST_IS),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_patch_changing_configuration_and_code_still_brings_a_test() -> None:
+    # Configuration beside code is a code fix: the code is what the test is for.
+    some_values_file = "deploy/values-production.yaml"
+    repository = a_repository()
+    model = a_model_that(
+        _a_turn_calling("submit_fix", {
+            "summary": "a summary",
+            "explanation": "an explanation",
+            "files": [{"path": some_values_file, "content": "replicas: 6\n"},
+                      {"path": SOME_PATH, "content": SOME_FIXED_SOURCE}]
+        }),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_model_was_told(model, WHAT_NO_TEST_IS))
 
 
 @pytest.mark.unit
@@ -3984,13 +4080,14 @@ def submits_a_fix_whose_content_is(content: str,
     })
 
 
-def submits_a_fix_bringing_no_test(path: str = SOME_PATH) -> Turn:
+def submits_a_fix_bringing_no_test(path: str = SOME_PATH,
+                                   content: str = SOME_FIXED_SOURCE) -> Turn:
     """A fix of one file and nothing else - sound in itself, and proving
     nothing."""
     return _a_turn_calling("submit_fix", {
         "summary": "a summary",
         "explanation": "an explanation",
-        "files": [{"path": path, "content": SOME_FIXED_SOURCE}]
+        "files": [{"path": path, "content": content}]
     })
 
 

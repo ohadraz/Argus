@@ -14,13 +14,15 @@ tool for it exists nowhere on either server (§13).
 patch against the Target Service's own tests. It read the recordings itself and
 kept its own copy of this leniency, which made it a grade of what the model said
 rather than of what a human would review, and the two part company the moment
-anything here repairs a malformed answer.
+anything here repairs a malformed answer. `changes_only_configuration` is a door
+for the same grader: a patch that may come without a test is one rule, and the
+grader holds recorded patches to it rather than to a copy.
 """
 
 from __future__ import annotations
 
 from agent_codefix.budget import FixSettings
-from agent_codefix.prompting import SubmittedFix
+from agent_codefix.prompting import SubmittedFix, changes_only_configuration
 from agent_codefix.proposing import (
     FixDeclined,
     FixNotAnswered,
@@ -37,6 +39,7 @@ __all__ = [
     "FixSettings",
     "FixStopped",
     "SubmittedFix",
+    "changes_only_configuration",
     "fixes_over",
     "propose_fix"
 ]

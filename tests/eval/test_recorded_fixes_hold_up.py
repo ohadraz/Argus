@@ -29,6 +29,11 @@ Three runs per patch, and the first is what makes the second readable:
    test that passed without them - and the tests that failed in run 2 are asked
    for again by name, so a patch cannot pass by deleting the test it was failing.
 
+A patch whose every file is configuration may come without a test, as Code-Fix
+lets it: a test for a values file reads the value back, which proves nothing
+about what the value does. Run 2 is skipped for it, having nothing to run, and
+run 3 still has to pass - a setting that breaks the shop's suite is graded wrong.
+
 The suite is `tests/io_shop`, never `tests`: the harness suite beside it asserts
 the planted faults are still present, so every working fix breaks it by design.
 
@@ -46,7 +51,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from agent_codefix import SubmittedFix
+from agent_codefix import SubmittedFix, changes_only_configuration
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
 from pydantic import ValidationError
@@ -234,8 +239,10 @@ class Graded:
 
     scenario: str
     tests: tuple[str, ...]
+    configuration_only: bool
     before_anything: Ran
-    without_the_fix: Ran
+    # `None` where the patch brought no test to run.
+    without_the_fix: Ran | None
     with_the_fix: Ran
     the_same_tests_again: Ran | None
 
@@ -262,12 +269,14 @@ def _graded(scenario: str) -> Graded:
         # anything.
         before_anything = _pytest_in_the_shop(f"{TESTS_DIRECTORY}io_shop")
 
-        _write_into_the_shop({path: patch[path] for path in tests})
-        # The patch's own test files and nothing else. Running the whole suite
-        # here would answer a different question - whether anything in the shop
-        # fails - and a pre-existing failure would answer it for us.
-        without_the_fix = _pytest_in_the_shop(*tests)
-        _put_the_shop_back()
+        without_the_fix = None
+        if tests:
+            _write_into_the_shop({path: patch[path] for path in tests})
+            # The patch's own test files and nothing else. Running the whole
+            # suite here would answer a different question - whether anything in
+            # the shop fails - and a pre-existing failure would answer it for us.
+            without_the_fix = _pytest_in_the_shop(*tests)
+            _put_the_shop_back()
 
         _write_into_the_shop(patch)
         # `tests/io_shop` and not `tests`: the harness suite beside it asserts
@@ -278,13 +287,13 @@ def _graded(scenario: str) -> Graded:
         # and the assertion about the red pass has already said so.
         the_same_tests_again = (
             _pytest_in_the_shop(*without_the_fix.failures)
-            if without_the_fix.failures else None
+            if without_the_fix is not None and without_the_fix.failures else None
         )
     finally:
         _put_the_shop_back()
 
-    return Graded(scenario, tests, before_anything, without_the_fix,
-                  with_the_fix, the_same_tests_again)
+    return Graded(scenario, tests, changes_only_configuration(patch), before_anything,
+                  without_the_fix, with_the_fix, the_same_tests_again)
 
 
 @pytest.mark.eval
@@ -370,17 +379,19 @@ def _every_walk_that_had_to_propose_one_is_here(
 
 
 def _it_brought_a_test() -> Assertion[Graded]:
-    """That the patch carried a test at all.
+    """That the patch carried a test at all, unless every file it changes is
+    configuration.
 
     Its own assertion rather than folded into the next, because "brought no
     test" and "brought a test that proves nothing" are different things for a
     reader to go and do something about.
     """
     def assertion(graded: Graded) -> bool:
-        if not graded.tests:
+        if not graded.tests and not graded.configuration_only:
             raise AssertionError(
-                f"Expected [{graded.scenario}] to have brought a test with its fix; "
-                f"it submitted no file under [{TESTS_DIRECTORY}]."
+                f"Expected [{graded.scenario}] to have brought a test with its fix, "
+                f"which changes more than configuration; it submitted no file under "
+                f"[{TESTS_DIRECTORY}]."
             )
 
         return True
@@ -425,6 +436,9 @@ def _its_test_does_not_pass_without_the_fix() -> Assertion[Graded]:
     cleanly a moment ago, so this one arrived with the test.
     """
     def assertion(graded: Graded) -> bool:
+        if graded.without_the_fix is None:
+            return True
+
         if graded.without_the_fix.passed:
             raise AssertionError(
                 f"Expected [{graded.scenario}]'s test not to pass against the "
@@ -476,7 +490,7 @@ def _the_tests_that_failed_are_the_ones_that_pass() -> Assertion[Graded]:
         if ran_again is None:
             return True
 
-        if not ran_again.passed:
+        if not ran_again.passed and graded.without_the_fix is not None:
             raise AssertionError(
                 f"Expected the tests that failed without [{graded.scenario}]'s fix "
                 f"to pass with it, asked for by name: "
