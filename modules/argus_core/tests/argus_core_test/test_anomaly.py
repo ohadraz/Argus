@@ -14,6 +14,7 @@ from argus_core.anomaly import (
     has_a_departure_in_it,
     has_a_reading_since,
     has_recovered_since,
+    is_within_its_own_noise,
     minutes_a_recovery_must_hold,
     signals_judged_in,
     the_end_of_the_onset,
@@ -86,6 +87,41 @@ def test_find_onset_reports_nothing_when_the_whole_window_is_steady() -> None:
         .then(
             _no_onset_was_found()
         )
+
+@pytest.mark.unit
+def test_a_rise_of_no_more_than_two_of_a_series_own_steps_is_within_its_noise() -> None:
+    # Read to the millisecond and swinging between 44 and 46 on its own, the
+    # series resolves a millisecond; two of those is a move it cannot claim to
+    # have seen.
+    some_quiet = [44.0, 45.0, 46.0]
+
+    Scenario() \
+        .given(
+            some_quiet
+        ) \
+        .when(
+            lambda: is_within_its_own_noise(2.0, some_quiet)
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+def test_a_rise_past_two_of_a_series_own_steps_is_not_within_its_noise() -> None:
+    some_quiet = [44.0, 45.0, 46.0]
+
+    Scenario() \
+        .given(
+            some_quiet
+        ) \
+        .when(
+            lambda: is_within_its_own_noise(2.5, some_quiet)
+        ) \
+        .then(
+            the_answer_was(False)
+        )
+
 
 
 @pytest.mark.unit

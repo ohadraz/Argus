@@ -1427,6 +1427,13 @@ def _departure_threshold(values: Sequence[float],
     return baseline + deviations * spread
 
 
+def is_within_its_own_noise(rise: float, quiet: Sequence[float]) -> bool:
+    """Whether `rise` is no more than two of the steps `quiet` - a series'
+    calm readings - moves in: a move the series cannot claim to have seen, by
+    the floor the departure bar puts on its spread."""
+    return rise <= _WITHIN_THE_NOISE_OF_ITS_OWN_STEPS * _what_the_series_resolves(quiet)
+
+
 def _what_the_series_resolves(quiet: Sequence[float]) -> float:
     """The finest difference these readings actually distinguish.
 

@@ -1212,6 +1212,31 @@ def test_latency_no_slower_than_the_calm_went_on_its_own_has_not_departed() -> N
 
 
 @pytest.mark.unit
+def test_latency_past_the_calm_by_no_more_than_two_of_its_own_steps_has_not_departed() -> None:
+    # A median swinging a millisecond either way on its own, a millisecond
+    # slower while broken: past how high stretches of the calm went, but by no
+    # more than the series moves in. Told as a slowdown, it is noise.
+    the_calm = [44, 45, 46] * 14
+
+    Scenario() \
+        .given(
+            buckets := [
+                *(_a_bucket(at=INCIDENT_START - timedelta(minutes=len(the_calm) - minute),
+                            p50_ms=p50)
+                  for minute, p50 in enumerate(the_calm)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), p50_ms=46),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6), p50_ms=46)
+            ]
+        ) \
+        .when(
+            lambda: latency_over(buckets, INCIDENT_START, INCIDENT_END)[0].departed
+        ) \
+        .then(
+            the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
 def test_the_load_and_the_cpu_it_asked_for_are_measured_before_while_broken_and_at_highest(
 ) -> None:
     # What a confirmed demand-saturation rests on, which nothing else the brief

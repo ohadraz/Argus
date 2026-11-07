@@ -38,6 +38,7 @@ from statistics import median, quantiles
 from typing import Final, NamedTuple
 
 from argus_core import parse_iso
+from argus_core.anomaly import is_within_its_own_noise
 from argus_core.models import MetricBucket, Quantile, WorseWhen
 from pydantic import BaseModel
 
@@ -437,8 +438,9 @@ class LatencyLevels(BaseModel):
     nobody using it saw anything wrong.
 
     `departed` is the broken stretch's average going higher than stretches as
-    long go on their own, by the error rate's own rule: a quantile wobbles from
-    minute to minute, and a stretch within that wobble is no slowdown.
+    long go on their own, by the error rate's own rule, and by more than two of
+    the series' own steps: a quantile wobbles from minute to minute, and a
+    stretch within that wobble is no slowdown.
     """
 
     quantile: Quantile
@@ -453,7 +455,12 @@ def latency_over(buckets: list[MetricBucket],
                  until: datetime | None) -> list[LatencyLevels]:
     """How long requests took over the stretch the service was broken, at each
     quantile - over the same stretch and by the same rules as
-    `error_rates_over`, and nothing where either side of it is empty."""
+    `error_rates_over`, and nothing where either side of it is empty.
+
+    Departed only where it also rose by more than two of the series' own steps:
+    a median read to the millisecond, swinging a millisecond either way, passes
+    the calm's stretches whenever the broken minutes land on its slow ones, and
+    told as a slowdown, that is noise."""
     sides = _either_side_of(buckets, began, until)
 
     if not sides.the_hour or not sides.broken:
@@ -462,15 +469,17 @@ def latency_over(buckets: list[MetricBucket],
     def levels(quantile: Quantile, reading: Callable[[MetricBucket], int]) -> LatencyLevels:
         while_broken = [float(reading(bucket)) for bucket in sides.broken]
         calm = [float(reading(bucket)) for bucket in sides.calm]
-        departed = _beyond(_mean(while_broken),
-                           _how_high_alone(calm, len(while_broken)).ceiling, max(calm))
+        baseline = _mean([float(reading(bucket)) for bucket in sides.the_hour])
+        departed = (_beyond(_mean(while_broken),
+                            _how_high_alone(calm, len(while_broken)).ceiling, max(calm)) is True
+                    and not is_within_its_own_noise(_mean(while_broken) - baseline, calm))
 
         return LatencyLevels(
             quantile=quantile,
-            baseline=_mean([float(reading(bucket)) for bucket in sides.the_hour]),
+            baseline=baseline,
             while_broken=_mean(while_broken),
             at_its_worst=max(while_broken),
-            departed=departed is True
+            departed=departed
         )
 
     return [levels(quantile, _READINGS[quantile]) for quantile in QUANTILES]
