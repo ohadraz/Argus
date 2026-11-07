@@ -141,10 +141,13 @@ def render(postmortem: Postmortem,
     impact = the_impact(postmortem, alert)
     rows = _the_rows(hypotheses, actions_taken, action_items, timeline, leads, supporting,
                      detection, _the_lines_cited_at(postmortem, day))
-    # What the alert said, where Impact is the one place it is said.
+    # What the alert said, where Impact is the one place it is said - whole
+    # there, and by its label wherever the chain cites it.
     found = the_alert_s_own_finding(alert)
+    said_above: frozenset[str] = frozenset()
     if impact.finding_label and found:
         rows[impact.finding_label] = Line(runs=(Run(text=found),))
+        said_above = frozenset({impact.finding_label})
 
     rendered = RenderedPostmortem(
         incident_id=postmortem.incident_id,
@@ -155,7 +158,7 @@ def render(postmortem: Postmortem,
         summary=_the_summary(postmortem),
         summary_absent=None if postmortem.executive_summary else "No summary was written.",
         impact=impact,
-        cause=the_cause(postmortem, rows),
+        cause=the_cause(postmortem, rows, said_above),
         hypotheses=hypotheses,
         trigger=the_trigger(postmortem, alert),
         actions_taken=actions_taken,

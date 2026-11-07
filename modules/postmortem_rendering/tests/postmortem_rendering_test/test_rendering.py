@@ -705,9 +705,9 @@ def test_what_the_alert_said_may_be_cited_and_reads_as_its_row() -> None:
 
 
 @pytest.mark.unit
-def test_an_alert_s_own_finding_said_under_impact_may_still_be_cited() -> None:
-    # Its row moved to Impact; a citation of it still leads to a row, and reads
-    # as what the alert said.
+def test_an_alert_s_own_finding_said_under_impact_is_cited_by_its_label_alone() -> None:
+    # Its row moved to Impact, which says it whole; a citation of it still
+    # leads there, and says it nowhere else.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -725,7 +725,7 @@ def test_an_alert_s_own_finding_said_under_impact_may_still_be_cited() -> None:
         ) \
         .then(all_of(
             _it_may_cite("AL1"),
-            _the_first_step_rests_on("AL1 240 totals are off")))
+            _the_first_step_rests_on("AL1")))
 
 
 def _it_may_cite(label: str) -> Assertion[RenderedPostmortem]:

@@ -68,17 +68,30 @@ class CauseSection(BaseModel):
     factors_absent: str | None
 
 
-def the_cause(postmortem: PostmortemDocument, rows: Mapping[str, Line]) -> CauseSection:
+def the_cause(postmortem: PostmortemDocument, rows: Mapping[str, Line],
+              said_above: frozenset[str] = frozenset()) -> CauseSection:
     """The section as the model wrote it, in its order - each item a step
-    cites said as `rows` says its row does, by label."""
+    cites said as `rows` says its row does, by label.
+
+    Whole where the chain first cites it, and by its label alone after: a row
+    every step rests on, said whole under each, is one paragraph read again
+    at every step. By its label alone throughout where it is in `said_above`,
+    the rows said whole above the chain."""
+    said_whole = set(said_above)
+
+    def as_cited(cited: CitedEvidence) -> Line:
+        if cited.label in said_whole and cited.label in rows:
+            return _by_its_label(cited.label)
+
+        said_whole.add(cited.label)
+        return _as_its_row_says_it(cited, rows)
+
     chain = tuple(ChainLink(place="symptom" if whys == 0 else f"why {whys}",
                             claim=_prose(step.text),
-                            evidence=tuple(_as_its_row_says_it(cited, rows)
-                                           for cited in step.cites),
+                            evidence=tuple(as_cited(cited) for cited in step.cites),
                             ruled_out=tuple(RuledOutLine(
                                 claim=_prose(ruled.text),
-                                evidence=tuple(_as_its_row_says_it(cited, rows)
-                                               for cited in ruled.cites))
+                                evidence=tuple(as_cited(cited) for cited in ruled.cites))
                                 for ruled in step.ruled_out))
                   for whys, step in enumerate(postmortem.causal_chain))
 
@@ -106,6 +119,13 @@ def _as_its_row_says_it(cited: CitedEvidence, rows: Mapping[str, Line]) -> Line:
     return Line(runs=(Run(text=cited.label, role=Role.CITATION, address=cited.label),
                       Run(text=" "),
                       *row.runs))
+
+
+def _by_its_label(label: str) -> Line:
+    """A cited item the chain has said whole already: its label alone, leading
+    to its row. Only of a label with a row - one leading nowhere keeps its
+    words wherever it is cited, they being the only place it is said."""
+    return Line(runs=(Run(text=label, role=Role.CITATION, address=label),))
 
 
 def _prose(text: str) -> Line:

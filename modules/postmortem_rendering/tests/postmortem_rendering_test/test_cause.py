@@ -87,6 +87,35 @@ def test_the_chain_starts_at_the_symptom_and_asks_why_of_each_step_with_its_evid
 
 
 @pytest.mark.unit
+def test_a_row_cited_again_down_the_chain_is_said_there_by_its_label_alone() -> None:
+    # Whole where the chain first cites it, and after that by the label that
+    # leads to it - what a step was ruled out on included: a row every step
+    # rests on, said whole under each, is one paragraph read again at every step.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(causal_chain=[
+                ChainStep(text="dont care",
+                          cites=[CitedEvidence(label="AL1", text="as briefed")]),
+                ChainStep(text="dont care",
+                          cites=[CitedEvidence(label="AL1", text="as briefed")],
+                          ruled_out=[RuledOut(text="dont care",
+                                              cites=[CitedEvidence(label="AL1",
+                                                                   text="as briefed")])])]),
+            some_rows := {"AL1": Line(runs=(Run(text="240 of 240 totals are off"),))}
+        ) \
+        .when(
+            lambda: [evidence
+                     for link in the_cause(some_postmortem, some_rows).chain
+                     for evidence in (link.evidence,
+                                      *(ruled.evidence for ruled in link.ruled_out))]
+        ) \
+        .then(
+            the_answer_was([(_cited("AL1", "240 of 240 totals are off"),),
+                            (_by_its_label("AL1"),),
+                            (_by_its_label("AL1"),)]))
+
+
+@pytest.mark.unit
 def test_a_cited_label_with_no_row_keeps_the_words_it_was_briefed_in() -> None:
     # Nothing cited disappears: the label says what was cited, and leads
     # nowhere, there being nowhere to lead.
@@ -98,6 +127,45 @@ def test_a_cited_label_with_no_row_keeps_the_words_it_was_briefed_in() -> None:
         ) \
         .when(
             lambda: the_cause(some_postmortem, {}).chain[0].evidence
+        ) \
+        .then(
+            the_answer_was((Line(runs=(Run(text="E9"), Run(text=" "),
+                                       Run(text="as briefed"))),)))
+
+
+@pytest.mark.unit
+def test_a_row_said_whole_above_the_chain_is_cited_in_it_by_its_label_alone() -> None:
+    # What the alert found is said whole under Impact, above the chain: said
+    # again at the symptom, it is one paragraph read twice.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(causal_chain=[
+                ChainStep(text="dont care",
+                          cites=[CitedEvidence(label="AL1", text="as briefed")])]),
+            some_rows := {"AL1": Line(runs=(Run(text="240 of 240 totals are off"),))}
+        ) \
+        .when(
+            lambda: the_cause(some_postmortem, some_rows,
+                              said_above=frozenset({"AL1"})).chain[0].evidence
+        ) \
+        .then(
+            the_answer_was((_by_its_label("AL1"),)))
+
+
+@pytest.mark.unit
+def test_a_label_with_no_row_cited_again_keeps_its_words_there_too() -> None:
+    # A label leading nowhere said alone says nothing: its words are the only
+    # place what was cited is said.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(causal_chain=[
+                ChainStep(text="dont care",
+                          cites=[CitedEvidence(label="E9", text="as briefed")]),
+                ChainStep(text="dont care",
+                          cites=[CitedEvidence(label="E9", text="as briefed")])])
+        ) \
+        .when(
+            lambda: the_cause(some_postmortem, {}).chain[1].evidence
         ) \
         .then(
             the_answer_was((Line(runs=(Run(text="E9"), Run(text=" "),
@@ -229,6 +297,12 @@ def _cited(label: str, *said: str) -> Line:
     return Line(runs=(Run(text=label, role=Role.CITATION, address=label),
                       Run(text=" "),
                       *(Run(text=words) for words in said)))
+
+
+def _by_its_label(label: str) -> Line:
+    """A cited item the chain has said whole already: its label alone, leading
+    to its row."""
+    return Line(runs=(Run(text=label, role=Role.CITATION, address=label),))
 
 
 def _it_is_headed(chain: str, factors: str, evidence: str,
