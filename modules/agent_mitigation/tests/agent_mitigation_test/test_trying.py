@@ -2796,6 +2796,83 @@ def test_a_blind_spot_is_not_refuted_before_the_readings_have_had_a_chance() -> 
 
 
 @pytest.mark.unit
+def test_a_look_answering_after_the_deadline_it_was_asked_before_is_not_the_last() -> None:
+    # What CI met on a monitoring blind spot. The shop was slow to answer the
+    # first look after the rollback, and the answer came back past the deadline.
+    # The window it carried was the shop as it stood when it was asked, before
+    # the minute a verdict is read from had begun - so judged by when it
+    # arrived, the rollback was refuted on a window that could not yet have
+    # shown it working, and put back.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_reads := _ReadsThatTakeAnHour(ACTION_TIME),
+            the_readings_come_back_slowly := the_reads.reading_the_service(
+                a_window_that_stops_at_the_onset(),
+                a_window_whose_readings_return_at(CALM_RATE)
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=the_readings_come_back_slowly,
+                now=the_reads.now,
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_service_was_looked_at(the_readings_come_back_slowly, times=2)
+        ))
+
+
+@pytest.mark.unit
+def test_a_read_failing_after_the_deadline_it_was_asked_before_is_not_the_last_look() -> None:
+    # A failed read costs its pass and nothing more, and a pass asked in time is
+    # one the wait was owed. Judged by when the failure came back, a read that
+    # timed out across the deadline ended the wait, and the look after it was
+    # never taken.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_reads := _ReadsThatTakeAnHour(ACTION_TIME),
+            the_first_read_fails_slowly := the_reads.reading_the_service(
+                McpToolError("the service could not be read"),
+                a_recovered_window()
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=the_first_read_fails_slowly,
+                now=the_reads.now,
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_service_was_looked_at(the_first_read_fails_slowly, times=2)
+        ))
+
+
+@pytest.mark.unit
 def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there() -> None:
     # Whether this incident's own minutes were ever published is measured over
     # the span from the onset to the action, and this is the case that says where
@@ -3875,6 +3952,57 @@ class _AStopDuringALook:
             return standing
 
         return read
+
+
+class _ReadsThatTakeAnHour:
+    """A clock that moves only while the service or its rule is being read, and
+    an hour each time - past any deadline a sane configuration allows.
+
+    What the clocks above cannot say. A clock read in turn answers the same
+    whether the wait read it before a look or after one, and that difference is
+    the whole of the cases using this: a look asked before the deadline and
+    answered after it was asked in time.
+    """
+
+    def __init__(self, start: datetime) -> None:
+        self._moment = start
+
+    def now(self) -> datetime:
+        return self._moment
+
+    def reading_the_service(self, *answers: list[MetricBucket] | Exception) -> MagicMock:
+        """The service read once per answer, in order, sticking at the last."""
+        remaining = list(answers)
+
+        def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+            self._moment += timedelta(hours=1)
+            answer = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+            if isinstance(answer, Exception):
+                raise answer
+
+            return answer
+
+        fetch_metrics: MagicMock = create_autospec(
+            MetricsFetcher, instance=True, side_effect=read
+        )
+
+        return fetch_metrics
+
+    def reading_the_rule(self, *answers: AlertRuleStanding | Exception) -> RuleReader:
+        """The rule read once per answer, in order, sticking at the last."""
+        remaining = list(answers)
+
+        def read(dont_care_rule: str, /) -> AlertRuleStanding:
+            self._moment += timedelta(hours=1)
+            answer = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+            if isinstance(answer, Exception):
+                raise answer
+
+            return answer
+
+        return cast(RuleReader, create_autospec(RuleReader, side_effect=read))
 
 
 def _nothing_about_the_wait_was_said(published: list[IncidentEvent]) -> Assertion[Outcome]:
@@ -5215,6 +5343,59 @@ def test_a_rule_unreadable_at_its_deadline_and_never_read_since_the_change_escal
             the_verdict_is(Verdict.ESCALATED),
             _the_detail_mentions("no evaluation of the rule that fired")
         ))
+
+
+@pytest.mark.unit
+def test_a_rule_read_answering_after_the_deadline_it_was_asked_before_is_read_again() -> None:
+    # The rule's path has the levels' defect: its evaluation is the rule as it
+    # stood when it was asked, so a read asked in time is a look the wait was
+    # owed however late it answers.
+    Scenario() \
+        .given(
+            the_reads := _ReadsThatTakeAnHour(ACTION_TIME),
+            the_rule_answers_slowly := the_reads.reading_the_rule(
+                _a_rule_standing(
+                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                ),
+                _a_rule_standing(
+                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC)
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_answers_slowly,
+                metrics=a_still_failing_window(),
+                clock=the_reads.now
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_read_failing_after_the_deadline_it_was_asked_before_is_not_the_last_look() -> None:
+    Scenario() \
+        .given(
+            the_reads := _ReadsThatTakeAnHour(ACTION_TIME),
+            the_rule_fails_slowly := the_reads.reading_the_rule(
+                McpToolError("the rule could not be read"),
+                _a_rule_standing(
+                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_fails_slowly,
+                metrics=a_still_failing_window(),
+                clock=the_reads.now
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
 
 
 @pytest.mark.unit

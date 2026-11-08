@@ -768,6 +768,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     paged judges, off the rule - `_when_the_rule_would_have_resolved`. A picked
     figure is wrong in both directions at once.
 
+    Whether that time has run out is asked of when each look was asked for, not
+    of when it answered. A look carries the service as it stood when it was
+    asked, so one asked in time and answered late is a look the wait was owed.
+    Judged by its arrival, a shop slow to answer settled the wait on a window
+    from before the minute the verdict is read from had begun, and a rollback
+    that worked was put back.
+
     `REFUTED` on expiry rather than an error, because that is a real answer
     about the world: the action was taken, the service was looked at, and it did
     not visibly help in the time it was given. Calling it an error would route an
@@ -857,6 +864,10 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         if not still_wanted():
             return _ENDED_DURING_THE_WAIT
 
+        # What every deadline below is held to, read once for the whole look and
+        # before any of it is asked.
+        asked_at = now()
+
         # A read that cannot be taken costs this pass and nothing more. The loop
         # is already a poll against a deadline, so a reading that did not arrive
         # is the one kind of failure it is built to absorb - and the alternative
@@ -894,10 +905,11 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             # is still asked, and its deadline still decides.
             buckets = []
         elif buckets is None:
-            # The deadline still decides, and it is checked before sleeping for
-            # the reason the recovered case checks it: a window that has run out
-            # must not buy another interval by having failed rather than
-            # answered.
+            # The deadline still decides, and it is held to the moment this look
+            # was asked, as an answered one is. A failure asked for in time is
+            # owed the look after it, as a late answer would have been. One
+            # asked after the deadline buys nothing: it is checked before
+            # sleeping, so failing gains no interval that answering would not.
             #
             # What it decides, though, is not `REFUTED` where nothing was ever
             # read. That word means the explanation was tested and did not hold,
@@ -908,7 +920,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             # stack the service had in fact recovered. `ESCALATED` is the member
             # that already means no verdict was reached at all, and the one this
             # is: Argus cannot say, so a person is asked.
-            if now() >= watch_until:
+            if asked_at >= watch_until:
                 if not anything_was_read:
                     logger.warning("nothing was measured before the deadline")
 
@@ -994,7 +1006,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 # nothing said the rule was still firing on the change's
                 # minutes, and refuting puts the change back on a measurement
                 # nobody took.
-                if now() >= watch_until:
+                if asked_at >= watch_until:
                     if an_evaluation_since_the_change_was_read:
                         return _Settled(
                             Verdict.REFUTED,
@@ -1073,7 +1085,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                     Verdict.CONFIRMED, "the rule that fired stopped firing"
                 )
 
-            if now() >= watch_until:
+            if asked_at >= watch_until:
                 if not an_evaluation_since_the_change_was_read:
                     logger.warning("nothing was measured before the deadline")
                     return _NO_EVALUATION_SINCE_THE_CHANGE
@@ -1235,7 +1247,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 Verdict.CONFIRMED, "the service was no longer at the incident's level"
             )
 
-        if now() >= watch_until:
+        if asked_at >= watch_until:
             return _Settled(
                 Verdict.REFUTED,
                 "the service was still at the incident's level when the verification "
