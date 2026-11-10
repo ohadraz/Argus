@@ -35,6 +35,7 @@ from orchestrator.walk.graph import (
     NEXT_CANDIDATE_NODE,
     POSTMORTEM_NODE,
     REMEMBERING_NODE,
+    SYNOPSIS_NODE,
     TIER_GATE_NODE,
     build_graph,
     recursion_limit,
@@ -53,6 +54,7 @@ EVERY_NODE_IN_THE_WALK = [
     NEXT_CANDIDATE_NODE,
     POSTMORTEM_NODE,
     REMEMBERING_NODE,
+    SYNOPSIS_NODE,
     TIER_GATE_NODE
 ]
 
@@ -114,7 +116,11 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     # postmortem to be written regardless, and a postmortem that raises cannot
     # then cost the next incident what this one learned.
     (REMEMBERING_NODE, POSTMORTEM_NODE),
-    (POSTMORTEM_NODE, END)
+    # The synopsis is written from the stored postmortem, so after it - and
+    # as a step of its own, so a synopsis that fails cannot have the
+    # postmortem written again.
+    (POSTMORTEM_NODE, SYNOPSIS_NODE),
+    (SYNOPSIS_NODE, END)
 })
 
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
@@ -145,12 +151,17 @@ def test_every_edge_of_the_walk_is_wired() -> None:
 def test_the_shortest_possible_walk_costs_what_the_graph_says_it_costs() -> None:
     # Countable by hand off the graph, which is the point of asserting it: one
     # investigation, then the four nodes of a single attempt - proposal, gate,
-    # mitigation, next_candidate - then the two that end an incident nobody
-    # could fix: codefix, postmortem.
+    # mitigation, next_candidate - then the four that end an incident nobody
+    # could fix: codefix, remembering, postmortem, synopsis.
+    the_investigation = [INVESTIGATOR_NODE]
+    the_ending_nobody_could_fix = [CODEFIX_NODE, REMEMBERING_NODE, POSTMORTEM_NODE,
+                                   SYNOPSIS_NODE]
+
     Scenario() \
         .given(the_shortest_walk := {"max_rounds": 1, "max_candidates": 1}) \
         .when(lambda: recursion_limit(**the_shortest_walk)) \
-        .then(_the_limit_is(8))
+        .then(_the_limit_is(len(the_investigation) + NODES_PER_ATTEMPT
+                            + len(the_ending_nobody_could_fix)))
 
 
 @pytest.mark.unit

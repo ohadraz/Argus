@@ -18,7 +18,7 @@ from orchestrator.walk.choosing import (
     next_candidate_node,
     route_after_next_candidate,
 )
-from orchestrator.walk.closing import postmortem_node
+from orchestrator.walk.closing import postmortem_node, synopsis_node
 from orchestrator.walk.ending import stopping_when_a_person_ended_it
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
@@ -55,15 +55,16 @@ NEXT_CANDIDATE_NODE: Final = "next_candidate"
 CODEFIX_NODE: Final = "codefix"
 REMEMBERING_NODE: Final = "remembering"
 POSTMORTEM_NODE: Final = "postmortem"
+SYNOPSIS_NODE: Final = "synopsis"
 
 
 # One attempt is four traversals - proposal, gate, mitigation, next_candidate -
-# and an incident nobody could fix ends in three more: codefix, remembering,
-# postmortem. Named constants rather than a number in the arithmetic below,
-# because they are facts about the graph a few lines further down, and the day
-# one of them changes is the day this stops being right silently.
+# and an incident nobody could fix ends in four more: codefix, remembering,
+# postmortem, synopsis. Named constants rather than a number in the arithmetic
+# below, because they are facts about the graph a few lines further down, and
+# the day one of them changes is the day this stops being right silently.
 _NODES_PER_ATTEMPT = 4
-_NODES_ENDING_A_WALK = 3
+_NODES_ENDING_A_WALK = 4
 
 
 def recursion_limit(max_rounds: int, max_candidates: int) -> int:
@@ -208,9 +209,19 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     write=collaborators.write_postmortem,
                     record=collaborators.record_postmortem),
             stops_for=frozenset({IncidentStatus.WITHDRAWN}),
-            # The last step: there is nothing after it to hold off.
+            # Nothing after it is the incident's: the synopsis is said only to
+            # the people it is for.
             wait_for_people=waits_for_nobody
         )
+    )
+    # Not wrapped in `deciding_status`, for the remembering node's reason: the
+    # incident is over, and writing to the people who lead about it changes
+    # nothing about where it stands.
+    step(
+        SYNOPSIS_NODE, Actor.POSTMORTEM,
+        partial(synopsis_node,
+                write=collaborators.write_synopsis,
+                record=collaborators.record_synopsis)
     )
 
     graph.add_edge(START, INVESTIGATOR_NODE)
@@ -296,6 +307,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     # leaving the postmortem to be written regardless; and a postmortem that
     # raises cannot then cost the next incident what this one learned.
     graph.add_edge(REMEMBERING_NODE, POSTMORTEM_NODE)
-    graph.add_edge(POSTMORTEM_NODE, END)
+    # The synopsis is written from the stored postmortem, so after it.
+    graph.add_edge(POSTMORTEM_NODE, SYNOPSIS_NODE)
+    graph.add_edge(SYNOPSIS_NODE, END)
 
     return graph.compile(checkpointer=checkpointer)

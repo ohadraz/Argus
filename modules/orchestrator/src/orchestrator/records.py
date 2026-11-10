@@ -20,10 +20,17 @@ from datetime import datetime
 
 from agent_postmortem import said_off_the_page
 from argus_core import Connections
-from argus_core.events import IncidentEvent, LeadWeighed, PostmortemWritten
+from argus_core.events import (
+    ExecutiveSynopsisWithheld,
+    ExecutiveSynopsisWritten,
+    IncidentEvent,
+    LeadWeighed,
+    PostmortemWritten,
+)
 from argus_core.models import (
     ActionProgress,
     ActionType,
+    ExecutiveSynopsisDocument,
     Hypothesis,
     IncidentStatus,
     PostmortemDocument,
@@ -41,6 +48,7 @@ from argus_incidents.repository import (
     hypotheses,
     incidents,
     postmortems,
+    synopses,
     taken_actions,
 )
 from incident_memory import filing
@@ -249,6 +257,22 @@ class Records:
         with self._connections() as conn:
             postmortems.record(conn, incident_id, document, at=written.at)
             publish_beside(conn, written, self._publisher_for(conn))
+
+    def synopsis(self, incident_id: str, synopsis: ExecutiveSynopsisDocument, /) -> None:
+        """Stores the executive synopsis, and says that there is one - or that
+        it was given up, and why - in one write.
+
+        Said with no word of it, unlike the postmortem: the synopsis shows pay,
+        and the account is read by everyone. Whoever sends it reads the row.
+        """
+        said: ExecutiveSynopsisWritten | ExecutiveSynopsisWithheld = (
+            ExecutiveSynopsisWritten(incident_id=incident_id) if synopsis.overview is not None
+            else ExecutiveSynopsisWithheld(incident_id=incident_id,
+                                           reason=synopsis.withheld_because or ""))
+
+        with self._connections() as conn:
+            synopses.record(conn, incident_id, synopsis, at=said.at)
+            publish_beside(conn, said, self._publisher_for(conn))
 
     def memory(self, record: RememberedIncident, /) -> None:
         """Files what this incident tried, for long-term memory to be given.

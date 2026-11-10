@@ -64,8 +64,10 @@ from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
     CHAT_THREAD,
     DISCARD_CACHE_ENTRIES,
+    PIN_TO_ACCELERATOR,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    AcceleratorPinUndo,
     ActionIdentity,
     ActionProgress,
     ActionType,
@@ -2135,6 +2137,35 @@ def test_an_action_is_said_in_words(a_clean_database: None) -> None:
 
 
 @pytest.mark.component
+@pytest.mark.parametrize("announced", [True, False], ids=["off-its-line", "off-its-row"])
+def test_a_pin_is_said_with_the_card_it_held_the_pods_to(a_clean_database: None,
+                                                         announced: bool) -> None:
+    # Said without it, an overview that also spoke of purchases held for
+    # review read "held the pods" as a pause. Off the account's line where
+    # there is one, and off the row's undo descriptor where there is none.
+    some_application = "io-shop"
+    some_card = "Tesla-V100-SXM2-16GB"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_pin_taken(conn, incident_id, some_application, some_card,
+                                             announced=announced))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _mentions_among(
+                    lambda evidence: [action.action for action in evidence.actions],
+                    f"Held the pods of {some_application} to {some_card}"
+                )
+            )
+
+
+@pytest.mark.component
 def test_an_action_carries_the_candidate_it_was_for(a_clean_database: None) -> None:
     # By that candidate's place among the candidates, which is what its label
     # counts. Nothing else says which an action was for: the move to
@@ -3031,6 +3062,40 @@ def _an_action_taken(conn: psycopg.Connection,
                          performed=performed,
                          left_behind_known=left_behind_known,
                          undone=undone)
+
+
+def _a_pin_taken(conn: psycopg.Connection,
+                 incident_id: str,
+                 application: str,
+                 card: str,
+                 *,
+                 announced: bool) -> None:
+    """One confirmed pin of `application` to `card`, on a candidate of its own -
+    with the account's line announcing it, where `announced`."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary="dont care",
+                           failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.record(conn, incident_id,
+                         hypothesis_id=candidate.id,
+                         action_type=PIN_TO_ACCELERATOR,
+                         subject=application,
+                         outcome=Verdict.CONFIRMED,
+                         undo_descriptor=AcceleratorPinUndo(application=application,
+                                                            was_pinned_to=None,
+                                                            pinned_to=card,
+                                                            was_syncing_itself=True),
+                         at=DONT_CARE_TAKEN_AT,
+                         left_behind_known=True)
+    if announced:
+        events.record(conn, ActionTaken(incident_id=incident_id,
+                                        hypothesis_id=candidate.id,
+                                        action_type=PIN_TO_ACCELERATOR,
+                                        subject=application,
+                                        accelerator=card,
+                                        at=DONT_CARE_TAKEN_AT))
 
 
 def _an_action_left_at(conn: psycopg.Connection,

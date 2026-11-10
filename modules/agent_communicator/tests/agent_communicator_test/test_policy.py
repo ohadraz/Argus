@@ -35,6 +35,8 @@ from argus_core.events import (
     ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
+    ExecutiveSynopsisWithheld,
+    ExecutiveSynopsisWritten,
     FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
@@ -258,6 +260,37 @@ def test_a_postmortem_is_filed_rather_than_announced() -> None:
         ) \
         .when(lambda: how_it_is_said(the_write_up)) \
         .then(_it_is_said(Register.FILED))
+
+
+@pytest.mark.unit
+def test_an_executive_synopsis_is_briefed_to_the_people_it_is_for() -> None:
+    # It states what each title's time on the incident cost, so it is said to
+    # the people configured to receive it and to nobody else - not the war
+    # room, not a thread, not the postmortem channel, all of which the
+    # responders it prices read.
+    Scenario() \
+        .given(
+            a_synopsis := ExecutiveSynopsisWritten(incident_id=AN_INCIDENT)
+        ) \
+        .when(lambda: how_it_is_said(a_synopsis)) \
+        .then(_it_is_said(Register.BRIEFED))
+
+
+@pytest.mark.unit
+def test_a_synopsis_given_up_is_not_said() -> None:
+    # Nothing was written to send. Why it was given up is on the page, which
+    # is where whoever maintains Argus reads it.
+    dont_care_reason = "dont care"
+
+    Scenario() \
+        .given(
+            a_synopsis_given_up := ExecutiveSynopsisWithheld(
+                incident_id=AN_INCIDENT,
+                reason=dont_care_reason
+            )
+        ) \
+        .when(lambda: how_it_is_said(a_synopsis_given_up)) \
+        .then(_it_is_said(Register.UNSAID))
 
 
 @pytest.mark.unit

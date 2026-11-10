@@ -35,4 +35,14 @@ def with_the_pull_request_named(answer: SubmittedPostmortem,
     if pull_request is None:
         return answer
 
-    return answer.with_each_sentence(lambda prose: _A_PULL_REQUEST.sub(pull_request.name, prose))
+    return answer.with_each_sentence(lambda prose: the_pull_request_named(prose, pull_request))
+
+
+def the_pull_request_named(prose: str, pull_request: OpenedPullRequest | None) -> str:
+    """`prose` with every pull request it names written as the record's, by
+    its name - and as it was where the record holds none. Public for prose
+    outside an answer: the executive overview is held to the same record."""
+    if pull_request is None:
+        return prose
+
+    return _A_PULL_REQUEST.sub(pull_request.name, prose)

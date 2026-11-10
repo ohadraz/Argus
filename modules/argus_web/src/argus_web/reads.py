@@ -17,14 +17,17 @@ from argus_incidents.repository import (
     hypotheses,
     incidents,
     postmortems,
+    synopses,
     taken_actions,
 )
 from argus_narration import ShownRevision
 from postmortem_rendering import (
     RenderedPostmortem,
     ReportedResolution,
+    SynopsisLines,
     render,
     the_reported_resolution,
+    the_synopsis,
 )
 
 from argus_web.views import (
@@ -128,6 +131,22 @@ def read_postmortem(conn: psycopg.Connection,
 
     return render(postmortem, incident.alert, events.get_by_incident(conn, incident.id),
                   address_of)
+
+
+def read_synopsis(conn: psycopg.Connection,
+                  incident: IncidentDetail,
+                  postmortem_at: str) -> SynopsisLines | None:
+    """The executive synopsis as it is read, where one was written and not
+    given up - and so sent. `postmortem_at` is the full postmortem's address,
+    which only the request knows."""
+    synopsis = synopses.get_by_incident(conn, incident.id)
+    postmortem = postmortems.get_by_incident(conn, incident.id)
+    if synopsis is None or synopsis.overview is None or postmortem is None:
+        return None
+
+    return the_synopsis(synopsis, postmortem, incident.alert,
+                        the_reported_resolution(events.get_by_incident(conn, incident.id)),
+                        postmortem_at)
 
 
 def read_resolution(conn: psycopg.Connection, incident_id: str) -> ReportedResolution | None:

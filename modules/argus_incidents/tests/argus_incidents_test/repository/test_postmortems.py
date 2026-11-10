@@ -1,52 +1,25 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 import psycopg
 import pytest
 from argus_core import connect_from_env, utc_now
-from argus_core.models import (
-    ActionItem,
-    ActionItemStatus,
-    ActionItemType,
-    Alert,
-    ChainStep,
-    ChangeEvent,
-    ChangeKind,
-    ChannelReading,
-    CitedChange,
-    CitedEvidence,
-    ContributingFactor,
-    Detection,
-    DetectionLesson,
-    DetectionMeasuredFrom,
-    HypothesisConsidered,
-    Impact,
-    ImpactExtent,
-    Lessons,
-    NoTrigger,
-    OpenedPullRequest,
-    PostmortemDocument,
-    PostmortemLead,
-    ResolutionStep,
-    ReviewCriterion,
-    RevisionSource,
-    Standing,
-    TimelineEntry,
-    TimelineMarker,
-    Trigger,
-    Weighing,
-    WhyNoTrigger,
-)
-from argus_incidents.repository import incidents, postmortems
+from argus_core.models import Alert, ChannelReading, PostmortemLead, Standing
+from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of
 
 from argus_incidents_test.framework import no_column_is_empty
-
-SOME_SERVICE = "io-shop"
-SOME_MOMENT = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
+from argus_incidents_test.framework.builders import (
+    a_lead_weighed_as,
+    a_postmortem_document,
+    a_postmortem_document_with_every_field,
+    an_incident_created_for,
+    an_opened_pull_request,
+    every_section_of_the_template,
+)
 
 
 @pytest.mark.integration
@@ -55,15 +28,11 @@ def test_a_document_proposing_a_fix_comes_back_naming_where_to_read_it() -> None
     # rather than as a column type, so it is the only one that can come back a
     # string that merely looks like one - or fail to be written at all, which
     # is what a bare model handed to psycopg does.
-    where_it_can_be_read = "https://github.invalid/ohadraz/io-shop/pull/7"
+    some_pull_request = an_opened_pull_request()
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_in(conn)
-        a_document_proposing = _a_document(
-            pull_request=OpenedPullRequest(
-                number=7, url=where_it_can_be_read, branch="argus/fix-abc"
-            )
-        )
+        incident_id = an_incident_created_for(conn, _an_alert())
+        a_document_proposing = a_postmortem_document(pull_request=some_pull_request)
 
         Scenario() \
             .when(
@@ -72,9 +41,11 @@ def test_a_document_proposing_a_fix_comes_back_naming_where_to_read_it() -> None
             .then(
                 all_of(
                     _the_stored_postmortem_proposes(
-                        conn, incident_id, at=where_it_can_be_read
+                        conn, incident_id, at=some_pull_request.url
                     ),
-                    _the_stored_postmortem_numbers_the_proposal(conn, incident_id, 7)
+                    _the_stored_postmortem_numbers_the_proposal(
+                        conn, incident_id, some_pull_request.number
+                    )
                 )
             )
 
@@ -82,19 +53,21 @@ def test_a_document_proposing_a_fix_comes_back_naming_where_to_read_it() -> None
 @pytest.mark.integration
 def test_a_document_is_dated_by_the_moment_given() -> None:
     # The moment of the line saying it was written: the page's author line and
-    # the account's line are one instant.
-    some_moment = datetime(2026, 10, 21, 19, 14, 9, 456789, tzinfo=UTC)
+    # the account's line are one instant. To the microsecond, so a column that
+    # kept less would show.
+    moment_to_the_microsecond = datetime(2026, 10, 21, 19, 14, 9, 456789, tzinfo=UTC)
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_in(conn)
+        incident_id = an_incident_created_for(conn, _an_alert())
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, _a_document(pull_request=None),
-                                           at=some_moment)
+                lambda: postmortems.record(conn, incident_id, a_postmortem_document(),
+                                           at=moment_to_the_microsecond)
             ) \
             .then(
-                _the_stored_postmortem_was_written_at(conn, incident_id, some_moment)
+                _the_stored_postmortem_was_written_at(conn, incident_id,
+                                                      moment_to_the_microsecond)
             )
 
 
@@ -103,8 +76,8 @@ def test_a_document_that_proposed_no_fix_comes_back_proposing_none() -> None:
     # The ordinary ending. Null rather than an empty object, so that a page
     # asking "is there a fix to read" gets an answer rather than a shape.
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_in(conn)
-        a_document_proposing_nothing = _a_document(pull_request=None)
+        incident_id = an_incident_created_for(conn, _an_alert())
+        a_document_proposing_nothing = a_postmortem_document(pull_request=None)
 
         Scenario() \
             .when(
@@ -126,44 +99,12 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
     # which is what a field nothing ever fills looks like from here: present in
     # the statement, absent in the row, and unreadable to everybody after.
     #
-    # So the document is the complete one - every figure the write-up can carry,
-    # every section of the template, and the fix it proposed - and the question
-    # is whether a complete document reaches the table complete.
-    a_complete_document = _a_document(
-        pull_request=OpenedPullRequest(
-            number=7,
-            url="https://github.invalid/ohadraz/io-shop/pull/7",
-            branch="argus/fix-abc"
-        )
-    ).model_copy(update={
-        "root_cause": "a feature flag was toggled on and the checkout path fell over",
-        "executive_summary": "one flag, seven minutes, reverted",
-        "symptom": "Checkout failed",
-        "cause_in_plain_words": "A flag change turned off the path checkout relies on.",
-        "customer_loss_estimate": Decimal("1840.00"),
-        "estimate_currency": "usd",
-        "engineer_minutes": 7,
-        "responders": 2,
-        "responder_titles": ["site reliability engineer", "staff engineer"],
-        "responder_cost_estimate": Decimal("31.50"),
-        "responder_cost_minimum": Decimal("24.00"),
-        "responder_cost_maximum": Decimal("39.00"),
-        "responder_cost_currency": "usd",
-        "response_cost_basis": ["Working year: annual pay bands divided by 2080 hours"],
-        "tokens_spent": 48210,
-        "assumptions": ["the published rate for the day the incident opened"],
-        "recommended_action": "reverting monthly-spend-feature",
-        "disproven_at": utc_now(),
-        "leads": [_a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted")],
-        "deploys_reading": ChannelReading.READ,
-        "flags_reading": ChannelReading.READ,
-        "logs_reading": ChannelReading.READ,
-        "fix_branch_read": "main",
-        **_every_section_of_the_template()
-    })
+    # So the document is the complete one, and the question is whether a
+    # complete document reaches the table complete.
+    a_complete_document = a_postmortem_document_with_every_field()
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_in(conn)
+        incident_id = an_incident_created_for(conn, _an_alert())
 
         Scenario() \
             .when(
@@ -180,16 +121,16 @@ def test_what_people_told_the_incident_comes_back_whole() -> None:
     # one field here psycopg can neither send as it stands nor hand back as
     # what it was. A lead that came back with its standing as a string, or its
     # moment as text, would be a document saying less than it was written with.
+    some_standing = Standing.SUPPORTED
+    some_effect = "it named the flag reverted"
     some_leads = [
-        _a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted"),
-        _a_lead_weighed_as(None, effect=None)
+        a_lead_weighed_as(some_standing, effect=some_effect),
+        a_lead_weighed_as(None, effect=None)
     ]
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_in(conn)
-        a_document_with_leads = _a_document(pull_request=None).model_copy(
-            update={"leads": some_leads}
-        )
+        incident_id = an_incident_created_for(conn, _an_alert())
+        a_document_with_leads = a_postmortem_document(leads=some_leads)
 
         Scenario() \
             .when(
@@ -207,13 +148,11 @@ def test_the_templates_sections_come_back_whole() -> None:
     # stands, and each one that could come back as text that merely looks like
     # what was written. Compared whole, so a section that lost a field reports
     # which one.
-    some_sections = _every_section_of_the_template()
+    some_sections = every_section_of_the_template()
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_in(conn)
-        a_document_with_every_section = _a_document(pull_request=None).model_copy(
-            update=some_sections
-        )
+        incident_id = an_incident_created_for(conn, _an_alert())
+        a_document_with_every_section = a_postmortem_document(**some_sections)
 
         Scenario() \
             .when(
@@ -229,13 +168,17 @@ def test_the_templates_sections_come_back_whole() -> None:
 def test_what_came_of_each_read_comes_back_as_it_was_written() -> None:
     # Text in the column and an enum on the way back. One that came back a
     # string would still compare equal, and be a document saying less than it
-    # was written with.
+    # was written with. Three different readings, so one written into another's
+    # column shows.
+    some_deploys_reading = ChannelReading.UNANSWERED
+    some_flags_reading = ChannelReading.ONLY_SINCE_ARGUS_ACTED
+    some_logs_reading = ChannelReading.NOT_ASKED
+
     with connect_from_env() as conn:
-        incident_id = _an_incident_created_in(conn)
-        a_document_with_readings = _a_document(pull_request=None).model_copy(update={
-            "deploys_reading": ChannelReading.UNANSWERED,
-            "flags_reading": ChannelReading.ONLY_SINCE_ARGUS_ACTED,
-            "logs_reading": ChannelReading.NOT_ASKED})
+        incident_id = an_incident_created_for(conn, _an_alert())
+        a_document_with_readings = a_postmortem_document(deploys_reading=some_deploys_reading,
+                                                         flags_reading=some_flags_reading,
+                                                         logs_reading=some_logs_reading)
 
         Scenario() \
             .when(
@@ -243,9 +186,9 @@ def test_what_came_of_each_read_comes_back_as_it_was_written() -> None:
                                            at=utc_now())
             ) \
             .then(
-                _the_stored_postmortem_read(conn, incident_id, (ChannelReading.UNANSWERED,
-                                                                ChannelReading.ONLY_SINCE_ARGUS_ACTED,
-                                                                ChannelReading.NOT_ASKED))
+                _the_stored_postmortem_read(conn, incident_id, (some_deploys_reading,
+                                                                some_flags_reading,
+                                                                some_logs_reading))
             )
 
 
@@ -366,7 +309,7 @@ def _the_stored_postmortem_carries_the_leads(conn: psycopg.Connection,
 
 def _the_stored_postmortem_carries_the_sections(conn: psycopg.Connection,
                                                 incident_id: str,
-                                                expected: dict[str, Any]
+                                                expected: Mapping[str, object]
                                                 ) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         stored = postmortems.get_by_incident(conn, incident_id)
@@ -389,159 +332,7 @@ def _the_stored_postmortem_carries_the_sections(conn: psycopg.Connection,
     return assertion
 
 
-def _every_section_of_the_template() -> dict[str, Any]:
-    """One of everything the template adds, each with every field filled."""
-    return {
-        "detection": Detection(
-            alerted_at=SOME_MOMENT + timedelta(minutes=2, seconds=40),
-            rule="HighErrorRate",
-            onset_at=SOME_MOMENT,
-            gap=timedelta(minutes=2, seconds=40)
-        ),
-        "trigger": Trigger(
-            subject="monthly-spend-feature",
-            from_state="off",
-            to_state="on",
-            changed_at=SOME_MOMENT - timedelta(seconds=8)
-        ),
-        "no_trigger": NoTrigger(
-            why=WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET,
-            candidate="C1",
-            subject="deploy/values-production.yaml",
-            service="io-pricing",
-            deploys=["P1"]
-        ),
-        "resolution": [ResolutionStep(
-            at=SOME_MOMENT + timedelta(minutes=5),
-            action="turned monthly-spend-feature off",
-            by="Argus",
-            has_a_way_back=True,
-            outcome="recovered, still in place",
-            label="M1"
-        )],
-        "causal_chain": [ChainStep(
-            text="the monthly average divides by the items bought this month",
-            cites=[CitedEvidence(label="E3", text="ZeroDivisionError in monthly_average")]
-        )],
-        "contributing_factors": [ContributingFactor(
-            text="the canary started at 40%",
-            addressed_by=["AI-2"]
-        )],
-        "hypotheses": [HypothesisConsidered(
-            summary="a flag change on account pages",
-            confidence=0.8,
-            result="confirmed",
-            label="C1"
-        )],
-        "action_items": [ActionItem(
-            number="AI-1",
-            text="turn the flag off",
-            type=ActionItemType.MITIGATE,
-            owner="Argus",
-            tracking="https://github.invalid/ohadraz/io-shop/pull/7",
-            status=ActionItemStatus.DONE
-        )],
-        "lessons": Lessons(
-            went_well=["the alert fired within 3 minutes"],
-            went_wrong=["no test exercised an empty month"],
-            got_lucky=["the fault was behind a flag"]
-        ),
-        "detection_lesson": DetectionLesson(
-            gap=timedelta(minutes=2, seconds=40),
-            measured_from=DetectionMeasuredFrom.LINE_PASSED,
-            rule_waits=timedelta(minutes=1),
-            rule_looks_back=timedelta(minutes=5),
-            rule_evaluated_every=timedelta(seconds=30),
-            scraping_and_storing=timedelta(seconds=30)
-        ),
-        "timeline": [TimelineEntry(
-            at=SOME_MOMENT,
-            who="Investigator",
-            text="the error rate left its baseline",
-            marker=TimelineMarker.IMPACT_BEGINS
-        )],
-        "changes_read": [CitedChange(
-            label="P1",
-            change=ChangeEvent(
-                kind=ChangeKind.DEPLOY,
-                occurred_at="2026-10-11T13:58:00Z",
-                reference="7c3ca00c7528df68d533f6e87acd4f23a55ab342",
-                summary="deployed revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342",
-                actor="someone",
-                revision_source=RevisionSource(
-                    repository="some-owner/some-repository",
-                    repository_address="https://github.com/some-owner/some-repository",
-                    revision_address="https://github.com/some-owner/some-repository/commit/7c3ca00",
-                    directory="deploy",
-                    directory_address="https://github.com/some-owner/some-repository/tree/7c3ca00/deploy")),
-            short_reference="7c3ca00")],
-        "log_messages_read": [CitedEvidence(label="G3fa2",
-                                            text="ZeroDivisionError in monthly_average")],
-        "deployment_changes_read": [CitedEvidence(label="D1",
-                                                  text="modified deploy/values-production.yaml\n"
-                                                       "  -  model: v1\n"
-                                                       "  +  model: v2")],
-        "code_read": [CitedEvidence(label="F1",
-                                    text="v2's vocabulary is lowercase, and the categoriser "
-                                         "does not lowercase its input")],
-        "review": [ReviewCriterion(criterion="some criterion met", met=True),
-                   ReviewCriterion(criterion="some criterion left for a person", met=None)],
-        "impact": Impact(duration=timedelta(minutes=47),
-                         extent=ImpactExtent.AT_LEAST,
-                         peak_error_rate=0.42)
-    }
-
-
-def _a_lead_weighed_as(standing: Standing | None, effect: str | None) -> PostmortemLead:
-    """One thing a person told the incident, as the document reports it -
-    weighed as `standing`, or never weighed where that is `None`."""
-    return PostmortemLead(
-        label="L1",
-        person_id="U-some-person",
-        person_name="Some Person",
-        text="the kuki flag was flipped at noon",
-        written_at=datetime(2026, 8, 20, 11, 5, tzinfo=UTC),
-        weighing=(Weighing(standing=standing, reason="the flag history agrees")
-                  if standing is not None else None),
-        effect=effect
-    )
-
-
-def _an_incident_created_in(conn: psycopg.Connection) -> str:
-    """One incident for the postmortem to belong to - the row is keyed by it."""
-    return incidents.create(
-        conn,
-        Alert(
-            service=SOME_SERVICE,
-            alert_name="HighErrorRate",
-            severity="critical",
-            summary="dont care",
-            started_at=datetime.now(UTC)
-        ),
-        at=utc_now()
-    )
-
-
-def _a_document(pull_request: OpenedPullRequest | None) -> PostmortemDocument:
-    """A document whose only interesting field is the one under test.
-
-    Everything else absent on purpose: what is being checked here is how one
-    value crosses the boundary, and figures filled in around it would be
-    asserting `writing`'s arrangement through a database.
-    """
-    return PostmortemDocument(
-        root_cause="dont care",
-        executive_summary="dont care",
-        customer_loss_estimate=None,
-        estimate_currency=None,
-        engineer_minutes=None,
-        responders=None,
-        responder_titles=[],
-        responder_cost_estimate=None,
-        responder_cost_minimum=None,
-        responder_cost_maximum=None,
-        responder_cost_currency=None,
-        tokens_spent=None,
-        assumptions=[],
-        pull_request=pull_request
-    )
+def _an_alert() -> Alert:
+    """The alert the incident a postmortem belongs to was opened by - the row
+    is keyed by the incident, and nothing here reads the alert."""
+    return Alert(service="dont-care", alert_name="dont-care")

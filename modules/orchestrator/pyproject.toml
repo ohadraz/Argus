@@ -18,6 +18,9 @@ dependencies = [
     "argus-agent_mitigation",
     "argus-agent_codefix",
     "argus-agent_postmortem",
+    # The executive synopsis's figures and resolution, worded as the
+    # postmortem's page words them.
+    "argus-postmortem_rendering",
     "argus-oncall_source",
     "argus-responder_rate_source",
     "argus-revenue_source",
@@ -61,6 +64,7 @@ argus-agent_investigator = { workspace = true }
 argus-agent_mitigation = { workspace = true }
 argus-agent_codefix = { workspace = true }
 argus-agent_postmortem = { workspace = true }
+argus-postmortem_rendering = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -159,6 +159,8 @@ def write_postmortem(evidence: IncidentEvidence,
         # scaling it again would charge every minute to everybody.
         engineer_minutes=engaged.minutes if engaged else (0 if not_paged else None),
         responders=engaged.responders if engaged else (0 if not_paged else None),
+        # Kept apart from the count, which is nobody both ways.
+        paged=True if engaged else (False if not_paged else None),
         responder_titles=engaged.titles if engaged else [],
         responder_cost_estimate=measured.cost.midpoint if measured.cost else None,
         responder_cost_minimum=measured.cost.minimum if measured.cost else None,

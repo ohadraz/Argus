@@ -37,6 +37,7 @@ from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.pdf import as_pdf
 from postmortem_rendering.rendering import RenderedPostmortem, render
 from postmortem_rendering.resolution import ReportedResolution, the_reported_resolution
+from postmortem_rendering.resolution_list import the_resolution_list
 from postmortem_rendering.review import ReviewRow, ReviewSection, the_review
 from postmortem_rendering.supporting import (
     SupportingSection,
@@ -44,6 +45,9 @@ from postmortem_rendering.supporting import (
     the_supporting_information,
     what_a_change_did,
 )
+from postmortem_rendering.synopsis import SynopsisLines, the_synopsis
+from postmortem_rendering.synopsis_figures import the_synopsis_figures, the_synopsis_figures_said
+from postmortem_rendering.synopsis_pdf import synopsis_as_pdf
 from postmortem_rendering.timeline import TimelineRow, TimelineSection, the_timeline
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 
@@ -72,6 +76,7 @@ __all__ = [
     "Run",
     "StepRow",
     "SupportingSection",
+    "SynopsisLines",
     "TimelineRow",
     "TimelineSection",
     "TriggerSection",
@@ -84,6 +89,7 @@ __all__ = [
     "in_utc",
     "on_the_clock",
     "render",
+    "synopsis_as_pdf",
     "the_action_items",
     "the_actions_taken",
     "the_cause",
@@ -95,8 +101,12 @@ __all__ = [
     "the_lessons",
     "the_person_who_resolved",
     "the_reported_resolution",
+    "the_resolution_list",
     "the_review",
     "the_supporting_information",
+    "the_synopsis",
+    "the_synopsis_figures",
+    "the_synopsis_figures_said",
     "the_timeline",
     "the_trigger",
     "what_a_change_did"

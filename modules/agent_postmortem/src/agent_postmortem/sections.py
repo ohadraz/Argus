@@ -25,6 +25,7 @@ from argus_core.events import (
     the_changed_file_it_names,
 )
 from argus_core.models import (
+    NOT_JUDGED,
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -69,11 +70,11 @@ NEVER_TRIED = "never tried"
 # reads as no attempt at all.
 ACTION_NOT_TAKEN = "action not taken"
 NO_VERDICT_RECORDED = "no verdict recorded"
-# What an action a person's ending stopped came to, and what became of a cause
-# whose action was performed and never measured - a person's ending during the
-# wait, or a wait whose every look went unanswered: nothing was judged, and the
-# cause was tried all the same.
-NOT_JUDGED = "not judged"
+# What an action a person's ending stopped came to (`NOT_JUDGED`, the kernel's,
+# since the synopsis names it too), and what became of a cause whose action was
+# performed and never measured - a person's ending during the wait, or a wait
+# whose every look went unanswered: nothing was judged, and the cause was tried
+# all the same.
 TRIED_NOT_JUDGED = "tried, not judged"
 # What became of a cause whose action was performed and carries no verdict:
 # the worker died with the change made, before the wait judged it or before it

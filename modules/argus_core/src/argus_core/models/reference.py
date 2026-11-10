@@ -49,6 +49,10 @@ CHAT_THREAD: Final = "chat-thread"
 CHAT_MESSAGE: Final = "chat-message"
 CHAT_RESOLUTION_OFFER: Final = "chat-resolution-offer"
 CHAT_WITHDRAWAL_OFFER: Final = "chat-withdrawal-offer"
+# And the executive synopsis Argus sent one of the ids configured to receive it,
+# by that id - a member's or a channel's - so that a pass repeated after a
+# throttle sends it only to the ids it has not reached.
+CHAT_BRIEFING: Final = "chat-briefing"
 
 # Between the channel and the message in a place's value. A character no chat
 # platform puts in a channel id, because the schema finds the channel as
@@ -102,6 +106,11 @@ def a_chat_resolution_offer(platform: str, channel: str, message: str) -> Refere
 def a_chat_withdrawal_offer(platform: str, channel: str, message: str) -> Reference:
     """One offer to withdraw Argus posted in a channel."""
     return _a_place(platform, CHAT_WITHDRAWAL_OFFER, channel, message)
+
+
+def a_chat_briefing(platform: str, channel: str, message: str) -> Reference:
+    """One executive synopsis Argus sent, by the id it was sent to."""
+    return _a_place(platform, CHAT_BRIEFING, channel, message)
 
 
 def the_place_of(value: str) -> tuple[str, str]:

@@ -18,7 +18,9 @@ edited for it:
 - **Every walk ends with a postmortem.** It is the last thing an incident
   produces, on every path including escalation: escalating means a person has
   to act, not that nothing was learned, and the document is the handover to
-  whoever picks it up.
+  whoever picks it up. Only the executive synopsis's overview may follow it -
+  a corpus recorded before the synopsis existed ends without one, and a
+  replay of it says so through the e2e suite's own check that one was written.
 - **A walk that started Code-Fix has to have finished it.** There are two ways
   to finish - a proposal, and a judgement that nothing needs changing - and one
   tool each, because an empty patch could not be told from a dropped one.
@@ -54,6 +56,9 @@ THE_LAST_ANSWER: Final = "submit_postmortem"
 # Asked about the write-up once it is kept, for the order its causal chain is
 # read in - so a finished walk may end on it, and only straight after the above.
 THE_ORDER_ASKED_AFTER: Final = "order_chain"
+# The executive synopsis's overview, asked once the write-up is done and again
+# once where the first was refused - so a finished walk may end on it too.
+THE_SYNOPSIS: Final = "submit_executive_overview"
 # Code-Fix's opening move, and nothing else's - so its presence in a corpus is
 # how a reader of the answers alone can tell that Code-Fix ran at all. The
 # walks that escalate before reaching it have no business submitting a fix,
@@ -143,8 +148,10 @@ def what_gave_up(corpus: str, answers: list[Path]) -> str | None:
     said only "bad" would send a reader to the wrong bound.
     """
     asked_for = [called for answer in answers for called in what_it_asked_for(answer)]
-    written_up = (asked_for[:-1] if asked_for[-1:] == [THE_ORDER_ASKED_AFTER]
-                  else asked_for)
+    briefed = asked_for
+    while briefed[-1:] == [THE_SYNOPSIS]:
+        briefed = briefed[:-1]
+    written_up = briefed[:-1] if briefed[-1:] == [THE_ORDER_ASKED_AFTER] else briefed
     ended_on = written_up[-1] if written_up else None
 
     if ended_on != THE_LAST_ANSWER:

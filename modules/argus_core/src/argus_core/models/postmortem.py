@@ -108,6 +108,12 @@ class PostmortemDocument(BaseModel):
     estimate_currency: str | None
     engineer_minutes: int | None
     responders: int | None
+    # Whether a page went out: `True` where an on-call incident was linked to
+    # this one, `False` where none was, `None` where nobody could say. Apart
+    # from `responders`, which counts nobody both for a page nobody
+    # acknowledged and for no page at all - and a reader told "nobody was
+    # paged" of the first is told something false. Read only by the synopsis.
+    paged: bool | None = None
     # What those responders were, never who. Empty where the source could say
     # how many people responded and not what any of them was called - a
     # description missing, rather than a measurement.

@@ -400,6 +400,13 @@ class ResolutionStep(BaseModel):
     candidate: str | None = None
 
 
+# What a step came to where it was stopped before its verdict - by a person's
+# ending, during the wait. Here because the writer that stores it and the
+# synopsis's Resolution list, which says whose verdict was never reached, both
+# name it.
+NOT_JUDGED: Final = "not judged"
+
+
 def for_the_candidate(label: str) -> str:
     """Which candidate an action was for, in the words every place showing it
     uses - the page's resolution and the brief the model writes from. Here for

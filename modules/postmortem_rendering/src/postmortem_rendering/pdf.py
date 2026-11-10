@@ -21,7 +21,7 @@ line while fpdf2 logs it, so the file is still made.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from itertools import accumulate, pairwise
 from pathlib import Path
@@ -36,17 +36,28 @@ from postmortem_rendering.cause import RuledOutLine
 from postmortem_rendering.impact import Card
 from postmortem_rendering.lessons import LessonList
 from postmortem_rendering.lines import Line, Role, Run
+from postmortem_rendering.look import (
+    BODY,
+    CLOAK,
+    DISPLAY,
+    FALLBACK,
+    INK,
+    LINK,
+    MONO,
+    MUTED,
+    RULE,
+    with_the_typefaces,
+)
 from postmortem_rendering.rendering import RenderedPostmortem
 from postmortem_rendering.review import ReviewRow
+from postmortem_rendering.synopsis import HumanCost, SynopsisLines
 
 _PACKAGE: Final = Path(__file__).parent
-_FONTS: Final = _PACKAGE / "fonts"
 _LOGO: Final = _PACKAGE / "assets" / "argus.jpg"
 
-_BODY: Final = "public-sans"
-_DISPLAY: Final = "source-serif"
-_MONO: Final = "jetbrains-mono"
-_FALLBACK: Final = "dejavu-sans"
+_BODY: Final = BODY
+_DISPLAY: Final = DISPLAY
+_MONO: Final = MONO
 
 # A4, in millimetres, with the mock's margins.
 _PAGE_WIDTH: Final = 210.0
@@ -74,11 +85,11 @@ _QUIET_PT: Final = 7.9
 _QUIET_LINE: Final = 4.0
 _LINE: Final = 5.0
 
-_INK: Final = (27, 36, 48)
-_MUTED: Final = (90, 102, 118)
-_RULE: Final = (221, 227, 234)
-_LINK: Final = (47, 107, 100)
-_CLOAK: Final = (62, 123, 116)
+_INK: Final = INK
+_MUTED: Final = MUTED
+_RULE: Final = RULE
+_LINK: Final = LINK
+_CLOAK: Final = CLOAK
 _RED: Final = (179, 38, 30)
 _GREEN: Final = (46, 125, 79)
 
@@ -94,15 +105,19 @@ class _Sheet(FPDF):
     is drawn.
     """
 
-    def __init__(self, rendered: RenderedPostmortem) -> None:
+    def __init__(self,
+                 title: str,
+                 incident_id: str,
+                 written: str,
+                 labels: frozenset[str] = frozenset(),
+                 addresses: Mapping[str, str] | None = None) -> None:
         super().__init__(format="A4")
-        self._title = rendered.title.said
-        self._incident_id = rendered.incident_id
-        written = next((run.text for run in rendered.head.written_by.runs
-                        if run.role is Role.MOMENT), "")
-        self._written = f"Argus postmortem · written {written}"
-        self.labels = rendered.labels
-        self.addresses = rendered.supporting.prose_addresses
+        self.title_said = title
+        self._title = title
+        self._incident_id = incident_id
+        self._written = written
+        self.labels = labels
+        self.addresses = dict(addresses or {})
         self._citations: dict[str, int] = {}
 
     def citation(self, label: str) -> int:
@@ -178,20 +193,11 @@ class _Sheet(FPDF):
 def as_pdf(rendered: RenderedPostmortem) -> bytes:
     """The document as a PDF, section by section in the order `rendered`
     names them."""
-    pdf = _Sheet(rendered)
-    pdf.set_margins(_SIDE, _TOP, _SIDE)
-    pdf.set_auto_page_break(auto=True, margin=20)
-    pdf.add_font(_BODY, "", str(_FONTS / "PublicSans-Regular.ttf"))
-    pdf.add_font(_BODY, "B", str(_FONTS / "PublicSans-SemiBold.ttf"))
-    pdf.add_font(_DISPLAY, "", str(_FONTS / "SourceSerif4-Semibold.ttf"))
-    pdf.add_font(_MONO, "", str(_FONTS / "JetBrainsMono-Regular.ttf"))
-    pdf.add_font(_MONO, "B", str(_FONTS / "JetBrainsMono-Medium.ttf"))
-    pdf.add_font(_FALLBACK, "", str(_FONTS / "DejaVuSans.ttf"))
-    pdf.add_font(_FALLBACK, "B", str(_FONTS / "DejaVuSans-Bold.ttf"))
-    pdf.set_fallback_fonts([_FALLBACK], exact_match=False)
-    pdf.set_title(rendered.title.said)
-    pdf.set_creator("Argus")
-    pdf.add_page()
+    written = next((run.text for run in rendered.head.written_by.runs
+                    if run.role is Role.MOMENT), "")
+    pdf = _a_sheet(_Sheet(rendered.title.said, rendered.incident_id,
+                          f"Argus postmortem · written {written}",
+                          rendered.labels, rendered.supporting.prose_addresses))
 
     _the_masthead(pdf, rendered)
 
@@ -202,6 +208,109 @@ def as_pdf(rendered: RenderedPostmortem) -> bytes:
         _SECTIONS[key](pdf, rendered)
 
     return bytes(pdf.output())
+
+
+def synopsis_as_pdf(synopsis: SynopsisLines) -> bytes:
+    """The executive synopsis as a PDF in the postmortem's own look - its
+    masthead and mark, its headings, its figure tiles and its ruled tables -
+    each part in the order the synopsis reads, then the full postmortem's
+    address, printed as well as linked."""
+    pdf = _a_sheet(_Sheet(synopsis.title.said, synopsis.incident_id,
+                          "Argus executive synopsis"))
+
+    _a_masthead(pdf, "EXECUTIVE SYNOPSIS", synopsis.incident_id, synopsis.title.said)
+
+    for key, heading in synopsis.headings.items():
+        _a_heading(pdf, heading)
+        if key == "overview":
+            _a_paragraph(pdf, synopsis.overview)
+        elif key == "when":
+            _a_paragraph(pdf, synopsis.window)
+        elif key == "impact":
+            _tiles(pdf, synopsis.impact)
+        elif key == "resolution":
+            for said in synopsis.resolution:
+                _an_item(pdf, [Run(text=said)])
+        else:
+            _the_human_cost(pdf, synopsis.human_cost)
+
+    if synopsis.postmortem_at is not None:
+        pdf.ln(3)
+        _a_term(pdf, "Full postmortem",
+                Line(runs=(Run(text=synopsis.postmortem_at, role=Role.LINK,
+                               address=synopsis.postmortem_at),)),
+                label_width=28.0)
+
+    return bytes(pdf.output())
+
+
+def _a_sheet(pdf: _Sheet) -> _Sheet:
+    """`pdf` set up as every file Argus prints is: A4 with its margins, its
+    typefaces, Argus as its creator, and its first page begun."""
+    pdf.set_margins(_SIDE, _TOP, _SIDE)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    with_the_typefaces(pdf)
+    pdf.set_title(pdf.title_said)
+    pdf.set_creator("Argus")
+    pdf.add_page()
+
+    return pdf
+
+
+def _a_masthead(pdf: _Sheet, kind: str, incident_id: str, title: str) -> float:
+    """What the document is and which incident, the title, and Argus's mark in
+    the corner - the head every file Argus prints opens with. Answers how wide
+    the column beside the mark is."""
+    left_width = _WIDTH - _LOGO_SIDE - 5.3
+    logo_x = _SIDE + _WIDTH - _LOGO_SIDE
+
+    pdf.image(str(_LOGO), x=logo_x, y=_TOP, w=_LOGO_SIDE, h=_LOGO_SIDE)
+    pdf.set_draw_color(*_CLOAK)
+    pdf.set_line_width(0.4)
+    pdf.rect(logo_x, _TOP, _LOGO_SIDE, _LOGO_SIDE, round_corners=True, corner_radius=0.8)
+
+    pdf.set_right_margin(_SIDE + _WIDTH - left_width)
+    pdf.set_xy(_SIDE, _TOP + 1)
+    _furniture(pdf, kind, 1.0)
+    pdf.ln(7)
+    _furniture(pdf, "INCIDENT", 0.6)
+    pdf.set_font(_MONO, "", _TABLE_PT)
+    pdf.set_text_color(*_INK)
+    pdf.cell(0, 4, f" {incident_id}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+    pdf.set_font(_DISPLAY, "", _TITLE_PT)
+    pdf.multi_cell(left_width, 8, title, align="L", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4.5)
+    pdf.set_right_margin(_SIDE)
+
+    rule_y = max(pdf.get_y(), _TOP + _LOGO_SIDE) + 6
+    pdf.set_draw_color(*_CLOAK)
+    pdf.set_line_width(0.4)
+    pdf.line(_SIDE, rule_y, _SIDE + _WIDTH, rule_y)
+    pdf.set_y(rule_y + 2)
+
+    return left_width
+
+
+def _the_human_cost(pdf: _Sheet, cost: HumanCost) -> None:
+    """Each title's people, minutes and cost at its band's midpoint with the
+    range, the total under them in bold, and what the figures rest on beneath -
+    or only what is said in place of a cost, where there is none."""
+    rows: list[list[_Cell]] = [
+        [(row.title, None, None), (str(row.people), _TIME, None), (row.minutes, _TIME, None),
+         (row.midpoint or "not priced", _TIME, None), (row.range or "", _TIME, None)]
+        for row in cost.rows]
+    if cost.total is not None:
+        total = cost.total
+        rows.append([(total.title, _STRONG, None), (str(total.people), _NUMBER, None),
+                     (total.minutes, _NUMBER, None),
+                     (total.midpoint or "not priced", _NUMBER, None),
+                     (total.range or "", _NUMBER, None)])
+    if rows:
+        _a_table(pdf, ["Title", "People", "Minutes", "Cost (midpoint)", "Range"], rows,
+                 widths=(58, 18, 22, 32, 44), align=["L", "R", "R", "R", "R"])
+    for note in cost.notes:
+        _quiet(pdf, note)
 
 
 def _the_masthead(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -689,6 +798,7 @@ _MARKER: Final = FontFace(family=_MONO, emphasis="BOLD", size_pt=_TINY_PT, color
 _UNOWNED: Final = FontFace(family=_BODY, emphasis="BOLD", color=_RED)
 _DONE: Final = FontFace(family=_BODY, emphasis="BOLD", color=_GREEN)
 _LINKED: Final = FontFace(family=_BODY, color=_LINK)
+_STRONG: Final = FontFace(family=_BODY, emphasis="BOLD")
 
 
 class _RuledAcross(TableBordersLayout):
@@ -1636,7 +1746,7 @@ def _a_review_row(pdf: _Sheet, row: ReviewRow) -> None:
     pdf.set_xy(_SIDE + _WIDTH - 40, y)
     pdf.cell(40, _LINE, row.meaning, align="R")
     pdf.set_xy(_SIDE, y)
-    pdf.set_font(_FALLBACK, "B", _TEXT_PT)
+    pdf.set_font(FALLBACK, "B", _TEXT_PT)
     pdf.set_text_color(*{"yes": _GREEN, "left": _MUTED}.get(row.met, _RED))
     pdf.cell(5, _LINE, row.mark)
     pdf.set_font(_BODY, "", _TEXT_PT)

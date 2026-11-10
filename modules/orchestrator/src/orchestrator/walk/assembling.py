@@ -47,7 +47,7 @@ from agent_mitigation import (
     rules_read_over,
     take_action,
 )
-from agent_postmortem import postmortem_policy
+from agent_postmortem import postmortem_policy, synopsis_policy
 from argus_core import Connections, Holding, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
@@ -70,7 +70,7 @@ from incident_memory.records import RememberedIncident
 from oncall_source import OnCallSettings
 from oncall_source.pagerduty_adapter import pagerduty_from
 
-from orchestrator.gathering import write_postmortem_for
+from orchestrator.gathering import write_postmortem_for, write_synopsis_for
 from orchestrator.records import Records
 from orchestrator.sources import the_real_sources
 from orchestrator.walk.ports import (
@@ -91,12 +91,14 @@ from orchestrator.walk.ports import (
     RecordHypothesis,
     RecordOutcome,
     RecordPostmortem,
+    RecordSynopsis,
     RecordWeighing,
     RememberIncident,
     TakeAction,
     TransitionIncident,
     WhatArgusDidIn,
     WritePostmortem,
+    WriteSynopsis,
 )
 
 if TYPE_CHECKING:
@@ -139,6 +141,8 @@ class Collaborators:
     remember_incident: RememberIncident
     write_postmortem: WritePostmortem
     record_postmortem: RecordPostmortem
+    write_synopsis: WriteSynopsis
+    record_synopsis: RecordSynopsis
     transition_incident: TransitionIncident
     publisher: Publisher
     recorder: Recorder
@@ -397,6 +401,19 @@ def against(connections: Connections,
             ),
             recorder=recorder),
         record_postmortem=records.postmortem,
+        # The postmortem's model and effort - one short paragraph, every figure
+        # already worded - under no brief of the postmortem's.
+        write_synopsis=partial(
+            write_synopsis_for,
+            connections=connections,
+            sources=sources,
+            client_for=partial(
+                build_llm_client,
+                policy=synopsis_policy(settings.postmortem_model,
+                                       settings.postmortem_effort)
+            ),
+            recorder=recorder),
+        record_synopsis=records.synopsis,
         transition_incident=records.transition,
         publisher=events_into(connections),
         recorder=recorder,

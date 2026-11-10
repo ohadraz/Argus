@@ -52,6 +52,7 @@ from postmortem_rendering import (
     as_pdf,
     in_utc,
     on_the_clock,
+    synopsis_as_pdf,
     the_person_who_resolved,
 )
 
@@ -767,6 +768,32 @@ def postmortem_pdf(request: Request,
     return Response(as_pdf(postmortem), media_type="application/pdf",
                     headers={"Content-Disposition":
                              f'attachment; filename="argus-postmortem-{incident_id}.pdf"'})
+
+
+@app.get("/incidents/{incident_id}/synopsis.pdf")
+def synopsis_pdf(request: Request,
+                 incident_id: str,
+                 connections: UsingConnections) -> Response:
+    """The executive synopsis as a file to save - what its Slack message links
+    to, so the message carries a link rather than a file.
+
+    The one route that serves pay: the synopsis states what each title's time
+    on the incident cost, and is served here by the user's choice of a link
+    over a message carrying the whole of it. A 404 where none was written, or
+    where it was given up and nothing was sent.
+    """
+    with connections() as conn:
+        incident = _an_incident_or_404(conn, incident_id)
+        synopsis = reads.read_synopsis(
+            conn, incident, str(request.url_for("postmortem_page", incident_id=incident_id)))
+
+    if synopsis is None:
+        raise HTTPException(status_code=404,
+                            detail=f"incident {incident_id} has no executive synopsis")
+
+    return Response(synopsis_as_pdf(synopsis), media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="argus-executive-synopsis-{incident_id}.pdf"'})
 
 
 def _an_incident_or_404(conn: psycopg.Connection,

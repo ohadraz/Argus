@@ -34,6 +34,7 @@ from argus_core.events import (
     AwaitingRecovery,
     CandidateSelected,
     ChangeUndone,
+    ExecutiveSynopsisWritten,
     FixAttempted,
     HypothesisFormed,
     IncidentEvent,
@@ -71,6 +72,10 @@ class Register(StrEnum):
     # about an incident that is already over. A chat reads this as the
     # postmortem channel, email as an attachment.
     FILED = "filed"
+    # Said only to the people it is for, and nowhere anybody else reads: the
+    # executive synopsis, which states what each title's time on the incident
+    # cost. A chat reads this as the ids configured to receive it.
+    BRIEFED = "briefed"
 
 
 def how_it_is_said(event: IncidentEvent) -> Register:
@@ -165,6 +170,11 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # there - and a team that does not has said so by leaving the
             # channel unset, and gets them in the war room.
             return Register.FILED
+        case ExecutiveSynopsisWritten():
+            # Pay, so never where the responders it prices read - the war
+            # room, a thread, the postmortem channel. One given up says
+            # nothing: there is nothing to send, and the page says why.
+            return Register.BRIEFED
         case ResolutionOffered():
             # The one line that waits on a particular person, and it is the
             # button they press: unsaid, it is an incident somebody said was

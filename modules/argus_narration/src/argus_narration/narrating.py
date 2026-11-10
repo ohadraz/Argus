@@ -41,6 +41,8 @@ from argus_core.events import (
     ChannelsUnread,
     CommunicationFailed,
     DeploymentChangesRead,
+    ExecutiveSynopsisWithheld,
+    ExecutiveSynopsisWritten,
     FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
@@ -614,6 +616,13 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # simply marks nothing.
             emphasis = event.cause_in_plain_words or ""
             text = _the_postmortem_in_short(event)
+        case ExecutiveSynopsisWritten():
+            who = _POSTMORTEM
+            # No word of it: it shows pay, and is for the people it is sent to.
+            text = "Wrote the executive synopsis"
+        case ExecutiveSynopsisWithheld():
+            who = _POSTMORTEM
+            text = f"Withheld the executive synopsis - {event.reason}"
         case CandidateSelected():
             who = _ARGUS
             # The number rather than the summary, as every line acting for the
@@ -991,14 +1000,22 @@ def _also_carrying(line: NarrationLine, event: HypothesisFormed) -> NarrationLin
     })
 
 
-def what_was_done(action_type: ActionType, subject: str) -> str:
+def what_was_done(action_type: ActionType, subject: str, accelerator: str | None = None) -> str:
     """An action Argus took, said the way the account's own line opens.
 
     For a document listing what was done - its resolution, its action items -
     long after anybody reads the action's tag: the same words the line about
-    it used, so the two read as one fact.
+    it used, so the two read as one fact. With the card a pin held the pods to,
+    as the line says it: held without it, an overview that also spoke of
+    purchases held for review read the pin as a pause.
     """
-    return f"{_an_action_said(action_type)} {subject}"
+    return f"{_an_action_said(action_type)} {subject}{_to_the_card(accelerator)}"
+
+
+def _to_the_card(accelerator: str | None) -> str:
+    """The card a pin held the pods to, as the end of the sentence saying it -
+    or nothing, for every other action."""
+    return f" to {accelerator}" if accelerator else ""
 
 
 def what_was_not_done(action_type: ActionType, subject: str) -> str:
@@ -1578,7 +1595,7 @@ def _an_action_taken(event: ActionTaken) -> str:
     # The card a pin held the pods to. The subject says only that they were
     # held somewhere, and which card is what a reader checks against the
     # placement line above.
-    card = f" to {event.accelerator}" if event.accelerator else ""
+    card = _to_the_card(event.accelerator)
 
     return f"{said}{subject}{card}{whose}{_for_its_candidate(event.candidate_number)}" \
            f"{', moved ' if event.enabled is not None else ''}"

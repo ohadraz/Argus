@@ -36,7 +36,15 @@ from argus_core.models import (
     IncidentStatus,
 )
 from argus_core.replay import CallType
-from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay, runs
+from argus_incidents.repository import (
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    replay,
+    runs,
+    synopses,
+)
 from argus_incidents.repository.runs import RunState
 from argus_testkit import Assertion, all_of
 
@@ -117,6 +125,10 @@ RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
 # write-up of its own, since the record each is written from is not the plain
 # one's.
 RECORDED_FLAG_TOGGLE_PAGED = "flag-toggle-paged"
+# The paged world again, with each responder's title published, so the response
+# is priced. A world of its own because the synopsis names what the responders'
+# time cost only where it was priced, so one answer cannot serve both worlds.
+RECORDED_FLAG_TOGGLE_PRICED = "flag-toggle-priced"
 RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER = "flag-toggle-beside-another"
 RECORDED_RESOURCE_LEAK = "resource-leak"
 RECORDED_UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
@@ -157,6 +169,7 @@ THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
     RECORDED_FLAG_TOGGLE_PAGED,
     RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
     RECORDED_RESOURCE_LEAK,
+    RECORDED_FLAG_TOGGLE_PRICED,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_OUTPUT_QUALITY_DEGRADATION,
     RECORDED_ACCELERATOR_HETEROGENEITY
@@ -701,6 +714,8 @@ def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx2.Response]:
         if postmortem is None:
             raise AssertionError(f"No postmortem exists for incident [{incident_id}].")
 
+        _its_overview_was_written(incident_id)
+
         # What separates a real postmortem from the stub that stood here: prose
         # the model wrote about this incident, and a token count only the
         # replay log could have supplied.
@@ -739,6 +754,9 @@ def argus_wrote_a_postmortem() -> Assertion[httpx2.Response]:
 
     So a suite waits on this and asserts the contents once, rather than
     retrying the contents until a deadline that only the absent row deserved.
+
+    And the executive synopsis's overview after it, the walk's last word, for
+    the same reason: one insert, and the absent row is what deserves the wait.
     """
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
@@ -750,9 +768,29 @@ def argus_wrote_a_postmortem() -> Assertion[httpx2.Response]:
         if postmortem is None:
             raise AssertionError(f"No postmortem exists for incident [{incident_id}].")
 
+        _its_overview_was_written(incident_id)
+
         return True
 
     return assertion
+
+
+def _its_overview_was_written(incident_id: str) -> None:
+    """Raises unless the incident's executive overview was written.
+
+    An overview given up leaves a reason and the walk goes on: a replay with no
+    answer recorded for it ends like any other. So a recording that no longer
+    matches is said here, by the case, rather than by a walk that fails.
+    """
+    with psycopg.connect(DATABASE_URL) as conn:
+        synopsis = synopses.get_by_incident(conn, incident_id)
+
+    if synopsis is None:
+        raise AssertionError(f"No executive synopsis exists for incident [{incident_id}].")
+    if synopsis.overview is None:
+        raise AssertionError(
+            f"The executive overview for incident [{incident_id}] was given up, "
+            f"because [{synopsis.withheld_because}].")
 
 
 def the_model_answers_from(recording: str,

@@ -35,6 +35,7 @@ from argus_core.models import (
     Attempt,
     EstablishedOnset,
     Evidence,
+    ExecutiveSynopsisDocument,
     FailureMode,
     FlagChange,
     FlagHistory,
@@ -69,6 +70,7 @@ from orchestrator.walk.graph import (
     NEXT_CANDIDATE_NODE,
     POSTMORTEM_NODE,
     REMEMBERING_NODE,
+    SYNOPSIS_NODE,
     TIER_GATE_NODE,
     build_graph,
     recursion_limit,
@@ -128,6 +130,8 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         remember_incident=lambda dont_care_record: None,
         write_postmortem=lambda dont_care_incident: _a_document(),
         record_postmortem=lambda dont_care_incident, dont_care_document: None,
+        write_synopsis=lambda dont_care_incident: _a_synopsis(),
+        record_synopsis=lambda dont_care_incident, dont_care_synopsis: None,
         transition_incident=transition_incident,
         publisher=nobody,
         recorder=records_nothing,
@@ -158,7 +162,8 @@ def test_an_action_that_helps_ends_the_incident_in_a_postmortem(
                            MITIGATION_NODE,
                            CODEFIX_NODE,
                            REMEMBERING_NODE,
-                           POSTMORTEM_NODE),
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.MITIGATED)))
 
 
@@ -203,7 +208,8 @@ def test_an_investigation_that_names_no_cause_reaches_a_human(
         .when(lambda: _the_walk_of(_an_incident_just_alerted(),
                                    an_investigation_finding_nothing)) \
         .then(all_of(
-            _the_walk_went(INVESTIGATOR_NODE, REMEMBERING_NODE, POSTMORTEM_NODE),
+            _the_walk_went(INVESTIGATOR_NODE, REMEMBERING_NODE, POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 
 
@@ -240,7 +246,8 @@ def test_a_refuted_action_is_followed_by_the_next_explanation(
                            MITIGATION_NODE,
                            CODEFIX_NODE,
                            REMEMBERING_NODE,
-                           POSTMORTEM_NODE),
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.MITIGATED)))
 
 
@@ -267,7 +274,8 @@ def test_a_walk_with_no_action_left_to_try_ends_at_code_fix_and_a_human(
                            NEXT_CANDIDATE_NODE,
                            CODEFIX_NODE,
                            REMEMBERING_NODE,
-                           POSTMORTEM_NODE),
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 
 
@@ -295,7 +303,8 @@ def test_a_round_naming_only_what_was_refuted_ends_at_code_fix_and_a_human(
                            INVESTIGATOR_NODE,
                            CODEFIX_NODE,
                            REMEMBERING_NODE,
-                           POSTMORTEM_NODE),
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 
 
@@ -502,7 +511,8 @@ def test_an_incident_resolved_before_its_walk_is_written_up_and_nothing_else(
             )
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), an_incident_resolved)) \
-        .then(all_of(_the_walk_went(INVESTIGATOR_NODE, REMEMBERING_NODE, POSTMORTEM_NODE),
+        .then(all_of(_the_walk_went(INVESTIGATOR_NODE, REMEMBERING_NODE, POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
                      _the_incident_ended(IncidentStatus.RESOLVED),
                      _a_postmortem_was_recorded(recorded),
                      _nothing_was_written(transition_incident)))
@@ -534,7 +544,8 @@ def test_an_incident_resolved_after_an_action_skips_code_fix_and_is_written_up(
                                     TIER_GATE_NODE,
                                     MITIGATION_NODE,
                                     REMEMBERING_NODE,
-                                    POSTMORTEM_NODE),
+                                    POSTMORTEM_NODE,
+                                    SYNOPSIS_NODE),
                      _the_incident_ended(IncidentStatus.RESOLVED),
                      _a_postmortem_was_recorded(recorded)))
 
@@ -564,7 +575,8 @@ def test_a_person_answering_while_the_walk_waits_ends_it_before_code_fix(
                                     TIER_GATE_NODE,
                                     MITIGATION_NODE,
                                     REMEMBERING_NODE,
-                                    POSTMORTEM_NODE),
+                                    POSTMORTEM_NODE,
+                                    SYNOPSIS_NODE),
                      _the_incident_ended(IncidentStatus.RESOLVED)))
 
 
@@ -617,7 +629,8 @@ def test_an_action_nothing_could_confirm_is_recommended_rather_than_taken(
                            TIER_GATE_NODE,
                            CODEFIX_NODE,
                            REMEMBERING_NODE,
-                           POSTMORTEM_NODE),
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.RECOMMENDED),
             _the_action_recommended_was(SOME_FLAG)))
 
@@ -650,7 +663,8 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
                            TIER_GATE_NODE,
                            CODEFIX_NODE,
                            REMEMBERING_NODE,
-                           POSTMORTEM_NODE),
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.RECOMMENDED),
             _a_rollback_of_the_alerting_service_was_recommended()))
 
@@ -689,7 +703,8 @@ def test_a_mode_nothing_answers_goes_to_code_fix_past_a_rollback_it_could_have_t
                            TIER_GATE_NODE,
                            CODEFIX_NODE,
                            REMEMBERING_NODE,
-                           POSTMORTEM_NODE),
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
             _the_incident_ended(IncidentStatus.ESCALATED)))
 
 
@@ -905,6 +920,10 @@ def _a_document() -> PostmortemDocument:
                               responders=None,
                               tokens_spent=None,
                               assumptions=[])
+
+
+def _a_synopsis() -> ExecutiveSynopsisDocument:
+    return ExecutiveSynopsisDocument(overview=None, withheld_because="dont care")
 
 
 def _the_walk_went(*expected: str) -> Assertion[Walked]:

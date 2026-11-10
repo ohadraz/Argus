@@ -55,6 +55,8 @@ from agent_postmortem.sources import (
     Sources,
 )
 from agent_postmortem.summary import said_off_the_page
+from agent_postmortem.synopsis_prompting import synopsis_policy
+from agent_postmortem.synopsis_writing import write_executive_synopsis
 from agent_postmortem.writing import write_postmortem
 
 __all__ = [
@@ -94,5 +96,7 @@ __all__ = [
     "Sources",
     "postmortem_policy",
     "said_off_the_page",
+    "synopsis_policy",
+    "write_executive_synopsis",
     "write_postmortem"
 ]

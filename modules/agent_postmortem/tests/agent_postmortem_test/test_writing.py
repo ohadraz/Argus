@@ -102,6 +102,7 @@ from agent_postmortem_test.framework.assertions import (
     reports_no_engineer_minutes,
     reports_no_responder_cost,
     reports_no_root_cause,
+    reports_paged,
     reports_responders,
     reports_root_cause,
     reports_the_cost_in,
@@ -266,6 +267,7 @@ def test_the_figures_measured_are_the_figures_published() -> None:
                 states_the_estimate_is_in(SOME_CURRENCY),
                 reports_engineer_minutes(some_minutes),
                 reports_responders(some_responders),
+                reports_paged(True),
                 reports_the_titles(SOME_TITLE, SOME_OTHER_TITLE),
                 reports_a_responder_cost_of(some_cost.midpoint),
                 reports_a_cost_ranging_from(some_cost.minimum, some_cost.maximum),
@@ -297,7 +299,8 @@ def test_an_incident_nobody_could_measure_reports_no_response() -> None:
         .then(
             all_of(
                 reports_no_engineer_minutes(),
-                reports_no_responder_cost()
+                reports_no_responder_cost(),
+                reports_paged(None)
             )
         )
 
@@ -325,6 +328,7 @@ def test_an_incident_nobody_was_paged_for_reports_no_minutes_spent() -> None:
             all_of(
                 reports_engineer_minutes(0),
                 reports_responders(0),
+                reports_paged(False),
                 reports_no_responder_cost()
             )
         )

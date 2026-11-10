@@ -28,7 +28,11 @@ from argus_telemetry import start_telemetry
 from chat_platform.slack import ChatSettings, slack_from
 
 from agent_communicator.relaying import CHAT_RELAY, Destination, relay_once
-from agent_communicator.saying import a_chat_destination, a_destination_per_register
+from agent_communicator.saying import (
+    a_briefing,
+    a_chat_destination,
+    a_destination_per_register,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +112,10 @@ def main() -> None:
                 a_destination_per_register(
                     a_chat_destination(connections, channel=war_room, chat=chat),
                     a_chat_destination(connections, channel=archive, chat=chat),
+                    a_briefing(connections,
+                               sent_to=settings.executive_synopsis_slack_to,
+                               chat=chat,
+                               argus_at=settings.argus_base_url),
                     argus_at=settings.argus_base_url,
                     # Named only where it is somewhere else. Where the two are
                     # the same channel the write-up is simply the next message,

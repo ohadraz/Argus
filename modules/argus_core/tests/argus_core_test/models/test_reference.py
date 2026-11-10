@@ -1,8 +1,9 @@
 """The names a chat platform gives a place in a conversation about an incident.
 
-A thread, a person's message in it, and each offer Argus posts there are each
-one of the incident's references, so that a message arriving later finds its
-incident through the same lookup a paging tool's word does. Each is a channel
+A thread, a person's message in it, each offer Argus posts there, and each
+executive synopsis it sends are each one of the incident's references, so
+that a message arriving later finds its incident through the same lookup a
+paging tool's word does. Each is a channel
 and a message within it, written into one value - and that value is written by
 the relay, read by the web endpoint, and held unique per channel by the schema.
 Three readers of one spelling is why it is spelled in one place, and why that
@@ -15,11 +16,13 @@ from collections.abc import Callable
 
 import pytest
 from argus_core.models import (
+    CHAT_BRIEFING,
     CHAT_MESSAGE,
     CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
     CHAT_WITHDRAWAL_OFFER,
     Reference,
+    a_chat_briefing,
     a_chat_message,
     a_chat_resolution_offer,
     a_chat_thread,
@@ -39,8 +42,10 @@ type PlaceInAChat = Callable[[str, str, str], Reference]
 @pytest.mark.parametrize("built_by", [a_chat_thread,
                                       a_chat_message,
                                       a_chat_resolution_offer,
-                                      a_chat_withdrawal_offer],
-                         ids=["thread", "message", "resolution-offer", "withdrawal-offer"])
+                                      a_chat_withdrawal_offer,
+                                      a_chat_briefing],
+                         ids=["thread", "message", "resolution-offer", "withdrawal-offer",
+                              "briefing"])
 def test_a_place_in_a_chat_reads_back_as_the_channel_and_message_it_was_built_from(
         built_by: PlaceInAChat) -> None:
     # A reply in a thread is answered in that thread, which is only possible if
@@ -57,8 +62,9 @@ def test_a_place_in_a_chat_reads_back_as_the_channel_and_message_it_was_built_fr
     (a_chat_thread, CHAT_THREAD),
     (a_chat_message, CHAT_MESSAGE),
     (a_chat_resolution_offer, CHAT_RESOLUTION_OFFER),
-    (a_chat_withdrawal_offer, CHAT_WITHDRAWAL_OFFER)
-], ids=["thread", "message", "resolution-offer", "withdrawal-offer"])
+    (a_chat_withdrawal_offer, CHAT_WITHDRAWAL_OFFER),
+    (a_chat_briefing, CHAT_BRIEFING)
+], ids=["thread", "message", "resolution-offer", "withdrawal-offer", "briefing"])
 def test_a_place_in_a_chat_is_the_platforms_and_of_its_own_kind(built_by: PlaceInAChat,
                                                                  kind: str) -> None:
     # A thread and a message in it can be the same channel and the same id -
@@ -70,17 +76,20 @@ def test_a_place_in_a_chat_is_the_platforms_and_of_its_own_kind(built_by: PlaceI
 
 
 @pytest.mark.unit
-def test_a_thread_its_opening_message_and_its_offers_are_all_different_references() -> None:
+def test_every_kind_of_place_in_a_chat_is_a_different_reference() -> None:
     # The opening message of a thread is the thread - the same channel and the
     # same id - so were two of these alike, a lookup for one would find another.
     # The two offers most of all: an offer retired as the wrong kind keeps a
-    # button nobody can use, or loses one somebody still could.
+    # button nobody can use, or loses one somebody still could. And a briefing
+    # taken for a thread would tell the relay a member's direct messages were
+    # where the incident is followed.
     Scenario() \
         .when(lambda: [built_by(SOME_PLATFORM, SOME_CHANNEL, SOME_MESSAGE)
                        for built_by in (a_chat_thread,
                                         a_chat_message,
                                         a_chat_resolution_offer,
-                                        a_chat_withdrawal_offer)]) \
+                                        a_chat_withdrawal_offer,
+                                        a_chat_briefing)]) \
         .then(_no_two_are_alike())
 
 

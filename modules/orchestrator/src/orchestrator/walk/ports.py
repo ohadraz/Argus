@@ -22,6 +22,7 @@ from argus_core.models import (
     Attempt,
     ChangeEvent,
     EstablishedOnset,
+    ExecutiveSynopsisDocument,
     Findings,
     FlagHistory,
     Hypothesis,
@@ -433,6 +434,16 @@ class WritePostmortem(Protocol):
 
 class RecordPostmortem(Protocol):
     def __call__(self, incident_id: str, document: PostmortemDocument, /) -> None: ...
+
+
+class WriteSynopsis(Protocol):
+    # Positional-only, as the postmortem's writer is: the incident is all it is
+    # called with, and the real one reads the stored postmortem itself.
+    def __call__(self, incident_id: str, /) -> ExecutiveSynopsisDocument: ...
+
+
+class RecordSynopsis(Protocol):
+    def __call__(self, incident_id: str, synopsis: ExecutiveSynopsisDocument, /) -> None: ...
 
 
 class ActionsTaken(Protocol):

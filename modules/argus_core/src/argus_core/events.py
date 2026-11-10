@@ -874,6 +874,26 @@ class PostmortemWritten(_Event):
     engineer_minutes: int | None = None
 
 
+class ExecutiveSynopsisWritten(_Event):
+    """The executive synopsis was written, and waits to be sent.
+
+    Carries no word of it. The synopsis shows what the response cost, and is
+    for the people it is sent to; the account is read by everyone. A
+    destination that sends it reads the stored synopsis itself.
+    """
+
+    kind: Literal["executive-synopsis-written"] = "executive-synopsis-written"
+
+
+class ExecutiveSynopsisWithheld(_Event):
+    """The executive synopsis was given up, so nothing will be sent for it, and
+    why - its overview could not be had. The reason names no figure: the model
+    is never given an amount of pay, so nothing it wrote quotes one."""
+
+    kind: Literal["executive-synopsis-withheld"] = "executive-synopsis-withheld"
+    reason: str
+
+
 class SimilarIncidentsRecalled(_Event):
     """Memory was searched for incidents like this one, and these were found.
 
@@ -1150,6 +1170,8 @@ type IncidentEvent = Annotated[
         | ChangeUndone
         | FixAttempted
         | PostmortemWritten
+        | ExecutiveSynopsisWritten
+        | ExecutiveSynopsisWithheld
         | SimilarIncidentsRecalled
         | CandidatesReordered
         | IncidentRemembered

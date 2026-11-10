@@ -51,6 +51,7 @@ import psycopg
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_postmortem import WRITE_UP_TOOLS
 from agent_postmortem.prompting import LESSONS_FIELD, SUBMIT_TOOL_NAME, WENT_WELL_FIELD
+from agent_postmortem.synopsis_prompting import OVERVIEW_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
 from argus_core import get_settings, to_iso, utc_now
 from argus_core.events import (
@@ -88,6 +89,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE,
     RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
     RECORDED_FLAG_TOGGLE_PAGED,
+    RECORDED_FLAG_TOGGLE_PRICED,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
@@ -531,6 +533,31 @@ def _two_people_were_paged() -> None:
     )()
 
 
+# Two titles the Target Service's HR endpoint publishes, as the priced cases
+# give the two people paged. MIRRORED FROM THE DEMO APP - NOT ARBITRARY VALUES.
+_THE_ON_CALL_PERSON_S_TITLE: Final = "Senior Software Engineer"
+_THE_OTHER_ON_CALL_PERSON_S_TITLE: Final = "Site Reliability Engineer"
+
+
+def _two_people_with_published_titles_were_paged() -> None:
+    """Stages the paged cases' PagerDuty incident with each person's title, so
+    the response is priced - the world the priced cases stage."""
+    the_on_call_platform_holds(
+        _THE_ON_CALL_INCIDENT,
+        paged_for=_an_alert_for(THE_SERVICE_NAME, "HighErrorRate", None),
+        paged_at=utc_now(),
+        resolved_after=_THE_ON_CALL_INCIDENT_RESOLVED_AFTER,
+        acknowledged_after={
+            _THE_ON_CALL_PERSON_ID: _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER,
+            _THE_OTHER_ON_CALL_PERSON_ID: _THE_OTHER_ON_CALL_PERSON_ACKNOWLEDGED_AFTER
+        },
+        titles={
+            _THE_ON_CALL_PERSON_ID: _THE_ON_CALL_PERSON_S_TITLE,
+            _THE_OTHER_ON_CALL_PERSON_ID: _THE_OTHER_ON_CALL_PERSON_S_TITLE
+        }
+    )()
+
+
 def _another_flag_was_switched_on() -> None:
     """Switches on the unrelated flag the case stages beside the incident."""
     another_flag_was_toggled_on(THE_UNRELATED_FLAG)()
@@ -660,6 +687,19 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         IncidentStatus.MITIGATED,
         (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED),
         and_then=_two_people_were_paged,
+        walk_from=RECORDED_FLAG_TOGGLE,
+        the_whole_walk=True
+    ),
+    # The paged world with each person's title published, so the response is
+    # priced. Its walk and write-up are the paged case's; its synopsis is its
+    # own, since only a priced response has a cost for the overview to name.
+    _Recording(
+        RECORDED_FLAG_TOGGLE_PRICED,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED),
+        and_then=_two_people_with_published_titles_were_paged,
         walk_from=RECORDED_FLAG_TOGGLE,
         the_whole_walk=True
     ),
@@ -1519,10 +1559,13 @@ def _the_walk_did_what_this_recording_is_of(
 
 
 def _was_written_up(incident_id: str) -> bool:
-    """Whether the postmortem exists - the last thing an incident produces."""
+    """Whether the postmortem and the executive synopsis written from it both
+    exist - the synopsis being the last thing an incident produces, and its
+    answer the last one a recording waits for."""
     with psycopg.connect(DATABASE_URL) as connection, connection.cursor() as cursor:
         cursor.execute(
-            "SELECT 1 FROM postmortem WHERE incident_id = %s LIMIT 1", (incident_id,)
+            "SELECT 1 FROM postmortem JOIN executive_synopsis USING (incident_id) "
+            "WHERE incident_id = %s LIMIT 1", (incident_id,)
         )
 
         return cursor.fetchone() is not None
@@ -1635,13 +1678,130 @@ def _where_the_write_up_begins(stored: str) -> int:
     if begins is None:
         raise RuntimeError(f"[{stored}] holds no write-up to record afresh")
 
-    after = [answer.stem for answer in answers[begins:] if not _calls_the_write_up(answer)
+    # The synopsis is the exception: it is written from the stored postmortem,
+    # so it comes after the write-up and is recorded afresh with it.
+    after = [answer.stem for answer in answers[begins:]
+             if not _calls_the_write_up(answer) and not _calls_the_synopsis(answer)
              and any(block.get("type") == TOOL_USE_TYPE
                      for block in load(answer.stem).get("content", []))]
     if after:
         raise RuntimeError(f"[{stored}] answers the walk again after its write-up: {after}")
 
     return begins
+
+
+# Where a synopsis-only run records the synopsis before it is put in place, and
+# where the set's old synopsis waits meanwhile. Not digits after the name, so
+# neither is read as one of the set's answers - here or by the double.
+_THE_SYNOPSIS_AFRESH: Final = "-synopsis-afresh"
+_THE_OLD_SYNOPSIS: Final = "-synopsis-set-aside"
+
+
+def _calls_the_synopsis(answer: Path) -> bool:
+    """Whether an answer is one of the executive synopsis's, by the tool its
+    overview is submitted through."""
+    return any(block.get("type") == TOOL_USE_TYPE and block.get("name") == OVERVIEW_TOOL_NAME
+               for block in load(answer.stem).get("content", []))
+
+
+def _the_old_synopsis_is_set_aside(stored: str) -> int:
+    """Moves the set's synopsis out of it, and says where a synopsis goes - the
+    end of what is left.
+
+    Out of the set rather than left out of the seeding, so the walk is seeded
+    exactly as the suite seeds it: everything up to and including the write-up
+    replays, and the synopsis is the one call nothing answers. A set with no
+    synopsis yet has nothing to move. Refused, before anything is spent, where
+    there is no write-up to write a synopsis from, or where anything but the
+    synopsis follows it.
+    """
+    answers = _the_set_named(stored)
+    begins = next((position for position, answer in enumerate(answers)
+                   if _calls_the_synopsis(answer)), len(answers))
+
+    if not any(_calls_the_write_up(answer) for answer in answers[:begins]):
+        raise RuntimeError(f"[{stored}] holds no write-up to write a synopsis from")
+
+    after = [answer.stem for answer in answers[begins:] if not _calls_the_synopsis(answer)]
+    if after:
+        raise RuntimeError(f"[{stored}] answers something else after its synopsis: {after}")
+
+    _moved(answers[begins:], f"{stored}{_THE_OLD_SYNOPSIS}", 0)
+
+    return begins
+
+
+def _the_old_synopsis_is_put_back(stored: str) -> None:
+    """Returns a set-aside synopsis to the end of its set, for a run that
+    recorded none - nothing, where none was set aside."""
+    _moved(_the_set_named(f"{stored}{_THE_OLD_SYNOPSIS}"), stored, len(_the_set_named(stored)))
+
+
+def _put_the_synopsis_in_place(stored: str, begins: int) -> list[str]:
+    """Puts the synopsis just recorded at the end of the set, drops the old one,
+    and says what the set now holds."""
+    afresh = _the_set_named(f"{stored}{_THE_SYNOPSIS_AFRESH}")
+
+    if not afresh:
+        _the_old_synopsis_is_put_back(stored)
+        raise RuntimeError(f"[{stored}] recorded no synopsis - the old one is put back")
+
+    for old in _the_set_named(f"{stored}{_THE_OLD_SYNOPSIS}"):
+        old.unlink()
+        question_beside(old).unlink(missing_ok=True)
+
+    _moved(afresh, stored, begins)
+
+    return [answer.stem for answer in _the_set_named(stored)]
+
+
+def _moved(answers: list[Path], into: str, begins: int) -> None:
+    """Renames `answers`, with the question beside each, into the set `into`
+    from position `begins` on."""
+    for offset, answer in enumerate(answers):
+        position = begins + offset
+        named = into if position == 0 else f"{into}-{position + 1}"
+        asked = question_beside(answer)
+        answer.rename(RECORDINGS_DIR / f"{named}.json")
+        if asked.exists():
+            asked.rename(question_beside(RECORDINGS_DIR / f"{named}.json"))
+
+
+def _the_write_up_was_asked_nothing_new(stored: str, refusing: bool = True) -> None:
+    """Refuses, at no cost, a run whose write-up was asked a question other
+    than the one its recording answered.
+
+    The synopsis is recorded over a replayed postmortem on the promise that the
+    postmortem's input did not move; a write-up asked something new is that
+    promise broken, and a synopsis written from its replayed answer would be
+    written from a postmortem this code no longer produces. The double says
+    which recordings were served a different question.
+
+    Not `refusing` only where the write-up is known to have been asked
+    something new before this change - a recording judged and then checked on
+    later code by draws, which are never saved. The difference is said, and
+    the synopsis recorded over the write-up the replay will serve.
+    """
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        state = control.get("/double-control/state")
+        state.raise_for_status()
+        changed = {name: part for name, part in state.json()["diverged"].items()
+                   if _calls_the_write_up(RECORDINGS_DIR / f"{name}.json")}
+
+        if not changed:
+            return
+
+        if not refusing:
+            print(f"[{stored}]'s write-up was asked something its recording was not, in "
+                  f"{changed} - recorded over all the same, as asked")
+            return
+
+        control.post("/double-control/reset").raise_for_status()
+
+    raise RuntimeError(
+        f"[{stored}]'s write-up was asked something its recording was not, in {changed} - "
+        f"the postmortem's input moved; refused before the synopsis reached the real model"
+    )
 
 
 def _the_walk_is_taken_from(source: str, stored: str, whole: bool = False) -> None:
@@ -1720,13 +1880,16 @@ def _put_the_write_up_in_place(stored: str, begins: int) -> list[str]:
     return [answer.stem for answer in _the_set_named(stored)]
 
 
-def _the_write_up_was_asked_for(incident_id: str, may_take_seconds: float) -> None:
-    """Waits until the walk's write-up is at the double, held.
+def _the_write_up_was_asked_for(incident_id: str,
+                                may_take_seconds: float,
+                                what: str = "write-up") -> None:
+    """Waits until the walk's write-up - or `what` else comes last - is at the
+    double, held.
 
     Bounded by the walk's own bound rather than by an investigation's: the
-    write-up is the walk's last call, and a walk judged by the sustained rule
-    reaches it well after an investigation's bound has passed. Sooner where the
-    walk failed first, since a walk that failed asks for no write-up at all.
+    write-up is among the walk's last calls, and a walk judged by the sustained
+    rule reaches it well after an investigation's bound has passed. Sooner where
+    the walk failed first, since a walk that failed asks for no write-up at all.
     """
     deadline = time.monotonic() + may_take_seconds
 
@@ -1741,22 +1904,25 @@ def _the_write_up_was_asked_for(incident_id: str, may_take_seconds: float) -> No
             failed_because = _why_the_walk_failed(incident_id)
             if failed_because is not None:
                 raise RuntimeError(
-                    f"incident [{incident_id}] stopped before its write-up: the walk "
+                    f"incident [{incident_id}] stopped before its {what}: the walk "
                     f"failed with {failed_because}"
                 )
 
             if time.monotonic() >= deadline:
                 raise TimeoutError(
-                    f"incident [{incident_id}] asked for no write-up within "
+                    f"incident [{incident_id}] asked for no {what} within "
                     f"[{may_take_seconds:.0f}s]"
                 )
 
             time.sleep(A_POLL_SECONDS)
 
 
-def _the_held_call_is_the_write_up(incident_id: str, ends_as: IncidentStatus) -> None:
+def _the_held_call_is_the_write_up(incident_id: str,
+                                   ends_as: IncidentStatus,
+                                   tool: str = SUBMIT_TOOL_NAME) -> None:
     """Refuses the held call, at no cost, unless the incident has already ended
-    as the case expects.
+    as the case expects and the call was offered `tool` - the write-up's, or the
+    synopsis's for a run recording that.
 
     The hold catches whichever call first finds the queue empty, and that is
     the write-up only for a walk that went where its replayed answers lead. One
@@ -1777,21 +1943,21 @@ def _the_held_call_is_the_write_up(incident_id: str, ends_as: IncidentStatus) ->
         state.raise_for_status()
         offered = state.json()["held_tools"]
 
-        if status == ends_as and SUBMIT_TOOL_NAME in offered:
+        if status == ends_as and tool in offered:
             return
 
         control.post("/double-control/reset").raise_for_status()
 
     raise RuntimeError(
         f"incident [{incident_id}] held a call offered {offered} while [{status}], "
-        f"not one offered [{SUBMIT_TOOL_NAME}] at [{ends_as}] - so not its write-up; "
+        f"not one offered [{tool}] at [{ends_as}] - so not the call being recorded; "
         f"refused before it reached the real model"
     )
 
 
-def _the_write_up_is_recorded_afresh(stored: str) -> None:
-    """Names where the held write-up is recorded, then lets it go to the real
-    model.
+def _the_write_up_is_recorded_afresh(stored: str, afresh: str = _THE_WRITE_UP_AFRESH) -> None:
+    """Names where the held write-up - or the synopsis, under its own `afresh`
+    name - is recorded, then lets it go to the real model.
 
     Held until now so that the name is in place before the call goes out. The
     walk it writes up was replayed into this run's world, and its times are
@@ -1802,7 +1968,7 @@ def _the_write_up_is_recorded_afresh(stored: str) -> None:
     """
     with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
         control.post(
-            "/double-control/record", json={"name": f"{stored}{_THE_WRITE_UP_AFRESH}"}
+            "/double-control/record", json={"name": f"{stored}{afresh}"}
         ).raise_for_status()
         control.post("/double-control/release").raise_for_status()
 
@@ -1810,7 +1976,9 @@ def _the_write_up_is_recorded_afresh(stored: str) -> None:
 def _capture(recording: _Recording,
              service: str,
              replaying: bool,
-             postmortem_only: bool = False) -> None:
+             postmortem_only: bool = False,
+             synopsis_only: bool = False,
+             over_a_moved_write_up: bool = False) -> None:
     """Drives the one incident this recording is of, and says what came of it.
 
     The name asked for on the command line is the *case*; the name on disk is
@@ -1818,11 +1986,16 @@ def _capture(recording: _Recording,
     in the mapping above, because a run records the world it is in - and the
     same case captured under two modes is two recordings of two different walks.
 
-    `postmortem_only` records the write-up and nothing else: the rest of the
-    walk replays its stored answers, rebased as the e2e suite rebases them, and
-    the one call left unanswered goes to the real model. A walk's answers are
-    unchanged by a change to the postmortem alone, so paying for all of them
-    again buys nothing but different answers to questions already settled.
+    `postmortem_only` records the write-up, and the synopsis written from it,
+    and nothing else: the rest of the walk replays its stored answers, rebased
+    as the e2e suite rebases them, and the calls left unanswered go to the real
+    model. A walk's answers are unchanged by a change to the postmortem alone,
+    so paying for all of them again buys nothing but different answers to
+    questions already settled.
+
+    `synopsis_only` records the synopsis alone, over the walk and its write-up
+    replayed - and refuses, before anything is spent, a run whose write-up was
+    asked anything its recording was not.
     """
     stored = stored_as(recording.name)
     print(f"=== {stored} ===")
@@ -1836,9 +2009,12 @@ def _capture(recording: _Recording,
         _the_walk_is_taken_from(stored_as(recording.walk_from), stored,
                                 whole=recording.the_whole_walk)
 
-    begins = _where_the_write_up_begins(stored) if postmortem_only else 0
+    begins = (_where_the_write_up_begins(stored) if postmortem_only
+              else _the_old_synopsis_is_set_aside(stored) if synopsis_only
+              else 0)
+    afresh_only = postmortem_only or synopsis_only
 
-    if not replaying and not postmortem_only:
+    if not replaying and not afresh_only:
         _arm_the_double(stored)
 
     # Read before anything is written, and from the clock the files are stamped
@@ -1851,7 +2027,7 @@ def _capture(recording: _Recording,
     # A walk that replays is answered about the world it was recorded in, so
     # the shop is told that world's anchor before it seeds. Not on a fresh
     # capture: its world is the one this run writes the anchor of.
-    if replaying or postmortem_only:
+    if replaying or afresh_only:
         the_recorded_anchor_was_staged(recording.name)
 
     staged = (
@@ -1859,7 +2035,7 @@ def _capture(recording: _Recording,
         else _Staged(seeded_at=None, rule_uid=None)
     )
 
-    if not replaying and not postmortem_only:
+    if not replaying and not afresh_only:
         _write_the_anchor(stored, staged.seeded_at)
 
     # After staging, because the rebasing reads when this world was seeded;
@@ -1867,7 +2043,8 @@ def _capture(recording: _Recording,
     # A replay is seeded here too, and by the suite's own seeder: answers served
     # as they were stored name instants from the day they were recorded, and
     # the walk replaying them is in a world staged today.
-    if replaying:
+    # The synopsis-only seeding is the whole set, its synopsis already set aside.
+    if replaying or synopsis_only:
         the_model_answers_from(recording.name)()
     elif postmortem_only:
         the_model_answers_from(recording.name, less_postmortem=True)()
@@ -1886,6 +2063,7 @@ def _capture(recording: _Recording,
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")
 
     asked_for_the_write_up = False
+    asked_for_the_synopsis = False
 
     # The account is printed whatever happened to the walk. A walk that never
     # finished is the one whose timeline is worth reading - it is the only
@@ -1896,7 +2074,7 @@ def _capture(recording: _Recording,
         if recording.once_opened:
             recording.once_opened(incident_id)
 
-        if postmortem_only:
+        if afresh_only:
             # Held rather than recorded straight away: the write-up is the one
             # call paid for, and where it is recorded is named before it goes
             # out. Armed only once the case is done with the walk, because a
@@ -1907,7 +2085,8 @@ def _capture(recording: _Recording,
             # minutes; a walk that ran dry first had its write-up refused, failed
             # for it, and is reported as that by the wait below. A case that ends
             # the walk itself does it after this, in `resolved_by`, since the
-            # write-up is then the walk's very next call.
+            # write-up is then the walk's very next call. The synopsis is held
+            # the same way, the write-up being replayed ahead of it.
             with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
                 control.post("/double-control/hold-when-dry").raise_for_status()
 
@@ -1920,6 +2099,15 @@ def _capture(recording: _Recording,
             _the_write_up_is_recorded_afresh(stored)
             asked_for_the_write_up = True
 
+        if synopsis_only:
+            _the_write_up_was_asked_for(incident_id, recording.may_take_seconds,
+                                        what="synopsis")
+            _the_held_call_is_the_write_up(incident_id, recording.ends_as,
+                                           tool=OVERVIEW_TOOL_NAME)
+            _the_write_up_was_asked_nothing_new(stored, refusing=not over_a_moved_write_up)
+            _the_write_up_is_recorded_afresh(stored, afresh=_THE_SYNOPSIS_AFRESH)
+            asked_for_the_synopsis = True
+
         _the_walk_came_to_a_stop(incident_id, recording.may_take_seconds)
     finally:
         if postmortem_only and asked_for_the_write_up:
@@ -1927,6 +2115,12 @@ def _capture(recording: _Recording,
         elif postmortem_only:
             print("recorded: nothing - the write-up was never asked for, and the old "
                   "one is left in place")
+        elif synopsis_only and asked_for_the_synopsis:
+            print(f"recorded: {', '.join(_put_the_synopsis_in_place(stored, begins))}")
+        elif synopsis_only:
+            _the_old_synopsis_is_put_back(stored)
+            print("recorded: nothing - the synopsis was never asked for, and the old "
+                  "one is put back")
         elif not replaying:
             discarded = _discard_what_was_not_answered_again(stored, started_at)
             written = [path.stem for path in _the_set_named(stored)]
@@ -2072,7 +2266,22 @@ def main() -> int:
     parser.add_argument(
         "--postmortem-only",
         action="store_true",
-        help="replay each walk's stored answers and record only its write-up afresh",
+        help="replay each walk's stored answers and record only its write-up, and the "
+             "synopsis written from it, afresh",
+    )
+    parser.add_argument(
+        "--synopsis-only",
+        action="store_true",
+        help="replay each walk and its write-up, and record only its executive synopsis "
+             "afresh - refusing, before anything is spent, a walk whose write-up was "
+             "asked anything its recording was not",
+    )
+    parser.add_argument(
+        "--over-a-moved-write-up",
+        action="store_true",
+        help="with --synopsis-only, record the synopsis even where the write-up was asked "
+             "something its recording was not - for a write-up known to have moved before "
+             "this change - saying so rather than refusing",
     )
     parser.add_argument(
         "--hold",
@@ -2081,6 +2290,9 @@ def main() -> int:
              "the walks left on the record can be read, or recorded against",
     )
     arguments = parser.parse_args()
+
+    if sum((arguments.replay, arguments.postmortem_only, arguments.synopsis_only)) > 1:
+        parser.error("--replay, --postmortem-only and --synopsis-only are one each")
 
     _the_two_declarations_of_a_fix_agree()
 
@@ -2096,7 +2308,9 @@ def main() -> int:
     for position, recording in enumerate(asked_for):
         try:
             _capture(recording, arguments.service, arguments.replay,
-                     postmortem_only=arguments.postmortem_only)
+                     postmortem_only=arguments.postmortem_only,
+                     synopsis_only=arguments.synopsis_only,
+                     over_a_moved_write_up=arguments.over_a_moved_write_up)
         except _AWalkIsStillLive as error:
             print(f"STOPPED at {recording.name}: {error}")
             failed.extend(left.name for left in asked_for[position:])
@@ -2105,6 +2319,11 @@ def main() -> int:
         except Exception as error:
             print(f"FAILED {recording.name}: {error!r}")
             failed.append(recording.name)
+        finally:
+            # A synopsis set aside and never recorded over goes back, wherever
+            # the capture stopped - nothing, where none was set aside.
+            if arguments.synopsis_only:
+                _the_old_synopsis_is_put_back(stored_as(recording.name))
 
     # The stack left quiet, for a `--hold` to be read against and for nothing
     # to be mid-call when it comes down. Not asked again after a walk already

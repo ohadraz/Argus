@@ -23,12 +23,17 @@ import psycopg
 import pytest
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Destination, Outcome
-from agent_communicator.saying import a_chat_destination, a_destination_per_register
+from agent_communicator.saying import (
+    a_briefing,
+    a_chat_destination,
+    a_destination_per_register,
+)
 from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import (
     ActionTaken,
     ChangesRetrieved,
     CommunicationFailed,
+    ExecutiveSynopsisWritten,
     FixAttempted,
     HypothesisFormed,
     IncidentEvent,
@@ -46,9 +51,11 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    ExecutiveSynopsisDocument,
     FixOutcome,
     IncidentStatus,
     OpenedPullRequest,
+    PostmortemDocument,
     Reference,
     Report,
     ReportChannel,
@@ -58,7 +65,7 @@ from argus_core.models import (
     a_chat_withdrawal_offer,
     the_place_of,
 )
-from argus_incidents.repository import events, incidents, references
+from argus_incidents.repository import events, incidents, postmortems, references, synopses
 from argus_narration import a_narration_line
 from argus_testkit import (
     Assertion,
@@ -85,6 +92,17 @@ A_WAR_ROOM = "C-war-room"
 # Where write-ups are kept, which a team may well configure to be the war room
 # itself. Separate here because two channels is the case that can go wrong.
 AN_ARCHIVE = "C-postmortems"
+
+# Who an executive synopsis is sent to: a member, as a direct message, and a
+# channel. The double takes any id as somewhere to post, as Slack takes either.
+A_MEMBER = "U-some-member"
+A_BOARD_CHANNEL = "C-board"
+
+# An id Slack refuses to post to - a channel the app was never invited to.
+A_CHANNEL_GONE = "C-gone"
+
+# What Slack answers a post to such an id, as the double is told to answer it.
+CHANNEL_NOT_FOUND = "channel_not_found"
 
 # Where Argus answers, as somebody outside it would reach it. A test's own
 # address rather than the configured one: a link is right or wrong regardless
@@ -856,6 +874,7 @@ def test_a_filed_line_goes_to_the_archive_and_everything_else_to_the_war_room(
     # somewhere of their own gets them there, and the conversation about the
     # incident is not interrupted by the record of it.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    dont_care_briefed_to = ""
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
@@ -865,7 +884,8 @@ def test_a_filed_line_goes_to_the_archive_and_everything_else_to_the_war_room(
             .given(
                 say := a_destination_per_register(
                     _a_destination_pointed_at(slack),
-                    _a_destination_pointed_at(slack, channel=AN_ARCHIVE)
+                    _a_destination_pointed_at(slack, channel=AN_ARCHIVE),
+                    _a_briefing_pointed_at(slack, sent_to=dont_care_briefed_to)
                 )
             ) \
             .when(lambda: [
@@ -891,6 +911,7 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
     # than told what it says - the postmortem is long, it is already somewhere,
     # and both messages carry the link to the page that holds all of it.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    dont_care_briefed_to = ""
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
@@ -902,6 +923,7 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
                 say := a_destination_per_register(
                     _a_destination_pointed_at(slack),
                     _a_destination_pointed_at(slack, channel=AN_ARCHIVE),
+                    _a_briefing_pointed_at(slack, sent_to=dont_care_briefed_to),
                     argus_at=ARGUS_AT,
                     filed_in=AN_ARCHIVE
                 )
@@ -972,9 +994,226 @@ def test_an_offer_that_keeps_its_button_is_logged_as_a_warning(
                                               "refusal": "message_not_found"})
             )
 
+@pytest.mark.component
+def test_a_synopsis_is_sent_to_each_id_configured_and_nowhere_else(
+        slack: str, a_clean_database: None) -> None:
+    # It states what each title's time on the incident cost, so it goes to the
+    # people it is for and to nobody else: not the war room, not a thread, not
+    # the postmortem channel, all of which the responders it prices read. A
+    # member's id is a direct message and a channel's a post there - Slack
+    # takes either as where to post, so one list holds both.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_with_a_synopsis(conn)
+
+        Scenario() \
+            .given(
+                say := a_destination_per_register(
+                    _a_destination_pointed_at(slack),
+                    _a_destination_pointed_at(slack, channel=AN_ARCHIVE),
+                    _a_briefing_pointed_at(slack, sent_to=f"{A_MEMBER},{A_BOARD_CHANNEL}")
+                )
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(_the_synopsis_written_for(incident_id)),
+                              Register.BRIEFED)) \
+            .then(all_of(
+                _it_landed(),
+                _the_messages_in(slack, A_MEMBER, count=1),
+                _the_messages_in(slack, A_BOARD_CHANNEL, count=1),
+                _the_messages_in(slack, A_WAR_ROOM, count=0),
+                _the_messages_in(slack, AN_ARCHIVE, count=0)
+            ))
+
+
+@pytest.mark.component
+def test_a_synopsis_is_its_overview_and_a_link_to_the_whole_of_it(
+        slack: str, a_clean_database: None) -> None:
+    # The overview is what a notification shows before the message is opened,
+    # so it is the message's line, said once. The rest of the synopsis is not
+    # in the message: it is a click away, in its PDF, as the postmortem is.
+    some_overview = "Checkout failed for 7m 12s after a flag change; Argus turned it off."
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_with_a_synopsis(conn, overview=some_overview)
+        its_pdf = f"{ARGUS_AT}/incidents/{incident_id}/synopsis.pdf"
+
+        Scenario() \
+            .given(
+                say := _a_briefing_pointed_at(slack, sent_to=A_MEMBER, argus_at=ARGUS_AT)
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(_the_synopsis_written_for(incident_id)),
+                              Register.BRIEFED)) \
+            .then(all_of(
+                _that_message_opens_with(slack, f"Postmortem Agent: {some_overview}"),
+                _that_message_says_once(slack, some_overview),
+                _that_message_does_not_say(slack, "Human cost"),
+                _that_message_says(slack, its_pdf)
+            ))
+
+
+@pytest.mark.component
+def test_ids_written_with_a_space_after_each_comma_are_each_sent_it(
+        slack: str, a_clean_database: None) -> None:
+    # How a person writes a list. An id with a space in front of it is one
+    # Slack has never heard of.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_with_a_synopsis(conn)
+
+        Scenario() \
+            .given(
+                say := _a_briefing_pointed_at(slack, sent_to=f"{A_MEMBER}, {A_BOARD_CHANNEL}")
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(_the_synopsis_written_for(incident_id)),
+                              Register.BRIEFED)) \
+            .then(all_of(
+                _the_messages_in(slack, A_MEMBER, count=1),
+                _the_messages_in(slack, A_BOARD_CHANNEL, count=1)
+            ))
+
+
+@pytest.mark.component
+def test_nothing_is_sent_where_no_id_is_configured(
+        slack: str, a_clean_database: None) -> None:
+    # The synopsis is written whatever is configured, and here it is for
+    # nobody. Nothing was owed to anyone, so the relay moves on past it.
+    no_ids = ""
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_with_a_synopsis(conn)
+
+        Scenario() \
+            .given(
+                say := _a_briefing_pointed_at(slack, sent_to=no_ids)
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(_the_synopsis_written_for(incident_id)),
+                              Register.BRIEFED)) \
+            .then(all_of(
+                _it_landed(),
+                _slack_holds_nothing(slack)
+            ))
+
+
+@pytest.mark.component
+def test_an_id_slack_refuses_is_written_down_and_the_others_are_still_sent_it(
+        slack: str, a_clean_database: None) -> None:
+    # A member who left, a channel the app was never invited to: refused for
+    # good, and nothing to do with the next id on the list. The timeline says
+    # which id and why, since each needs somebody different to fix it.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_with_a_synopsis(conn)
+
+        Scenario() \
+            .given(
+                say := _a_briefing_pointed_at(slack, sent_to=f"{A_CHANNEL_GONE},{A_MEMBER}"),
+                calling(lambda: _slack_will_refuse(slack))
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(_the_synopsis_written_for(incident_id)),
+                              Register.BRIEFED)) \
+            .then(all_of(
+                _it_landed(),
+                _the_messages_in(slack, A_MEMBER, count=1),
+                _that_failure_says(conn, incident_id,
+                                   refusal=CHANNEL_NOT_FOUND,
+                                   channel=A_CHANNEL_GONE,
+                                   about=_the_synopsis_written_for(incident_id).kind)
+            ))
+
+
+@pytest.mark.component
+def test_a_synopsis_every_id_refuses_never_lands(
+        slack: str, a_clean_database: None) -> None:
+    # Nobody it was for has it, and the next pass would be refused the same.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_with_a_synopsis(conn)
+
+        Scenario() \
+            .given(
+                say := _a_briefing_pointed_at(slack, sent_to=A_CHANNEL_GONE),
+                calling(lambda: _slack_will_refuse(slack))
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(_the_synopsis_written_for(incident_id)),
+                              Register.BRIEFED)) \
+            .then(
+                _it_will_never_land()
+            )
+
+
+@pytest.mark.component
+def test_an_id_slack_asks_to_wait_is_sent_it_on_the_next_pass_and_nobody_twice(
+        slack: str, a_clean_database: None) -> None:
+    # A throttle says nothing about the message, so the line waits and comes
+    # round again. Whoever already has the synopsis is not sent it a second
+    # time: each id it reached is remembered against the incident.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_with_a_synopsis(conn)
+        a_line = a_narration_line(_the_synopsis_written_for(incident_id))
+
+        Scenario() \
+            .given(
+                say := _a_briefing_pointed_at(slack, sent_to=f"{A_MEMBER},{A_BOARD_CHANNEL}"),
+                calling(lambda: _slack_will_throttle(slack))
+            ) \
+            .when(lambda: [say(incident_id, a_line, Register.BRIEFED),
+                           say(incident_id, a_line, Register.BRIEFED)]) \
+            .then(all_of(
+                _the_outcomes_were([Outcome.NOT_NOW, Outcome.SAID]),
+                _the_messages_in(slack, A_MEMBER, count=1),
+                _the_messages_in(slack, A_BOARD_CHANNEL, count=1)
+            ))
+
 
 def _a_destination_pointed_at(base_url: str, channel: str = A_WAR_ROOM) -> Destination:
     return a_chat_destination(connect_from_env, channel=channel, chat=_slack_at(base_url))
+
+
+def _a_briefing_pointed_at(base_url: str, sent_to: str, argus_at: str = "") -> Destination:
+    return a_briefing(connect_from_env, sent_to=sent_to, chat=_slack_at(base_url),
+                      argus_at=argus_at)
+
+
+def _an_incident_with_a_synopsis(conn: psycopg.Connection,
+                                 overview: str = "dont care what the overview says") -> str:
+    """An incident with its postmortem and the synopsis written from it, as the
+    walk leaves them before it publishes that the synopsis was written."""
+    incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"),
+                                   at=utc_now())
+    postmortems.record(conn, incident_id, _a_postmortem(), at=utc_now())
+    synopses.record(conn, incident_id,
+                    ExecutiveSynopsisDocument(overview=overview, withheld_because=None,
+                                              cost_by_title=[], breakdown_unmatched=False),
+                    at=utc_now())
+    conn.commit()
+
+    return incident_id
+
+
+def _a_postmortem() -> PostmortemDocument:
+    """A postmortem with nothing measured - all a synopsis needs to be read."""
+    return PostmortemDocument(
+        root_cause="dont care",
+        executive_summary="dont care",
+        customer_loss_estimate=None,
+        estimate_currency=None,
+        engineer_minutes=None,
+        responders=None,
+        responder_titles=[],
+        responder_cost_estimate=None,
+        responder_cost_minimum=None,
+        responder_cost_maximum=None,
+        responder_cost_currency=None,
+        tokens_spent=None,
+        assumptions=[],
+        pull_request=None
+    )
+
+
+def _the_synopsis_written_for(incident_id: str) -> IncidentEvent:
+    return ExecutiveSynopsisWritten(incident_id=incident_id)
 
 
 def _the_onset_of(incident_id: str) -> IncidentEvent:
@@ -1109,7 +1348,13 @@ def _a_candidate_formed_on(incident_id: str,
 def _slack_will_refuse(base_url: str) -> None:
     """Queues the refusal the next post is met with."""
     httpx2.post(f"{base_url}/double-control/seed",
-               json={"error": "channel_not_found"}).raise_for_status()
+               json={"error": CHANNEL_NOT_FOUND}).raise_for_status()
+
+
+def _slack_will_throttle(base_url: str) -> None:
+    """Queues a throttle for the next post: Slack asking Argus to wait."""
+    httpx2.post(f"{base_url}/double-control/seed",
+               json={"error": "rate_limited"}).raise_for_status()
 
 
 def _it_landed() -> Assertion[Outcome]:
@@ -1135,6 +1380,16 @@ def _it_will_never_land() -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected the line never to land, it reported [{outcome}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_outcomes_were(expected: list[Outcome]) -> Assertion[list[Outcome]]:
+    def assertion(outcomes: list[Outcome]) -> bool:
+        if outcomes != expected:
+            raise AssertionError(f"Expected the passes to report {expected}, got {outcomes}.")
 
         return True
 
@@ -1269,6 +1524,41 @@ def _that_message_marks(base_url: str, word: str) -> Assertion[Any]:
         said = messages_posted_to(base_url)[-1]["text"]
         if f"*{word}*" not in said:
             raise AssertionError(f"Expected [*{word}*] marked in [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _that_message_opens_with(base_url: str, words: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        said = messages_posted_to(base_url)[-1]["text"]
+        if not said.startswith(words):
+            raise AssertionError(f"Expected [{said}] to open with [{words}].")
+
+        return True
+
+    return assertion
+
+
+def _that_message_does_not_say(base_url: str, words: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        said = messages_posted_to(base_url)[-1]["text"]
+        if words in said:
+            raise AssertionError(f"Expected nothing of [{words}] said in [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _that_message_says_once(base_url: str, words: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        said = messages_posted_to(base_url)[-1]["text"]
+        times = said.count(words)
+        if times != 1:
+            raise AssertionError(f"Expected [{words}] said once, it was said {times} times "
+                                 f"in [{said}].")
 
         return True
 

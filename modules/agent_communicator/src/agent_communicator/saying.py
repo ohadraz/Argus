@@ -1,9 +1,11 @@
-"""How a register becomes a message: the channel itself, or a reply in a thread.
+"""How a register becomes a message: the channel itself, a reply in a thread,
+or the ids a synopsis is sent to.
 
 The only module that knows what "loudly" means in a chat. A message in the
 channel reaches everyone in it; a reply reaches whoever is following that
-thread - so the register decides which of the two a line is, and nothing else
-here has an opinion about it. How the platform marks a word, draws a link or a
+thread; a briefing reaches only the members and channels configured for it -
+so the register decides which a line is, and nothing else here has an opinion
+about it. How the platform marks a word, draws a link or a
 button is the platform adapter's; this hands it a line in its parts.
 
 An incident's thread is whatever the platform called its first message. That is
@@ -21,16 +23,18 @@ from typing import Final
 from argus_core import Connections
 from argus_core.events import CommunicationFailed
 from argus_core.models import (
+    CHAT_BRIEFING,
     CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
     CHAT_WITHDRAWAL_OFFER,
     IncidentStatus,
+    a_chat_briefing,
     a_chat_resolution_offer,
     a_chat_thread,
     a_chat_withdrawal_offer,
     the_place_of,
 )
-from argus_incidents.repository import events, references
+from argus_incidents.repository import events, references, synopses
 from argus_narration import (
     NarrationLine,
     ShownRevision,
@@ -59,18 +63,25 @@ _REMEMBERED_AS: Final = {
     IncidentStatus.WITHDRAWN: a_chat_withdrawal_offer
 }
 
-# What the link to a write-up says: under the write-up's own summary, and under
+# What the link to a write-up says: under the write-up's own summary, under
 # the war room's line saying where it was filed.
 _READ_THE_POSTMORTEM: Final = "Read the postmortem"
+
+# What the link to the whole executive synopsis says, under its overview.
+_READ_THE_SYNOPSIS: Final = "Read the executive synopsis"
+
+# Between two of the ids a synopsis is sent to, as they are configured.
+_ID_SEPARATOR: Final = ","
 
 logger = logging.getLogger(__name__)
 
 
 def a_destination_per_register(conversation: Destination,
                                archive: Destination,
+                               briefing: Destination,
                                argus_at: str = "",
                                filed_in: str = "") -> Destination:
-    """Two destinations made into one, chosen by how a line is to be said.
+    """Three destinations made into one, chosen by how a line is to be said.
 
     The relay has one destination and no opinion about channels; the policy
     says which register a line belongs to and has no opinion about where that
@@ -81,6 +92,9 @@ def a_destination_per_register(conversation: Destination,
     be the war room - a team that configured no separate channel gets its
     postmortems where everything else is, through the same code path rather
     than a special case.
+
+    `briefing` is the people a synopsis is for, and is never the war room or
+    the archive: what it says is pay, and the responders it prices read both.
 
     `argus_at` is where Argus answers, as somebody outside it reaches it. A
     process that never serves a request cannot learn that from one, and the
@@ -99,6 +113,9 @@ def a_destination_per_register(conversation: Destination,
             line: NarrationLine,
             register: Register,
             link: Link | None = None) -> Outcome:
+        if register is Register.BRIEFED:
+            return briefing(incident_id, line, register, link)
+
         if register is not Register.FILED:
             return conversation(incident_id, line, register, link)
 
@@ -127,6 +144,16 @@ def _the_postmortem_page(argus_at: str, incident_id: str) -> Link | None:
 
     return Link(url=f"{argus_at.rstrip('/')}/incidents/{incident_id}/postmortem",
                 label=_READ_THE_POSTMORTEM)
+
+
+def _the_synopsis_pdf(argus_at: str, incident_id: str) -> Link | None:
+    """Where the whole synopsis is, as a file, or `None` where Argus was given
+    no address of its own."""
+    if not argus_at:
+        return None
+
+    return Link(url=f"{argus_at.rstrip('/')}/incidents/{incident_id}/synopsis.pdf",
+                label=_READ_THE_SYNOPSIS)
 
 
 def _where_to_read_it(line: NarrationLine, filed_in: str) -> NarrationLine:
@@ -218,6 +245,99 @@ def a_chat_destination(connections: Connections,
         return Outcome.SAID
 
     return say
+
+
+def a_briefing(connections: Connections,
+               sent_to: str,
+               chat: ChatPlatformWrites,
+               argus_at: str = "") -> Destination:
+    """A destination: the executive synopsis, sent to each id in `sent_to` - a
+    member's as a direct message, a channel's as a post in it. The platform
+    takes either as where to post, so one list holds both.
+
+    `sent_to` as it is configured, ids between commas, so that a list written
+    the way a person writes one - a space after each comma - is read here once.
+    Empty sends it to nobody; nothing was owed, and the relay moves on.
+
+    Each id reached is remembered against the incident, so a pass repeated
+    after a throttle sends it only to the ids it has not reached. An id refused
+    for good is written down where a reader will find it, and costs the others
+    nothing.
+    """
+    recipients = [one.strip() for one in sent_to.split(_ID_SEPARATOR) if one.strip()]
+
+    def say(incident_id: str,
+            line: NarrationLine,
+            register: Register,
+            link: Link | None = None) -> Outcome:
+        waiting = [recipient for recipient in recipients
+                   if not _the_messages_of(connections, incident_id, CHAT_BRIEFING, recipient)]
+
+        if not waiting:
+            return Outcome.SAID
+
+        said = _the_synopsis_line(connections, incident_id, line, argus_at)
+        outcomes = [_sent_to(recipient, connections, incident_id, line, said, chat)
+                    for recipient in waiting]
+
+        # Held for another pass while anybody it is for was only asked to
+        # wait; passed over once everybody left was refused for good.
+        if Outcome.NOT_NOW in outcomes:
+            return Outcome.NOT_NOW
+
+        return Outcome.SAID if Outcome.SAID in outcomes else Outcome.NEVER
+
+    return say
+
+
+def _the_synopsis_line(connections: Connections,
+                       incident_id: str,
+                       line: NarrationLine,
+                       argus_at: str) -> Line:
+    """The synopsis as one message: its overview as the line - what a
+    notification shows before the message is opened - and the whole synopsis
+    a click away, in its PDF, as the postmortem is.
+
+    Read from the record, because the event saying it was written carries no
+    word of it. The walk stores the synopsis before it publishes that, so a
+    record without one is a broken one, and refused.
+    """
+    with connections() as conn:
+        synopsis = synopses.get_by_incident(conn, incident_id)
+
+    if synopsis is None or synopsis.overview is None:
+        raise ValueError(f"incident [{incident_id}] has no synopsis to send")
+
+    return Line(who=line.who,
+                text=synopsis.overview,
+                link=_the_synopsis_pdf(argus_at, incident_id))
+
+
+def _sent_to(recipient: str,
+             connections: Connections,
+             incident_id: str,
+             line: NarrationLine,
+             said: Line,
+             chat: ChatPlatformWrites) -> Outcome:
+    """The synopsis posted to one id, and what became of it - remembered where
+    it landed, written down where it never will."""
+    posted = chat.post(recipient, said, None, None)
+
+    if posted.message is None:
+        if posted.worth_another_go:
+            return Outcome.NOT_NOW
+
+        logger.error("synopsis will never be sent",
+                     extra={"channel": recipient, "refusal": posted.refusal})
+        _write_the_gap_down(connections, incident_id, recipient, line, posted.refusal)
+
+        return Outcome.NEVER
+
+    with connections() as conn:
+        references.add(conn, incident_id,
+                       [a_chat_briefing(chat.channel, recipient, posted.message)])
+
+    return Outcome.SAID
 
 
 def _the_chat_line(line: NarrationLine,

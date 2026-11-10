@@ -1622,6 +1622,11 @@ _SLACK_AT_THE_DOUBLE = {
     # by configuration, and a name is refused before anything starts.
     "SLACK_BASE_URL": _SLACK_DOUBLE_BASE_URL,
     "SLACK_WAR_ROOM_CHANNEL": "C0ARGUSWARROOM",
+    # Who the executive synopsis is sent to: a member, as a direct message, and
+    # a channel - one of each, because they are the two shapes the setting
+    # takes, and a case can then see both posts and that neither is the war
+    # room. Fixture ids the double accepts as it accepts any.
+    "EXECUTIVE_SYNOPSIS_SLACK_TO": "U0ARGUSEXEC,C0ARGUSBOARD",
     # A placeholder the double never reads; the SDK refuses to build a client
     # without one.
     "SLACK_BOT_TOKEN": "xoxb-the-double-never-reads-this",
@@ -2335,22 +2340,10 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
 # because the session, not the suite, is what knows which mode is running.
 _CASES_ABOUT_THE_INDEX: Final = "tests/e2e/test_the_index_follows_the_repository.py"
 
-# The stale-cache case, left out of `meaning` alone - and for a different reason
-# from the four `both`-only cases above, which is worth saying because the
-# mechanism is identical. Those are decisions: the claim does not vary by which
-# tool found a file, so recording it three times buys three recordings of one
-# assertion. This is an absence: the walk is recorded under `grep` and `both`,
-# so under `meaning` the double has no queue to answer from and the case would
-# fail on a missing recording rather than on anything about Argus.
-#
-# Which means this line goes the day that recording exists, where the decisions
-# stay for as long as their reasoning holds.
-_THE_STALE_CACHE_CASE: Final = "tests/e2e/test_a_stale_cache_is_discarded.py"
-
-# The same failover with nobody recording when it happened. A decision like the
-# `both`-only cases further up rather than an absence like the stale-cache case
-# just above: what it claims - that a finding with no date is walked from the
-# minute it paged - does not vary by which tool found a file.
+# The stale-cache failover with nobody recording when it happened. A decision
+# like the `both`-only cases further up: what it claims - that a finding with no
+# date is walked from the minute it paged - does not vary by which tool found a
+# file.
 _THE_UNDATED_FINDING_CASE: Final = "tests/e2e/test_an_undated_finding_is_investigated.py"
 
 # The categoriser upgrade, a decision for the same reason: that a walk dates and
@@ -2376,10 +2369,14 @@ _THE_ENDINGS_WITHOUT_A_CAUSE_CASES: Final = "tests/e2e/test_incident_lifecycle.p
 # is written up does not vary by which tool found a file.
 _THE_RESOLUTION_CASES: Final = "tests/e2e/test_resolving_an_incident.py"
 
+# Who the executive synopsis reaches. A decision: that the response cost is said
+# only to the ids configured for it does not vary by which tool found a file.
+_THE_SYNOPSIS_CASE: Final = "tests/e2e/test_the_executive_synopsis.py"
+
 
 def _the_cases_for(mode: str) -> list[str]:
-    """The suite, less what this mode has no index for and less what it has no
-    recording of.
+    """The suite, less what this mode has no index for and less what was decided
+    is not worth recording in it.
 
     Left uncollected rather than skipped inside the case. A skip is a result,
     and a run that reports the same two every time teaches a reader to read past
@@ -2388,8 +2385,8 @@ def _the_cases_for(mode: str) -> list[str]:
     against this stack, they are about a mechanism it does not have.
 
     The scale-out, pin, unreachable-platform, undated-finding, categoriser and
-    rescheduled-scorer cases, the two endings reached without a cause and the
-    three resolutions, are left out of the other two modes for a different
+    rescheduled-scorer cases, the two endings reached without a cause, the
+    three resolutions and the synopsis case, are left out of the other two modes for a different
     reason, and it is a decision rather than an absence. One claims that a mode
     reaches the fourth mitigation and the platform answers for the capacity;
     another that a controller re-derives a count Argus set, and that the fifth
@@ -2399,8 +2396,9 @@ def _the_cases_for(mode: str) -> list[str]:
     on the rule's own series; the sixth that a walk pins a deployment to the card
     its record says the fleet ran on; the next two that a window with no minute
     in it escalates and a flat one is disproven, neither offering the model a
-    tool that searches code; the last three that a person reporting the incident over
-    leaves Argus's changes in place and is written up.
+    tool that searches code; the next three that a person reporting the incident over
+    leaves Argus's changes in place and is written up; the last that the response
+    cost is said only to the ids the synopsis is configured for.
     Nothing in any of those varies by which tool the model found a file with, and
     the walks that do
     differ per mode are covered by their siblings - so recording them three times
@@ -2410,18 +2408,8 @@ def _the_cases_for(mode: str) -> list[str]:
     bills for two. The unreachable platform's is not, though it looks it - a
     platform that refuses an action ends that attempt without the model being asked
     anything, so its walk is one investigation like any other.
-
-    The stale-cache case is the third shape, and it is neither of those two. It is
-    not about a mechanism this stack lacks, and nothing was decided about what its
-    claim is worth: it is simply recorded under two modes and not the third, so
-    under `meaning` there is no queue for the double to answer from. That makes it
-    the one exclusion here with an expiry - it goes when the recording arrives,
-    where the ones above stay for as long as their reasoning holds.
     """
     left_out = []
-
-    if mode == _SEARCHING_BY_MEANING_ALONE:
-        left_out.append(f"--ignore={_THE_STALE_CACHE_CASE}")
 
     if mode != _SEARCHING_BOTH_WAYS:
         left_out.append(f"--ignore={_THE_SCALE_OUT_CASE}")
@@ -2432,6 +2420,7 @@ def _the_cases_for(mode: str) -> list[str]:
         left_out.append(f"--ignore={_THE_RESCHEDULED_SCORER_CASE}")
         left_out.append(f"--ignore={_THE_ENDINGS_WITHOUT_A_CAUSE_CASES}")
         left_out.append(f"--ignore={_THE_RESOLUTION_CASES}")
+        left_out.append(f"--ignore={_THE_SYNOPSIS_CASE}")
 
     if mode == _SEARCHING_BY_GREP_ALONE:
         left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")
@@ -2443,6 +2432,8 @@ def _the_cases_for(mode: str) -> list[str]:
 # Spelled here as `scripts/record_incident.py` spells it, rather than imported:
 # a noxfile that fails to import takes every session with it.
 _RE_RECORDING_THE_WRITE_UP_ALONE: Final = "--postmortem-only"
+# And for the executive synopsis captured over a walk and write-up on disk.
+_RE_RECORDING_THE_SYNOPSIS_ALONE: Final = "--synopsis-only"
 
 
 @nox.session
@@ -2500,12 +2491,14 @@ def record(session: nox.Session, mode: str) -> None:
         # The stand-in, so a write-up re-recorded over an existing walk sees the
         # world that walk saw. With no anchor staged it is the shop unchanged.
         shop_stands_in=True,
-        # A write-up re-recorded alone runs on the replay's clock, because
-        # everything before it is a replay: the walk it follows was recorded
-        # against the world a replay draws, and the one paid call takes its
-        # seconds whatever the clock says. A fresh capture stays on the real
-        # clock, where a real model's answer takes the time it takes.
-        on_a_simulated_clock=_RE_RECORDING_THE_WRITE_UP_ALONE in session.posargs,
+        # A write-up or a synopsis re-recorded alone runs on the replay's clock,
+        # because everything before it is a replay: the walk it follows was
+        # recorded against the world a replay draws, and the paid calls take
+        # their seconds whatever the clock says. A fresh capture stays on the
+        # real clock, where a real model's answer takes the time it takes.
+        on_a_simulated_clock=any(flag in session.posargs
+                                 for flag in (_RE_RECORDING_THE_WRITE_UP_ALONE,
+                                              _RE_RECORDING_THE_SYNOPSIS_ALONE)),
         # The real repository, for the reason `e2e` uses it and one more. A
         # recording is a walk captured in a particular world, and the world a
         # code fix is decided by is the source Code-Fix reads - so a recording

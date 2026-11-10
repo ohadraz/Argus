@@ -43,6 +43,7 @@ from argus_core.models import (
     ContributingFactor,
     Detection,
     Evidence,
+    ExecutiveSynopsisDocument,
     FailureMode,
     FirstTold,
     FlagUndo,
@@ -75,7 +76,14 @@ from argus_core.models import (
     Weighing,
     WhyNoTrigger,
 )
-from argus_incidents.repository import events, hypotheses, incidents, postmortems, taken_actions
+from argus_incidents.repository import (
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    synopses,
+    taken_actions,
+)
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from fastapi.testclient import TestClient
@@ -911,6 +919,74 @@ def test_an_unknown_incident_has_no_pdf() -> None:
             ) \
             .when(
                 lambda: client.get(f"/incidents/{a_nonexistent_id}/postmortem.pdf")
+            ) \
+            .then(
+                the_response_was(HttpStatus.NOT_FOUND)
+            )
+
+
+@pytest.mark.component
+def test_the_executive_synopsis_downloads_as_a_pdf_named_for_its_incident() -> None:
+    # What the synopsis's Slack message links to, saved among others like it.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    dont_care_overview = "dont care what it says"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        _a_postmortem_recorded_for(conn, incident_id, leads=[])
+        _a_synopsis_recorded_for(conn, incident_id, overview=dont_care_overview)
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{incident_id}/synopsis.pdf")
+            ) \
+            .then(
+                _a_pdf_to_save_as(f"argus-executive-synopsis-{incident_id}.pdf")
+            )
+
+
+@pytest.mark.component
+def test_an_incident_with_no_synopsis_has_no_pdf_of_one() -> None:
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        _a_postmortem_recorded_for(conn, incident_id, leads=[])
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{incident_id}/synopsis.pdf")
+            ) \
+            .then(
+                the_response_was(HttpStatus.NOT_FOUND)
+            )
+
+
+@pytest.mark.component
+def test_a_synopsis_given_up_has_no_pdf_of_one() -> None:
+    # No overview, so nothing was sent and there is nothing to print.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        _a_postmortem_recorded_for(conn, incident_id, leads=[])
+        _a_synopsis_recorded_for(conn, incident_id, overview=None)
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{incident_id}/synopsis.pdf")
             ) \
             .then(
                 the_response_was(HttpStatus.NOT_FOUND)
@@ -3290,6 +3366,21 @@ def _a_postmortem_recorded_for(conn: psycopg.Connection,
             assumptions=[],
             leads=leads
         ),
+        at=utc_now()
+    )
+
+
+def _a_synopsis_recorded_for(conn: psycopg.Connection,
+                             incident_id: str,
+                             overview: str | None) -> None:
+    """A synopsis with nothing in it but its overview - or none, given up."""
+    synopses.record(
+        conn,
+        incident_id,
+        ExecutiveSynopsisDocument(overview=overview,
+                                  withheld_because=None if overview else "dont care",
+                                  cost_by_title=[],
+                                  breakdown_unmatched=False),
         at=utc_now()
     )
 

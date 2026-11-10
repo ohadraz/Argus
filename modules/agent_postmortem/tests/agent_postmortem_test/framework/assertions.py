@@ -166,6 +166,19 @@ def reports_responders(expected: int) -> Assertion[PostmortemDocument]:
     return assertion
 
 
+def reports_paged(expected: bool | None) -> Assertion[PostmortemDocument]:
+    """Whether a page went out: `True` where an on-call incident was linked,
+    `False` where none was, `None` where nobody could say."""
+    def assertion(document: PostmortemDocument) -> bool:
+        if document.paged is not expected:
+            raise AssertionError(
+                f"Expected a page said sent [{expected}], got [{document.paged}].")
+
+        return True
+
+    return assertion
+
+
 def reports_the_titles(*expected: str) -> Assertion[PostmortemDocument]:
     """Exactly these, and nothing that could identify a person.
 

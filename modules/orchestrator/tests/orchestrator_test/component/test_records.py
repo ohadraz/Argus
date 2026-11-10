@@ -20,6 +20,8 @@ import pytest
 from agent_postmortem import said_off_the_page
 from argus_core import connect_from_env, utc_now
 from argus_core.events import (
+    ExecutiveSynopsisWithheld,
+    ExecutiveSynopsisWritten,
     IncidentEvent,
     LeadWeighed,
     PostmortemWritten,
@@ -33,6 +35,7 @@ from argus_core.models import (
     ActionProgress,
     Actor,
     Alert,
+    ExecutiveSynopsisDocument,
     FlagUndo,
     IncidentStatus,
     Meaning,
@@ -52,6 +55,7 @@ from argus_incidents.repository import (
     events,
     hypotheses,
     incidents,
+    synopses,
     taken_actions,
 )
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
@@ -524,6 +528,60 @@ def test_a_write_up_is_said_by_its_summary_as_it_reads_off_the_page_with_its_cau
 
 
 @pytest.mark.component
+def test_a_synopsis_with_an_overview_is_stored_and_said_written(
+    a_clean_database: None
+) -> None:
+    # Said with no word of it: the synopsis shows pay, and the timeline is for
+    # everyone.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_overview = "Checkout failed for 7m 12s."
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_synopsis := ExecutiveSynopsisDocument(overview=some_overview)
+        ) \
+        .when(
+            lambda: records.synopsis(incident_id, a_synopsis)
+        ) \
+        .then(all_of(
+            _the_synopsis_stored_is(incident_id, a_synopsis),
+            _said_written_once(incident_id)
+        ))
+
+
+@pytest.mark.component
+def test_a_synopsis_given_up_is_stored_without_an_overview_and_said_withheld_with_why(
+    a_clean_database: None
+) -> None:
+    # Nothing is sent for it, so the timeline is where anybody waiting for one
+    # finds out why.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_reason = "the overview was refused twice"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_synopsis := ExecutiveSynopsisDocument(overview=None, withheld_because=some_reason)
+        ) \
+        .when(
+            lambda: records.synopsis(incident_id, a_synopsis)
+        ) \
+        .then(all_of(
+            _the_synopsis_stored_is(incident_id, a_synopsis),
+            _said_withheld_once_because(incident_id, some_reason)
+        ))
+
+
+@pytest.mark.component
 def test_what_an_incident_tried_is_filed_for_the_store_to_be_given(
     a_clean_database: None
 ) -> None:
@@ -700,6 +758,58 @@ def _the_write_up_was_said(incident_id: str,
                 f"Expected the stream to say the postmortem was written once, by the "
                 f"cause [{cause}] and the summary [{summary}], and it said {said}."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_synopsis_stored_is(incident_id: str,
+                            expected: ExecutiveSynopsisDocument) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            stored = synopses.get_by_incident(conn, incident_id)
+
+        kept = (stored.model_dump(include=set(ExecutiveSynopsisDocument.model_fields))
+                if stored is not None else None)
+        if kept != expected.model_dump():
+            raise AssertionError(f"Expected the synopsis {expected.model_dump()} stored, "
+                                 f"and the record holds {kept}.")
+
+        return True
+
+    return assertion
+
+
+def _the_synopsis_lines_of(incident_id: str) -> list[IncidentEvent]:
+    """What the stream says of the incident's synopsis."""
+    with connect_from_env() as conn:
+        narrated = events.get_by_incident(conn, incident_id)
+
+    return [event for event in narrated
+            if isinstance(event, ExecutiveSynopsisWritten | ExecutiveSynopsisWithheld)]
+
+
+def _said_written_once(incident_id: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        said = _the_synopsis_lines_of(incident_id)
+        if [type(event) for event in said] != [ExecutiveSynopsisWritten]:
+            raise AssertionError(f"Expected the stream to say the synopsis was written "
+                                 f"once, and it said {said}.")
+
+        return True
+
+    return assertion
+
+
+def _said_withheld_once_because(incident_id: str, reason: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        said = _the_synopsis_lines_of(incident_id)
+        reasons = [event.reason for event in said
+                   if isinstance(event, ExecutiveSynopsisWithheld)]
+        if len(said) != 1 or reasons != [reason]:
+            raise AssertionError(f"Expected the stream to say the synopsis was withheld "
+                                 f"once, because [{reason}], and it said {said}.")
 
         return True
 

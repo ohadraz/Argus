@@ -439,6 +439,17 @@ class Settings(BaseSettings):
     slack_war_room_channel: str = Field(default="", pattern=_A_SLACK_CHANNEL_ID)
     slack_postmortem_channel: str = Field(default="", pattern=_A_SLACK_CHANNEL_ID)
 
+    # Who is sent each incident's executive synopsis, as Slack ids separated by
+    # commas: a member's (`U…`) is sent it as a direct message, a channel's
+    # (`C…`) is posted it in that channel. One list for both, because
+    # `chat.postMessage` takes either as where to post. Empty sends it nowhere -
+    # it is still written, and nobody is told.
+    #
+    # The synopsis states what each title's time on the incident cost, so who
+    # is here is who sees pay. Nothing checks that a member is not one of the
+    # people priced, or that a channel is private: both are the configurer's.
+    executive_synopsis_slack_to: str = Field(default="")
+
     # How long the relay waits after finding the log unchanged. Short, because
     # it is the delay between something happening and a person hearing about
     # it - and paid only when there is nothing to say, since a pass that

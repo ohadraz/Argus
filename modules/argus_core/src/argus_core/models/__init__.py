@@ -103,6 +103,7 @@ from argus_core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from argus_core.models.placement import PodPlacement, RecordedPlacement
 from argus_core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
 from argus_core.models.postmortem_sections import (
+    NOT_JUDGED,
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -152,6 +153,7 @@ from argus_core.models.reading import (
 )
 from argus_core.models.reference import (
     ALERT_FIRING,
+    CHAT_BRIEFING,
     CHAT_MESSAGE,
     CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
@@ -160,6 +162,7 @@ from argus_core.models.reference import (
     ON_CALL_INCIDENT,
     RecordedReference,
     Reference,
+    a_chat_briefing,
     a_chat_message,
     a_chat_resolution_offer,
     a_chat_thread,
@@ -171,6 +174,7 @@ from argus_core.models.remembered import RecalledIncident, WhatWasTried
 from argus_core.models.report import Report, ReportChannel
 from argus_core.models.rollout import RolloutAccount, RolloutProgress
 from argus_core.models.service_dependency import Ownership, ServiceDependency
+from argus_core.models.synopsis import ExecutiveSynopsis, ExecutiveSynopsisDocument, TitleCost
 from argus_core.models.taken_action import ActionProgress, TakenAction
 from argus_core.models.thread_message import (
     Leads,
@@ -263,6 +267,8 @@ __all__ = [
     "EstablishedOnset",
     "Evidence",
     "Exchange",
+    "ExecutiveSynopsis",
+    "ExecutiveSynopsisDocument",
     "FileAsItRan",
     "Findings",
     "FixOutcome",
@@ -291,6 +297,7 @@ __all__ = [
     "OfferedEnding",
     "OpenedPullRequest",
     "NOTHING_RECORDED_AFTER_IT_WAS_OPENED",
+    "NOT_JUDGED",
     "Outcome",
     "Ownership",
     "ActionItem",
@@ -344,12 +351,14 @@ __all__ = [
     "ALERT_FIRING",
     "NOTIFICATION_KEY",
     "ON_CALL_INCIDENT",
+    "CHAT_BRIEFING",
     "CHAT_MESSAGE",
     "CHAT_RESOLUTION_OFFER",
     "CHAT_THREAD",
     "CHAT_WITHDRAWAL_OFFER",
     "RecordedReference",
     "Reference",
+    "a_chat_briefing",
     "a_chat_message",
     "a_chat_resolution_offer",
     "a_chat_thread",
@@ -384,6 +393,7 @@ __all__ = [
     "Standing",
     "TakenAction",
     "ThreadMessage",
+    "TitleCost",
     "ToolCall",
     "ToolDefinition",
     "ToolResult",

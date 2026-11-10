@@ -39,6 +39,8 @@ from argus_core.events import (
     ChangeUndone,
     CommunicationFailed,
     DeploymentChangesRead,
+    ExecutiveSynopsisWithheld,
+    ExecutiveSynopsisWritten,
     FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
@@ -1079,6 +1081,23 @@ def test_an_action_done_is_said_in_words_rather_than_by_its_tag() -> None:
         ) \
         .then(
             _ends_with(f"Reverted the feature flag {SOME_FLAG}")
+        )
+
+
+@pytest.mark.unit
+def test_a_pin_done_is_said_with_the_card_it_held_the_pods_to() -> None:
+    # Said without it, an overview that also spoke of purchases held for
+    # review read "held the pods" as a pause: the card is what they were held
+    # to, as the account's own line says.
+    some_application = "io-shop"
+    some_card = "Tesla-V100-SXM2-16GB"
+
+    Scenario() \
+        .when(
+            lambda: what_was_done(PIN_TO_ACCELERATOR, some_application, some_card)
+        ) \
+        .then(
+            _ends_with(f"Held the pods of {some_application} to {some_card}")
         )
 
 
@@ -2523,6 +2542,32 @@ def test_a_postmortem_line_says_nothing_of_minutes_nobody_spent() -> None:
         .given(the_write_up) \
         .when(lambda: build_narration([the_write_up])) \
         .then(_the_only_line_does_not_mention("engineer minutes"))
+
+
+@pytest.mark.unit
+def test_a_synopsis_written_is_said_without_a_word_of_it() -> None:
+    # What it says shows pay, and is for the people it is sent to: the
+    # timeline is for everyone.
+    a_synopsis = ExecutiveSynopsisWritten(incident_id=new_id())
+
+    Scenario() \
+        .given(a_synopsis) \
+        .when(lambda: build_narration([a_synopsis])) \
+        .then(all_of(_the_only_line_reads("Wrote the executive synopsis"),
+                     _the_lines_are_credited_to(["Postmortem Agent"])))
+
+
+@pytest.mark.unit
+def test_a_synopsis_withheld_is_said_with_why() -> None:
+    # Nothing is sent for it, and the timeline is where anybody waiting for one
+    # finds out why.
+    some_reason = "the overview was refused twice"
+    a_synopsis = ExecutiveSynopsisWithheld(incident_id=new_id(), reason=some_reason)
+
+    Scenario() \
+        .given(a_synopsis) \
+        .when(lambda: build_narration([a_synopsis])) \
+        .then(_the_only_line_reads(f"Withheld the executive synopsis - {some_reason}"))
 
 
 @pytest.mark.unit

@@ -16,7 +16,7 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
     SubmittedStep,
 )
-from agent_postmortem.pull_requests import with_the_pull_request_named
+from agent_postmortem.pull_requests import the_pull_request_named, with_the_pull_request_named
 from argus_core.models import ActionItemType, Lessons, OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
 
@@ -24,6 +24,8 @@ from argus_testkit import Scenario, the_answer_was
 SOME_PULL_REQUEST = OpenedPullRequest(number=1,
                                       url="https://github.invalid/acme/shop/pull/1",
                                       branch="argus/fix-abc")
+# The pull request a replay's recording names: the one the recording run opened.
+SOME_OTHER_RUNS_NUMBER = 356
 
 
 @pytest.mark.unit
@@ -96,6 +98,38 @@ def test_every_sentence_the_answer_publishes_names_the_record_s_pull_request() -
         .then(
             the_answer_was(_an_answer_naming_everywhere("PR #1"))
         )
+
+
+@pytest.mark.unit
+def test_prose_naming_another_pull_request_names_the_record_s() -> None:
+    # The executive overview is prose of its own, outside any answer, and was
+    # once replayed naming the recording run's draft.
+    Scenario() \
+        .when(
+            lambda: the_pull_request_named(_a_draft_fix_awaiting_review(SOME_OTHER_RUNS_NUMBER),
+                                           SOME_PULL_REQUEST)
+        ) \
+        .then(
+            the_answer_was(_a_draft_fix_awaiting_review(SOME_PULL_REQUEST.number))
+        )
+
+
+@pytest.mark.unit
+def test_prose_naming_a_pull_request_where_the_record_holds_none_is_left_as_written() -> None:
+    a_sentence_naming_one = _a_draft_fix_awaiting_review(SOME_OTHER_RUNS_NUMBER)
+
+    Scenario() \
+        .when(
+            lambda: the_pull_request_named(a_sentence_naming_one, None)
+        ) \
+        .then(
+            the_answer_was(a_sentence_naming_one)
+        )
+
+
+def _a_draft_fix_awaiting_review(number: int) -> str:
+    """An overview's sentence naming pull request `number` as Argus names one."""
+    return f"A draft fix, PR #{number}, awaits review."
 
 
 def _an_answer_naming_everywhere(pull_request: str) -> SubmittedPostmortem:

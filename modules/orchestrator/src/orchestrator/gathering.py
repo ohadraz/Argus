@@ -28,6 +28,7 @@ from agent_postmortem import (
     RefusalRecord,
     ResolutionRecord,
     Sources,
+    write_executive_synopsis,
     write_postmortem,
 )
 from argus_core import Connections, parse_iso
@@ -71,6 +72,7 @@ from argus_core.models import (
     ChangeEvent,
     ChannelReading,
     DeploymentRollbackUndo,
+    ExecutiveSynopsisDocument,
     FirstTold,
     FixOutcome,
     FlagUndo,
@@ -100,6 +102,7 @@ from argus_incidents.repository import (
     events,
     hypotheses,
     incidents,
+    postmortems,
     references,
     replay,
     taken_actions,
@@ -114,6 +117,12 @@ from argus_narration import (
     what_to_do,
     what_was_done,
     what_was_not_done,
+)
+from postmortem_rendering import (
+    the_reported_resolution,
+    the_resolution_list,
+    the_synopsis_figures,
+    the_synopsis_figures_said,
 )
 
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
@@ -177,6 +186,41 @@ def write_postmortem_for(incident_id: str,
         return document.model_copy(
             update={"tokens_spent": replay.get_tokens_spent(conn, incident_id)}
         )
+
+
+def write_synopsis_for(incident_id: str,
+                       connections: Connections,
+                       sources: Sources,
+                       client_for: ClientFor,
+                       recorder: Recorder = records_nothing) -> ExecutiveSynopsisDocument:
+    """The executive synopsis for one incident, from its stored postmortem.
+
+    The figures and the resolution are worded here, as the postmortem's page
+    words them - with a person's resolution read off the account, as the page
+    reads it - and handed to the agent: what the page says is not the agent's
+    to work out. Read off the row rather than handed from the postmortem's
+    node, which stores it and moves on - the postmortem is not changed for the
+    synopsis's sake.
+    """
+    with connections() as conn:
+        incident = incidents.get(conn, incident_id)
+        postmortem = postmortems.get_by_incident(conn, incident_id)
+        account = events.get_by_incident(conn, incident_id)
+
+    if incident is None or postmortem is None:
+        raise ValueError(f"no postmortem for incident [{incident_id}] to write a synopsis of")
+
+    alert = Alert.model_validate(incident.alert_payload)
+
+    return write_executive_synopsis(
+        postmortem,
+        incident_id=incident_id,
+        service=alert.service,
+        figures=the_synopsis_figures(postmortem, alert),
+        said=the_synopsis_figures_said(postmortem, alert),
+        resolution=the_resolution_list(postmortem, the_reported_resolution(account)),
+        sources=sources,
+        llm=client_for(Replay(incident_id, recorder)))
 
 
 def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvidence:
@@ -875,7 +919,7 @@ def _what_it_did(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> 
     it would tell a reader the service was changed when nothing was."""
     line = said.get(taken_action.hypothesis_id or "")
     if line is not None:
-        return what_was_done(line.action_type, line.subject or "")
+        return what_was_done(line.action_type, line.subject or "", line.accelerator)
 
     known = next((tag for tag in get_args(ActionType.__value__) if tag == taken_action.type), None)
     if known is not None and taken_action.progress is ActionProgress.NOT_PERFORMED:
@@ -889,9 +933,20 @@ def _what_it_did(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> 
         return named[:1].upper() + named[1:]
 
     if known is not None:
-        return what_was_done(known, taken_action.subject or "")
+        return what_was_done(known, taken_action.subject or "",
+                             _the_card_it_held_to(taken_action))
 
     return f"{taken_action.type} on {taken_action.subject}"
+
+
+def _the_card_it_held_to(taken_action: TakenAction) -> str | None:
+    """The card a pin held the pods to, off its row's undo descriptor, for an
+    action with no line to read it off - `None` for every other action."""
+    match taken_action.undo_descriptor:
+        case AcceleratorPinUndo() as pin:
+            return pin.pinned_to
+        case _:
+            return None
 
 
 class _ChangesRead(NamedTuple):

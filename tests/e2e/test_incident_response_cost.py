@@ -32,7 +32,7 @@ from argus_testkit.assertions import eventually
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
-    RECORDED_FLAG_TOGGLE_PAGED,
+    RECORDED_FLAG_TOGGLE_PRICED,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_is_triggered_with_alert,
@@ -42,17 +42,13 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.oncall import the_on_call_platform_holds
+from tests.e2e.framework.pay_bands import (
+    THE_CHEAPER_TITLE,
+    THE_CHEAPEST_MIDPOINT,
+    THE_DEARER_TITLE,
+    THE_DEAREST_MIDPOINT,
+)
 from tests.e2e.framework.world import a_scenario_was_seeded
-
-# Two titles the Target Service's HR endpoint publishes, on two different
-# levels, and those levels' midpoints.
-# MIRRORED FROM THE DEMO APP - NOT ARBITRARY VALUES!!!
-# A fixture that moves fails here saying the cost left the band it was priced
-# from, which is the failure worth having.
-THE_CHEAPER_TITLE = "Site Reliability Engineer"
-THE_DEARER_TITLE = "Senior Software Engineer"
-THE_CHEAPEST_MIDPOINT = Decimal(175_000)
-THE_DEAREST_MIDPOINT = Decimal(220_000)
 
 A_MINUTE = timedelta(minutes=1)
 MINUTES_AN_HOUR = Decimal(60)
@@ -73,8 +69,8 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("feature-flag-toggle",
-                                          as_recorded_in=RECORDED_FLAG_TOGGLE_PAGED)),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_PAGED)),
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_PRICED)),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_PRICED)),
             calling(the_on_call_platform_holds(
                 some_on_call_incident,
                 paged_for=some_alert,

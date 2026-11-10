@@ -251,6 +251,9 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- minutes.
     engineer_minutes INTEGER,
     responders INTEGER,
+    -- Whether a page went out at all, null where nobody could say: no
+    -- responders is both a page nobody acknowledged and no page.
+    paged BOOLEAN,
     -- What those responders were called by their profession, never who they
     -- were. A list rather than a column apiece: it is read whole, by a page
     -- that prints it, and nothing aggregates across titles.
@@ -378,6 +381,34 @@ CREATE TABLE IF NOT EXISTS postmortem (
     review JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- The moment of the event saying it was written, as the incident's own
     -- times are its account's.
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+-- The executive synopsis: the postmortem said for the people who lead rather
+-- than the people who respond, and posted to them alone. A table of its own
+-- rather than columns on `postmortem`, because it is written by a step after
+-- the postmortem's and changes nothing of it - and because it carries pay,
+-- which the postmortem's readers are the people it would price.
+CREATE TABLE IF NOT EXISTS executive_synopsis (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    incident_id UUID NOT NULL REFERENCES incident(id),
+    -- The model's prose with every figure written in. Null where it was given
+    -- up, which is the one synopsis that is not sent.
+    overview TEXT,
+    -- Why the overview was given up, said on the timeline too. Null where it
+    -- was not.
+    withheld_because TEXT,
+    -- Each title's people, minutes and cost at its band's midpoint, minimum
+    -- and maximum. A list rather than a table: it is read whole, by the
+    -- synopsis that prints it. Never null: an empty list is a response nobody
+    -- held a title in, or a breakdown that could not be matched.
+    cost_by_title JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- Whether the breakdown, read again, disagreed with the postmortem's
+    -- totals - which is why `cost_by_title` would then be empty.
+    breakdown_unmatched BOOLEAN NOT NULL,
+    -- The postmortem's own line saying its on-call page also covered other
+    -- incidents. Null where it did not.
+    response_shared TEXT,
     created_at TIMESTAMPTZ NOT NULL
 );
 
