@@ -17,9 +17,11 @@ component making an editorial decision in the middle of doing its job.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from agent_communicator.policy import Register, how_it_is_said
-from argus_core import new_id
+from argus_core import new_id, to_iso
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -83,6 +85,27 @@ AN_INCIDENT = new_id()
 
 SOME_MESSAGE = a_chat_message("some-chat", "some-channel", "some-message")
 
+# Every event here is said, or not, by its kind alone: nothing it carries
+# changes how loudly it is said.
+DONT_CARE_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")
+DONT_CARE_FLAG = "monthly-spend-feature"
+DONT_CARE_PERSON_ID = "some-person-id"
+DONT_CARE_PERSON_NAME = "some person"
+DONT_CARE_SAID = "rolled the flag back by hand, we're fine"
+DONT_CARE_REASON = "dont care"
+DONT_CARE_DETAIL = "dont care what it said"
+DONT_CARE_RECORD_ID = "3f2b1a09-0000-4000-8000-00000000000a"
+DONT_CARE_CONFIDENCE = 0.8
+
+# A window read, and the minutes an incident's lines name inside it.
+DONT_CARE_WINDOW_START = datetime(2026, 8, 30, 10, 2, tzinfo=UTC)
+DONT_CARE_WINDOW_END = DONT_CARE_WINDOW_START + timedelta(minutes=10)
+DONT_CARE_MINUTE = to_iso(DONT_CARE_WINDOW_START + timedelta(minutes=1))
+
+DONT_CARE_REPOSITORY_ADDRESS = "https://example.invalid"
+DONT_CARE_BRANCH = "argus/fix-abc"
+DONT_CARE_PULL_REQUEST_NUMBER = 7
+
 
 @pytest.mark.unit
 def test_what_argus_read_is_not_said_at_all() -> None:
@@ -91,10 +114,10 @@ def test_what_argus_read_is_not_said_at_all() -> None:
     # and a channel that reported it would bury the four lines that matter.
     Scenario() \
         .given(
-            everything_it_read := _everything_argus_read()
+            an_account_of_everything_it_read := _everything_argus_read()
         ) \
         .when(lambda: [(event.kind, how_it_is_said(event))
-                       for event in everything_it_read]) \
+                       for event in an_account_of_everything_it_read]) \
         .then(_they_are_all(Register.UNSAID))
 
 
@@ -106,10 +129,10 @@ def test_what_argus_found_and_did_is_said_in_the_incident_s_own_conversation() -
     # taken repeatedly.
     Scenario() \
         .given(
-            what_it_found_and_did := _what_argus_found_and_did()
+            an_account_of_what_it_found_and_did := _what_argus_found_and_did()
         ) \
         .when(lambda: [(event.kind, how_it_is_said(event))
-                       for event in what_it_found_and_did]) \
+                       for event in an_account_of_what_it_found_and_did]) \
         .then(_they_are_all(Register.FOLLOWED))
 
 
@@ -117,14 +140,12 @@ def test_what_argus_found_and_did_is_said_in_the_incident_s_own_conversation() -
 def test_an_incident_opening_is_announced() -> None:
     # The one line nobody can have chosen to follow yet, because it is what
     # there is to follow. Announced, or the incident is invisible.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     Scenario() \
         .given(
-            the_alert_arriving := AlertAcknowledged(incident_id=AN_INCIDENT,
-                                                    alert=some_alert)
+            an_alert_arriving := AlertAcknowledged(incident_id=AN_INCIDENT,
+                                                   alert=DONT_CARE_ALERT)
         ) \
-        .when(lambda: how_it_is_said(the_alert_arriving)) \
+        .when(lambda: how_it_is_said(an_alert_arriving)) \
         .then(_it_is_said(Register.ANNOUNCED))
 
 
@@ -139,10 +160,10 @@ def test_an_incident_ending_is_announced(ending: IncidentStatus) -> None:
     # whoever was already watching is an escalation to nobody.
     Scenario() \
         .given(
-            the_incident_ending := StatusChanged(incident_id=AN_INCIDENT,
-                                                 to_status=ending)
+            an_incident_ending := StatusChanged(incident_id=AN_INCIDENT,
+                                                to_status=ending)
         ) \
-        .when(lambda: how_it_is_said(the_incident_ending)) \
+        .when(lambda: how_it_is_said(an_incident_ending)) \
         .then(_it_is_said(Register.ANNOUNCED))
 
 
@@ -156,18 +177,24 @@ def test_the_grounds_for_a_disproof_are_followed_rather_than_announced() -> None
     # Not unsaid, though, which is where the policy's wildcard would leave it. A
     # thread that went from an alert to a terminal status with nothing in between
     # reads as an incident Argus could not work out - the opposite finding.
-    the_disproof = AlarmDisproven(
+    dont_care_condition = "error rate above 5% for 5m"
+    dont_care_signals = ("error_rate", "p95_ms")
+    dont_care_minutes_judged = 30
+    dont_care_earliest_minute = datetime(2026, 10, 3, 9, 0, tzinfo=UTC)
+    dont_care_latest_minute = (dont_care_earliest_minute
+                               + timedelta(minutes=dont_care_minutes_judged - 1))
+    a_disproof = AlarmDisproven(
         incident_id=AN_INCIDENT,
-        condition="error rate above 5% for 5m",
-        signals_judged=("error_rate", "p95_ms"),
-        earliest_minute="2026-10-03T09:00Z",
-        latest_minute="2026-10-03T09:29Z",
-        minutes_judged=30
+        condition=dont_care_condition,
+        signals_judged=dont_care_signals,
+        earliest_minute=to_iso(dont_care_earliest_minute),
+        latest_minute=to_iso(dont_care_latest_minute),
+        minutes_judged=dont_care_minutes_judged
     )
 
     Scenario() \
-        .given(the_disproof) \
-        .when(lambda: how_it_is_said(the_disproof)) \
+        .given(a_disproof) \
+        .when(lambda: how_it_is_said(a_disproof)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 
@@ -177,16 +204,20 @@ def test_a_failure_to_say_something_is_itself_not_said() -> None:
     # Telling Slack that Slack could not be told is either impossible or noise,
     # and a relay that tried would make a new failure out of every failure.
     # The page is where this one is read.
+    dont_care_channel = "#war-room"
+    dont_care_refusal = "channel_not_found"
+    dont_care_about_kind = "verdict-reached"
+
     Scenario() \
         .given(
-            the_line_that_was_lost := CommunicationFailed(
+            a_line_that_was_lost := CommunicationFailed(
                 incident_id=AN_INCIDENT,
-                channel="#war-room",
-                refusal="channel_not_found",
-                about_kind="verdict-reached"
+                channel=dont_care_channel,
+                refusal=dont_care_refusal,
+                about_kind=dont_care_about_kind
             )
         ) \
-        .when(lambda: how_it_is_said(the_line_that_was_lost)) \
+        .when(lambda: how_it_is_said(a_line_that_was_lost)) \
         .then(_it_is_said(Register.UNSAID))
 
 
@@ -197,14 +228,14 @@ def test_an_order_memory_changed_is_not_said_either() -> None:
     # being tested now, and that line is said where it is decided.
     Scenario() \
         .given(
-            what_memory_did := CandidatesReordered(
+            a_reordering_by_memory := CandidatesReordered(
                 incident_id=AN_INCIDENT,
                 action_type=REVERT_FEATURE_FLAG,
-                subject="new-checkout-flow",
-                on_the_strength_of="3f2b1a09-0000-4000-8000-00000000000a"
+                subject=DONT_CARE_FLAG,
+                on_the_strength_of=DONT_CARE_RECORD_ID
             )
         ) \
-        .when(lambda: how_it_is_said(what_memory_did)) \
+        .when(lambda: how_it_is_said(a_reordering_by_memory)) \
         .then(_it_is_said(Register.UNSAID))
 
 
@@ -215,13 +246,13 @@ def test_what_was_filed_for_the_next_incident_is_not_said_in_this_one() -> None:
     # this one, and is read on the page by whoever wonders later.
     Scenario() \
         .given(
-            what_was_filed := IncidentRemembered(
+            a_filing := IncidentRemembered(
                 incident_id=AN_INCIDENT,
                 tried=[ActionIdentity(action_type=REVERT_FEATURE_FLAG,
-                                      subject="new-checkout-flow")]
+                                      subject=DONT_CARE_FLAG)]
             )
         ) \
-        .when(lambda: how_it_is_said(what_was_filed)) \
+        .when(lambda: how_it_is_said(a_filing)) \
         .then(_it_is_said(Register.UNSAID))
 
 
@@ -230,14 +261,16 @@ def test_a_memory_that_could_not_be_written_is_not_said_either() -> None:
     # A store that is down costs the next incident an advantage and costs this
     # one nothing, and a war room is about this one. It is on the page, where
     # whoever maintains Argus reads it.
+    dont_care_refusal = "connection refused"
+
     Scenario() \
         .given(
-            what_was_not_filed := RememberingFailed(
+            a_filing_that_failed := RememberingFailed(
                 incident_id=AN_INCIDENT,
-                refusal="connection refused"
+                refusal=dont_care_refusal
             )
         ) \
-        .when(lambda: how_it_is_said(what_was_not_filed)) \
+        .when(lambda: how_it_is_said(a_filing_that_failed)) \
         .then(_it_is_said(Register.UNSAID))
 
 
@@ -248,17 +281,20 @@ def test_a_postmortem_is_filed_rather_than_announced() -> None:
     # channel, email as an attachment, and the policy has an opinion about
     # neither - only that this is the one line that belongs with the archive
     # rather than in the conversation about the incident.
+    dont_care_cause = "A month with no purchases broke the account pages."
+    dont_care_summary = f"Account pages failed for a third of shoppers. {dont_care_cause}"
+    dont_care_engineer_minutes = 34
+
     Scenario() \
         .given(
-            the_write_up := PostmortemWritten(
+            a_write_up := PostmortemWritten(
                 incident_id=AN_INCIDENT,
-                cause_in_plain_words="A month with no purchases broke the account pages.",
-                executive_summary="Account pages failed for a third of shoppers. A month with no "
-                                  "purchases broke the account pages.",
-                engineer_minutes=34
+                cause_in_plain_words=dont_care_cause,
+                executive_summary=dont_care_summary,
+                engineer_minutes=dont_care_engineer_minutes
             )
         ) \
-        .when(lambda: how_it_is_said(the_write_up)) \
+        .when(lambda: how_it_is_said(a_write_up)) \
         .then(_it_is_said(Register.FILED))
 
 
@@ -280,13 +316,11 @@ def test_an_executive_synopsis_is_briefed_to_the_people_it_is_for() -> None:
 def test_a_synopsis_given_up_is_not_said() -> None:
     # Nothing was written to send. Why it was given up is on the page, which
     # is where whoever maintains Argus reads it.
-    dont_care_reason = "dont care"
-
     Scenario() \
         .given(
             a_synopsis_given_up := ExecutiveSynopsisWithheld(
                 incident_id=AN_INCIDENT,
-                reason=dont_care_reason
+                reason=DONT_CARE_REASON
             )
         ) \
         .when(lambda: how_it_is_said(a_synopsis_given_up)) \
@@ -305,9 +339,11 @@ def test_what_code_fix_concluded_is_said_in_the_incident_s_own_conversation() ->
         incident_id=new_id(),
         outcome=FixOutcome.PROPOSED,
         pull_request=OpenedPullRequest(
-            number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"
+            number=DONT_CARE_PULL_REQUEST_NUMBER,
+            url=f"{DONT_CARE_REPOSITORY_ADDRESS}/pull/{DONT_CARE_PULL_REQUEST_NUMBER}",
+            branch=DONT_CARE_BRANCH
         ),
-        detail="dont care what it said"
+        detail=DONT_CARE_DETAIL
     )
 
     Scenario() \
@@ -328,10 +364,10 @@ def test_a_move_that_is_not_an_ending_stays_in_the_conversation(
     # the status is terminal rather than what it is called.
     Scenario() \
         .given(
-            the_incident_moving := StatusChanged(incident_id=AN_INCIDENT,
-                                                 to_status=move)
+            an_incident_moving := StatusChanged(incident_id=AN_INCIDENT,
+                                                to_status=move)
         ) \
-        .when(lambda: how_it_is_said(the_incident_moving)) \
+        .when(lambda: how_it_is_said(an_incident_moving)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 
@@ -343,15 +379,15 @@ def test_a_resumed_walk_does_not_re_announce_a_verdict_the_thread_already_has() 
     # is built rather than about the incident, which is the same reason
     # `agent-invoked` says nothing. The page still shows it; a channel does not
     # interrupt with a conclusion it already delivered.
-    some_resumption = MitigationResumed(
+    a_resumption = MitigationResumed(
         incident_id=AN_INCIDENT,
         hypothesis_id=new_id(),
         outcome=Verdict.REFUTED
     )
 
     Scenario() \
-        .given(some_resumption) \
-        .when(lambda: how_it_is_said(some_resumption)) \
+        .given(a_resumption) \
+        .when(lambda: how_it_is_said(a_resumption)) \
         .then(_it_is_said(Register.UNSAID))
 
 
@@ -365,17 +401,17 @@ def test_an_offer_to_resolve_is_said_where_the_person_wrote() -> None:
     # Followed rather than announced: it answers somebody who wrote in the
     # incident's own conversation, and the channel hears the ending their press
     # brings about, as it hears every other ending.
-    some_offer = ResolutionOffered(
+    an_offer = ResolutionOffered(
         incident_id=AN_INCIDENT,
         message=SOME_MESSAGE,
-        person_id="some-person-id",
-        person_name="some person",
-        said="rolled the flag back by hand, we're fine"
+        person_id=DONT_CARE_PERSON_ID,
+        person_name=DONT_CARE_PERSON_NAME,
+        said=DONT_CARE_SAID
     )
 
     Scenario() \
-        .given(some_offer) \
-        .when(lambda: how_it_is_said(some_offer)) \
+        .given(an_offer) \
+        .when(lambda: how_it_is_said(an_offer)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 
@@ -384,17 +420,18 @@ def test_an_offer_to_withdraw_is_said_where_the_person_wrote() -> None:
     # For the resolution offer's reason: a person asked Argus to stand down,
     # and an offer only Argus's own page showed would leave Argus working on
     # over their head.
-    some_offer = WithdrawalOffered(
+    dont_care_said = "stop, I've got this"
+    an_offer = WithdrawalOffered(
         incident_id=AN_INCIDENT,
         message=SOME_MESSAGE,
-        person_id="some-person-id",
-        person_name="some person",
-        said="stop, I've got this"
+        person_id=DONT_CARE_PERSON_ID,
+        person_name=DONT_CARE_PERSON_NAME,
+        said=dont_care_said
     )
 
     Scenario() \
-        .given(some_offer) \
-        .when(lambda: how_it_is_said(some_offer)) \
+        .given(an_offer) \
+        .when(lambda: how_it_is_said(an_offer)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 
@@ -404,11 +441,11 @@ def test_an_offer_not_confirmed_in_time_is_said_where_it_was_made() -> None:
     # never handles is an offer left asking a question Argus stopped waiting
     # for. Followed, where the offer was made, because it answers the person
     # who was asked - nobody else was waiting on it.
-    some_expiry = OfferExpired(incident_id=AN_INCIDENT, message=SOME_MESSAGE)
+    an_expiry = OfferExpired(incident_id=AN_INCIDENT, message=SOME_MESSAGE)
 
     Scenario() \
-        .given(some_expiry) \
-        .when(lambda: how_it_is_said(some_expiry)) \
+        .given(an_expiry) \
+        .when(lambda: how_it_is_said(an_expiry)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 
@@ -417,14 +454,14 @@ def test_how_a_lead_was_weighed_is_said_where_the_person_wrote_it() -> None:
     # The answer owed to whoever told Argus something it may not have known:
     # what it made of it, in the thread they wrote it in. Followed rather than
     # announced, because it answers them and nobody else was asking.
-    some_weighing = LeadWeighed(incident_id=AN_INCIDENT,
-                                message=SOME_MESSAGE,
-                                standing=Standing.SUPPORTED,
-                                reason="the checkout flag moved at the onset")
+    a_weighing = LeadWeighed(incident_id=AN_INCIDENT,
+                             message=SOME_MESSAGE,
+                             standing=Standing.SUPPORTED,
+                             reason=DONT_CARE_REASON)
 
     Scenario() \
-        .given(some_weighing) \
-        .when(lambda: how_it_is_said(some_weighing)) \
+        .given(a_weighing) \
+        .when(lambda: how_it_is_said(a_weighing)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 
@@ -434,13 +471,14 @@ def test_an_answer_to_a_question_is_said_where_the_person_asked_it() -> None:
     # an answer only Argus's own page showed, to a person who asked in the
     # thread. Followed rather than announced, because it answers them and
     # nobody else was asking.
-    some_answering = QuestionAnswered(incident_id=AN_INCIDENT,
-                                      message=SOME_MESSAGE,
-                                      answer="Argus reverted the checkout flag")
+    dont_care_answer = "Argus reverted the checkout flag"
+    an_answering = QuestionAnswered(incident_id=AN_INCIDENT,
+                                    message=SOME_MESSAGE,
+                                    answer=dont_care_answer)
 
     Scenario() \
-        .given(some_answering) \
-        .when(lambda: how_it_is_said(some_answering)) \
+        .given(an_answering) \
+        .when(lambda: how_it_is_said(an_answering)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 
@@ -453,10 +491,10 @@ def test_what_a_person_wrote_and_what_it_was_read_as_are_not_said_back() -> None
     # the page, which is where the timeline shows Argus heard.
     Scenario() \
         .given(
-            what_was_heard := _what_a_person_wrote_and_how_it_was_read()
+            an_account_of_what_was_heard := _what_a_person_wrote_and_how_it_was_read()
         ) \
         .when(lambda: [(event.kind, how_it_is_said(event))
-                       for event in what_was_heard]) \
+                       for event in an_account_of_what_was_heard]) \
         .then(_they_are_all(Register.UNSAID))
 
 
@@ -466,8 +504,8 @@ def _what_a_person_wrote_and_how_it_was_read() -> list[IncidentEvent]:
     return [
         PersonWrote(incident_id=AN_INCIDENT,
                     message=SOME_MESSAGE,
-                    person_id="some-person-id",
-                    text="rolled the flag back by hand, we're fine"),
+                    person_id=DONT_CARE_PERSON_ID,
+                    text=DONT_CARE_SAID),
         MessageUnderstood(incident_id=AN_INCIDENT,
                           message=SOME_MESSAGE,
                           meaning=Meaning.RESOLVE)
@@ -486,31 +524,31 @@ def _everything_argus_read() -> list[IncidentEvent]:
         RetrievalRequested(
             incident_id=AN_INCIDENT,
             channel=RetrievalChannel.LOGS,
-            window_start="2026-08-30T10:02:00Z",
-            window_end="2026-08-30T10:12:00Z"
+            window_start=to_iso(DONT_CARE_WINDOW_START),
+            window_end=to_iso(DONT_CARE_WINDOW_END)
         ),
         MetricsRetrieved(
             incident_id=AN_INCIDENT,
-            window_start="2026-08-30T10:02:00Z",
-            window_end="2026-08-30T10:12:00Z",
+            window_start=to_iso(DONT_CARE_WINDOW_START),
+            window_end=to_iso(DONT_CARE_WINDOW_END),
             buckets=[]
         ),
         LogsRetrieved(
             incident_id=AN_INCIDENT,
-            window_start="2026-08-30T10:02:00Z",
-            window_end="2026-08-30T10:12:00Z",
+            window_start=to_iso(DONT_CARE_WINDOW_START),
+            window_end=to_iso(DONT_CARE_WINDOW_END),
             lines=[]
         ),
         ChangesRetrieved(
             incident_id=AN_INCIDENT,
-            window_start="2026-08-30T10:02:00Z",
-            window_end="2026-08-30T10:12:00Z",
+            window_start=to_iso(DONT_CARE_WINDOW_START),
+            window_end=to_iso(DONT_CARE_WINDOW_END),
             changes=[]
         ),
         FlagChangesRetrieved(incident_id=AN_INCIDENT, changes=[]),
         ChannelsUnread(incident_id=AN_INCIDENT, channels=[]),
         RecoveryChecked(incident_id=AN_INCIDENT,
-                        minute="2026-08-30T10:15:00Z",
+                        minute=DONT_CARE_MINUTE,
                         recovered=False)
     ]
 
@@ -531,24 +569,27 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
     tells somebody Argus stopped and not what stopping left them holding - and
     for this incident the shop is still writing wrong totals while they read it.
     """
+    first_candidate = 1
+    six_minutes = int(timedelta(minutes=6).total_seconds())
+
     return [
-        OnsetDetected(incident_id=AN_INCIDENT, onset="2026-08-30T10:03:00Z"),
-        AnchoredOnTheAlarm(incident_id=AN_INCIDENT, minute="2026-08-30T10:03:00Z"),
+        OnsetDetected(incident_id=AN_INCIDENT, onset=DONT_CARE_MINUTE),
+        AnchoredOnTheAlarm(incident_id=AN_INCIDENT, minute=DONT_CARE_MINUTE),
         HypothesisFormed(
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
-            rank=1,
-            number=1,
-            summary="the monthly-spend flag was turned on",
+            rank=first_candidate,
+            number=first_candidate,
+            summary=f"the {DONT_CARE_FLAG} flag was turned on",
             failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
-            confidence=0.8,
-            subject="monthly-spend-feature",
+            confidence=DONT_CARE_CONFIDENCE,
+            subject=DONT_CARE_FLAG,
             evidence=[]
         ),
         CandidateSelected(
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
-            candidate_number=1
+            candidate_number=first_candidate
         ),
         ActionRefused(
             incident_id=AN_INCIDENT,
@@ -559,28 +600,28 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
             action_type=REVERT_FEATURE_FLAG,
-            subject="monthly-spend-feature"
+            subject=DONT_CARE_FLAG
         ),
         ActionTaken(
             incident_id=AN_INCIDENT,
             hypothesis_id=None,
-            action_type="revert-feature-flag",
-            subject="monthly-spend-feature",
+            action_type=REVERT_FEATURE_FLAG,
+            subject=DONT_CARE_FLAG,
             enabled=False
         ),
         AwaitingRecovery(
             incident_id=AN_INCIDENT,
-            from_minute="2026-08-30T10:14:00Z",
-            seconds_allowed=360
+            from_minute=DONT_CARE_MINUTE,
+            seconds_allowed=six_minutes
         ),
         VerdictReached(incident_id=AN_INCIDENT,
                        hypothesis_id=None,
                        outcome=Verdict.CONFIRMED),
         ChangeUndone(
             incident_id=AN_INCIDENT,
-            subject="monthly-spend-feature",
+            subject=DONT_CARE_FLAG,
             outcome=Undone.RESTORED,
-            detail="put back the way Argus found it"
+            detail=DONT_CARE_DETAIL
         )
     ]
 

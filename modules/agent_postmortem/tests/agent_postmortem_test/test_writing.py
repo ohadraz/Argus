@@ -26,7 +26,7 @@ says on its face that it is partial.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import cast
@@ -77,6 +77,7 @@ from argus_core.models import (
     CitedEvidence,
     CodeUse,
     ContributingFactor,
+    FailureMode,
     FileAsItRan,
     LatencyHarm,
     Lessons,
@@ -92,7 +93,6 @@ from argus_core.models import (
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 
 from agent_postmortem_test.framework.assertions import (
-    _it_says_what_is_still_owed,
     estimates_a_loss_of,
     proposes_the_fix_at,
     reports_a_cost_ranging_from,
@@ -108,6 +108,7 @@ from agent_postmortem_test.framework.assertions import (
     reports_the_cost_in,
     reports_the_titles,
     reports_tokens_spent,
+    says_what_is_still_owed,
     states_the_estimate_is_in,
 )
 from agent_postmortem_test.framework.builders import (
@@ -132,6 +133,51 @@ SOME_FLAG = "monthly-spend-feature"
 
 DONT_CARE_WORKING_YEAR = 2080.0
 
+DONT_CARE_SUMMARY = "dont care"
+DONT_CARE_ACTION = "dont care"
+DONT_CARE_STEP = "dont care"
+DONT_CARE_FIX_EXPLANATION = "dont care"
+DONT_CARE_HAD_IT_BEEN_OTHERWISE = "dont care"
+DONT_CARE_SERVICE = "io-shop"
+DONT_CARE_LOG_MESSAGE = "dont care"
+
+# A candidate the investigation formed, in tests where what it says is not
+# what they are about.
+SOME_CANDIDATE = "a flag change"
+
+# A log line one step of the cause cites, and the step citing it.
+SOME_LOG_LINE = "ZeroDivisionError in monthly_average"
+SOME_STEP = "the monthly average divided by zero"
+
+# One message, logged more than once, so that its lines group into one row.
+SOME_WARNING = "some warning"
+
+# What the model proposes be done, in the tests that number its proposals.
+SOME_PROPOSAL = "test an empty month"
+SOME_OTHER_PROPOSAL = "alert on account pages"
+
+# What stops the harm, as the model says it - without the full stop a
+# sentence ends on, which the document adds where it is missing.
+SOME_REMEDY = "Switch the flag off, confirmed at the service"
+
+# How long what stops the harm is kept, as the document says it after the
+# model's words.
+KEPT_IN_PLACE = "Keep it in place until the fault is fixed."
+
+# Two leads, written one after the other, each its own message.
+SOME_LEAD_WORDS = "the kuki flag was flipped at noon"
+SOME_OTHER_LEAD_WORDS = "it is the database again"
+SOME_TS = "1760000100.000200"
+SOME_LATER_TS = "1760000200.000300"
+
+DONT_CARE_REPOSITORY_ADDRESS = "https://example.invalid"
+DONT_CARE_BRANCH = "argus/fix-abc"
+SOME_PULL_REQUEST_NUMBER = 7
+A_PULL_REQUEST = OpenedPullRequest(
+    number=SOME_PULL_REQUEST_NUMBER,
+    url=f"{DONT_CARE_REPOSITORY_ADDRESS}/pull/{SOME_PULL_REQUEST_NUMBER}",
+    branch=DONT_CARE_BRANCH)
+
 
 @pytest.mark.unit
 def test_the_prose_the_model_wrote_is_what_the_document_says() -> None:
@@ -146,18 +192,18 @@ def test_the_prose_the_model_wrote_is_what_the_document_says() -> None:
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(),
-            measured := a_measured_incident(),
+            an_incident_s_evidence := an_evidence_bundle(),
+            a_measurement := a_measured_incident(),
             a_model_that_answered := _asking_that_answers(
                 a_submitted_answer(root_cause=some_root_cause,
                                    cause_in_plain_words=some_cause,
                                    still_at_risk=some_risk))
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=a_model_that_answered,
                                      disclose=_disclosing_that_returns([]))
         ) \
@@ -166,7 +212,8 @@ def test_the_prose_the_model_wrote_is_what_the_document_says() -> None:
                 reports_root_cause(some_root_cause),
                 _reports_cause_in_plain_words(some_cause),
                 reports_executive_summary(
-                    the_executive_summary(evidence, measured, some_cause, some_risk))
+                    the_executive_summary(an_incident_s_evidence, a_measurement, some_cause,
+                                          some_risk))
             )
         )
 
@@ -235,21 +282,21 @@ def test_the_figures_measured_are_the_figures_published() -> None:
     # the minimum where the midpoint goes would be wrong in a way no reader
     # could see.
     some_loss = Decimal("1234.56")
-    some_minutes = 25
-    some_responders = 2
-    some_cost = ResponderCost(midpoint=Decimal("30"),
-                              minimum=Decimal("15"),
-                              maximum=Decimal("60"),
+    some_midpoint = Decimal("30")
+    some_cost = ResponderCost(midpoint=some_midpoint,
+                              minimum=some_midpoint / 2,
+                              maximum=some_midpoint * 2,
                               currency=SOME_CURRENCY)
 
     Scenario() \
         .given(
+            an_engagement := an_engagement_of([
+                EngagedResponder(minutes=15, job_title=SOME_TITLE),
+                EngagedResponder(minutes=10, job_title=SOME_OTHER_TITLE)
+            ]),
             a_fully_measured_incident := a_measured_incident(
                 loss=some_loss,
-                engaged=an_engagement_of([
-                    EngagedResponder(minutes=15, job_title=SOME_TITLE),
-                    EngagedResponder(minutes=10, job_title=SOME_OTHER_TITLE)
-                ]),
+                engaged=an_engagement,
                 cost=some_cost)
         ) \
         .when(
@@ -265,8 +312,8 @@ def test_the_figures_measured_are_the_figures_published() -> None:
             all_of(
                 estimates_a_loss_of(some_loss),
                 states_the_estimate_is_in(SOME_CURRENCY),
-                reports_engineer_minutes(some_minutes),
-                reports_responders(some_responders),
+                reports_engineer_minutes(an_engagement.minutes),
+                reports_responders(an_engagement.responders),
                 reports_paged(True),
                 reports_the_titles(SOME_TITLE, SOME_OTHER_TITLE),
                 reports_a_responder_cost_of(some_cost.midpoint),
@@ -367,7 +414,7 @@ def test_the_review_is_of_the_document_as_written_with_the_faults_still_in_it() 
     # and the page says on its face what it is.
     some_faults = ["the field [root_cause] was missing"]
     some_review = [ReviewCriterion(criterion="some criterion", met=False)]
-    reviewing = _reviewing_that_returns(some_review)
+    a_reviewer = _reviewing_that_returns(some_review)
 
     Scenario() \
         .given(
@@ -382,12 +429,12 @@ def test_the_review_is_of_the_document_as_written_with_the_faults_still_in_it() 
                                          a_measured_incident()),
                                      ask=an_answer_still_wrong,
                                      disclose=_disclosing_that_returns([]),
-                                     review=reviewing)
+                                     review=a_reviewer)
         ) \
         .then(
             all_of(
                 _publishes("the review", lambda document: document.review, some_review),
-                _reviewed_as_written(reviewing, some_faults)
+                _reviewed_as_written(a_reviewer, some_faults)
             )
         )
 
@@ -399,7 +446,7 @@ def test_the_review_is_told_whether_the_answer_says_its_chain_reaches_a_cause(
     # The model's own word on its chain, and the review's only source for it:
     # nothing in the document as written says whether a step got past the
     # change that set the incident off.
-    reviewing = _reviewing_that_returns([])
+    a_reviewer = _reviewing_that_returns([])
 
     Scenario() \
         .given(
@@ -414,10 +461,10 @@ def test_the_review_is_told_whether_the_answer_says_its_chain_reaches_a_cause(
                                          a_measured_incident()),
                                      ask=an_answer_about_its_chain,
                                      disclose=_disclosing_that_returns([]),
-                                     review=reviewing)
+                                     review=a_reviewer)
         ) \
         .then(
-            _reviewed_knowing(reviewing, reaches_a_cause)
+            _reviewed_knowing(a_reviewer, reaches_a_cause)
         )
 
 
@@ -429,7 +476,7 @@ def test_the_review_is_told_whether_the_answer_says_its_cause_rests_on_an_unrun_
     # The model's own word, and the review's only source for it: whether a
     # line cited beside the reading shows the mechanism is a judgement of what
     # both say.
-    reviewing = _reviewing_that_returns([])
+    a_reviewer = _reviewing_that_returns([])
 
     Scenario() \
         .given(
@@ -444,10 +491,10 @@ def test_the_review_is_told_whether_the_answer_says_its_cause_rests_on_an_unrun_
                                          a_measured_incident()),
                                      ask=an_answer_about_its_cause,
                                      disclose=_disclosing_that_returns([]),
-                                     review=reviewing)
+                                     review=a_reviewer)
         ) \
         .then(
-            _reviewed_knowing_whether_it_rests_on_a_reading(reviewing,
+            _reviewed_knowing_whether_it_rests_on_a_reading(a_reviewer,
                                                             rests_on_an_unrun_reading)
         )
 
@@ -458,14 +505,19 @@ def test_a_cause_resting_on_an_unrun_reading_is_called_unverified_beside_it() ->
     # review's box are written from one answer and cannot disagree - and named
     # by the readings the chain cites, which a reader can open.
     some_root_cause = "The average divides by this month's purchases, which can be none."
+    some_line_cited = "T1"
+    some_reading_cited = "F1"
 
     Scenario() \
         .given(
             an_answer_resting_on_a_reading := _asking_that_answers(
                 a_submitted_answer(root_cause=some_root_cause,
                                    cause_rests_on_an_unrun_reading=True).model_copy(update={
-                    "causal_chain": [SubmittedStep(step="dont care", cites=["T1"]),
-                                     SubmittedStep(step="dont care", cites=["F1", "T1"])]}))
+                    "causal_chain": [
+                        SubmittedStep(step=DONT_CARE_STEP, cites=[some_line_cited]),
+                        SubmittedStep(step=DONT_CARE_STEP,
+                                      cites=[some_reading_cited, some_line_cited])
+                    ]}))
         ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
@@ -476,8 +528,8 @@ def test_a_cause_resting_on_an_unrun_reading_is_called_unverified_beside_it() ->
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            reports_root_cause(f"{some_root_cause} It rests on F1, a reading of the source "
-                               f"nothing ran, so it is unverified.")
+            reports_root_cause(f"{some_root_cause} It rests on {some_reading_cited}, a reading "
+                               f"of the source nothing ran, so it is unverified.")
         )
 
 
@@ -485,21 +537,25 @@ def test_a_cause_resting_on_an_unrun_reading_is_called_unverified_beside_it() ->
 def test_the_sections_the_record_holds_are_the_sections_published() -> None:
     # Each written by code from the record, and never asked of the model. A
     # flag change read, so the trigger is one and not nothing.
+    some_flag_was = "off"
+    some_flag_became = "on"
+    some_reversion = f"revert_feature_flag on {SOME_FLAG}"
+    some_moment_before_the_onset = ONSET - timedelta(minutes=2)
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                candidates=[a_candidate("a flag change", subject=SOME_FLAG,
-                                        from_state="off", to_state="on",
+            an_incident_s_evidence := an_evidence_bundle(
+                candidates=[a_candidate(SOME_CANDIDATE, subject=SOME_FLAG,
+                                        from_state=some_flag_was, to_state=some_flag_became,
                                         tested=True, result=Verdict.CONFIRMED)],
-                actions=[an_action(f"revert_feature_flag on {SOME_FLAG}",
-                                   verdict=Verdict.CONFIRMED)],
+                actions=[an_action(some_reversion, verdict=Verdict.CONFIRMED)],
                 changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
-                                     occurred_at=to_iso(ONSET - timedelta(minutes=2)),
+                                     occurred_at=to_iso(some_moment_before_the_onset),
                                      reference=SOME_FLAG,
-                                     summary="dont care")])
+                                     summary=DONT_CARE_SUMMARY)])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -510,13 +566,17 @@ def test_the_sections_the_record_holds_are_the_sections_published() -> None:
         .then(
             all_of(
                 _publishes("the detection",
-                           lambda document: document.detection, detection_of(evidence)),
+                           lambda document: document.detection,
+                           detection_of(an_incident_s_evidence)),
                 _publishes("the trigger",
-                           lambda document: document.trigger, trigger_of(evidence)),
+                           lambda document: document.trigger,
+                           trigger_of(an_incident_s_evidence)),
                 _publishes("the resolution",
-                           lambda document: document.resolution, resolution_of(evidence)),
+                           lambda document: document.resolution,
+                           resolution_of(an_incident_s_evidence)),
                 _publishes("the hypotheses",
-                           lambda document: document.hypotheses, hypotheses_of(evidence))
+                           lambda document: document.hypotheses,
+                           hypotheses_of(an_incident_s_evidence))
             )
         )
 
@@ -527,12 +587,12 @@ def test_why_a_confirmed_cause_has_no_trigger_is_published() -> None:
     # trigger rather than that none was established.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                candidates=[a_candidate("a flag change", subject=SOME_FLAG,
+            an_incident_s_evidence := an_evidence_bundle(
+                candidates=[a_candidate(SOME_CANDIDATE, subject=SOME_FLAG,
                                         tested=True, result=Verdict.CONFIRMED)])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -542,34 +602,43 @@ def test_why_a_confirmed_cause_has_no_trigger_is_published() -> None:
         ) \
         .then(
             _publishes("why there is no trigger",
-                       lambda document: document.no_trigger, why_no_trigger(evidence))
+                       lambda document: document.no_trigger,
+                       why_no_trigger(an_incident_s_evidence))
         )
 
 
 @pytest.mark.unit
 def test_the_impact_is_the_incident_as_measured_with_the_logs_in_what_the_metrics_missed(
 ) -> None:
+    metrics_stopped_at = ONSET
+    some_line_in_the_gap = _a_warning_at(metrics_stopped_at + timedelta(minutes=4),
+                                         saying=DONT_CARE_LOG_MESSAGE)
+    some_reading_ended = metrics_stopped_at + timedelta(minutes=20)
+    serving_as_before = True
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"],
-                log_reading_ended=ONSET + timedelta(minutes=20)),
-            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+            an_incident_s_evidence := an_evidence_bundle(log_lines=[some_line_in_the_gap],
+                                                         log_reading_ended=some_reading_ended),
+            a_measurement := a_measured_incident(back_to_normal_at=None,
+                                                 metrics_stopped_at=metrics_stopped_at)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer().model_copy(
-                                         update={"logs_show_serving_as_before": True})),
+                                         update={"logs_show_serving_as_before":
+                                                 serving_as_before})),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the impact", lambda document: document.impact,
-                       impact_of(measured,
+                       impact_of(a_measurement,
                                  logs_in_the_gap=logs_in_the_gap_of(
-                                     evidence, measured, serving_as_before=True),
+                                     an_incident_s_evidence, a_measurement,
+                                     serving_as_before=serving_as_before),
                                  latency_told=[],
                                  disproven=False))
         )
@@ -581,56 +650,62 @@ def test_the_impact_carries_how_long_requests_took_at_each_quantile_the_brief_te
     # took, a write-up said only that they took longer, and the page's Impact
     # and summary said nothing of it. A quantile that did not depart is no
     # slowdown, and the brief does not tell it.
+    a_quantile_that_held = LatencyLevels(quantile="p50", baseline=41.0, while_broken=43.0,
+                                         at_its_worst=48.0, departed=False)
+    a_quantile_that_departed = LatencyLevels(quantile="p95", baseline=215.13,
+                                             while_broken=586.4, at_its_worst=1449.0,
+                                             departed=True)
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(),
-            measured := a_measured_incident(latency=[
-                LatencyLevels(quantile="p50", baseline=41.0, while_broken=43.0,
-                              at_its_worst=48.0, departed=False),
-                LatencyLevels(quantile="p95", baseline=215.13, while_broken=586.4,
-                              at_its_worst=1449.0, departed=True)
-            ])
+            an_incident_s_evidence := an_evidence_bundle(),
+            a_measurement := a_measured_incident(latency=[a_quantile_that_held,
+                                                          a_quantile_that_departed])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("how long requests took",
                        lambda document: document.impact.latency_harm if document.impact else None,
-                       [LatencyHarm(quantile="p95", before=215.13, while_broken=586.4,
-                                    at_its_worst=1449.0)])
+                       [LatencyHarm(quantile=a_quantile_that_departed.quantile,
+                                    before=a_quantile_that_departed.baseline,
+                                    while_broken=a_quantile_that_departed.while_broken,
+                                    at_its_worst=a_quantile_that_departed.at_its_worst)])
         )
 
 
 @pytest.mark.unit
 def test_the_load_the_brief_measured_is_published_under_the_labels_it_was_shown_by() -> None:
     # A step of the cause cites R1, and the page has the row it leads to.
+    some_requests = LoadLevels(before=1200, while_broken=4200, at_its_highest=5400)
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
-                                        tested=True, result="confirmed")]),
-            measured := a_measured_incident(demand=DemandLevels(
-                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
-                cpu_share=None))
+            an_incident_s_evidence := an_evidence_bundle(
+                candidates=[a_candidate(DONT_CARE_SUMMARY,
+                                        failure_mode=FailureMode.DEMAND_SATURATION,
+                                        tested=True, result=Verdict.CONFIRMED)]),
+            a_measurement := a_measured_incident(demand=DemandLevels(requests=some_requests,
+                                                                     cpu_share=None))
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("what the metrics show of the confirmed cause",
                        lambda document: document.cause_measured,
-                       the_cause_measured_labelled(evidence, measured))
+                       the_cause_measured_labelled(an_incident_s_evidence, a_measurement))
         )
 
 
@@ -638,68 +713,77 @@ def test_the_load_the_brief_measured_is_published_under_the_labels_it_was_shown_
 def test_the_detection_carries_the_rules_wait_as_measured() -> None:
     # Measured rather than read off the record: the wait is the rule's, read
     # from the alerting system when the postmortem is written.
+    some_wait = timedelta(minutes=5)
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(),
-            measured := a_measured_incident(rule_waits=timedelta(minutes=5))
+            an_incident_s_evidence := an_evidence_bundle(),
+            a_measurement := a_measured_incident(rule_waits=some_wait)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the detection", lambda document: document.detection,
-                       detection_of(evidence, rule_waits=timedelta(minutes=5)))
+                       detection_of(an_incident_s_evidence, rule_waits=some_wait))
         )
 
 
 @pytest.mark.unit
 def test_the_detection_carries_whether_the_rule_held_before_the_onset_as_measured() -> None:
+    held_before_the_onset = False
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(),
-            measured := a_measured_incident().model_copy(
-                update={"rule_held_before_the_onset": False})
+            an_incident_s_evidence := an_evidence_bundle(),
+            a_measurement := a_measured_incident(rule_held_before_the_onset=held_before_the_onset)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the detection", lambda document: document.detection,
-                       detection_of(evidence, held_before_the_onset=False))
+                       detection_of(an_incident_s_evidence,
+                                    held_before_the_onset=held_before_the_onset))
         )
 
 
 @pytest.mark.unit
 def test_the_detection_lesson_is_worked_out_from_what_was_measured() -> None:
     # Written by code, never asked of the model: every part of it is measured.
+    some_alert_moment = ONSET + timedelta(minutes=12)
+    some_wait = timedelta(0)
+    some_look_back = timedelta(minutes=5)
+    some_evaluation_interval = timedelta(minutes=1)
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=12)),
-            measured := a_measured_incident(rule_waits=timedelta(0),
-                                            rule_looks_back=timedelta(minutes=5),
-                                            rule_evaluated_every=timedelta(minutes=1))
+            an_incident_s_evidence := an_evidence_bundle(alerted_at=some_alert_moment),
+            a_measurement := a_measured_incident(rule_waits=some_wait,
+                                                 rule_looks_back=some_look_back,
+                                                 rule_evaluated_every=some_evaluation_interval)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the detection lesson", lambda document: document.detection_lesson,
-                       the_detection_lesson(evidence, measured))
+                       the_detection_lesson(an_incident_s_evidence, a_measurement))
         )
 
 
@@ -713,10 +797,11 @@ def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(recorded_recovery_at=some_recorded_recovery)
+            an_incident_s_evidence := an_evidence_bundle(
+                recorded_recovery_at=some_recorded_recovery)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -728,7 +813,7 @@ def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
         .then(
             _publishes("the timeline",
                        lambda document: document.timeline,
-                       timeline_of(evidence, some_measured_recovery))
+                       timeline_of(an_incident_s_evidence, some_measured_recovery))
         )
 
 
@@ -736,10 +821,10 @@ def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
 def test_the_timeline_says_the_service_was_back_before_the_action_credited_with_it() -> None:
     Scenario() \
         .given(
-            evidence := an_evidence_bundle()
+            an_incident_s_evidence := an_evidence_bundle()
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -751,7 +836,8 @@ def test_the_timeline_says_the_service_was_back_before_the_action_credited_with_
         .then(
             _publishes("the timeline",
                        lambda document: document.timeline,
-                       timeline_of(evidence, RECOVERED_AT, back_before_the_action=True))
+                       timeline_of(an_incident_s_evidence, RECOVERED_AT,
+                                   back_before_the_action=True))
         )
 
 
@@ -761,43 +847,42 @@ def test_the_model_s_proposals_are_numbered_after_the_record_s_own_items() -> No
     # factors could name them; its own proposals follow on, in the order it
     # gave them. Open and nobody's: Argus edits no item after the document is
     # written, so whoever takes one on does so somewhere else.
-    evidence = an_evidence_bundle(pull_request=OpenedPullRequest(
-        number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"))
-    measured = a_measured_incident()
+    an_incident_s_evidence = an_evidence_bundle(pull_request=A_PULL_REQUEST)
+    a_measurement = a_measured_incident()
+    the_record_s_items = record_action_items_of(an_incident_s_evidence,
+                                                a_measurement.back_to_normal_at)
+    a_prevention = SubmittedItem(item=SOME_PROPOSAL, type=ActionItemType.PREVENT)
+    a_detection = SubmittedItem(item=SOME_OTHER_PROPOSAL, type=ActionItemType.DETECT)
 
     Scenario() \
         .given(
             a_model_proposing_two := _asking_that_answers(
-                a_submitted_answer().model_copy(update={"action_items": [
-                    SubmittedItem(item="test an empty month", type=ActionItemType.PREVENT),
-                    SubmittedItem(item="alert on account pages", type=ActionItemType.DETECT)
-                ]}))
+                a_submitted_answer().model_copy(update={"action_items": [a_prevention,
+                                                                         a_detection]}))
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=a_model_proposing_two,
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the action items", lambda document: document.action_items, [
-                *record_action_items_of(evidence, measured.back_to_normal_at),
-                ActionItem(number="AI-2", text="test an empty month",
-                           type=ActionItemType.PREVENT, owner=None, tracking=None,
-                           status=ActionItemStatus.OPEN),
-                ActionItem(number="AI-3", text="alert on account pages",
-                           type=ActionItemType.DETECT, owner=None, tracking=None,
-                           status=ActionItemStatus.OPEN)
+                *the_record_s_items,
+                _an_open_item(_item_number(len(the_record_s_items) + 1),
+                              a_prevention.item, a_prevention.type),
+                _an_open_item(_item_number(len(the_record_s_items) + 2),
+                              a_detection.item, a_detection.type)
             ])
         )
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("said", [
-    pytest.param("Switch the flag off, confirmed at the service.", id="ended-as-a-sentence"),
-    pytest.param("Switch the flag off, confirmed at the service", id="not-ended")
+    pytest.param(f"{SOME_REMEDY}.", id="ended-as-a-sentence"),
+    pytest.param(SOME_REMEDY, id="not-ended")
 ])
 def test_what_stops_the_harm_is_published_as_a_mitigation_after_the_model_s_proposals(
         said: str) -> None:
@@ -806,37 +891,35 @@ def test_what_stops_the_harm_is_published_as_a_mitigation_after_the_model_s_prop
     # said after the model's words, as a sentence of its own: asked of the
     # model, a write-up dropped it two times in five, and tacked onto its last
     # clause it would read as that clause's.
-    evidence = an_evidence_bundle(
-        actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)])
-    measured = a_measured_incident(back_to_normal_at=None)
+    an_incident_s_evidence = an_evidence_bundle(
+        actions=[an_action(DONT_CARE_ACTION, verdict=Verdict.REFUTED, put_back=True)])
+    a_measurement = a_measured_incident(back_to_normal_at=None)
+    # A refuted action and no pull request leave the record nothing to do.
+    items_on_the_record = 0
+    a_prevention = SubmittedItem(item=SOME_PROPOSAL, type=ActionItemType.PREVENT)
 
     Scenario() \
         .given(
             a_model_saying_what_stops_it := _asking_that_answers(
                 a_submitted_answer().model_copy(update={
-                    "action_items": [
-                        SubmittedItem(item="test an empty month", type=ActionItemType.PREVENT)
-                    ],
+                    "action_items": [a_prevention],
                     "stops_the_harm": said}))
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=a_model_saying_what_stops_it,
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the action items", lambda document: document.action_items, [
-                ActionItem(number="AI-1", text="test an empty month",
-                           type=ActionItemType.PREVENT, owner=None, tracking=None,
-                           status=ActionItemStatus.OPEN),
-                ActionItem(number="AI-2",
-                           text="Switch the flag off, confirmed at the service. Keep it in "
-                                "place until the fault is fixed.",
-                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
-                           status=ActionItemStatus.OPEN)
+                _an_open_item(_item_number(items_on_the_record + 1),
+                              a_prevention.item, a_prevention.type),
+                _an_open_item(_item_number(items_on_the_record + 2),
+                              f"{SOME_REMEDY}. {KEPT_IN_PLACE}",
+                              ActionItemType.MITIGATE)
             ])
         )
 
@@ -848,41 +931,41 @@ def test_why_the_change_put_back_did_not_help_is_published_as_a_mitigation_after
     # mitigation, since the harm is still going on while nobody knows why the
     # change did not reach it. Then the document's own check for next time:
     # asked what to find out, a write-up settled the reach there and dropped it.
-    evidence = an_evidence_bundle(
-        actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)])
-    measured = a_measured_incident(back_to_normal_at=None)
+    an_incident_s_evidence = an_evidence_bundle(
+        actions=[an_action(DONT_CARE_ACTION, verdict=Verdict.REFUTED, put_back=True)])
+    a_measurement = a_measured_incident(back_to_normal_at=None)
+    # A refuted action and no pull request leave the record nothing to do.
+    items_on_the_record = 0
+    some_remedy = "Switch the flag off."
+    some_question = "Find out why the service kept reading the flag on."
 
     Scenario() \
         .given(
             a_model_saying_why := _asking_that_answers(
                 a_submitted_answer().model_copy(update={
-                    "stops_the_harm": "Switch the flag off.",
-                    "why_it_did_not_help": "Find out why the service kept reading the flag on."}))
+                    "stops_the_harm": some_remedy,
+                    "why_it_did_not_help": some_question}))
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=a_model_saying_why,
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the action items", lambda document: document.action_items, [
-                ActionItem(number="AI-1",
-                           text="Switch the flag off. Keep it in place until the fault is fixed.",
-                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
-                           status=ActionItemStatus.OPEN),
-                ActionItem(number="AI-2",
-                           text="Find out why the service kept reading the flag on.",
-                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
-                           status=ActionItemStatus.OPEN),
-                ActionItem(number="AI-3",
-                           text="Before the Mitigation Agent judges a change it made, have it "
-                                "confirm from the service's own logs that the change reached "
-                                "the service.",
-                           type=ActionItemType.PROCESS, owner=None, tracking=None,
-                           status=ActionItemStatus.OPEN)
+                _an_open_item(_item_number(items_on_the_record + 1),
+                              f"{some_remedy} {KEPT_IN_PLACE}",
+                              ActionItemType.MITIGATE),
+                _an_open_item(_item_number(items_on_the_record + 2),
+                              some_question, ActionItemType.MITIGATE),
+                _an_open_item(_item_number(items_on_the_record + 3),
+                              "Before the Mitigation Agent judges a change it made, have it "
+                              "confirm from the service's own logs that the change reached "
+                              "the service.",
+                              ActionItemType.PROCESS)
             ])
         )
 
@@ -892,29 +975,37 @@ def test_a_factor_is_published_with_its_record_items_and_the_proposals_naming_it
     # The model links each proposal to the factors it answers, by label; the
     # reader is shown each factor's items by number, as the record's are -
     # its own first, then each proposal that names it, in the order given.
-    evidence = an_evidence_bundle(pull_request=OpenedPullRequest(
-        number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"))
+    an_incident_s_evidence = an_evidence_bundle(pull_request=A_PULL_REQUEST)
+    # The pull request is the record's one item: reviewing it.
+    items_on_the_record = 1
+    the_review_of_the_fix = _item_number(items_on_the_record)
+    the_first_proposal = _item_number(items_on_the_record + 1)
+    the_second_proposal = _item_number(items_on_the_record + 2)
+    some_label = "CF-1"
+    some_other_label = "CF-2"
+    a_factor_the_record_answers = SubmittedFactor(
+        label=some_label, factor="the canary started large",
+        had_it_been_otherwise=DONT_CARE_HAD_IT_BEEN_OTHERWISE,
+        addressed_by=[the_review_of_the_fix])
+    a_factor_only_proposals_answer = SubmittedFactor(
+        label=some_other_label, factor="no test covered an empty month",
+        had_it_been_otherwise=DONT_CARE_HAD_IT_BEEN_OTHERWISE, addressed_by=[])
 
     Scenario() \
         .given(
             a_model_linking_by_label := _asking_that_answers(
                 a_submitted_answer().model_copy(update={
-                    "contributing_factors": [
-                        SubmittedFactor(label="CF-1", factor="the canary started large",
-                                        had_it_been_otherwise="dont care",
-                                        addressed_by=["AI-1"]),
-                        SubmittedFactor(label="CF-2", factor="no test covered an empty month",
-                                        had_it_been_otherwise="dont care", addressed_by=[])
-                    ],
+                    "contributing_factors": [a_factor_the_record_answers,
+                                             a_factor_only_proposals_answer],
                     "action_items": [
-                        SubmittedItem(item="test an empty month", type=ActionItemType.PREVENT,
-                                      answers=["CF-1", "CF-2"]),
-                        SubmittedItem(item="alert on account pages", type=ActionItemType.DETECT,
-                                      answers=["CF-2"])
+                        SubmittedItem(item=SOME_PROPOSAL, type=ActionItemType.PREVENT,
+                                      answers=[some_label, some_other_label]),
+                        SubmittedItem(item=SOME_OTHER_PROPOSAL, type=ActionItemType.DETECT,
+                                      answers=[some_other_label])
                     ]}))
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(a_measured_incident()),
@@ -924,10 +1015,12 @@ def test_a_factor_is_published_with_its_record_items_and_the_proposals_naming_it
         .then(
             _publishes("the contributing factors",
                        lambda document: document.contributing_factors,
-                       [ContributingFactor(text="the canary started large",
-                                           addressed_by=["AI-1", "AI-2"]),
-                        ContributingFactor(text="no test covered an empty month",
-                                           addressed_by=["AI-2", "AI-3"])])
+                       [ContributingFactor(text=a_factor_the_record_answers.factor,
+                                           addressed_by=[the_review_of_the_fix,
+                                                         the_first_proposal]),
+                        ContributingFactor(text=a_factor_only_proposals_answer.factor,
+                                           addressed_by=[the_first_proposal,
+                                                         the_second_proposal])])
         )
 
 
@@ -935,16 +1028,15 @@ def test_a_factor_is_published_with_its_record_items_and_the_proposals_naming_it
 def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
     # The label means nothing outside the prompt it was given in, and the
     # stored document is read without one.
-    the_log_line = "ZeroDivisionError in monthly_average"
-    its_row = grouped([the_log_line], None, ONSET.date())[0]
+    its_row = grouped([SOME_LOG_LINE], None, ONSET.date())[0]
     its_label = its_row.label
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=[the_log_line])
+            an_incident_s_evidence := an_evidence_bundle(log_lines=[SOME_LOG_LINE])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -952,14 +1044,14 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
                                      ask=_asking_that_answers(
                                          a_submitted_answer().model_copy(update={
                                              "causal_chain": [SubmittedStep(
-                                                 step="the monthly average divided by zero",
+                                                 step=SOME_STEP,
                                                  cites=[its_label])]
                                          })),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
-                ChainStep(text="the monthly average divided by zero",
+                ChainStep(text=SOME_STEP,
                           cites=[CitedEvidence(label=its_label, text=its_row.text)])
             ])
         )
@@ -968,16 +1060,16 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
 @pytest.mark.unit
 def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> None:
     # As the step does: the label means nothing in the stored document.
-    the_log_line = "ZeroDivisionError in monthly_average"
-    its_row = grouped([the_log_line], None, ONSET.date())[0]
+    its_row = grouped([SOME_LOG_LINE], None, ONSET.date())[0]
     its_label = its_row.label
+    some_ruled_out = "a slow database, never logged"
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=[the_log_line])
+            an_incident_s_evidence := an_evidence_bundle(log_lines=[SOME_LOG_LINE])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -985,19 +1077,19 @@ def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> No
                                      ask=_asking_that_answers(
                                          a_submitted_answer().model_copy(update={
                                              "causal_chain": [SubmittedStep(
-                                                 step="the monthly average divided by zero",
+                                                 step=SOME_STEP,
                                                  cites=[its_label],
                                                  ruled_out=[SubmittedRuledOut(
-                                                     what="a slow database, never logged",
+                                                     what=some_ruled_out,
                                                      cites=[its_label])])]
                                          })),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
-                ChainStep(text="the monthly average divided by zero",
+                ChainStep(text=SOME_STEP,
                           cites=[CitedEvidence(label=its_label, text=its_row.text)],
-                          ruled_out=[RuledOut(text="a slow database, never logged",
+                          ruled_out=[RuledOut(text=some_ruled_out,
                                               cites=[CitedEvidence(label=its_label,
                                                                    text=its_row.text)])])
             ])
@@ -1008,35 +1100,38 @@ def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> No
 def test_a_step_citing_a_log_split_where_the_metrics_stopped_carries_the_split_text() -> None:
     # The text a step carries is what the model was shown under the label it
     # cites, and the row on the page beside it is split - so the step is too.
-    some_lines = [f"{to_iso(ONSET - timedelta(minutes=5))} WARN io-shop: some warning",
-                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+    metrics_stopped_at = ONSET
+    some_lines = [_a_warning_at(metrics_stopped_at - timedelta(minutes=5)),
+                  _a_warning_at(metrics_stopped_at + timedelta(minutes=5))]
     its_label = grouped(some_lines, None, ONSET.date())[0].label
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=some_lines)
+            an_incident_s_evidence := an_evidence_bundle(log_lines=some_lines)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
-                                         a_measured_incident(back_to_normal_at=None,
-                                                             metrics_stopped_at=ONSET)),
+                                         a_measured_incident(
+                                             back_to_normal_at=None,
+                                             metrics_stopped_at=metrics_stopped_at)),
                                      ask=_asking_that_answers(
                                          a_submitted_answer().model_copy(update={
                                              "causal_chain": [SubmittedStep(
-                                                 step="dont care what the step says",
+                                                 step=SOME_STEP,
                                                  cites=[its_label])]
                                          })),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
-                ChainStep(text="dont care what the step says",
+                ChainStep(text=SOME_STEP,
                           cites=[CitedEvidence(
                               label=its_label,
-                              text=grouped(some_lines, ONSET, ONSET.date())[0].text)])
+                              text=grouped(some_lines, metrics_stopped_at,
+                                           ONSET.date())[0].text)])
             ])
         )
 
@@ -1045,16 +1140,16 @@ def test_a_step_citing_a_log_split_where_the_metrics_stopped_carries_the_split_t
 def test_a_citation_of_evidence_never_shown_is_not_published() -> None:
     # The check has named it already, and the review holds it against the
     # analysis. Kept, it would be a citation a reader can follow nowhere.
-    the_log_line = "ZeroDivisionError in monthly_average"
-    its_row = grouped([the_log_line], None, ONSET.date())[0]
+    its_row = grouped([SOME_LOG_LINE], None, ONSET.date())[0]
     its_label = its_row.label
+    some_label_never_shown = "T99"
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=[the_log_line])
+            an_incident_s_evidence := an_evidence_bundle(log_lines=[SOME_LOG_LINE])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1062,15 +1157,16 @@ def test_a_citation_of_evidence_never_shown_is_not_published() -> None:
                                      ask=_asking_that_answers(
                                          a_submitted_answer().model_copy(update={
                                              "causal_chain": [SubmittedStep(
-                                                 step="the monthly average divided by zero",
-                                                 cites=[its_label, "T99"])]
+                                                 step=SOME_STEP,
+                                                 cites=[its_label, some_label_never_shown])]
                                          }),
-                                         faults=["the step cites [T99], which was never shown"]),
+                                         faults=[f"the step cites [{some_label_never_shown}], "
+                                                 f"which was never shown"]),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
-                ChainStep(text="the monthly average divided by zero",
+                ChainStep(text=SOME_STEP,
                           cites=[CitedEvidence(label=its_label, text=its_row.text)])
             ])
         )
@@ -1081,15 +1177,16 @@ def test_the_factors_and_lessons_the_model_wrote_are_the_ones_published() -> Non
     some_lessons = Lessons(went_well=["the alert fired within minutes"],
                            went_wrong=["no test exercised an empty month"],
                            got_lucky=["the fault was behind a flag"])
+    a_factor = SubmittedFactor(
+        factor="the canary started at full traffic",
+        had_it_been_otherwise="a smaller canary would have failed fewer",
+        addressed_by=[_item_number(1)])
 
     Scenario() \
         .given(
             a_model_that_answered := _asking_that_answers(
                 a_submitted_answer().model_copy(update={
-                    "contributing_factors": [SubmittedFactor(
-                        factor="the canary started at full traffic",
-                        had_it_been_otherwise="a smaller canary would have failed fewer",
-                        addressed_by=["AI-1"])],
+                    "contributing_factors": [a_factor],
                     "lessons": some_lessons
                 }))
         ) \
@@ -1106,8 +1203,8 @@ def test_the_factors_and_lessons_the_model_wrote_are_the_ones_published() -> Non
             all_of(
                 _publishes("the contributing factors",
                            lambda document: document.contributing_factors,
-                           [ContributingFactor(text="the canary started at full traffic",
-                                               addressed_by=["AI-1"])]),
+                           [ContributingFactor(text=a_factor.factor,
+                                               addressed_by=a_factor.addressed_by)]),
                 _publishes("the lessons", lambda document: document.lessons, some_lessons)
             )
         )
@@ -1120,14 +1217,16 @@ def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -
     # a reader told "the deploy P2" has nowhere to find out what P2 was. The
     # labels are asserted on their own as well, so a list that came back empty
     # from both sides cannot pass for one that was carried.
+    some_changes = [_a_change("some-revision"), _a_change("some-other-revision")]
+    some_log_lines = ["one message", "another message"]
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                changes=[_a_change("some-revision"), _a_change("some-other-revision")],
-                log_lines=["one message", "another message"])
+            an_incident_s_evidence := an_evidence_bundle(changes=some_changes,
+                                                         log_lines=some_log_lines)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1139,16 +1238,16 @@ def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -
             all_of(
                 _publishes("the changes read",
                            lambda document: document.changes_read,
-                           the_changes_labelled(evidence)),
+                           the_changes_labelled(an_incident_s_evidence)),
                 _publishes("the changes' labels",
                            lambda document: [cited.label for cited in document.changes_read],
-                           ["P1", "P2"]),
+                           _labels_of("P", some_changes)),
                 _publishes("the log messages read",
                            lambda document: document.log_messages_read,
-                           grouped(evidence.log_lines, None, ONSET.date())),
+                           grouped(an_incident_s_evidence.log_lines, None, ONSET.date())),
                 _publishes("the log messages' count",
                            lambda document: len(document.log_messages_read),
-                           2)
+                           len(some_log_lines))
             )
         )
 
@@ -1157,45 +1256,48 @@ def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -
 def test_the_log_messages_published_are_split_where_the_metrics_stopped_as_shown() -> None:
     # The page is where a reader follows a citation to, and a row summed across
     # the stop would hold figures the prose was never shown.
-    some_lines = [f"{to_iso(ONSET - timedelta(minutes=5))} WARN io-shop: some warning",
-                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+    metrics_stopped_at = ONSET
+    some_lines = [_a_warning_at(metrics_stopped_at - timedelta(minutes=5)),
+                  _a_warning_at(metrics_stopped_at + timedelta(minutes=5))]
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=some_lines)
+            an_incident_s_evidence := an_evidence_bundle(log_lines=some_lines)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
-                                         a_measured_incident(back_to_normal_at=None,
-                                                             metrics_stopped_at=ONSET)),
+                                         a_measured_incident(
+                                             back_to_normal_at=None,
+                                             metrics_stopped_at=metrics_stopped_at)),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the log messages read",
                        lambda document: document.log_messages_read,
-                       grouped(some_lines, ONSET, ONSET.date()))
+                       grouped(some_lines, metrics_stopped_at, ONSET.date()))
         )
 
 
 @pytest.mark.unit
 def test_the_log_messages_published_are_split_where_argus_first_acted_as_shown() -> None:
     # A row summed across the act would hold figures the prose was never shown.
-    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
-                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
     argus_acted = ONSET + timedelta(minutes=3)
+    some_lines = [_a_warning_at(argus_acted - timedelta(minutes=2)),
+                  _a_warning_at(argus_acted + timedelta(minutes=2))]
+    dont_care_action = "some action"
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=some_lines,
-                                           actions=[an_action("some action",
-                                                              taken_at=argus_acted)])
+            an_incident_s_evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action(dont_care_action, taken_at=argus_acted)])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(a_measured_incident()),
@@ -1214,14 +1316,18 @@ def test_the_document_carries_what_each_deployment_it_looked_into_changed() -> N
     # Under the labels the model was shown them by, so a step of the cause
     # citing D1 has a row to lead to. The labels asserted on their own as well,
     # so two empty lists cannot pass for one carried.
+    some_deployment_changes = [
+        DeploymentChangesRecord(revision="some-revision", said=["some line"]),
+        DeploymentChangesRecord(revision="some-other-revision", said=["another line"])
+    ]
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(deployment_changes=[
-                DeploymentChangesRecord(revision="some-revision", said=["some line"]),
-                DeploymentChangesRecord(revision="some-other-revision", said=["another line"])])
+            an_incident_s_evidence := an_evidence_bundle(
+                deployment_changes=some_deployment_changes)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1233,11 +1339,11 @@ def test_the_document_carries_what_each_deployment_it_looked_into_changed() -> N
             all_of(
                 _publishes("what each deployment changed",
                            lambda document: document.deployment_changes_read,
-                           the_deployment_changes_labelled(evidence)),
+                           the_deployment_changes_labelled(an_incident_s_evidence)),
                 _publishes("their labels",
                            lambda document: [cited.label
                                              for cited in document.deployment_changes_read],
-                           ["D1", "D2"])
+                           _labels_of("D", some_deployment_changes))
             )
         )
 
@@ -1246,12 +1352,15 @@ def test_the_document_carries_what_each_deployment_it_looked_into_changed() -> N
 def test_the_document_carries_what_code_fix_read_in_the_source() -> None:
     # Under the label the model was shown it by, so a step of the cause citing
     # F1 has a row to lead to.
+    some_account = "some account of the code"
+    its_label = "F1"
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(fix_explanation="some account of the code")
+            an_incident_s_evidence := an_evidence_bundle(fix_explanation=some_account)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1262,7 +1371,7 @@ def test_the_document_carries_what_code_fix_read_in_the_source() -> None:
         .then(
             _publishes("what Code-Fix read in the source",
                        lambda document: document.code_read,
-                       [CitedEvidence(label="F1", text="some account of the code")])
+                       [CitedEvidence(label=its_label, text=some_account)])
         )
 
 
@@ -1270,16 +1379,19 @@ def test_the_document_carries_what_code_fix_read_in_the_source() -> None:
 def test_the_document_carries_the_files_as_they_ran() -> None:
     # Under the label the model was shown each by, so a step of the cause
     # citing S1 has a row to lead to.
+    a_file_as_it_ran = FileAsItRan(path="deploy/scrape.yaml",
+                                   revision="53f02e9f6cb774f7f5869637bcc879941dcbc82d",
+                                   as_read=False, content="selector:\n  port: metrics\n")
+    its_label = "S1"
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(update={
-                "files_as_they_ran": [FileAsItRan(
-                    path="deploy/scrape.yaml",
-                    revision="53f02e9f6cb774f7f5869637bcc879941dcbc82d",
-                    as_read=False, content="selector:\n  port: metrics\n")]})
+            an_incident_s_evidence := an_evidence_bundle(
+                fix_explanation=DONT_CARE_FIX_EXPLANATION).model_copy(update={
+                    "files_as_they_ran": [a_file_as_it_ran]})
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1290,8 +1402,10 @@ def test_the_document_carries_the_files_as_they_ran() -> None:
         .then(
             _publishes("the files as they ran",
                        lambda document: document.as_it_ran_read,
-                       [CitedEvidence(label="S1", text="deploy/scrape.yaml at 53f02e9\n"
-                                                       "selector:\n  port: metrics\n")])
+                       [CitedEvidence(label=its_label,
+                                      text=f"{a_file_as_it_ran.path} at "
+                                           f"{a_file_as_it_ran.revision[:7]}\n"
+                                           f"{a_file_as_it_ran.content}")])
         )
 
 
@@ -1299,16 +1413,19 @@ def test_the_document_carries_the_files_as_they_ran() -> None:
 def test_the_document_carries_how_the_code_outside_the_patch_uses_what_it_changes() -> None:
     # Under the label the model was shown each by, so a step of the cause
     # citing U1 has a row to lead to.
+    a_use = CodeUse(name="total_this_month_cents", path="src/io_shop/spend_reconciliation.py",
+                    line=109, function="reconcile_monthly_totals",
+                    does="compares it with _bought_this_month(account)")
+    its_label = "U1"
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(update={
-                "uses_outside": [CodeUse(
-                    name="total_this_month_cents", path="src/io_shop/spend_reconciliation.py",
-                    line=109, function="reconcile_monthly_totals",
-                    does="compares it with _bought_this_month(account)")]})
+            an_incident_s_evidence := an_evidence_bundle(
+                fix_explanation=DONT_CARE_FIX_EXPLANATION).model_copy(update={
+                    "uses_outside": [a_use]})
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1320,10 +1437,9 @@ def test_the_document_carries_how_the_code_outside_the_patch_uses_what_it_change
             _publishes("how the code outside the patch uses what it changes",
                        lambda document: document.uses_outside_read,
                        [CitedEvidence(
-                           label="U1",
-                           text="total_this_month_cents at src/io_shop/spend_reconciliation.py"
-                                ":109, in reconcile_monthly_totals: compares it with "
-                                "_bought_this_month(account)")])
+                           label=its_label,
+                           text=f"{a_use.name} at {a_use.path}:{a_use.line}, in "
+                                f"{a_use.function}: {a_use.does}")])
         )
 
 
@@ -1331,13 +1447,16 @@ def test_the_document_carries_how_the_code_outside_the_patch_uses_what_it_change
 def test_the_document_carries_the_branch_code_fix_read() -> None:
     # What the code outside the patch was read on, for the page and the paper
     # to head its rows with.
+    some_branch = "main"
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
-                update={"fix_branch_read": "main"})
+            an_incident_s_evidence := an_evidence_bundle(
+                fix_explanation=DONT_CARE_FIX_EXPLANATION).model_copy(
+                    update={"fix_branch_read": some_branch})
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1348,7 +1467,7 @@ def test_the_document_carries_the_branch_code_fix_read() -> None:
         .then(
             _publishes("the branch Code-Fix read",
                        lambda document: document.fix_branch_read,
-                       "main")
+                       some_branch)
         )
 
 
@@ -1360,10 +1479,10 @@ def test_the_tokens_spent_are_left_to_whoever_holds_the_replay_log() -> None:
     # written.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle()
+            an_incident_s_evidence := an_evidence_bundle()
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1382,18 +1501,12 @@ def test_the_fix_that_was_proposed_is_carried_onto_the_document() -> None:
     # recorded where; a document that relied on the model mentioning it in its
     # prose would lose the address on every run where the prose read fine
     # without one - which is what happened.
-    where_it_can_be_read = "https://example.invalid/pull/7"
-
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                pull_request=OpenedPullRequest(
-                    number=7, url=where_it_can_be_read, branch="argus/fix-abc"
-                )
-            )
+            an_incident_s_evidence := an_evidence_bundle(pull_request=A_PULL_REQUEST)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1402,7 +1515,7 @@ def test_the_fix_that_was_proposed_is_carried_onto_the_document() -> None:
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            proposes_the_fix_at(where_it_can_be_read)
+            proposes_the_fix_at(A_PULL_REQUEST.url)
         )
 
 
@@ -1411,15 +1524,19 @@ def test_what_came_of_reading_each_channel_is_carried_onto_the_document() -> Non
     # The record tells a channel read and found empty from one never asked and
     # one asked with nothing back; the document's empty lists cannot, so what
     # came of each read travels beside them.
+    some_deploys_reading = ChannelReading.UNANSWERED
+    some_flags_reading = ChannelReading.ONLY_SINCE_ARGUS_ACTED
+    some_logs_reading = ChannelReading.NOT_ASKED
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle().model_copy(update={
-                "deploys_reading": ChannelReading.UNANSWERED,
-                "flags_reading": ChannelReading.ONLY_SINCE_ARGUS_ACTED,
-                "logs_reading": ChannelReading.NOT_ASKED})
+            an_incident_s_evidence := an_evidence_bundle().model_copy(update={
+                "deploys_reading": some_deploys_reading,
+                "flags_reading": some_flags_reading,
+                "logs_reading": some_logs_reading})
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1428,9 +1545,9 @@ def test_what_came_of_reading_each_channel_is_carried_onto_the_document() -> Non
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            _reports_the_readings(deploys=ChannelReading.UNANSWERED,
-                                  flags=ChannelReading.ONLY_SINCE_ARGUS_ACTED,
-                                  logs=ChannelReading.NOT_ASKED)
+            _reports_the_readings(deploys=some_deploys_reading,
+                                  flags=some_flags_reading,
+                                  logs=some_logs_reading)
         )
 
 
@@ -1442,38 +1559,43 @@ def test_each_lead_is_reported_with_what_the_model_said_it_changed() -> None:
     # the one part only prose can carry. A lead the model said nothing about
     # is reported with nothing said, never dropped - the person who wrote it
     # is owed the line either way.
+    some_reason = "the flag history agrees"
+    some_effect = "it named the flag reverted"
     a_supported_lead = a_lead(
-        "the kuki flag was flipped at noon",
-        Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees"),
-        ts="1760000100.000200"
+        SOME_LEAD_WORDS,
+        Weighing(standing=Standing.SUPPORTED, reason=some_reason),
+        ts=SOME_TS
     )
-    an_unweighed_lead = a_lead("it is the database again", ts="1760000200.000300")
+    an_unweighed_lead = a_lead(SOME_OTHER_LEAD_WORDS, ts=SOME_LATER_TS)
+    the_supported_label, the_unweighed_label = _labels_of("L", [a_supported_lead,
+                                                                an_unweighed_lead])
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(leads=[a_supported_lead, an_unweighed_lead])
+            an_incident_s_evidence := an_evidence_bundle(leads=[a_supported_lead,
+                                                                an_unweighed_lead])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
                                          a_measured_incident()),
                                      ask=_asking_that_answers(a_submitted_answer(
-                                         lead_effects={"L1": "it named the flag reverted"}
+                                         lead_effects={the_supported_label: some_effect}
                                      )),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _reports_the_leads([
-                PostmortemLead(label="L1",
+                PostmortemLead(label=the_supported_label,
                                person_id=a_supported_lead.person_id,
                                person_name=None,
                                text=a_supported_lead.text,
                                written_at=a_supported_lead.written_at,
                                weighing=a_supported_lead.weighing,
-                               effect="it named the flag reverted"),
-                PostmortemLead(label="L2",
+                               effect=some_effect),
+                PostmortemLead(label=the_unweighed_label,
                                person_id=an_unweighed_lead.person_id,
                                person_name=None,
                                text=an_unweighed_lead.text,
@@ -1492,13 +1614,13 @@ def test_each_lead_carries_the_label_the_model_was_shown_it_by() -> None:
     # disagree about which lead a label names.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(leads=[
-                a_lead("the kuki flag was flipped at noon", ts="1760000100.000200"),
-                a_lead("it is the database again", ts="1760000200.000300")
+            an_incident_s_evidence := an_evidence_bundle(leads=[
+                a_lead(SOME_LEAD_WORDS, ts=SOME_TS),
+                a_lead(SOME_OTHER_LEAD_WORDS, ts=SOME_LATER_TS)
             ])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1509,7 +1631,7 @@ def test_each_lead_carries_the_label_the_model_was_shown_it_by() -> None:
         .then(
             _publishes("the leads' labels",
                        lambda document: [lead.label for lead in document.leads],
-                       ["L1", "L2"])
+                       _labels_of("L", an_incident_s_evidence.leads))
         )
 
 
@@ -1519,16 +1641,16 @@ def test_each_lead_is_reported_under_its_writers_name_or_none_where_there_is_non
     # named them - and says it had no name where the platform could not, so
     # the page can stand the id in rather than a name nobody gave.
     some_name = "Some Person"
-    a_named_lead = a_lead("the kuki flag was flipped at noon",
-                          ts="1760000100.000200").model_copy(update={"person_name": some_name})
-    an_unnamed_lead = a_lead("it is the database again", ts="1760000200.000300")
+    a_named_lead = a_lead(SOME_LEAD_WORDS,
+                          ts=SOME_TS).model_copy(update={"person_name": some_name})
+    an_unnamed_lead = a_lead(SOME_OTHER_LEAD_WORDS, ts=SOME_LATER_TS)
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(leads=[a_named_lead, an_unnamed_lead])
+            an_incident_s_evidence := an_evidence_bundle(leads=[a_named_lead, an_unnamed_lead])
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1552,16 +1674,16 @@ def test_the_action_nobody_took_is_carried_onto_the_document() -> None:
     # link still describes an incident somebody can act on; one that omits this
     # describes an incident that is over, and it is not over - the flag is
     # still on and the shop is still writing wrong totals.
-    what_somebody_should_do = "revert the monthly-spend-feature flag"
+    some_action_nobody_took = f"revert the {SOME_FLAG} flag"
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                recommended_action=what_somebody_should_do
+            an_incident_s_evidence := an_evidence_bundle(
+                recommended_action=some_action_nobody_took
             )
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1570,7 +1692,7 @@ def test_the_action_nobody_took_is_carried_onto_the_document() -> None:
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            _it_says_what_is_still_owed(what_somebody_should_do)
+            says_what_is_still_owed(some_action_nobody_took)
         )
 
 
@@ -1580,9 +1702,9 @@ def test_an_incident_argus_acted_on_itself_owes_nobody_an_action() -> None:
     # is nothing here for a person to do, and a document saying otherwise would
     # send somebody to repeat a change already made.
     Scenario() \
-        .given(evidence := an_evidence_bundle()) \
+        .given(an_incident_s_evidence := an_evidence_bundle()) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1591,7 +1713,7 @@ def test_an_incident_argus_acted_on_itself_owes_nobody_an_action() -> None:
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            _it_says_what_is_still_owed(None)
+            says_what_is_still_owed(None)
         )
 
 
@@ -1604,10 +1726,10 @@ def test_a_disproven_alarm_is_published_as_closed_at_the_incident_s_close(
     # disproof's moment: nothing moves an incident on from disproven.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(disproven=disproven)
+            an_incident_s_evidence := an_evidence_bundle(disproven=disproven)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(a_measured_incident()),
@@ -1624,20 +1746,20 @@ def test_a_disproven_alarm_is_published_as_closed_at_the_incident_s_close(
 def test_the_impact_of_a_disproven_alarm_is_published_as_no_incident() -> None:
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(onset_at=None, disproven=True),
-            measured := a_measured_incident(onset_at=None, back_to_normal_at=None)
+            an_incident_s_evidence := an_evidence_bundle(onset_at=None, disproven=True),
+            a_measurement := a_measured_incident(onset_at=None, back_to_normal_at=None)
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the impact", lambda document: document.impact,
-                       impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                       impact_of(a_measurement, logs_in_the_gap=None, latency_told=[],
                                  disproven=True))
         )
 
@@ -1648,9 +1770,9 @@ def test_an_incident_that_proposed_no_fix_offers_nowhere_to_read_one() -> None:
     # to change. An empty link on the page would read as a proposal whose
     # address went missing.
     Scenario() \
-        .given(evidence := an_evidence_bundle()) \
+        .given(an_incident_s_evidence := an_evidence_bundle()) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
@@ -1668,23 +1790,23 @@ def test_the_model_is_asked_about_the_incident_that_was_measured() -> None:
     # The whole reason the measuring happens first. A model handed figures from
     # anything but this incident writes fluent prose about a different one, and
     # the document reads perfectly either way.
-    measured = a_measured_incident()
-    asking = _asking_that_answers(a_submitted_answer())
+    a_measurement = a_measured_incident()
+    an_asker = _asking_that_answers(a_submitted_answer())
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle()
+            an_incident_s_evidence := an_evidence_bundle()
         ) \
         .when(
-            lambda: write_postmortem(evidence,
+            lambda: write_postmortem(an_incident_s_evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
-                                     ask=asking,
+                                     measure=_measuring_that_returns(a_measurement),
+                                     ask=an_asker,
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            _was_asked_about(asking, evidence.incident_id, measured)
+            _was_asked_about(an_asker, an_incident_s_evidence.incident_id, a_measurement)
         )
 
 
@@ -1695,24 +1817,24 @@ def test_the_disclosures_are_written_from_what_was_measured_and_configured() -> 
     # bands were divided by. Handed a different working year from the one the
     # cost was computed under, it would publish a divisor that does not explain
     # the figure beside it.
-    measured = a_measured_incident()
-    disclosing = _disclosing_that_returns([])
+    a_measurement = a_measured_incident()
+    a_discloser = _disclosing_that_returns([])
     some_working_year = 1_900.0
 
     Scenario() \
         .given(
-            sources := some_sources(working_hours_a_year=some_working_year)
+            a_set_of_sources := some_sources(working_hours_a_year=some_working_year)
         ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
-                                     sources,
+                                     a_set_of_sources,
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(measured),
+                                     measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
-                                     disclose=disclosing)
+                                     disclose=a_discloser)
         ) \
         .then(
-            _disclosed_from(disclosing, measured, some_working_year)
+            _disclosed_from(a_discloser, a_measurement, some_working_year)
         )
 
 
@@ -1723,6 +1845,8 @@ def test_a_document_written_incomplete_is_logged_as_a_warning(
     # The page says so on its face; this is the line saying so to whoever is
     # watching the model rather than reading the document.
     some_faults = ["the field [root_cause] was missing"]
+    logged_by = "agent_postmortem.writing"
+    warning = "postmortem written incomplete"
 
     Scenario() \
         .given(
@@ -1739,17 +1863,39 @@ def test_a_document_written_incomplete_is_logged_as_a_warning(
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_postmortem.writing", logging.WARNING,
-                                  "postmortem written incomplete",
+            one_record_was_logged(caplog, logged_by, logging.WARNING, warning,
                                   values={"faults": some_faults})
         )
 
 
 def _a_change(reference: str) -> ChangeEvent:
     return ChangeEvent(kind=ChangeKind.DEPLOY,
-                       occurred_at="2026-09-02T11:59:00Z",
+                       occurred_at=to_iso(ONSET - timedelta(minutes=1)),
                        reference=reference,
-                       summary="dont care")
+                       summary=DONT_CARE_SUMMARY)
+
+
+def _a_warning_at(at: datetime, saying: str = SOME_WARNING) -> str:
+    """A log line at `at` - saying, unless a test says otherwise, the one
+    message these tests group."""
+    return f"{to_iso(at)} WARN {DONT_CARE_SERVICE}: {saying}"
+
+
+def _labels_of(letter: str, shown: Sized) -> list[str]:
+    """The label each of `shown` is cited by - `letter` and its place, counting
+    from one - worked out here rather than asked of the code that labels them."""
+    return [f"{letter}{position}" for position in range(1, len(shown) + 1)]
+
+
+def _item_number(position: int) -> str:
+    """The action item at `position`, counting from one, by its number."""
+    return f"AI-{position}"
+
+
+def _an_open_item(number: str, text: str, kind: ActionItemType) -> ActionItem:
+    """An item the document lists for somebody to take on: open, and nobody's."""
+    return ActionItem(number=number, text=text, type=kind, owner=None, tracking=None,
+                      status=ActionItemStatus.OPEN)
 
 
 def _measuring_that_returns(measured: Measurements) -> MagicMock:

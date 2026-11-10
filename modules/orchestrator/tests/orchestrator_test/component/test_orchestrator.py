@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -28,8 +28,6 @@ from argus_core import RunLost, get_settings
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
 from argus_core.models import (
-    REVERT_FEATURE_FLAG,
-    ActionIdentity,
     ActionProgress,
     Alert,
     Attempt,
@@ -83,21 +81,32 @@ from orchestrator_test.framework.builders import (
     a_lead,
     a_person_ended_the_incident,
     a_random_id,
+    an_undetermined_hypothesis,
     nobody_ended_the_incident,
+    reverting,
 )
 
 type Walked = tuple[IncidentState, list[str]]
 
 SOME_FLAG = "monthly-spend-feature"
-ANOTHER_FLAG = "legacy-checkout-fallback"
+SOME_OTHER_FLAG = "legacy-checkout-fallback"
 DONT_CARE_ALERT = Alert(service="kuki-service", alert_name="HighErrorRate")
+DONT_CARE_INCIDENT_ID = "dont-care"
+DONT_CARE_WORDS = "the kuki flag was flipped at noon"
 
 EVERY_ROUND = get_settings().investigation_max_rounds
-A_GENEROUS_BUDGET = recursion_limit(max_rounds=EVERY_ROUND, max_candidates=4)
+# More candidates than any case here offers in a round, so no walk is cut short.
+SOME_CANDIDATE_BUDGET = 4
+A_GENEROUS_BUDGET = recursion_limit(max_rounds=EVERY_ROUND, max_candidates=SOME_CANDIDATE_BUDGET)
 SOME_ROUND_BUDGET = 3
 # The cap is not what any case here turns on, and a walk that reaches it would
 # stop for a reason the test never asked about.
 EVERY_ATTEMPT_A_WALK_MAKES = 99
+
+# What a walk is noted doing, by the doubles that note it: waiting for people,
+# and writing the postmortem.
+WAITED = "waited"
+WRITTEN = "written"
 
 
 @pytest.fixture
@@ -153,8 +162,8 @@ def test_an_action_that_helps_ends_the_incident_in_a_postmortem(
     # worked leaves a fault in the code with a flag holding it off. Every node
     # between the alert and the document is reached exactly once.
     Scenario() \
-        .given(everything_works := collaborators) \
-        .when(lambda: _the_walk_of(_an_incident_just_alerted(), everything_works)) \
+        .given(a_walk_where_everything_works := collaborators) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_where_everything_works)) \
         .then(all_of(
             _the_walk_went(INVESTIGATOR_NODE,
                            MITIGATION_PROPOSAL_NODE,
@@ -202,7 +211,9 @@ def test_an_investigation_that_names_no_cause_reaches_a_human(
         .given(
             an_investigation_finding_nothing := replace(
                 collaborators,
-                investigate=_an_investigation_offering(_a_candidate_naming_no_cause())
+                investigate=_an_investigation_offering(
+                    an_undetermined_hypothesis(DONT_CARE_INCIDENT_ID)
+                )
             )
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(),
@@ -226,10 +237,10 @@ def test_a_refuted_action_is_followed_by_the_next_explanation(
             a_first_answer_that_does_not_hold := replace(
                 collaborators,
                 investigate=_an_investigation_offering(
-                    a_candidate_blaming(SOME_FLAG), a_candidate_blaming(ANOTHER_FLAG)
+                    a_candidate_blaming(SOME_FLAG), a_candidate_blaming(SOME_OTHER_FLAG)
                 ),
                 fetch_flag_changes=_a_provider_reporting(_an_enabling_of(SOME_FLAG),
-                                                         _an_enabling_of(ANOTHER_FLAG)),
+                                                         _an_enabling_of(SOME_OTHER_FLAG)),
                 take=_actions_that(Verdict.REFUTED, Verdict.CONFIRMED)
             )
         ) \
@@ -290,10 +301,12 @@ def test_a_round_naming_only_what_was_refuted_ends_at_code_fix_and_a_human(
     # spent list, and when Code-Fix has none either, a person.
     Scenario() \
         .given(
-            the_same_answer_twice := replace(collaborators,
-                                             take=_an_action_that(Verdict.REFUTED))
+            a_walk_given_the_same_answer_twice := replace(
+                collaborators, take=_an_action_that(Verdict.REFUTED)
+            )
         ) \
-        .when(lambda: _the_walk_of(_an_incident_just_alerted(), the_same_answer_twice)) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(),
+                                   a_walk_given_the_same_answer_twice)) \
         .then(all_of(
             _the_walk_went(INVESTIGATOR_NODE,
                            MITIGATION_PROPOSAL_NODE,
@@ -405,7 +418,7 @@ def test_the_investigation_is_handed_what_people_told_the_incident(
     # The thread is read through the walk, so a lead reaches the investigation
     # only if the graph hands the node the walk's own reader. Any other - the
     # default that says nobody wrote - would leave the model never told.
-    some_leads = [a_lead("the kuki flag was flipped at noon")]
+    some_leads = [a_lead(DONT_CARE_WORDS)]
     told: list[list[ThreadMessage]] = []
 
     Scenario() \
@@ -426,7 +439,7 @@ def test_code_fix_is_handed_what_people_told_the_incident(
 ) -> None:
     # The same wiring at the other agent a lead reaches, and the one a lead
     # written after the investigation answered reaches first.
-    some_leads = [a_lead("the kuki flag was flipped at noon")]
+    some_leads = [a_lead(DONT_CARE_WORDS)]
     told: list[list[ThreadMessage]] = []
 
     Scenario() \
@@ -449,10 +462,10 @@ def test_code_fix_is_handed_what_argus_did(
     # default reads nothing, so a graph that never handed the record down would
     # leave Code-Fix told what the leads were weighed as and nothing of what
     # the actions then showed.
-    some_done = [WhatArgusDid(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG,
-                                                      subject=SOME_FLAG),
+    dont_care_standing = "still in place"
+    some_done = [WhatArgusDid(identity=reverting(SOME_FLAG),
                               verdict=Verdict.CONFIRMED,
-                              standing="still in place")]
+                              standing=dont_care_standing)]
     handed: list[list[WhatArgusDid]] = []
 
     Scenario() \
@@ -474,9 +487,9 @@ def test_every_lead_the_investigation_weighed_is_kept(
     # The same wiring on the way back: a standing the graph does not hand to
     # the record is one the next round, Code-Fix and the person who wrote the
     # lead never hear.
-    some_weighed = [a_lead("the kuki flag was flipped at noon",
-                           Weighing(standing=Standing.SUPPORTED,
-                                    reason="the flag history agrees"))]
+    dont_care_reason = "the flag history agrees"
+    some_weighed = [a_lead(DONT_CARE_WORDS,
+                           Weighing(standing=Standing.SUPPORTED, reason=dont_care_reason))]
     kept: list[ThreadMessage] = []
 
     Scenario() \
@@ -530,7 +543,7 @@ def test_an_incident_resolved_after_an_action_skips_code_fix_and_is_written_up(
 
     Scenario() \
         .given(
-            resolved_once_it_acted := replace(
+            a_walk_resolved_once_it_acted := replace(
                 collaborators,
                 take=_an_action_noting_it_landed(acted, Verdict.CONFIRMED),
                 ended_by_a_person=_resolved_once_it_acted(acted),
@@ -538,7 +551,8 @@ def test_an_incident_resolved_after_an_action_skips_code_fix_and_is_written_up(
                     incident_id)
             )
         ) \
-        .when(lambda: _the_walk_of(_an_incident_just_alerted(), resolved_once_it_acted)) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(),
+                                   a_walk_resolved_once_it_acted)) \
         .then(all_of(_the_walk_went(INVESTIGATOR_NODE,
                                     MITIGATION_PROPOSAL_NODE,
                                     TIER_GATE_NODE,
@@ -562,14 +576,15 @@ def test_a_person_answering_while_the_walk_waits_ends_it_before_code_fix(
 
     Scenario() \
         .given(
-            answered_while_waiting := replace(
+            a_walk_answered_while_waiting := replace(
                 collaborators,
                 take=_an_action_noting_it_landed(acted, Verdict.CONFIRMED),
                 wait_for_people=_a_person_answering_once_it_acted(acted, answered),
                 ended_by_a_person=_resolved_once_it_acted(answered)
             )
         ) \
-        .when(lambda: _the_walk_of(_an_incident_just_alerted(), answered_while_waiting)) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(),
+                                   a_walk_answered_while_waiting)) \
         .then(all_of(_the_walk_went(INVESTIGATOR_NODE,
                                     MITIGATION_PROPOSAL_NODE,
                                     TIER_GATE_NODE,
@@ -590,14 +605,14 @@ def test_nothing_is_waited_for_once_the_postmortem_is_written(
 
     Scenario() \
         .given(
-            noting_what_happened := replace(
+            a_walk_noting_what_happened := replace(
                 collaborators,
                 wait_for_people=_a_wait_noting(happened),
                 write_postmortem=_a_postmortem_noting(happened)
             )
         ) \
-        .when(lambda: _the_walk_of(_an_incident_just_alerted(), noting_what_happened)) \
-        .then(_the_last_thing_that_happened_was(happened, "written"))
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_noting_what_happened)) \
+        .then(_the_last_thing_that_happened_was(happened, WRITTEN))
 
 
 @pytest.mark.component
@@ -644,15 +659,18 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
     # change to undo is that deployment - and it is recommended rather than
     # taken for the same reason: the readings already cover the incident, and a
     # rollback reports nothing of its own that would say whether it worked.
+    a_recorded_deployment = a_deployment()
+
     Scenario() \
         .given(
             a_deployment_behind_the_damage := replace(
                 collaborators,
                 investigate=_an_investigation_offering(
-                    a_corruption_blamed_on("dont-care", a_deployment().reference)
+                    a_corruption_blamed_on(DONT_CARE_INCIDENT_ID,
+                                           a_recorded_deployment.reference)
                 ),
                 fetch_flag_changes=_a_provider_reporting(),
-                fetch_deployments=lambda **dont_care_question: [a_deployment()]
+                fetch_deployments=lambda **dont_care_question: [a_recorded_deployment]
             )
         ) \
         .when(lambda: _the_walk_of(_an_incident_dated_by_its_alert(),
@@ -678,17 +696,19 @@ def test_a_mode_nothing_answers_goes_to_code_fix_past_a_rollback_it_could_have_t
     # rollback answers, and a deployment is recorded for it to roll back - so
     # the walk has a move it could make and must not. It goes straight to
     # Code-Fix: no second candidate, no second round, and nothing taken.
+    dont_care_flag = "dont-care"
+
     Scenario() \
         .given(
             a_rollback_within_reach := replace(
                 collaborators,
                 investigate=_an_investigation_offering(
                     a_candidate_blaming(
-                        "dont-care",
+                        dont_care_flag,
                         failure_mode=FailureMode.MONITORING_CONFIGURATION_DRIFT
                     ),
                     a_candidate_blaming(
-                        "dont-care", failure_mode=FailureMode.BAD_DEPLOYMENT
+                        dont_care_flag, failure_mode=FailureMode.BAD_DEPLOYMENT
                     )
                 ),
                 fetch_flag_changes=_a_provider_reporting(),
@@ -748,7 +768,8 @@ def _an_incident_dated_by_its_alert() -> IncidentState:
     either. A week back, because that is the distance at which a weekly
     integrity check finds a fault nothing else noticed.
     """
-    a_week_before_anybody_noticed = datetime(2026, 8, 13, 11, 0, tzinfo=UTC)
+    when_it_was_noticed = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
+    a_week_before_anybody_noticed = when_it_was_noticed - timedelta(weeks=1)
 
     return IncidentState(
         incident_id=a_random_id(),
@@ -769,25 +790,22 @@ def a_candidate_blaming(
     back, and what separates them is whether anything could confirm it.
     """
     some_confidence = 0.75
+    dont_care_claim = "some log line"
 
-    return Hypothesis(incident_id="dont-care",
+    return Hypothesis(incident_id=DONT_CARE_INCIDENT_ID,
                       summary=f"the {flag} flag was switched on",
                       failure_mode=failure_mode,
                       confidence=some_confidence,
-                      supporting_evidence=[Evidence(claim="some log line", at=None)],
+                      supporting_evidence=[Evidence(claim=dont_care_claim, at=None)],
                       subject=flag)
 
 
-def _a_candidate_naming_no_cause() -> Hypothesis:
-    return Hypothesis(incident_id="dont-care",
-                      summary="no cause determined from the evidence retrieved",
-                      failure_mode=None,
-                      confidence=None,
-                      supporting_evidence=[Evidence(claim="some log line", at=None)])
+# When the provider double says a flag was enabled.
+SOME_ENABLING_AT = "2026-08-20T11:05:00Z"
 
 
 def _an_enabling_of(flag: str) -> FlagChange:
-    return FlagChange(flag=flag, enabled=True, occurred_at="2026-08-20T11:05:00Z")
+    return FlagChange(flag=flag, enabled=True, occurred_at=SOME_ENABLING_AT)
 
 
 def _an_investigation_asking_between_its_turns() -> ports.Investigate:
@@ -834,7 +852,7 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
 
 # The window a provider double says it was read over, which no case here reads.
 DONT_CARE_HISTORY_START = datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
-DONT_CARE_HISTORY_END = datetime(2026, 8, 20, 10, 30, tzinfo=UTC)
+DONT_CARE_HISTORY_END = DONT_CARE_HISTORY_START + timedelta(minutes=30)
 
 
 def _a_provider_reporting(*changes: FlagChange) -> ports.FetchFlagChanges:
@@ -862,6 +880,7 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
     a walk whose first answer is refuted and whose second holds is stated."""
     answers = iter(verdicts)
     last = verdicts[-1]
+    dont_care_detail = "dont care"
 
     def take(action: Action,
              /,
@@ -882,7 +901,7 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
         change_made(the_way_back)
 
         return Outcome(verdict=next(answers, last),
-                       detail="dont care",
+                       detail=dont_care_detail,
                        undo_descriptor=the_way_back,
                        left_behind_known=True)
 
@@ -923,7 +942,9 @@ def _a_document() -> PostmortemDocument:
 
 
 def _a_synopsis() -> ExecutiveSynopsisDocument:
-    return ExecutiveSynopsisDocument(overview=None, withheld_because="dont care")
+    dont_care_reason = "dont care"
+
+    return ExecutiveSynopsisDocument(overview=None, withheld_because=dont_care_reason)
 
 
 def _the_walk_went(*expected: str) -> Assertion[Walked]:
@@ -1053,7 +1074,7 @@ def _a_person_answering_once_it_acted(acted: list[bool], answered: list[bool]) -
 
 def _a_wait_noting(happened: list[str]) -> WaitForPeople:
     def wait(dont_care_incident_id: str, /) -> bool:
-        happened.append("waited")
+        happened.append(WAITED)
 
         return False
 
@@ -1062,7 +1083,7 @@ def _a_wait_noting(happened: list[str]) -> WaitForPeople:
 
 def _a_postmortem_noting(happened: list[str]) -> ports.WritePostmortem:
     def write(dont_care_incident_id: str) -> PostmortemDocument:
-        happened.append("written")
+        happened.append(WRITTEN)
 
         return _a_document()
 

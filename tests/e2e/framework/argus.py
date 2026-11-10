@@ -59,6 +59,10 @@ DATABASE_URL = get_settings().database_url
 
 # Set to `1` by the sessions that serve the shop through its stand-in.
 THE_SHOP_STANDS_IN: Final = "TARGET_SERVICE_DOUBLE"
+# The value those sessions set it to. Its counterpart is the
+# `TARGET_SERVICE_DOUBLE` entry of `_THE_SHOP_AT_ITS_STAND_IN` in `noxfile.py`,
+# which this cannot import - so the two change together or not at all.
+THE_SHOP_STANDS_IN_WHEN_SET_TO: Final = "1"
 
 WEBHOOK_PATH = "/webhooks/alerts"
 
@@ -72,6 +76,10 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 
 # How often a case looks again for something the stack does in its own time.
 A_POLL_SECONDS: Final = 0.5
+
+# How many times the double serves each answer seeded into it: once, so a
+# replay that asks for more than was recorded runs the queue dry and says so.
+_SERVED_ONCE: Final = 1
 
 # An investigation is bounded by `investigation_max_seconds`, but the budget is
 # only consulted between turns - a model call already in flight runs to
@@ -840,7 +848,8 @@ def the_model_answers_from(recording: str,
     double forwards the one call nothing answers to the real model.
     """
     def step() -> bool:
-        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL,
+                           timeout=REQUEST_TIMEOUT_SECONDS) as control:
             control.post("/double-control/reset").raise_for_status()
             _seed_the_answers(control, recording, less_code_fix, less_postmortem)
 
@@ -861,7 +870,8 @@ def the_model_is_held() -> Callable[[], bool]:
     Resets first, for `the_model_answers_from`'s reason.
     """
     def step() -> bool:
-        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL,
+                           timeout=REQUEST_TIMEOUT_SECONDS) as control:
             control.post("/double-control/reset").raise_for_status()
             control.post("/double-control/hold").raise_for_status()
 
@@ -879,7 +889,8 @@ def the_held_model_answers_from(recording: str, *,
     which would fail the walk this exists to let go.
     """
     def step() -> bool:
-        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL,
+                           timeout=REQUEST_TIMEOUT_SECONDS) as control:
             _seed_the_answers(control, recording, less_code_fix)
             control.post("/double-control/release").raise_for_status()
 
@@ -936,10 +947,10 @@ def _seed_the_answers(control: httpx2.Client,
     for answered_once in answers:
         control.post(
             "/double-control/seed",
-            json={"recording": answered_once, "repeat": 1}
+            json={"recording": answered_once, "repeat": _SERVED_ONCE}
             if shift is None
             else {"body": _rebased(load(answered_once), shift), "recorded_as": answered_once,
-                  "repeat": 1}
+                  "repeat": _SERVED_ONCE}
         ).raise_for_status()
 
 
@@ -963,7 +974,7 @@ def the_shop_stands_in() -> bool:
     the replay and record sessions serve the stand-in, and only the stand-in
     has an anchor to stage or a seed to report.
     """
-    return os.environ.get(THE_SHOP_STANDS_IN) == "1"
+    return os.environ.get(THE_SHOP_STANDS_IN) == THE_SHOP_STANDS_IN_WHEN_SET_TO
 
 
 def _unless_the_shop_drew_another_world(recording: str) -> None:

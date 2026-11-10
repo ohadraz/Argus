@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx2
@@ -28,7 +29,7 @@ from agent_communicator.saying import (
     a_chat_destination,
     a_destination_per_register,
 )
-from argus_core import connect_from_env, new_id, utc_now
+from argus_core import connect_from_env, new_id, to_iso, utc_now
 from argus_core.events import (
     ActionTaken,
     ChangesRetrieved,
@@ -48,6 +49,7 @@ from argus_core.events import (
 from argus_core.models import (
     CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
+    REVERT_FEATURE_FLAG,
     Alert,
     ChangeEvent,
     ChangeKind,
@@ -104,6 +106,13 @@ A_CHANNEL_GONE = "C-gone"
 # What Slack answers a post to such an id, as the double is told to answer it.
 CHANNEL_NOT_FOUND = "channel_not_found"
 
+# What Slack answers an update to a message it does not hold, as the double
+# answers it of its own accord.
+MESSAGE_NOT_FOUND = "message_not_found"
+
+# What Slack answers a post it wants made later, as the double is told to answer it.
+RATE_LIMITED = "rate_limited"
+
 # Where Argus answers, as somebody outside it would reach it. A test's own
 # address rather than the configured one: a link is right or wrong regardless
 # of where this run happens to be serving.
@@ -114,6 +123,59 @@ ARGUS_AT = "http://argus.example"
 SOME_PERSONS_MESSAGE = "1788999999.000001"
 ANOTHER_PERSONS_MESSAGE = "1788999999.000002"
 
+# A message an offer is remembered for that Slack never posted.
+A_MESSAGE_NEVER_POSTED = "1788999999.999999"
+
+# The person who wrote, and who goes on to resolve the incident themselves.
+SOME_PERSON_NAME = "some person"
+
+# What the incident's lines are about, where a message has to name it.
+SOME_FLAG = "monthly-spend-feature"
+
+# Where the service's source is kept, and the fix Code-Fix proposed there.
+DONT_CARE_BRANCH = "argus/fix-abc"
+SOME_REPOSITORY = "acme/shop"
+SOME_REPOSITORY_ADDRESS = f"https://github.invalid/{SOME_REPOSITORY}"
+SOME_PULL_REQUEST_NUMBER = 7
+A_PULL_REQUEST = OpenedPullRequest(
+    number=SOME_PULL_REQUEST_NUMBER,
+    url=f"{SOME_REPOSITORY_ADDRESS}/pull/{SOME_PULL_REQUEST_NUMBER}",
+    branch=DONT_CARE_BRANCH)
+
+# A cause whose names a write-up quotes: a setting, and the two values it moved
+# between.
+SOME_SETTING = "categoriser.model"
+SOME_OLD_VALUE = "v1"
+SOME_NEW_VALUE = "v2"
+
+# What a revision a write-up names did.
+SOME_CONSEQUENCE = "made every page slow"
+
+# The words the line for a written postmortem says it with.
+WROTE_THE_POSTMORTEM = "Wrote the postmortem"
+
+# The logger a line that could not be said, or changed, is logged by.
+LOGGED_BY = "agent_communicator.saying"
+
+# Nothing these tests assert reads any of these.
+DONT_CARE_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")
+DONT_CARE_ONSET = datetime(2026, 8, 30, 10, 3, tzinfo=UTC)
+DONT_CARE_MOMENT = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+DONT_CARE_MESSAGE = Reference(source="some-chat", kind="some-kind", value="some-message")
+DONT_CARE_PROSE = "dont care"
+DONT_CARE_DETAIL = "dont care what the node said"
+DONT_CARE_OVERVIEW = "dont care what the overview says"
+DONT_CARE_CAUSE = "A month with no purchases broke the account pages."
+DONT_CARE_SUMMARY = f"Account pages failed for a third of shoppers. {DONT_CARE_CAUSE}"
+DONT_CARE_ENGINEER_MINUTES = 34
+DONT_CARE_PERSON_ID = "some-person-id"
+DONT_CARE_SAID = "rolled the flag back by hand, we're fine"
+DONT_CARE_OTHER_PERSON_ID = "another-person-id"
+DONT_CARE_OTHER_PERSON_NAME = "another person"
+DONT_CARE_OTHER_SAID = "stop, I've got this"
+DONT_CARE_TOKEN = "xoxb-dont-care"
+DONT_CARE_SIGNING_SECRET = ""
+
 # Where an offer of one kind is remembered, as the incident's references name it.
 type OfferPlace = Callable[[str, str, str], Reference]
 
@@ -123,19 +185,17 @@ def test_an_announced_line_is_posted_to_the_channel(
         slack: str, a_clean_database: None) -> None:
     # Addressed to everyone, including whoever is not following this incident.
     # A reply would reach only the people who already know.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_incident_ending(incident_id)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_incident_ending(an_incident_id)),
+                                        Register.ANNOUNCED)) \
             .then(all_of(
                 _it_landed(),
                 _slack_holds_one_message(slack),
@@ -150,20 +210,18 @@ def test_the_first_message_becomes_the_conversation_the_incident_is_told_in(
     # An incident's thread is whatever Slack called its first message. Not
     # remembering it would leave every later line to start a conversation of
     # its own, which is a channel of loose sentences about several incidents.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
+        a_destination = _a_destination_pointed_at(slack)
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED))
             ) \
-            .when(lambda: _the_thread_in(conn, incident_id, A_WAR_ROOM)) \
+            .when(lambda: _the_thread_in(conn, an_incident_id, A_WAR_ROOM)) \
             .then(_it_is_the_thread_slack_opened(slack))
 
 
@@ -172,22 +230,20 @@ def test_a_followed_line_is_a_reply_in_the_incident_s_own_thread(
         slack: str, a_clean_database: None) -> None:
     # The body of an incident, kept out of everybody's way: following it is a
     # choice made once, rather than an interruption taken per line.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
+        a_destination = _a_destination_pointed_at(slack)
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_action_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_action_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(all_of(
                 _it_landed(),
                 _the_last_message_replied_to_the_first(slack)
@@ -201,23 +257,21 @@ def test_a_followed_line_with_no_thread_yet_goes_to_the_channel(
     # the wrong shape is worth more than silence about an incident being
     # worked, so it goes to the channel - and becomes the thread the rest of
     # the incident joins.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_action_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_action_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(all_of(
                 _it_landed(),
                 _that_message_was_not_a_reply(slack),
-                _the_incident_now_has_a_thread(conn, incident_id)
+                _the_incident_now_has_a_thread(conn, an_incident_id)
             ))
 
 
@@ -228,22 +282,20 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
     # line because "what did Argus do" is really "which of its agents did
     # what", and the marked word is the flag, the status, the verdict - the one
     # thing somebody scanning a channel needs to find without reading.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_action_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_action_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(all_of(
                 _that_message_names(slack, "Mitigation Agent"),
-                _that_message_marks(slack, "monthly-spend-feature")
+                _that_message_marks(slack, SOME_FLAG)
             ))
 
 
@@ -252,21 +304,20 @@ def test_what_code_fix_said_of_the_code_reaches_the_thread_with_its_line(
         slack: str, a_clean_database: None) -> None:
     # Somebody following the thread is owed what somebody on the page reads:
     # no code-level fix here, and what Code-Fix says would have to change.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     some_explanation = "scrape.yaml would have to name the port http-metrics"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_no_fix_found_on(incident_id,
-                                                                    some_explanation)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_no_fix_found_on(an_incident_id,
+                                                                          some_explanation)),
+                                        Register.FOLLOWED)) \
             .then(
                 _that_message_says(slack, some_explanation)
             )
@@ -278,26 +329,25 @@ def test_an_answer_written_in_markdown_is_said_in_slack_s_own_markup(
     # The model answers in Markdown, and `**` in Slack is two stars. Not set
     # apart as a whole either: an answer of several paragraphs inside one
     # emphasis is unreadable.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_heading = "Investigation (14:15)"
+    some_rest = "\n- Reverted the flag"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                              a_narration_line(QuestionAnswered(
-                                  incident_id=incident_id,
-                                  message=Reference(source="some-chat", kind="some-kind",
-                                                    value="some-message"),
-                                  answer="**Investigation (14:15)**\n- Reverted the flag")),
-                              Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(QuestionAnswered(
+                                            incident_id=an_incident_id,
+                                            message=DONT_CARE_MESSAGE,
+                                            answer=f"**{some_heading}**{some_rest}")),
+                                        Register.FOLLOWED)) \
             .then(
-                _that_message_says(slack,
-                                   "the thread: *Investigation (14:15)*\n- Reverted the flag")
+                _that_message_says(slack, f"the thread: *{some_heading}*{some_rest}")
             )
 
 
@@ -306,21 +356,20 @@ def test_a_name_the_walk_quoted_is_said_as_code(
         slack: str, a_clean_database: None) -> None:
     # The brackets mark a name off for a model reading the record, and a reader
     # of the channel needs it marked off too - in the marked word as well.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_a_postmortem_quoting_names_on(incident_id)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(
+                                            _a_postmortem_quoting_names_on(an_incident_id)),
+                                        Register.ANNOUNCED)) \
             .then(
-                _that_message_marks(slack, "`categoriser.model` went from `v1` to `v2`")
+                _that_message_marks(slack, _the_setting_moving(lambda name: f"`{name}`"))
             )
 
 
@@ -330,26 +379,25 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
     # Said whole in the record; forty characters in a channel read as noise.
     # Short as the postmortem says it, from the changes the incident read -
     # and, short, a name a reader cannot look up by hand, so it opens there.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
-    its_commit = f"https://github.invalid/acme/shop/commit/{some_revision}"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
-        events.record(conn, _a_deploy_read_on(incident_id, some_revision))
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        events.record(conn, _a_deploy_read_on(an_incident_id, some_revision))
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_a_postmortem_naming_on(incident_id,
-                                                                           some_revision)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_a_postmortem_naming_on(an_incident_id,
+                                                                                 some_revision)),
+                                        Register.ANNOUNCED)) \
             .then(
                 _that_message_marks(slack,
-                                    f"<{its_commit}|{some_revision[:7]}> made every page slow")
+                                    f"<{_the_commit_address(some_revision)}|"
+                                    f"{some_revision[:7]}> {SOME_CONSEQUENCE}")
             )
 
 
@@ -358,23 +406,20 @@ def test_a_proposed_fix_is_said_by_its_name_and_opens_the_pull_request(
         slack: str, a_clean_database: None) -> None:
     # An address is a name for a browser. Said by the name Argus gives the pull
     # request everywhere it mentions it, and leading there.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-    where_it_can_be_read = "https://github.invalid/acme/shop/pull/7"
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
-        events.record(conn, the_proposal := _a_fix_proposed_on(incident_id,
-                                                                where_it_can_be_read))
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        events.record(conn, a_proposal := _a_fix_proposed_on(an_incident_id, A_PULL_REQUEST))
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id, a_narration_line(the_proposal),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id, a_narration_line(a_proposal),
+                                        Register.ANNOUNCED)) \
             .then(
-                _that_message_marks(slack, f"<{where_it_can_be_read}|PR #7>")
+                _that_message_marks(slack,
+                                    f"<{A_PULL_REQUEST.url}|PR #{A_PULL_REQUEST.number}>")
             )
 
 
@@ -383,27 +428,25 @@ def test_the_escalation_a_proposed_fix_left_says_it_by_its_name_too(
         slack: str, a_clean_database: None) -> None:
     # The line moving the incident to escalated names the pull request it is
     # waiting on, and says it as the proposal's own line does.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-    where_it_can_be_read = "https://github.invalid/acme/shop/pull/7"
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
-        events.record(conn, _a_fix_proposed_on(incident_id, where_it_can_be_read))
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        events.record(conn, _a_fix_proposed_on(an_incident_id, A_PULL_REQUEST))
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(StatusChanged(
-                                      incident_id=incident_id,
-                                      to_status=IncidentStatus.ESCALATED,
-                                      detail=f"a draft pull request is open at "
-                                             f"{where_it_can_be_read}")),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(StatusChanged(
+                                            incident_id=an_incident_id,
+                                            to_status=IncidentStatus.ESCALATED,
+                                            detail=f"a draft pull request is open at "
+                                                   f"{A_PULL_REQUEST.url}")),
+                                        Register.ANNOUNCED)) \
             .then(
-                _that_message_says(slack, f"open at <{where_it_can_be_read}|PR #7>")
+                _that_message_says(slack,
+                                   f"open at <{A_PULL_REQUEST.url}|PR #{A_PULL_REQUEST.number}>")
             )
 
 
@@ -415,25 +458,27 @@ def test_a_candidate_formed_is_said_by_its_number_with_what_it_is(
     # and never by its rank: rank restarts each round, so a second round's first
     # would be said as the first round's - where the number counts on, as the
     # postmortem's C labels do. This one is a second round's first.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     some_summary = "the scrape still selects the port by its old name"
+    its_rank = 1
+    candidates_formed_before = 2
+    its_number = its_rank + candidates_formed_before
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_a_candidate_formed_on(incident_id,
-                                                                          some_summary,
-                                                                          rank=1,
-                                                                          number=3)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_a_candidate_formed_on(an_incident_id,
+                                                                                some_summary,
+                                                                                rank=its_rank,
+                                                                                number=its_number)),
+                                        Register.FOLLOWED)) \
             .then(
-                _that_message_says(slack, f"Formed candidate cause #3: {some_summary}")
+                _that_message_says(slack, f"Formed candidate cause #{its_number}: {some_summary}")
             )
 
 
@@ -442,19 +487,17 @@ def test_a_flag_moved_says_from_what_to_what(
         slack: str, a_clean_database: None) -> None:
     # The page shows the move as two states, one struck through; a message has
     # only the sentence, which ended on "moved" with nowhere it moved to.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_action_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_action_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(
                 _that_message_says(slack, "moved from ON to OFF")
             )
@@ -467,22 +510,20 @@ def test_an_offer_is_a_reply_whose_button_answers_the_person_s_own_message(
     # it is about, because a press is matched to its offer by that message -
     # and only whoever wrote it may confirm. In the thread, beside the message
     # it answers, rather than in the channel where nobody wrote anything.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
+        a_destination = _a_destination_pointed_at(slack)
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_offer_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_offer_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(all_of(
                 _it_landed(),
                 _the_last_message_replied_to_the_first(slack),
@@ -499,20 +540,18 @@ def test_an_offer_is_remembered_so_that_it_can_be_retired(
     # channel while it is still on screen. Whatever Slack called the offer is
     # kept against the incident, so that whoever ends it can find the button
     # again and take it away.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_offer_on(incident_id)),
-                                  Register.FOLLOWED)) \
-            .then(_the_offers_remembered_are_the_ones_slack_holds(conn, incident_id, slack))
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_offer_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
+            .then(_the_offers_remembered_are_the_ones_slack_holds(conn, an_incident_id, slack))
 
 
 @pytest.mark.component
@@ -521,20 +560,18 @@ def test_a_line_that_offers_nothing_is_not_remembered_as_an_offer(
     # Only a message with a button has a button to retire. Every other line
     # remembered as an offer would be one more message rewritten when the
     # incident ends - the account of it, overwritten by its ending.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_action_on(incident_id)),
-                                  Register.FOLLOWED)) \
-            .then(_no_offer_is_remembered(conn, incident_id))
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_action_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
+            .then(_no_offer_is_remembered(conn, an_incident_id))
 
 
 @pytest.mark.component
@@ -542,23 +579,21 @@ def test_an_offer_slack_refused_leaves_no_offer_to_retire(
         slack: str, a_clean_database: None) -> None:
     # Refused for good, so there is no message to come back to. Remembering one
     # would send the ending looking for a button nobody was ever shown.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack),
+                a_destination := _a_destination_pointed_at(slack),
                 calling(lambda: _slack_will_refuse(slack))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_offer_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_offer_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(all_of(
                 _it_will_never_land(),
-                _no_offer_is_remembered(conn, incident_id)
+                _no_offer_is_remembered(conn, an_incident_id)
             ))
 
 
@@ -569,29 +604,28 @@ def test_an_incident_past_resolving_takes_the_button_off_its_offer(
     # by this press, by PagerDuty, from the page - the offer says who ended it
     # and through what, and carries nothing left to press: a button that does
     # nothing when pressed reads as Argus not listening.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
+        a_destination = _a_destination_pointed_at(slack)
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED)),
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_offer_on(incident_id)),
-                                        Register.FOLLOWED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED)),
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_offer_on(an_incident_id)),
+                                              Register.FOLLOWED))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_resolved_by(incident_id, "some person",
-                                                                ReportChannel.PAGERDUTY)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_resolved_by(an_incident_id,
+                                                                      SOME_PERSON_NAME,
+                                                                      ReportChannel.PAGERDUTY)),
+                                        Register.ANNOUNCED)) \
             .then(all_of(
                 _it_landed(),
-                _the_offer_now_says(slack, "some person", "PagerDuty")
+                _the_offer_now_says(slack, SOME_PERSON_NAME, "PagerDuty")
             ))
 
 
@@ -601,26 +635,24 @@ def test_a_move_that_still_takes_a_resolution_leaves_the_offer_standing(
     # Mitigated is as far as Argus goes and not as far as the incident goes:
     # the person who said it is fixed may still be the one who resolves it.
     # Taking their button away here would leave them the page and nothing else.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
+        a_destination = _a_destination_pointed_at(slack)
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED)),
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_offer_on(incident_id)),
-                                        Register.FOLLOWED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED)),
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_offer_on(an_incident_id)),
+                                              Register.FOLLOWED))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_a_move_of(incident_id,
-                                                              to=IncidentStatus.MITIGATED)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_a_move_of(an_incident_id,
+                                                                    to=IncidentStatus.MITIGATED)),
+                                        Register.ANNOUNCED)) \
             .then(_the_offer_still_asks(slack))
 
 
@@ -630,25 +662,23 @@ def test_an_offer_not_confirmed_in_time_loses_its_button(
     # Argus stopped waiting and carried on, so the question is no longer being
     # asked. A button left on it would resolve an incident on an answer nobody
     # was waiting for any more - the person who still means it writes again.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
+        a_destination = _a_destination_pointed_at(slack)
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED)),
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_offer_on(incident_id)),
-                                        Register.FOLLOWED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED)),
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_offer_on(an_incident_id)),
+                                              Register.FOLLOWED))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_offer_expiring_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_offer_expiring_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(all_of(
                 _it_landed(),
                 _the_offer_now_says(slack, "not confirmed in time")
@@ -663,20 +693,19 @@ def test_an_offer_s_button_says_what_pressing_it_does(
     # The one button looks the same to the platform whatever it confirms, so
     # its words are the only place a person reads which ending they are about
     # to bring about - and standing Argus down puts back what it changed.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-    offer_on = {"resolution": _the_offer_on, "withdrawal": _the_withdrawal_offer_on}[offered]
+    an_offer_on = {"resolution": _the_offer_on, "withdrawal": _the_withdrawal_offer_on}[offered]
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(offer_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(an_offer_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(_the_last_message_s_button_says(slack, label))
 
 
@@ -686,23 +715,22 @@ def test_an_offer_to_withdraw_is_remembered_as_one(
     # Remembered by what it offers, because the incident's endings retire the
     # two differently: mitigated takes a withdrawal's button away and leaves a
     # resolution's.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack)
+                a_destination := _a_destination_pointed_at(slack)
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_withdrawal_offer_on(incident_id)),
-                                  Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(
+                                            _the_withdrawal_offer_on(an_incident_id)),
+                                        Register.FOLLOWED)) \
             .then(all_of(
-                _the_offers_remembered_are_the_ones_slack_holds(conn, incident_id, slack,
+                _the_offers_remembered_are_the_ones_slack_holds(conn, an_incident_id, slack,
                                                                 a_chat_withdrawal_offer),
-                _no_offer_is_remembered(conn, incident_id, CHAT_RESOLUTION_OFFER)
+                _no_offer_is_remembered(conn, an_incident_id, CHAT_RESOLUTION_OFFER)
             ))
 
 
@@ -712,32 +740,34 @@ def test_a_mitigated_incident_takes_the_button_off_an_offer_to_withdraw_only(
     # Code-Fix finished and left the incident mitigated. Nobody can withdraw it
     # now - its unwind would put back the change holding the service up - so
     # that button would do nothing; the resolution's still can.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_resolution_offer_at = 1
+    the_withdrawal_offer_at = the_resolution_offer_at + 1
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
+        a_destination = _a_destination_pointed_at(slack)
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED)),
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_offer_on(incident_id)),
-                                        Register.FOLLOWED)),
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_withdrawal_offer_on(incident_id)),
-                                        Register.FOLLOWED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED)),
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_offer_on(an_incident_id)),
+                                              Register.FOLLOWED)),
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(
+                                                  _the_withdrawal_offer_on(an_incident_id)),
+                                              Register.FOLLOWED))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_a_move_of(incident_id,
-                                                              to=IncidentStatus.MITIGATED)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_a_move_of(an_incident_id,
+                                                                    to=IncidentStatus.MITIGATED)),
+                                        Register.ANNOUNCED)) \
             .then(all_of(
-                _the_offer_still_asks(slack, at=1),
-                _the_offer_now_says(slack, "MITIGATED", at=2)
+                _the_offer_still_asks(slack, at=the_resolution_offer_at),
+                _the_offer_now_says(slack, "MITIGATED", at=the_withdrawal_offer_at)
             ))
 
 
@@ -747,33 +777,36 @@ def test_an_ending_past_resolving_or_an_expiry_takes_the_button_off_every_offer(
         ending: str, slack: str, a_clean_database: None) -> None:
     # Neither ending is possible after a resolution, and an expiry is Argus
     # carrying on without either answer - so both buttons go, whichever kind.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_resolution_offer_at = 1
+    the_withdrawal_offer_at = the_resolution_offer_at + 1
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        say = _a_destination_pointed_at(slack)
-        the_ending = {
-            "resolved": _resolved_by(incident_id, "some person", ReportChannel.PAGERDUTY),
-            "expired": _the_offer_expiring_on(incident_id)
+        a_destination = _a_destination_pointed_at(slack)
+        an_ending = {
+            "resolved": _resolved_by(an_incident_id, SOME_PERSON_NAME, ReportChannel.PAGERDUTY),
+            "expired": _the_offer_expiring_on(an_incident_id)
         }[ending]
 
         Scenario() \
             .given(
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_onset_of(incident_id)),
-                                        Register.ANNOUNCED)),
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_offer_on(incident_id)),
-                                        Register.FOLLOWED)),
-                calling(lambda: say(incident_id,
-                                        a_narration_line(_the_withdrawal_offer_on(incident_id)),
-                                        Register.FOLLOWED))
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_onset_of(an_incident_id)),
+                                              Register.ANNOUNCED)),
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(_the_offer_on(an_incident_id)),
+                                              Register.FOLLOWED)),
+                calling(lambda: a_destination(an_incident_id,
+                                              a_narration_line(
+                                                  _the_withdrawal_offer_on(an_incident_id)),
+                                              Register.FOLLOWED))
             ) \
-            .when(lambda: say(incident_id, a_narration_line(the_ending), Register.FOLLOWED)) \
+            .when(lambda: a_destination(an_incident_id, a_narration_line(an_ending),
+                                        Register.FOLLOWED)) \
             .then(all_of(
-                _the_offer_now_says(slack, at=1),
-                _the_offer_now_says(slack, at=2)
+                _the_offer_now_says(slack, at=the_resolution_offer_at),
+                _the_offer_now_says(slack, at=the_withdrawal_offer_at)
             ))
 
 
@@ -784,27 +817,24 @@ def test_an_offer_slack_would_not_take_the_button_off_is_written_down(
     # resolved all the same - this is a line that could not be changed, not a
     # decision that failed - and the timeline says so, as it does for a line
     # that could not be said.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
+        an_ending = _resolved_by(an_incident_id, SOME_PERSON_NAME, ReportChannel.SLACK)
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack),
-                calling(lambda: _an_offer_slack_no_longer_holds(conn, incident_id))
+                a_destination := _a_destination_pointed_at(slack),
+                calling(lambda: _an_offer_slack_no_longer_holds(conn, an_incident_id))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_resolved_by(incident_id, "some person",
-                                                                ReportChannel.SLACK)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id, a_narration_line(an_ending),
+                                        Register.ANNOUNCED)) \
             .then(all_of(
                 _it_landed(),
-                _that_failure_says(conn, incident_id,
-                                   refusal="message_not_found",
+                _that_failure_says(conn, an_incident_id,
+                                   refusal=MESSAGE_NOT_FOUND,
                                    channel=A_WAR_ROOM,
-                                   about="status-changed")
+                                   about=an_ending.kind)
             ))
 
 
@@ -815,24 +845,22 @@ def test_a_message_refused_for_good_is_reported_as_never_landing(
     # relay reads this as "pass over it" - answering that it landed would count
     # a line nobody saw, and answering "not now" would stop the account here
     # for as long as the workspace stays the way it is.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack),
+                a_destination := _a_destination_pointed_at(slack),
                 calling(lambda: _slack_will_refuse(slack))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_onset_of(incident_id)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_onset_of(an_incident_id)),
+                                        Register.ANNOUNCED)) \
             .then(all_of(
                 _it_will_never_land(),
                 _slack_holds_nothing(slack),
-                _the_incident_has_no_thread(conn, incident_id)
+                _the_incident_has_no_thread(conn, an_incident_id)
             ))
 
 
@@ -844,25 +872,23 @@ def test_a_line_refused_for_good_is_written_down_on_the_incident(
     # the timeline is what has to carry that Argus tried and was refused - and
     # which refusal it was, because a renamed channel and a revoked token need
     # different people to fix them.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
+        an_onset = _the_onset_of(an_incident_id)
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack),
+                a_destination := _a_destination_pointed_at(slack),
                 calling(lambda: _slack_will_refuse(slack))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_onset_of(incident_id)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id, a_narration_line(an_onset),
+                                        Register.ANNOUNCED)) \
             .then(
-                _that_failure_says(conn, incident_id,
-                                   refusal="channel_not_found",
+                _that_failure_says(conn, an_incident_id,
+                                   refusal=CHANNEL_NOT_FOUND,
                                    channel=A_WAR_ROOM,
-                                   about="onset-detected")
+                                   about=an_onset.kind)
             )
 
 
@@ -873,33 +899,32 @@ def test_a_filed_line_goes_to_the_archive_and_everything_else_to_the_war_room(
     # its register and nothing else - so a team that keeps its write-ups
     # somewhere of their own gets them there, and the conversation about the
     # incident is not interrupted by the record of it.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     dont_care_briefed_to = ""
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := a_destination_per_register(
+                a_destination := a_destination_per_register(
                     _a_destination_pointed_at(slack),
                     _a_destination_pointed_at(slack, channel=AN_ARCHIVE),
                     _a_briefing_pointed_at(slack, sent_to=dont_care_briefed_to)
                 )
             ) \
             .when(lambda: [
-                say(incident_id,
-                        a_narration_line(_the_incident_ending(incident_id)),
-                        Register.ANNOUNCED),
-                say(incident_id,
-                        a_narration_line(_the_write_up_of(incident_id)),
-                        Register.FILED)
+                a_destination(an_incident_id,
+                              a_narration_line(_the_incident_ending(an_incident_id)),
+                              Register.ANNOUNCED),
+                a_destination(an_incident_id,
+                              a_narration_line(_the_write_up_of(an_incident_id)),
+                              Register.FILED)
             ]) \
             .then(all_of(
                 _the_messages_in(slack, A_WAR_ROOM, count=1),
                 _the_messages_in(slack, AN_ARCHIVE, count=1),
-                _the_only_message_in(slack, AN_ARCHIVE, mentions="Wrote the postmortem")
+                _the_only_message_in(slack, AN_ARCHIVE, mentions=WROTE_THE_POSTMORTEM)
             ))
 
 
@@ -910,17 +935,16 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
     # followed the incident to guess that one exists. Told where to look rather
     # than told what it says - the postmortem is long, it is already somewhere,
     # and both messages carry the link to the page that holds all of it.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     dont_care_briefed_to = ""
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        its_page = f"{ARGUS_AT}/incidents/{incident_id}/postmortem"
+        its_page = f"{ARGUS_AT}/incidents/{an_incident_id}/postmortem"
 
         Scenario() \
             .given(
-                say := a_destination_per_register(
+                a_destination := a_destination_per_register(
                     _a_destination_pointed_at(slack),
                     _a_destination_pointed_at(slack, channel=AN_ARCHIVE),
                     _a_briefing_pointed_at(slack, sent_to=dont_care_briefed_to),
@@ -928,11 +952,11 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
                     filed_in=AN_ARCHIVE
                 )
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_write_up_of(incident_id)),
-                                  Register.FILED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_write_up_of(an_incident_id)),
+                                        Register.FILED)) \
             .then(all_of(
-                _the_only_message_in(slack, AN_ARCHIVE, mentions="Wrote the postmortem"),
+                _the_only_message_in(slack, AN_ARCHIVE, mentions=WROTE_THE_POSTMORTEM),
                 _the_only_message_in(slack, AN_ARCHIVE, mentions=its_page),
                 _the_only_message_in(slack, A_WAR_ROOM, mentions=AN_ARCHIVE),
                 _the_only_message_in(slack, A_WAR_ROOM, mentions=its_page)
@@ -944,25 +968,23 @@ def test_a_line_refused_for_good_is_logged_as_an_error(
         slack: str, a_clean_database: None, caplog: pytest.LogCaptureFixture) -> None:
     # A line of the incident's account that nobody will ever read in Slack, and
     # a channel or a token somebody has to go and fix before the next one.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack),
+                a_destination := _a_destination_pointed_at(slack),
                 calling(lambda: _slack_will_refuse(slack))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_the_onset_of(incident_id)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_onset_of(an_incident_id)),
+                                        Register.ANNOUNCED)) \
             .then(
-                one_record_was_logged(caplog, "agent_communicator.saying",
+                one_record_was_logged(caplog, LOGGED_BY,
                                       logging.ERROR, "line will never be said",
                                       values={"channel": A_WAR_ROOM,
-                                              "refusal": "channel_not_found"})
+                                              "refusal": CHANNEL_NOT_FOUND})
             )
 
 
@@ -972,26 +994,25 @@ def test_an_offer_that_keeps_its_button_is_logged_as_a_warning(
     # A warning rather than an error: the incident is over and a press on what
     # is left changes nothing. What somebody may want to know is which channel
     # and why, since a message that still asks is a small lie in that channel.
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
 
         Scenario() \
             .given(
-                say := _a_destination_pointed_at(slack),
-                calling(lambda: _an_offer_slack_no_longer_holds(conn, incident_id))
+                a_destination := _a_destination_pointed_at(slack),
+                calling(lambda: _an_offer_slack_no_longer_holds(conn, an_incident_id))
             ) \
-            .when(lambda: say(incident_id,
-                                  a_narration_line(_resolved_by(incident_id, "some person",
-                                                                ReportChannel.SLACK)),
-                                  Register.ANNOUNCED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_resolved_by(an_incident_id,
+                                                                      SOME_PERSON_NAME,
+                                                                      ReportChannel.SLACK)),
+                                        Register.ANNOUNCED)) \
             .then(
-                one_record_was_logged(caplog, "agent_communicator.saying",
+                one_record_was_logged(caplog, LOGGED_BY,
                                       logging.WARNING, "offer keeps its button",
                                       values={"channel": A_WAR_ROOM,
-                                              "refusal": "message_not_found"})
+                                              "refusal": MESSAGE_NOT_FOUND})
             )
 
 @pytest.mark.component
@@ -1003,19 +1024,19 @@ def test_a_synopsis_is_sent_to_each_id_configured_and_nowhere_else(
     # member's id is a direct message and a channel's a post there - Slack
     # takes either as where to post, so one list holds both.
     with connect_from_env() as conn:
-        incident_id = _an_incident_with_a_synopsis(conn)
+        an_incident_id = _an_incident_with_a_synopsis(conn)
 
         Scenario() \
             .given(
-                say := a_destination_per_register(
+                a_destination := a_destination_per_register(
                     _a_destination_pointed_at(slack),
                     _a_destination_pointed_at(slack, channel=AN_ARCHIVE),
                     _a_briefing_pointed_at(slack, sent_to=f"{A_MEMBER},{A_BOARD_CHANNEL}")
                 )
             ) \
-            .when(lambda: say(incident_id,
-                              a_narration_line(_the_synopsis_written_for(incident_id)),
-                              Register.BRIEFED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_synopsis_written_for(an_incident_id)),
+                                        Register.BRIEFED)) \
             .then(all_of(
                 _it_landed(),
                 _the_messages_in(slack, A_MEMBER, count=1),
@@ -1034,16 +1055,17 @@ def test_a_synopsis_is_its_overview_and_a_link_to_the_whole_of_it(
     some_overview = "Checkout failed for 7m 12s after a flag change; Argus turned it off."
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_with_a_synopsis(conn, overview=some_overview)
-        its_pdf = f"{ARGUS_AT}/incidents/{incident_id}/synopsis.pdf"
+        an_incident_id = _an_incident_with_a_synopsis(conn, overview=some_overview)
+        its_pdf = f"{ARGUS_AT}/incidents/{an_incident_id}/synopsis.pdf"
 
         Scenario() \
             .given(
-                say := _a_briefing_pointed_at(slack, sent_to=A_MEMBER, argus_at=ARGUS_AT)
+                a_destination := _a_briefing_pointed_at(slack, sent_to=A_MEMBER,
+                                                        argus_at=ARGUS_AT)
             ) \
-            .when(lambda: say(incident_id,
-                              a_narration_line(_the_synopsis_written_for(incident_id)),
-                              Register.BRIEFED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_synopsis_written_for(an_incident_id)),
+                                        Register.BRIEFED)) \
             .then(all_of(
                 _that_message_opens_with(slack, f"Postmortem Agent: {some_overview}"),
                 _that_message_says_once(slack, some_overview),
@@ -1058,15 +1080,16 @@ def test_ids_written_with_a_space_after_each_comma_are_each_sent_it(
     # How a person writes a list. An id with a space in front of it is one
     # Slack has never heard of.
     with connect_from_env() as conn:
-        incident_id = _an_incident_with_a_synopsis(conn)
+        an_incident_id = _an_incident_with_a_synopsis(conn)
 
         Scenario() \
             .given(
-                say := _a_briefing_pointed_at(slack, sent_to=f"{A_MEMBER}, {A_BOARD_CHANNEL}")
+                a_destination := _a_briefing_pointed_at(slack,
+                                                        sent_to=f"{A_MEMBER}, {A_BOARD_CHANNEL}")
             ) \
-            .when(lambda: say(incident_id,
-                              a_narration_line(_the_synopsis_written_for(incident_id)),
-                              Register.BRIEFED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_synopsis_written_for(an_incident_id)),
+                                        Register.BRIEFED)) \
             .then(all_of(
                 _the_messages_in(slack, A_MEMBER, count=1),
                 _the_messages_in(slack, A_BOARD_CHANNEL, count=1)
@@ -1081,15 +1104,15 @@ def test_nothing_is_sent_where_no_id_is_configured(
     no_ids = ""
 
     with connect_from_env() as conn:
-        incident_id = _an_incident_with_a_synopsis(conn)
+        an_incident_id = _an_incident_with_a_synopsis(conn)
 
         Scenario() \
             .given(
-                say := _a_briefing_pointed_at(slack, sent_to=no_ids)
+                a_destination := _a_briefing_pointed_at(slack, sent_to=no_ids)
             ) \
-            .when(lambda: say(incident_id,
-                              a_narration_line(_the_synopsis_written_for(incident_id)),
-                              Register.BRIEFED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_synopsis_written_for(an_incident_id)),
+                                        Register.BRIEFED)) \
             .then(all_of(
                 _it_landed(),
                 _slack_holds_nothing(slack)
@@ -1103,23 +1126,24 @@ def test_an_id_slack_refuses_is_written_down_and_the_others_are_still_sent_it(
     # good, and nothing to do with the next id on the list. The timeline says
     # which id and why, since each needs somebody different to fix it.
     with connect_from_env() as conn:
-        incident_id = _an_incident_with_a_synopsis(conn)
+        an_incident_id = _an_incident_with_a_synopsis(conn)
 
         Scenario() \
             .given(
-                say := _a_briefing_pointed_at(slack, sent_to=f"{A_CHANNEL_GONE},{A_MEMBER}"),
+                a_destination := _a_briefing_pointed_at(slack,
+                                                        sent_to=f"{A_CHANNEL_GONE},{A_MEMBER}"),
                 calling(lambda: _slack_will_refuse(slack))
             ) \
-            .when(lambda: say(incident_id,
-                              a_narration_line(_the_synopsis_written_for(incident_id)),
-                              Register.BRIEFED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_synopsis_written_for(an_incident_id)),
+                                        Register.BRIEFED)) \
             .then(all_of(
                 _it_landed(),
                 _the_messages_in(slack, A_MEMBER, count=1),
-                _that_failure_says(conn, incident_id,
+                _that_failure_says(conn, an_incident_id,
                                    refusal=CHANNEL_NOT_FOUND,
                                    channel=A_CHANNEL_GONE,
-                                   about=_the_synopsis_written_for(incident_id).kind)
+                                   about=_the_synopsis_written_for(an_incident_id).kind)
             ))
 
 
@@ -1128,16 +1152,16 @@ def test_a_synopsis_every_id_refuses_never_lands(
         slack: str, a_clean_database: None) -> None:
     # Nobody it was for has it, and the next pass would be refused the same.
     with connect_from_env() as conn:
-        incident_id = _an_incident_with_a_synopsis(conn)
+        an_incident_id = _an_incident_with_a_synopsis(conn)
 
         Scenario() \
             .given(
-                say := _a_briefing_pointed_at(slack, sent_to=A_CHANNEL_GONE),
+                a_destination := _a_briefing_pointed_at(slack, sent_to=A_CHANNEL_GONE),
                 calling(lambda: _slack_will_refuse(slack))
             ) \
-            .when(lambda: say(incident_id,
-                              a_narration_line(_the_synopsis_written_for(incident_id)),
-                              Register.BRIEFED)) \
+            .when(lambda: a_destination(an_incident_id,
+                                        a_narration_line(_the_synopsis_written_for(an_incident_id)),
+                                        Register.BRIEFED)) \
             .then(
                 _it_will_never_land()
             )
@@ -1150,16 +1174,17 @@ def test_an_id_slack_asks_to_wait_is_sent_it_on_the_next_pass_and_nobody_twice(
     # round again. Whoever already has the synopsis is not sent it a second
     # time: each id it reached is remembered against the incident.
     with connect_from_env() as conn:
-        incident_id = _an_incident_with_a_synopsis(conn)
-        a_line = a_narration_line(_the_synopsis_written_for(incident_id))
+        an_incident_id = _an_incident_with_a_synopsis(conn)
+        a_line = a_narration_line(_the_synopsis_written_for(an_incident_id))
 
         Scenario() \
             .given(
-                say := _a_briefing_pointed_at(slack, sent_to=f"{A_MEMBER},{A_BOARD_CHANNEL}"),
+                a_destination := _a_briefing_pointed_at(slack,
+                                                        sent_to=f"{A_MEMBER},{A_BOARD_CHANNEL}"),
                 calling(lambda: _slack_will_throttle(slack))
             ) \
-            .when(lambda: [say(incident_id, a_line, Register.BRIEFED),
-                           say(incident_id, a_line, Register.BRIEFED)]) \
+            .when(lambda: [a_destination(an_incident_id, a_line, Register.BRIEFED),
+                           a_destination(an_incident_id, a_line, Register.BRIEFED)]) \
             .then(all_of(
                 _the_outcomes_were([Outcome.NOT_NOW, Outcome.SAID]),
                 _the_messages_in(slack, A_MEMBER, count=1),
@@ -1177,11 +1202,10 @@ def _a_briefing_pointed_at(base_url: str, sent_to: str, argus_at: str = "") -> D
 
 
 def _an_incident_with_a_synopsis(conn: psycopg.Connection,
-                                 overview: str = "dont care what the overview says") -> str:
+                                 overview: str = DONT_CARE_OVERVIEW) -> str:
     """An incident with its postmortem and the synopsis written from it, as the
     walk leaves them before it publishes that the synopsis was written."""
-    incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"),
-                                   at=utc_now())
+    incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
     postmortems.record(conn, incident_id, _a_postmortem(), at=utc_now())
     synopses.record(conn, incident_id,
                     ExecutiveSynopsisDocument(overview=overview, withheld_because=None,
@@ -1195,8 +1219,8 @@ def _an_incident_with_a_synopsis(conn: psycopg.Connection,
 def _a_postmortem() -> PostmortemDocument:
     """A postmortem with nothing measured - all a synopsis needs to be read."""
     return PostmortemDocument(
-        root_cause="dont care",
-        executive_summary="dont care",
+        root_cause=DONT_CARE_PROSE,
+        executive_summary=DONT_CARE_PROSE,
         customer_loss_estimate=None,
         estimate_currency=None,
         engineer_minutes=None,
@@ -1217,15 +1241,15 @@ def _the_synopsis_written_for(incident_id: str) -> IncidentEvent:
 
 
 def _the_onset_of(incident_id: str) -> IncidentEvent:
-    return OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:03:00Z")
+    return OnsetDetected(incident_id=incident_id, onset=to_iso(DONT_CARE_ONSET))
 
 
 def _the_action_on(incident_id: str) -> IncidentEvent:
     return ActionTaken(
         incident_id=incident_id,
         hypothesis_id=None,
-        action_type="revert-feature-flag",
-        subject="monthly-spend-feature",
+        action_type=REVERT_FEATURE_FLAG,
+        subject=SOME_FLAG,
         enabled=False
     )
 
@@ -1234,9 +1258,9 @@ def _the_offer_on(incident_id: str) -> IncidentEvent:
     return ResolutionOffered(
         incident_id=incident_id,
         message=a_chat_message(ReportChannel.SLACK, A_WAR_ROOM, SOME_PERSONS_MESSAGE),
-        person_id="some-person-id",
-        person_name="some person",
-        said="rolled the flag back by hand, we're fine"
+        person_id=DONT_CARE_PERSON_ID,
+        person_name=SOME_PERSON_NAME,
+        said=DONT_CARE_SAID
     )
 
 
@@ -1256,9 +1280,9 @@ def _the_withdrawal_offer_on(incident_id: str) -> IncidentEvent:
     return WithdrawalOffered(
         incident_id=incident_id,
         message=a_chat_message(ReportChannel.SLACK, A_WAR_ROOM, ANOTHER_PERSONS_MESSAGE),
-        person_id="another-person-id",
-        person_name="another person",
-        said="stop, I've got this"
+        person_id=DONT_CARE_OTHER_PERSON_ID,
+        person_name=DONT_CARE_OTHER_PERSON_NAME,
+        said=DONT_CARE_OTHER_SAID
     )
 
 
@@ -1272,7 +1296,8 @@ def _the_offer_expiring_on(incident_id: str) -> IncidentEvent:
 def _an_offer_slack_no_longer_holds(conn: psycopg.Connection, incident_id: str) -> None:
     """An offer the incident remembers, for a message Slack never posted."""
     references.add(conn, incident_id,
-                   [a_chat_resolution_offer(ReportChannel.SLACK, A_WAR_ROOM, "1788999999.999999")])
+                   [a_chat_resolution_offer(ReportChannel.SLACK, A_WAR_ROOM,
+                                            A_MESSAGE_NEVER_POSTED)])
     conn.commit()
 
 
@@ -1283,54 +1308,64 @@ def _the_incident_ending(incident_id: str) -> IncidentEvent:
 def _the_write_up_of(incident_id: str) -> IncidentEvent:
     return PostmortemWritten(
         incident_id=incident_id,
-        cause_in_plain_words="A month with no purchases broke the account pages.",
-        executive_summary="Account pages failed for a third of shoppers. A month with no "
-                          "purchases broke the account pages.",
-        engineer_minutes=34
+        cause_in_plain_words=DONT_CARE_CAUSE,
+        executive_summary=DONT_CARE_SUMMARY,
+        engineer_minutes=DONT_CARE_ENGINEER_MINUTES
     )
 
 
 def _no_fix_found_on(incident_id: str, explanation: str) -> IncidentEvent:
     return FixAttempted(incident_id=incident_id,
                         outcome=FixOutcome.NOT_WARRANTED,
-                        detail="dont care what the node said",
+                        detail=DONT_CARE_DETAIL,
                         explanation=explanation)
 
 
-def _a_fix_proposed_on(incident_id: str, url: str) -> IncidentEvent:
-    """A fix proposed as pull request #7, read at `url`."""
+def _a_fix_proposed_on(incident_id: str, pull_request: OpenedPullRequest) -> IncidentEvent:
+    """A fix proposed as `pull_request`."""
     return FixAttempted(incident_id=incident_id,
                         outcome=FixOutcome.PROPOSED,
-                        pull_request=OpenedPullRequest(number=7, url=url, branch="argus/fix-abc"),
-                        detail="dont care what the node said")
+                        pull_request=pull_request,
+                        detail=DONT_CARE_DETAIL)
+
+
+def _the_setting_moving(quoted: Callable[[str], str]) -> str:
+    """The setting going from one value to the other, each name quoted by
+    `quoted`."""
+    return (f"{quoted(SOME_SETTING)} went from {quoted(SOME_OLD_VALUE)} "
+            f"to {quoted(SOME_NEW_VALUE)}")
 
 
 def _a_postmortem_quoting_names_on(incident_id: str) -> IncidentEvent:
     """A write-up whose cause - the part its line marks - quotes names."""
-    some_cause = "[categoriser.model] went from [v1] to [v2]"
+    some_cause = _the_setting_moving(lambda name: f"[{name}]")
     return PostmortemWritten(incident_id=incident_id,
                              executive_summary=some_cause,
                              cause_in_plain_words=some_cause)
+
+
+def _the_commit_address(revision: str) -> str:
+    """Where `revision` opens, in the repository the service's source is kept in."""
+    return f"{SOME_REPOSITORY_ADDRESS}/commit/{revision}"
 
 
 def _a_deploy_read_on(incident_id: str, revision: str) -> IncidentEvent:
     """A deploy of `revision` read, which can be opened where its repository is."""
     return ChangesRetrieved(
         incident_id=incident_id,
-        window_start="2026-10-11T12:00:00Z",
-        window_end="2026-10-11T12:05:00Z",
-        changes=[ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-10-11T12:00:00Z",
-                             reference=revision, summary="dont care",
+        window_start=to_iso(DONT_CARE_MOMENT),
+        window_end=to_iso(DONT_CARE_MOMENT + timedelta(minutes=5)),
+        changes=[ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=to_iso(DONT_CARE_MOMENT),
+                             reference=revision, summary=DONT_CARE_PROSE,
                              revision_source=RevisionSource(
-                                 repository="acme/shop",
-                                 repository_address="https://github.invalid/acme/shop",
-                                 revision_address=(f"https://github.invalid/acme/shop/"
-                                                   f"commit/{revision}")))])
+                                 repository=SOME_REPOSITORY,
+                                 repository_address=SOME_REPOSITORY_ADDRESS,
+                                 revision_address=_the_commit_address(revision)))])
 
 
 def _a_postmortem_naming_on(incident_id: str, revision: str) -> IncidentEvent:
     """A write-up whose cause - the part its line marks - names `revision`."""
-    some_cause = f"[{revision}] made every page slow"
+    some_cause = f"[{revision}] {SOME_CONSEQUENCE}"
     return PostmortemWritten(incident_id=incident_id,
                              executive_summary=some_cause,
                              cause_in_plain_words=some_cause)
@@ -1354,7 +1389,7 @@ def _slack_will_refuse(base_url: str) -> None:
 def _slack_will_throttle(base_url: str) -> None:
     """Queues a throttle for the next post: Slack asking Argus to wait."""
     httpx2.post(f"{base_url}/double-control/seed",
-               json={"error": "rate_limited"}).raise_for_status()
+               json={"error": RATE_LIMITED}).raise_for_status()
 
 
 def _it_landed() -> Assertion[Outcome]:
@@ -1798,9 +1833,9 @@ def _slack_at(base_url: str) -> Slack:
     signing secret because nothing here reads a delivery.
     """
     return Slack(
-        ChatSettings(slack_bot_token="xoxb-dont-care",
+        ChatSettings(slack_bot_token=DONT_CARE_TOKEN,
                      slack_base_url=base_url,
-                     slack_signing_secret=""),
+                     slack_signing_secret=DONT_CARE_SIGNING_SECRET),
         client_of=WebClient,
         clock=utc_now
     )

@@ -35,10 +35,20 @@ from orchestrator.walk.ports import (
 from orchestrator.walk.state import IncidentState
 
 SOME_INCIDENT_ID = "e6e6e6e6-0000-4000-8000-000000000006"
+DONT_CARE_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")
 
 # What a synopsis said, and why another was given up - each stored as it came.
 SOME_OVERVIEW = "Checkout failed for 7m 12s."
 SOME_REASON = "the overview was refused twice"
+
+# What a written document says, where no case here reads it.
+DONT_CARE_ROOT_CAUSE = "dont care"
+DONT_CARE_SUMMARY = "dont care"
+DONT_CARE_LOSS = Decimal("336")
+DONT_CARE_CURRENCY = "usd"
+DONT_CARE_ENGINEER_MINUTES = 50
+DONT_CARE_RESPONDERS = 2
+DONT_CARE_TOKENS_SPENT = 48_120
 
 
 @pytest.mark.unit
@@ -91,6 +101,7 @@ def test_an_escalated_incident_is_written_up_too() -> None:
 @pytest.mark.unit
 def test_a_partial_document_is_stored_rather_than_discarded() -> None:
     some_incident_id = SOME_INCIDENT_ID
+    dont_care_criterion = "some criterion"
     stored: Kept[tuple[str, PostmortemDocument]] = Kept()
 
     Scenario() \
@@ -101,7 +112,7 @@ def test_a_partial_document_is_stored_rather_than_discarded() -> None:
             lambda: postmortem_node(
                 a_resolved_incident,
                 write=_a_writer_producing(_a_document(review=[
-                    ReviewCriterion(criterion="some criterion", met=False)])),
+                    ReviewCriterion(criterion=dont_care_criterion, met=False)])),
                 record=_a_recorder_into(stored))
         ) \
         .then(
@@ -139,21 +150,21 @@ def test_the_synopsis_that_was_written_is_the_one_that_is_stored(
 def _an_incident_in(status: IncidentStatus, incident_id: str) -> IncidentState:
     return IncidentState(
         incident_id=incident_id,
-        alert=Alert(service="io-shop", alert_name="HighErrorRate"),
+        alert=DONT_CARE_ALERT,
         status=status
     )
 
 
-def _a_document(root_cause: str = "dont care",
+def _a_document(root_cause: str = DONT_CARE_ROOT_CAUSE,
                 review: list[ReviewCriterion] | None = None) -> PostmortemDocument:
     return PostmortemDocument(
         root_cause=root_cause,
-        executive_summary="dont care",
-        customer_loss_estimate=Decimal("336"),
-        estimate_currency="usd",
-        engineer_minutes=50,
-        responders=2,
-        tokens_spent=48_120,
+        executive_summary=DONT_CARE_SUMMARY,
+        customer_loss_estimate=DONT_CARE_LOSS,
+        estimate_currency=DONT_CARE_CURRENCY,
+        engineer_minutes=DONT_CARE_ENGINEER_MINUTES,
+        responders=DONT_CARE_RESPONDERS,
+        tokens_spent=DONT_CARE_TOKENS_SPENT,
         assumptions=[],
         review=review if review is not None else []
     )

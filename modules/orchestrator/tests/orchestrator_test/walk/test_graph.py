@@ -45,6 +45,7 @@ from orchestrator.walk.state import IncidentState
 type Edge = tuple[str, str]
 
 NODES_PER_ATTEMPT = 4
+NODES_PER_INVESTIGATION = len([INVESTIGATOR_NODE])
 
 EVERY_NODE_IN_THE_WALK = [
     CODEFIX_NODE,
@@ -131,8 +132,8 @@ def test_every_node_of_the_walk_is_registered() -> None:
     # A node the graph does not know is a node no incident can reach, and the
     # failure shows up as a router returning a key nobody wired.
     Scenario() \
-        .given(the_assembled_graph := _a_graph_against_no_database()) \
-        .when(lambda: sorted(the_assembled_graph.get_graph().nodes)) \
+        .given(an_assembled_graph := _a_graph_against_no_database()) \
+        .when(lambda: sorted(an_assembled_graph.get_graph().nodes)) \
         .then(_the_nodes_are(sorted([START, END, *EVERY_NODE_IN_THE_WALK])))
 
 
@@ -142,8 +143,8 @@ def test_every_edge_of_the_walk_is_wired() -> None:
     # is as wrong as one that is missing, and a test naming only what it
     # expects cannot see the first kind.
     Scenario() \
-        .given(the_assembled_graph := _a_graph_against_no_database()) \
-        .when(lambda: _the_edges_of(the_assembled_graph)) \
+        .given(an_assembled_graph := _a_graph_against_no_database()) \
+        .when(lambda: _the_edges_of(an_assembled_graph)) \
         .then(_the_edges_are(EVERY_EDGE_IN_THE_WALK))
 
 
@@ -153,13 +154,16 @@ def test_the_shortest_possible_walk_costs_what_the_graph_says_it_costs() -> None
     # investigation, then the four nodes of a single attempt - proposal, gate,
     # mitigation, next_candidate - then the four that end an incident nobody
     # could fix: codefix, remembering, postmortem, synopsis.
+    the_fewest_rounds = 1
+    the_fewest_candidates = 1
     the_investigation = [INVESTIGATOR_NODE]
     the_ending_nobody_could_fix = [CODEFIX_NODE, REMEMBERING_NODE, POSTMORTEM_NODE,
                                    SYNOPSIS_NODE]
 
     Scenario() \
-        .given(the_shortest_walk := {"max_rounds": 1, "max_candidates": 1}) \
-        .when(lambda: recursion_limit(**the_shortest_walk)) \
+        .given(a_shortest_walk := {"max_rounds": the_fewest_rounds,
+                                   "max_candidates": the_fewest_candidates}) \
+        .when(lambda: recursion_limit(**a_shortest_walk)) \
         .then(_the_limit_is(len(the_investigation) + NODES_PER_ATTEMPT
                             + len(the_ending_nobody_could_fix)))
 
@@ -168,23 +172,35 @@ def test_the_shortest_possible_walk_costs_what_the_graph_says_it_costs() -> None
 def test_every_extra_candidate_buys_a_whole_attempt() -> None:
     # The loop's traversal budget has to grow with the list, or a verdict with
     # one more explanation than usual ends the incident on a recursion error.
+    # One round, because each round walks the list again.
+    one_round = 1
+    some_candidates = 1
+
     Scenario() \
-        .given(a_walk_of_one := recursion_limit(max_rounds=1, max_candidates=1)) \
-        .when(lambda: recursion_limit(max_rounds=1, max_candidates=2)) \
+        .given(
+            a_walk_of_one := recursion_limit(max_rounds=one_round,
+                                             max_candidates=some_candidates)
+        ) \
+        .when(lambda: recursion_limit(max_rounds=one_round,
+                                      max_candidates=some_candidates + 1)) \
         .then(_the_limit_is(a_walk_of_one + NODES_PER_ATTEMPT))
 
 
 @pytest.mark.unit
 def test_every_extra_round_pays_for_its_investigation_and_its_candidates() -> None:
     # A wider round is one more investigation plus a full list to walk again.
+    one_round = 1
     some_candidates = 3
 
     Scenario() \
         .given(
-            one_round := recursion_limit(max_rounds=1, max_candidates=some_candidates)
+            a_walk_of_one_round := recursion_limit(max_rounds=one_round,
+                                                   max_candidates=some_candidates)
         ) \
-        .when(lambda: recursion_limit(max_rounds=2, max_candidates=some_candidates)) \
-        .then(_the_limit_is(one_round + 1 + NODES_PER_ATTEMPT * some_candidates))
+        .when(lambda: recursion_limit(max_rounds=one_round + 1,
+                                      max_candidates=some_candidates)) \
+        .then(_the_limit_is(a_walk_of_one_round + NODES_PER_INVESTIGATION
+                            + NODES_PER_ATTEMPT * some_candidates))
 
 
 def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:

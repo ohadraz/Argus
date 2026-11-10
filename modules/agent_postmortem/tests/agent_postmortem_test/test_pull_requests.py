@@ -20,20 +20,35 @@ from agent_postmortem.pull_requests import the_pull_request_named, with_the_pull
 from argus_core.models import ActionItemType, Lessons, OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
 
+DONT_CARE_REPOSITORY_ADDRESS = "https://github.invalid/acme/shop"
+DONT_CARE_BRANCH = "argus/fix-abc"
+
 # The pull request the record holds.
-SOME_PULL_REQUEST = OpenedPullRequest(number=1,
-                                      url="https://github.invalid/acme/shop/pull/1",
-                                      branch="argus/fix-abc")
+SOME_PULL_REQUEST_NUMBER = 1
+SOME_PULL_REQUEST = OpenedPullRequest(
+    number=SOME_PULL_REQUEST_NUMBER,
+    url=f"{DONT_CARE_REPOSITORY_ADDRESS}/pull/{SOME_PULL_REQUEST_NUMBER}",
+    branch=DONT_CARE_BRANCH)
 # The pull request a replay's recording names: the one the recording run opened.
 SOME_OTHER_RUNS_NUMBER = 356
+SOME_OTHER_RUNS_REPOSITORY_ADDRESS = "https://github.com/acme/shop"
+
+# Where a number that names no pull request sits beside the other run's.
+DONT_CARE_ITEM_NUMBER = 4
+
+# The citations an answer's every sentence carries: a lead, a line of the
+# narration and an action item, each the first of its kind.
+DONT_CARE_LEAD = "L1"
+DONT_CARE_LINE = "T1"
+DONT_CARE_ITEM = "AI-1"
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("named", [
-    "PR #356",
-    "pull request #356",
-    "Pull request #356",
-    "https://github.com/acme/shop/pull/356"
+    f"PR #{SOME_OTHER_RUNS_NUMBER}",
+    f"pull request #{SOME_OTHER_RUNS_NUMBER}",
+    f"Pull request #{SOME_OTHER_RUNS_NUMBER}",
+    f"{SOME_OTHER_RUNS_REPOSITORY_ADDRESS}/pull/{SOME_OTHER_RUNS_NUMBER}"
 ], ids=["by-argus-s-name", "in-words", "in-words-opening-a-sentence", "by-its-address"])
 def test_a_pull_request_the_answer_names_is_written_as_the_record_s_by_its_name(
         named: str) -> None:
@@ -42,13 +57,14 @@ def test_a_pull_request_the_answer_names_is_written_as_the_record_s_by_its_name(
     Scenario() \
         .given(
             an_answer_naming_another := SubmittedPostmortem(
-                root_cause=f"the fix ({named}) is waiting on a person")
+                root_cause=_the_fix_waiting_on(named))
         ) \
         .when(
             lambda: with_the_pull_request_named(an_answer_naming_another, SOME_PULL_REQUEST)
         ) \
         .then(
-            the_answer_was(SubmittedPostmortem(root_cause="the fix (PR #1) is waiting on a person"))
+            the_answer_was(SubmittedPostmortem(
+                root_cause=_the_fix_waiting_on(_argus_s_name_for(SOME_PULL_REQUEST.number))))
         )
 
 
@@ -57,7 +73,8 @@ def test_a_pull_request_named_where_the_record_holds_none_is_left_as_written() -
     # Nothing here can say which one it meant.
     Scenario() \
         .given(
-            an_answer_naming_one := SubmittedPostmortem(root_cause="PR #356 is waiting")
+            an_answer_naming_one := SubmittedPostmortem(
+                root_cause=f"{_argus_s_name_for(SOME_OTHER_RUNS_NUMBER)} is waiting")
         ) \
         .when(
             lambda: with_the_pull_request_named(an_answer_naming_one, None)
@@ -73,7 +90,8 @@ def test_a_number_naming_no_pull_request_is_left_as_written() -> None:
     Scenario() \
         .given(
             an_answer_naming_other_numbers := SubmittedPostmortem(
-                root_cause="ticket #356 and item #4 are open")
+                root_cause=f"ticket #{SOME_OTHER_RUNS_NUMBER} and item "
+                           f"#{DONT_CARE_ITEM_NUMBER} are open")
         ) \
         .when(
             lambda: with_the_pull_request_named(an_answer_naming_other_numbers, SOME_PULL_REQUEST)
@@ -89,14 +107,16 @@ def test_every_sentence_the_answer_publishes_names_the_record_s_pull_request() -
     # here reaches the page naming another run's.
     Scenario() \
         .given(
-            an_answer_naming_another_everywhere := _an_answer_naming_everywhere("PR #356")
+            an_answer_naming_another_everywhere := _an_answer_naming_everywhere(
+                _argus_s_name_for(SOME_OTHER_RUNS_NUMBER))
         ) \
         .when(
             lambda: with_the_pull_request_named(an_answer_naming_another_everywhere,
                                                 SOME_PULL_REQUEST)
         ) \
         .then(
-            the_answer_was(_an_answer_naming_everywhere("PR #1"))
+            the_answer_was(_an_answer_naming_everywhere(
+                _argus_s_name_for(SOME_PULL_REQUEST.number)))
         )
 
 
@@ -127,9 +147,19 @@ def test_prose_naming_a_pull_request_where_the_record_holds_none_is_left_as_writ
         )
 
 
+def _argus_s_name_for(number: int) -> str:
+    """Pull request `number` by the name Argus gives it."""
+    return f"PR #{number}"
+
+
+def _the_fix_waiting_on(pull_request: str) -> str:
+    """A sentence naming `pull_request`, as an answer would write it."""
+    return f"the fix ({pull_request}) is waiting on a person"
+
+
 def _a_draft_fix_awaiting_review(number: int) -> str:
     """An overview's sentence naming pull request `number` as Argus names one."""
-    return f"A draft fix, PR #{number}, awaits review."
+    return f"A draft fix, {_argus_s_name_for(number)}, awaits review."
 
 
 def _an_answer_naming_everywhere(pull_request: str) -> SubmittedPostmortem:
@@ -142,9 +172,9 @@ def _an_answer_naming_everywhere(pull_request: str) -> SubmittedPostmortem:
         still_at_risk=said,
         symptom=said,
         assumptions=[said],
-        lead_effects={"L1": said},
-        causal_chain=[SubmittedStep(step=said, cites=["T1"])],
-        contributing_factors=[SubmittedFactor(factor=said, addressed_by=["AI-1"])],
+        lead_effects={DONT_CARE_LEAD: said},
+        causal_chain=[SubmittedStep(step=said, cites=[DONT_CARE_LINE])],
+        contributing_factors=[SubmittedFactor(factor=said, addressed_by=[DONT_CARE_ITEM])],
         action_items=[SubmittedItem(item=said, type=ActionItemType.PREVENT)],
         lessons=Lessons(went_well=[said], went_wrong=[said], got_lucky=[said])
     )

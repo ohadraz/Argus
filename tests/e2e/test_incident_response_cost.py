@@ -53,32 +53,42 @@ from tests.e2e.framework.world import a_scenario_was_seeded
 A_MINUTE = timedelta(minutes=1)
 MINUTES_AN_HOUR = Decimal(60)
 
+# Taken from the demo app: the scenario the shop stages under this name, and the
+# one the priced recording was captured against - do not change unless the
+# demo app does.
+THE_FLAG_TOGGLE_SCENARIO = "feature-flag-toggle"
+
 
 @pytest.mark.e2e
 def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> None:
-    some_alert_name = "HighErrorRate"
-    some_severity = "critical"
+    dont_care_alert_name = "HighErrorRate"
+    dont_care_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
-                                            alert_name=some_alert_name,
-                                            severity=some_severity)
+                                            alert_name=dont_care_alert_name,
+                                            severity=dont_care_severity)
 
-    some_on_call_incident = "PSOMEINCIDENT"
+    dont_care_on_call_incident = "PSOMEINCIDENT"
     some_responder = "PSOMEONE"
     some_other_responder = "PSOMEONEELSE"
+    some_wait_to_acknowledge = 1 * A_MINUTE
+    some_other_wait_to_acknowledge = some_wait_to_acknowledge + A_MINUTE
+    some_time_both_spent_on_it = 8 * A_MINUTE
+    # Each acknowledges the page before it is closed, so both spent minutes on it.
+    some_wait_to_resolve = some_other_wait_to_acknowledge + some_time_both_spent_on_it
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle",
+            calling(a_scenario_was_seeded(THE_FLAG_TOGGLE_SCENARIO,
                                           as_recorded_in=RECORDED_FLAG_TOGGLE_PRICED)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_PRICED)),
             calling(the_on_call_platform_holds(
-                some_on_call_incident,
+                dont_care_on_call_incident,
                 paged_for=some_alert,
                 paged_at=utc_now(),
-                resolved_after=10 * A_MINUTE,
+                resolved_after=some_wait_to_resolve,
                 acknowledged_after={
-                    some_responder: 1 * A_MINUTE,
-                    some_other_responder: 2 * A_MINUTE
+                    some_responder: some_wait_to_acknowledge,
+                    some_other_responder: some_other_wait_to_acknowledge
                 },
                 titles={
                     some_responder: THE_DEARER_TITLE,

@@ -226,7 +226,7 @@ def proposes_the_fix_at(expected: str | None) -> Assertion[PostmortemDocument]:
     return assertion
 
 
-def _it_says_what_is_still_owed(expected: str | None) -> Assertion[PostmortemDocument]:
+def says_what_is_still_owed(expected: str | None) -> Assertion[PostmortemDocument]:
     """The action nobody took, or that the document owes nobody one.
 
     Carried rather than written, for the reason the pull request's address is -
