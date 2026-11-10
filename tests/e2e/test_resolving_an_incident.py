@@ -61,6 +61,7 @@ from tests.e2e.framework.argus import (
     argus_is_triggered_with_alert,
     argus_wrote_a_postmortem,
     incident_id_from,
+    the_held_call_arrived,
     the_held_model_answers_from,
     the_model_answers_from,
     the_model_is_held,
@@ -298,6 +299,7 @@ def _argus_is_resolved_from_the_slack_thread_before_it_investigates(
         thread = the_thread_of(incident_id_from(response))
         written = a_person_writes(person_id, words, in_thread=thread)
 
+        the_held_call_arrived()
         the_held_model_answers_from(RECORDED_RESOLVED_FROM_SLACK)()
 
         offered["offer"] = the_offer_made_in(thread)
