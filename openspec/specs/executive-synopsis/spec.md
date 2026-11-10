@@ -1,5 +1,12 @@
-## ADDED Requirements
+# executive-synopsis Specification
 
+## Purpose
+The postmortem for the people who lead rather than the people who responded: a
+short overview in plain words, written by the model with every figure named and
+written in by code, the impact, what the response cost by job title, and how
+the incident was resolved - written after the postmortem and changing nothing
+of it.
+## Requirements
 ### Requirement: The synopsis is a step after the postmortem, and changes nothing of it
 The system SHALL write the executive synopsis in a walk step of its own, after the
 postmortem step, from the stored postmortem and what the step reads itself. The
@@ -187,8 +194,14 @@ that said nothing.
 ### Requirement: The overview says who was affected as the cause does
 The prompt SHALL ask the model to say which people were affected, as the cause
 in plain words says it, or that some were where it does not say which - never
-how many, and never all of them where the cause does not say all - and to keep "likely" on what the cause says is likely, and
-only there.
+how many, and never all of them where the cause does not say all - and to keep
+"likely" on what the cause says is likely, and only there.
+
+#### Scenario: A cause that does not say which
+- **GIVEN** a cause saying account pages failed, without saying for whom
+- **WHEN** the overview's request is built
+- **THEN** it asks for which ones were affected, or that some were, and never
+  for how many or for all of them
 
 ### Requirement: Nobody responding is said, not counted
 Where nobody responded, the request SHALL offer no figure for the people who
@@ -382,3 +395,4 @@ it SHALL carry no link.
 - **GIVEN** no base address configured
 - **WHEN** a synopsis is shown
 - **THEN** it carries no link
+
