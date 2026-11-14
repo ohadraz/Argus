@@ -100,7 +100,8 @@ knows them. A helper used by one case stays in that case's file; lift it to
 ## Reminder
 
 Every double under `test_support/` is off-limits to Claude - `anthropic_double`,
-`slack_double`, `github_double`, `pagerduty_double` - as is everything under
+`slack_double`, `github_double`, `pagerduty_double`, `target_service_double` - as
+is everything under
 `tests/`. Both halves of this pattern
 are therefore proposed in chat for the user to paste, which means both halves
 want exact addresses: see the `hand-apply-edit-format` skill.

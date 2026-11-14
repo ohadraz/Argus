@@ -14,13 +14,13 @@ adapters against. anthropic_double's recordings are what the integration and
 contract suites hold the model adapter to; slack_double is what the relay's
 own suite and the e2e stack post against; github_double is the repository the
 e2e stack proposes fixes to; pagerduty_double is where it reads on-call
-incidents from. An agent free to reshape what a double accepts or answers
-could make its own code pass against a vendor that never existed.
+incidents from; target_service_double is the shop a replay reads its world
+from. An agent free to reshape what a double accepts or answers could make its
+own code pass against a vendor that never existed.
 
 The directory rather than a list of names: the list this replaced was kept by
 hand, and the double it left out went unguarded for two months. A module is
-off-limits by living in test_support/, which is the same thing that keeps it
-out of test discovery.
+off-limits by living in test_support/.
 
 Both rules are scoped to this repository. The tests/ rule exists to enforce
 the TDD policy in AGENTS.md — the human writes the test, the agent writes the

@@ -8,8 +8,9 @@ directory in the repo: root `tests/`, every `modules/*/tests/`, and
 `benchmark/tests/`. It applies equally to everything under `test_support/`:
 `argus_testkit`, the shared test-support module, and the stand-ins for an
 outside party - `anthropic_double` for the Anthropic API, `slack_double` for
-Slack, `github_double` for GitHub and `pagerduty_double` for PagerDuty. A
-module is covered by living there, not by being named here.
+Slack, `github_double` for GitHub, `pagerduty_double` for PagerDuty and
+`target_service_double` for the Target Service a replay reads. A module is
+covered by living there, not by being named here.
 
 The testkit holds no test cases, but many assertions in the repo runs through it.
 An agent able to edit it could turn the whole suite green from one file - by

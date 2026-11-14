@@ -18,16 +18,17 @@ Given a module name (e.g., `agent-ratelimiter`), create:
 Do NOT add anything else to `tests/` beyond `conftest.py` - actual test files are
 off-limits for Claude to write (see CLAUDE.md "Tests are off-limits").
 
-Do NOT edit `noxfile.py` - module discovery is automatic via `_discover_modules()`
-scanning for `modules/*/pyproject.toml`. Confirm the new module appears by running
-`uv run python -m nox --list` and checking for a new `test_module(module='<name>')` line.
+Do NOT edit `noxfile.py` - module discovery is automatic via `_discover_suites()`,
+which finds every member of `modules/` or `test_support/` with a `tests/`
+directory. Confirm the new module appears by running `uv run python -m nox --list`
+and checking for a new `test_module(module='<name>')` line.
 
-The one exception: test-support code with **no** suite of its own - a new double,
-or something beside `argus_testkit` - goes under `test_support/<name>/` instead of
-`modules/`. Discovery reads `modules/` alone, so it is never handed a `tests/`
-path that does not exist (pytest exits non-zero on one), and the hook keeps
-everything under `test_support/` off-limits to Claude: scaffold it only when the
-user asks, and leave its contents to them.
+The one exception: test-support code - a new double, or something beside
+`argus_testkit` - goes under `test_support/<name>/` instead of `modules/`. The
+hook keeps everything there off-limits to Claude: scaffold it only when the user
+asks, and leave its contents to them. Without a `tests/` directory it is left
+out of discovery, which pytest needs (a `tests/` path that does not exist is a
+non-zero exit).
 
 After scaffolding, run `uv sync` to confirm the workspace resolves the new member
 correctly, and report any resolution errors rather than silently proceeding.

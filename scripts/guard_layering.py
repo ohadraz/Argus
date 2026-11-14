@@ -95,13 +95,6 @@ STORES_THE_FENCE_CANNOT_REACH = ("qdrant_client", "slack_sdk")
 # forbid.
 THE_WAY_RECALL_READS = ("incident_memory.recalling", "qdrant_client")
 
-# The one double that lives under `modules/`, which no contract has anything to
-# say about: it stands in for the shop, is never imported by anything that
-# ships, and a contract naming it would be a contract about the suites. The rest
-# of the test support lives in `test_support/`, which this never reads. Under
-# `modules/` because it has a suite of its own.
-NOT_LAYERED = frozenset({"target_service_double"})
-
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests
 # the modules behind the front doors, and a test that could only reach them
 # through one could not test them at all.
@@ -117,12 +110,17 @@ BEHIND_THE_DOOR = frozenset({"argus_core.llm.adapters.anthropic_adapter"})
 
 
 def _the_modules_on_disk() -> set[str]:
-    """Every package under `modules/` that a contract could have an opinion about."""
+    """Every package under `modules/` that a contract could have an opinion about.
+
+    `modules/` alone: what lives in `test_support/` - the testkit and the doubles -
+    is never imported by anything that ships, and a contract naming it would be a
+    contract about the suites.
+    """
     return {
         directory.name
         for directory in MODULES.iterdir()
         if directory.is_dir() and (directory / "pyproject.toml").exists()
-    } - NOT_LAYERED
+    }
 
 
 def _the_contracts() -> list[dict[str, object]]:
@@ -355,14 +353,15 @@ def _the_suites_keep_the_agents_apart(independent: set[str]) -> None:
 def _the_doors_open_to(path: Path, doors: dict[str, set[str]]) -> set[str]:
     """Which doors this file may go through.
 
-    A file under `modules/<module>/tests/` is that module's, and gets the doors
-    its module took plus the ones open to everything. Everything else - the root
-    `tests/` tree, `scripts/` - runs against the workspace environment, where
-    every extra is installed, so it gets all of them.
+    A file under `modules/<module>/tests/` or `test_support/<module>/tests/` is
+    that module's, and gets the doors its module took plus the ones open to
+    everything. Everything else - the root `tests/` tree, `scripts/` - runs
+    against the workspace environment, where every extra is installed, so it
+    gets all of them.
     """
     parts = path.relative_to(REPOSITORY).parts
 
-    if len(parts) > 2 and parts[0] == "modules" and parts[2] == "tests":
+    if len(parts) > 2 and parts[0] in ("modules", "test_support") and parts[2] == "tests":
         return doors[""] | doors.get(parts[1], set())
 
     return set().union(*doors.values())
@@ -402,7 +401,8 @@ def _every_suite_file() -> list[Path]:
         for path in [
             *sorted((REPOSITORY / "tests").rglob("*.py")),
             *sorted((REPOSITORY / "scripts").rglob("*.py")),
-            *sorted(REPOSITORY.glob("modules/*/tests/**/*.py"))
+            *sorted(REPOSITORY.glob("modules/*/tests/**/*.py")),
+            *sorted(REPOSITORY.glob("test_support/*/tests/**/*.py"))
         ]
         if THE_KERNELS_OWN_SUITE not in path.as_posix()
     ]

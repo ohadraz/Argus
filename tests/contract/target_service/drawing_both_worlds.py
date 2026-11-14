@@ -20,6 +20,14 @@ because those checks hang purchases on a grid of their own that no minute's
 name moves, and the alert a replay's walk starts from is built out of what they
 found.
 
+And one process for every scenario, the way one shop serves every case of a
+replay: each world the stand-in draws ends with the shop's own reset, as a
+case's teardown ends it, and one comparison seeds two anchors in turn onto the
+same replay minutes. The shop remembers the minutes it generated, by the minute
+and not by the draws it made them from; a reset that left them behind would
+serve the second world the first one's minutes, and only a second world drawn
+onto them can see it.
+
 Not every scenario: one the shop does not generate has no window to compare.
 """
 
@@ -60,6 +68,12 @@ SOME_SHIFTS = (
     timedelta(days=15, hours=2, minutes=8, seconds=17),
     timedelta(days=33, hours=5, minutes=41, seconds=52)
 )
+
+# A second recording's anchor, for the comparison that seeds two in turn onto
+# the same replay minutes. Days earlier, so the two are moved by different whole
+# minutes, and nine seconds earlier in its minute, so both are still seeded in
+# the replay's first minute ahead - the same minutes, from different draws.
+ANOTHER_ANCHOR = AN_ANCHOR - timedelta(days=3, minutes=17, seconds=9)
 
 # When each window is read, after its seed: the minutes before the onset, the
 # incident in progress, and a walk's worth of minutes after.
@@ -171,21 +185,22 @@ def _readings_after(seeded_at: datetime, world: Any) -> list[dict[str, Any]]:
     return readings
 
 
-def the_shops_world(scenario: Any) -> list[dict[str, Any]]:
-    """The scenario seeded by the shop at the anchor."""
+def the_shops_world(scenario: Any, anchor: datetime = AN_ANCHOR) -> list[dict[str, Any]]:
+    """The scenario seeded by the shop at `anchor`."""
     generator.random = random
     world = _a_fresh_shop()
-    NOW[0] = AN_ANCHOR
+    NOW[0] = anchor
     world.seed(scenario)
 
-    return _readings_after(AN_ANCHOR, world)
+    return _readings_after(anchor, world)
 
 
 def the_stand_ins_world(scenario: Any,
                         anchor: datetime | None,
                         asked_at: datetime) -> tuple[timedelta, list[dict[str, Any]]]:
     """The scenario seeded by the stand-in, asked at `asked_at` with `anchor`
-    staged, and how far ahead of the anchor it seeded."""
+    staged, and how far ahead of the anchor it seeded - then put back by the
+    shop's own reset, as a case's teardown puts it back."""
     draws = ShiftedDraws(random, scenarios.TIMESTAMP_FORMAT)
     own_checks = {check: getattr(state, check) for check in THE_CHECKS}
 
@@ -205,8 +220,10 @@ def the_stand_ins_world(scenario: Any,
 
         seeding.seed(lambda: world.seed(scenario))
         shift = seeding.state().shift
+        readings = _readings_after((anchor or asked_at) + shift, world)
+        world.reset()
 
-        return shift, _readings_after((anchor or asked_at) + shift, world)
+        return shift, readings
     finally:
         generator.random = random
 
@@ -316,6 +333,8 @@ def main() -> int:
     state.a_client_for = _no_cache
     state.discard_every_entry = _nothing_written
     state.write_entries = _nothing_written
+    # And the reset's emptying of that cache, for the same reason.
+    state.forget_every_cached_summary = _nothing_written
 
     found: dict[str, list[str]] = {}
     excluded: dict[str, str] = {}
@@ -344,6 +363,21 @@ def main() -> int:
                 return differences(shops, stand_ins, shift)
 
             compared(f"{scenario_id}, asked {some_shift} later", from_the_anchor, found)
+
+        def two_anchors_onto_the_same_minutes(scenario: Any = scenario) -> list[str]:
+            asked_at = AN_ANCHOR + SOME_SHIFTS[0]
+            differing: list[str] = []
+
+            for anchor in (AN_ANCHOR, ANOTHER_ANCHOR):
+                shops = the_shops_world(scenario, anchor)
+                shift, stand_ins = the_stand_ins_world(scenario, anchor, asked_at)
+                differing.extend(f"from {anchor.isoformat()}: {said}"
+                                 for said in differences(shops, stand_ins, shift))
+
+            return differing
+
+        compared(f"{scenario_id}, two anchors onto one replay's minutes",
+                 two_anchors_onto_the_same_minutes, found)
 
     print(json.dumps({"compared": found, "excluded": excluded}))
 

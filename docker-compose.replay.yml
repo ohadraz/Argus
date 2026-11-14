@@ -14,4 +14,4 @@ services:
       # The stand-in's own package, beside the shop's in the shop's environment.
       PYTHONPATH: "/stand-in"
     volumes:
-      - ./modules/target_service_double/src:/stand-in:ro
+      - ./test_support/target_service_double/src:/stand-in:ro

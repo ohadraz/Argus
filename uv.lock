@@ -979,7 +979,7 @@ requires-dist = [
 [[package]]
 name = "argus-target-service-double"
 version = "0.1.0"
-source = { editable = "modules/target_service_double" }
+source = { editable = "test_support/target_service_double" }
 dependencies = [
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },

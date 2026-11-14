@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Fails if any test under modules/*/tests/ carries the `e2e` pytest marker.
+Fails if any test under modules/*/tests/ or test_support/*/tests/ carries the
+`e2e` pytest marker.
 
 e2e tests need the full docker-compose stack, which only `uv run python -m nox -s e2e` brings
 up - and only for the root `tests/e2e/` directory. See CLAUDE.md's pytest
@@ -44,13 +45,11 @@ def find_e2e_lines(test_file: Path) -> list[int]:
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
-    modules_dir = repo_root / "modules"
-    if not modules_dir.exists():
-        return
 
     violations = [
         f"{test_file.relative_to(repo_root)}:{lineno}"
-        for test_file in modules_dir.glob("*/tests/**/*.py")
+        for tree in ("modules", "test_support")
+        for test_file in (repo_root / tree).glob("*/tests/**/*.py")
         for lineno in find_e2e_lines(test_file)
     ]
 

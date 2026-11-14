@@ -247,8 +247,8 @@ jobs:
 
           # Ask nox which modules have a test suite, rather than listing the
           # directory: discovery is nox's to define, and a second definition
-          # here is one that can drift from it. The testkit and the doubles
-          # live in `test_support/` and have no suite, so they are never in it.
+          # here is one that can drift from it. A member of `test_support/`
+          # with a suite is in it, and a change there is caught below instead.
           all_modules=$(uv run python -c "import noxfile; print(' '.join(noxfile.MODULES))")
 
           changed=()

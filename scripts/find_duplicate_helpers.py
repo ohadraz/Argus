@@ -28,6 +28,9 @@ from collections import defaultdict
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+# Where the workspace's members live, each with its suite under `<name>/tests/`.
+TREES = ("modules", "test_support")
+
 # Imports that do not stop a helper moving into `argus_testkit`. Anything else
 # it reaches for is a package, and the testkit declares `dependencies = []` -
 # depending back on the code under test would close a cycle, which is a worse
@@ -41,13 +44,14 @@ CARRIED_ANYWHERE = frozenset({
 
 
 def owning_module(path: str) -> str:
-    """Which module's suite a test file belongs to, or the root suite."""
+    """Which module's suite a test file belongs to, as the module's directory
+    (`modules/<name>` or `test_support/<name>`), or the root suite."""
     parts = path.split("/")
 
     if parts[0] == "tests":
         return "<root tests>"
 
-    return parts[1] if parts[0] == "modules" else "<unknown>"
+    return f"{parts[0]}/{parts[1]}" if parts[0] in TREES else "<unknown>"
 
 
 def names_brought_in(tree: ast.Module) -> dict[str, str]:
@@ -137,7 +141,7 @@ def collect() -> dict[str, list[tuple[str, str, bool, set[str]]]]:
     """Every top-level test helper, grouped by the body it shares."""
     groups: dict[str, list[tuple[str, str, bool, set[str]]]] = defaultdict(list)
 
-    for base in (ROOT / "modules", ROOT / "tests"):
+    for base in (*(ROOT / tree for tree in TREES), ROOT / "tests"):
         for path in base.rglob("*.py"):
             if "recordings" in path.parts or "tests" not in path.parts:
                 continue
@@ -181,7 +185,7 @@ def duplicated_constants() -> dict[tuple[str, str], list[str]]:
     """
     seen: dict[tuple[str, str], list[str]] = defaultdict(list)
 
-    for base in (ROOT / "modules", ROOT / "tests"):
+    for base in (*(ROOT / tree for tree in TREES), ROOT / "tests"):
         for path in base.rglob("*.py"):
             if "recordings" in path.parts or "tests" not in path.parts:
                 continue
@@ -217,11 +221,12 @@ def classify(files: list[str], fixture: bool, needs: set[str]) -> tuple[str, str
         return "B", "tests/framework/"
 
     if len(owners) == 1:
-        module = next(iter(owners))
+        directory = next(iter(owners))
+        module = directory.split("/")[1]
         if fixture:
-            return "A", f"modules/{module}/tests/{module}_test/conftest.py"
+            return "A", f"{directory}/tests/{module}_test/conftest.py"
 
-        return "A", f"modules/{module}/tests/{module}_test/framework/"
+        return "A", f"{directory}/tests/{module}_test/framework/"
 
     if needs:
         return "D", f"nowhere - would need {', '.join(sorted(needs))}"

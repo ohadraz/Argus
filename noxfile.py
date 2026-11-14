@@ -57,27 +57,35 @@ def _a_session(name: str | None = None) -> Callable[[Callable[..., None]], objec
     return register
 
 
-def _discover_modules() -> list[str]:
+# The two trees the workspace's members live in: what ships, and what the
+# suites run on.
+_WORKSPACE_TREES: Final = ("modules", "test_support")
+
+
+def _discover_suites() -> dict[str, str]:
     """
-    Any subdirectory of `modules/` containing a `pyproject.toml` is a module.
-    The testkit and the doubles live in `test_support/` instead, which is what
-    keeps them out: they carry no suite of their own.
+    Every workspace member with a suite of its own, by name, and where its suite is.
+
+    A member is a subdirectory of `modules/` or `test_support/` holding a
+    `pyproject.toml`, and it has a suite when it holds a `tests/` directory too.
+    Every member of `modules/` does. Of `test_support/`, only
+    `target_service_double` does: the testkit and the vendor doubles have none,
+    and are left out by that alone - which pytest needs, since a `tests/` path
+    that does not exist is a non-zero exit.
     """
-    current_dir = Path(__file__).parent
+    root = Path(__file__).parent
 
-    if not (current_dir / "modules").exists():
-        return []
-
-    modules_dir = current_dir / "modules"
-
-    return sorted(
-        path.name for path in modules_dir.iterdir()
-        if path.is_dir()
-        and (path / "pyproject.toml").exists()
-    )
+    return {
+        member.name: f"{tree}/{member.name}/tests"
+        for tree in _WORKSPACE_TREES
+        if (root / tree).is_dir()
+        for member in (root / tree).iterdir()
+        if (member / "pyproject.toml").exists() and (member / "tests").is_dir()
+    }
 
 
-MODULES: list[str] = _discover_modules()
+_SUITES: Final = _discover_suites()
+MODULES: list[str] = sorted(_SUITES)
 
 # Every value `CODE_SEARCH` takes - `argus_core.models.CodeSearch`, spelled out
 # rather than imported. This file is read before anything is installed, and a
@@ -179,7 +187,7 @@ def test_module(session: nox.Session, module: str) -> None:
         # imports from one that never did. What a module's tests need, that
         # module's `dev` group names.
         "uv", "run", "--package", f"argus-{module}",
-        "python", "-m", "pytest", f"modules/{module}/tests",
+        "python", "-m", "pytest", _SUITES[module],
         "-m", "unit or component or integration", "-v",
         external=True
     )
@@ -208,7 +216,7 @@ def test_all(session: nox.Session) -> None:
         try:
             session.run(
                 "uv", "run", "--package", f"argus-{module}",
-                "python", "-m", "pytest", f"modules/{module}/tests", "-v", external=True
+                "python", "-m", "pytest", _SUITES[module], "-v", external=True
             )
         except Exception:
             if not ci_mode:

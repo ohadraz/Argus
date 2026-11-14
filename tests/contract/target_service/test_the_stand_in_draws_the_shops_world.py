@@ -12,7 +12,12 @@ So it is checked here against the shop itself: every generated scenario seeded
 at an anchor by the shop and later by the stand-in from that anchor, and the
 stand-in's windows required to be the shop's minute for minute once their
 instants are moved back. With nothing staged, the stand-in is required to be the
-shop unchanged.
+shop unchanged. And two worlds seeded in turn onto the same replay minutes, from
+two anchors, with the shop's reset between them as a case's teardown makes it,
+are each required to be the shop's at their own anchor: a shop that remembered
+generated minutes past its reset served one case the minutes drawn for the case
+before it, and a replay saw that only as a figure cited now and then that the
+shop had not shown.
 
 The shop is a party that changes out from under Argus - its own repository, its
 own commits. This runs in its environment, with its own interpreter, the way
@@ -36,10 +41,11 @@ from argus_testkit import Assertion, Scenario, all_of
 ARGUS_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 THE_SHOP = ARGUS_REPO_ROOT.parent / "Argus-Demo-Target-App"
-THE_STAND_IN = ARGUS_REPO_ROOT / "modules" / "target_service_double" / "src"
+THE_STAND_IN = ARGUS_REPO_ROOT / "test_support" / "target_service_double" / "src"
 BOTH_WORLDS = Path(__file__).with_name("drawing_both_worlds.py")
 
-# Every generated scenario, three times each, three readings a time - and every
+# Every generated scenario, four times each and the last of them twice over,
+# three readings a time - and every
 # seed the shop makes tries a cache that is not running here, which on some
 # machines is a refusal that takes seconds to arrive.
 A_WHOLE_COMPARISON_SECONDS = 1200

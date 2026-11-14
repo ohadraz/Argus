@@ -1518,12 +1518,13 @@ argus/
 │   ├── integration/                 # multiple modules interacting in-process
 │   ├── contract/                    # an agent's exposed MCP tool schema still matches what the Orchestrator expects
 │   └── e2e/                         # full stack via docker-compose, real chaos scenarios end-to-end
-├── test_support/                    # what the suites run on and nothing ships; no suites of their own, off-limits to the coding agent (§18.3)
+├── test_support/                    # what the suites run on and nothing ships; off-limits to the coding agent (§18.3)
 │   ├── argus_testkit/               # Scenario, Assertion, all_of, eventually - the machinery every assertion runs through
 │   ├── anthropic_double/            # the Anthropic API, recorded and replayed
 │   ├── slack_double/
 │   ├── github_double/
-│   └── pagerduty_double/
+│   ├── pagerduty_double/
+│   └── target_service_double/       # the shop a replay reads, its draws moved to the recording's minutes; the one with a suite of its own
 ├── modules/
 │   ├── argus_core/                  # shared Pydantic models, tool schemas, config/LLM client factory
 │   ├── argus_incidents/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
