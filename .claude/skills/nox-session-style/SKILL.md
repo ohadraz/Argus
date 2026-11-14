@@ -3,7 +3,13 @@ name: nox-session-style
 description: Use when adding or editing a nox session in noxfile.py, to keep session docstrings and structure consistent with the rest of the file.
 ---
 
-Every `@nox.session` function gets:
+A session is declared with `@_a_session()` (`@_a_session(name=...)` for a name of
+its own), never `@nox.session`: it is `nox.session` plus putting the environment
+back when the session ends, so a setting one session makes on `os.environ` for
+the processes it starts never reaches the next session in the same invocation.
+Above `@nox.parametrize`, as `nox.session` would be.
+
+Every session function gets:
 - A type-hinted signature: `def <name>(session: nox.Session) -> None:` (add
   additional typed params if parametrized, e.g. `module: str`).
 - A docstring with exactly two parts:

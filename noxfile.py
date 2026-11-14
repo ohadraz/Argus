@@ -1,5 +1,6 @@
 import contextlib
 import ctypes
+import functools
 import os
 import signal
 import socket
@@ -10,8 +11,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 import nox
 
@@ -23,6 +25,36 @@ import nox
 # environment (the project's `.venv`) - nox's own per-session venv is never 
 # used, so skip creating it entirely.
 nox.options.default_venv_backend = "none"
+
+
+def _a_session(name: str | None = None) -> Callable[[Callable[..., None]], object]:
+    """`nox.session`, for a session that leaves the environment as it found it.
+
+    Every session in one invocation runs in one process, and a session sets its
+    stack's settings on that process's environment so that what it starts
+    inherits them. Left there, they are the next session's: `integration`
+    followed by `e2e_replay` started the replay's model double on the port
+    `integration` had chosen for its own, and brought the replay's containers up
+    under `integration`'s project. So whatever a session changed is put back
+    when it ends, however it ends.
+
+    Every session is declared through this rather than `nox.session`, so a
+    session added later cannot forget to. Applied above `nox.parametrize`, whose
+    parameters the wrapper carries through.
+    """
+    def register(run: Callable[..., None]) -> object:
+        @functools.wraps(run)
+        def leaving_the_environment_as_it_found_it(*args: Any, **kwargs: Any) -> None:
+            found = dict(os.environ)
+            try:
+                run(*args, **kwargs)
+            finally:
+                os.environ.clear()
+                os.environ.update(found)
+
+        return nox.session(leaving_the_environment_as_it_found_it, name=name)
+
+    return register
 
 
 def _discover_modules() -> list[str]:
@@ -70,7 +102,7 @@ _CODE_SEARCH_MODES: Final[tuple[str, ...]] = (
 )
 
 
-@nox.session
+@_a_session()
 def lint(session: nox.Session) -> None:
     """ 
     Registers `lint` as a nox session, i.e., runnable via `uv run python -m nox -s lint`.
@@ -78,7 +110,7 @@ def lint(session: nox.Session) -> None:
     """
     session.run("uv", "run", "python", "-m", "ruff", "check", ".", external=True)
 
-@nox.session
+@_a_session()
 def typecheck(session: nox.Session) -> None:
     """
     Registers `typecheck` as a nox session, i.e., runnable via `uv run python -m nox -s typecheck`.
@@ -115,7 +147,7 @@ def typecheck(session: nox.Session) -> None:
         external=True
     )
 
-@nox.session
+@_a_session()
 @nox.parametrize("module", MODULES)
 def test_module(session: nox.Session, module: str) -> None:
     """
@@ -152,7 +184,7 @@ def test_module(session: nox.Session, module: str) -> None:
         external=True
     )
 
-@nox.session
+@_a_session()
 def test_all(session: nox.Session) -> None:
     """
     Registers `test_all` as a nox session, i.e., runnable via
@@ -186,7 +218,7 @@ def test_all(session: nox.Session) -> None:
     if failed_modules:
         session.error(f"Failed modules: {', '.join(failed_modules)}")
 
-@nox.session
+@_a_session()
 def sweep(session: nox.Session) -> None:
     """
     Registers `sweep` as a nox session, i.e., runnable via
@@ -320,7 +352,7 @@ def _clean_up_after(suites: list[str]) -> None:
                   f"{removed.stderr.decode(errors='replace').strip()}")
 
 
-@nox.session
+@_a_session()
 def schema(session: nox.Session) -> None:
     """
     Registers `schema` as a nox session, i.e., runnable via
@@ -337,7 +369,7 @@ def schema(session: nox.Session) -> None:
     """
     session.run("uv", "run", "python", "-m", "argus_core.schema", external=True)
 
-@nox.session
+@_a_session()
 def index(session: nox.Session) -> None:
     """
     Registers `index` as a nox session, i.e., runnable via
@@ -360,7 +392,7 @@ def index(session: nox.Session) -> None:
         "uv", "run", "python", "-m", "code_index.catching_up", external=True
     )
 
-@nox.session
+@_a_session()
 def guard_layering(session: nox.Session) -> None:
     """
     Registers `guard_layering` as a nox session, i.e., runnable via
@@ -394,7 +426,7 @@ def guard_layering(session: nox.Session) -> None:
         external=True
     )
 
-@nox.session
+@_a_session()
 def guard_e2e_boundary(session: nox.Session) -> None:
     """
     Registers `guard_e2e_boundary` as a nox session, i.e., runnable via
@@ -405,7 +437,7 @@ def guard_e2e_boundary(session: nox.Session) -> None:
     """
     session.run("uv", "run", "python", "scripts/guard_e2e_boundary.py", external=True)
 
-@nox.session
+@_a_session()
 def guard_recordings(session: nox.Session) -> None:
     """
     Registers `guard_recordings` as a nox session, i.e., runnable via
@@ -422,7 +454,7 @@ def guard_recordings(session: nox.Session) -> None:
     """
     session.run("uv", "run", "python", "scripts/guard_recordings.py", external=True)
 
-@nox.session
+@_a_session()
 def guard_module_docstrings(session: nox.Session) -> None:
     """
     Registers `guard_module_docstrings` as a nox session, i.e., runnable via
@@ -438,7 +470,7 @@ def guard_module_docstrings(session: nox.Session) -> None:
     """
     session.run("uv", "run", "python", "scripts/guard_module_docstrings.py", external=True)
 
-@nox.session
+@_a_session()
 def guard_written_columns(session: nox.Session) -> None:
     """
     Registers `guard_written_columns` as a nox session, i.e., runnable via
@@ -467,7 +499,7 @@ def guard_written_columns(session: nox.Session) -> None:
         external=True
     )
 
-@nox.session
+@_a_session()
 def guard_exports(session: nox.Session) -> None:
     """
     Registers `guard_exports` as a nox session, i.e., runnable via
@@ -486,7 +518,7 @@ def guard_exports(session: nox.Session) -> None:
     """
     session.run("uv", "run", "python", "scripts/guard_exports.py", external=True)
 
-@nox.session
+@_a_session()
 def contract(session: nox.Session) -> None:
     """
     Registers `contract` as a nox session, i.e., runnable via `uv run python -m nox -s contract`.
@@ -519,7 +551,7 @@ def contract(session: nox.Session) -> None:
     )
 
 
-@nox.session
+@_a_session()
 def paid_contract(session: nox.Session) -> None:
     """
     Registers `paid_contract` as a nox session, i.e., runnable via
@@ -595,7 +627,7 @@ def _contract_against(session: nox.Session,
                 "docker", "compose", *_CONTRACT_PROJECT, "down", "-v", external=True
             )
 
-@nox.session
+@_a_session()
 def integration(session: nox.Session) -> None:
     """
     Registers `integration` as a nox session, i.e., runnable via
@@ -682,7 +714,7 @@ def integration(session: nox.Session) -> None:
 _THE_FREE_EVAL = "tests/eval/test_recorded_fixes_hold_up.py"
 
 
-@nox.session
+@_a_session()
 def grade_fixes(session: nox.Session) -> None:
     """
     Registers `grade_fixes` as a nox session, i.e., runnable via
@@ -705,7 +737,7 @@ def grade_fixes(session: nox.Session) -> None:
     )
 
 
-@nox.session(name="eval")
+@_a_session(name="eval")
 def eval_(session: nox.Session) -> None:
     """
     Registers `eval` as a nox session, i.e., runnable via `uv run python -m nox -s eval`.
@@ -736,7 +768,7 @@ def eval_(session: nox.Session) -> None:
     )
 
 
-@nox.session
+@_a_session()
 def measure_spend(session: nox.Session) -> None:
     """
     Registers `measure_spend` as a nox session, i.e., runnable via
@@ -760,7 +792,7 @@ def measure_spend(session: nox.Session) -> None:
     )
 
 
-@nox.session
+@_a_session()
 def measure_retrieval(session: nox.Session) -> None:
     """
     Registers `measure_retrieval` as a nox session, i.e., runnable via
@@ -1340,11 +1372,21 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # Kept in step with `anthropic_double.server.DEFAULT_BASE_URL` by hand rather
 # than imported: this file is read by nox before anything is necessarily
 # installed, and a noxfile that fails to import takes every session with it.
-_ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
-_SLACK_DOUBLE_BASE_URL = "http://localhost:8094"
-_GITHUB_DOUBLE_BASE_URL = "http://localhost:8096"
+_ANTHROPIC_DOUBLE_PORT = "8091"
+_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_ANTHROPIC_DOUBLE_PORT}"
+_SLACK_DOUBLE_PORT = "8094"
+_SLACK_DOUBLE_BASE_URL = f"http://localhost:{_SLACK_DOUBLE_PORT}"
+_GITHUB_DOUBLE_PORT = "8096"
+_GITHUB_DOUBLE_BASE_URL = f"http://localhost:{_GITHUB_DOUBLE_PORT}"
 # HTTPS, the one double that is: PagerDuty's SDK refuses any other scheme.
-_PAGERDUTY_DOUBLE_BASE_URL = "https://localhost:8097"
+_PAGERDUTY_DOUBLE_PORT = "8097"
+_PAGERDUTY_DOUBLE_BASE_URL = f"https://localhost:{_PAGERDUTY_DOUBLE_PORT}"
+# The two tiers, the stack's database and its vector store, at the ports the
+# stack states for them (`_THE_STACKS_OWN_PLACES`).
+_READ_MCP_PORT = "8090"
+_WRITE_MCP_PORT = "8092"
+_STACK_POSTGRES_PORT = "5432"
+_STACK_QDRANT_PORT = "6333"
 # The intent agent's own model double, beside the walk's. A second process rather
 # than a second queue in the first: that double answers in the order it was
 # seeded, and a person's message classified between two of a walk's turns would hand
@@ -1439,21 +1481,32 @@ _TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_POR
     "ARGUS_QDRANT_PORT": _TEST_ALL_QDRANT_PORT
 }
 
+# Where the stack `e2e`, `e2e_replay`, `record` and `stack` bring up lives: its
+# compose project, its database, its store, and the port of every process of it
+# that reads one from the environment. Stated rather than defaulted, the way
+# the other stacks above state theirs - a party left on its default listens
+# wherever the environment it inherited says, and that is not only this
+# stack's to say. The judge's and the intent agent's doubles are given their
+# ports on the command line instead, which is why they are not here.
+_THE_STACKS_OWN_PLACES: Final = _a_database_of_its_own("argus", _STACK_POSTGRES_PORT) | {
+    "ARGUS_QDRANT_PORT": _STACK_QDRANT_PORT,
+    "QDRANT_URL": f"http://localhost:{_STACK_QDRANT_PORT}",
+    "READ_MCP_PORT": _READ_MCP_PORT,
+    "WRITE_MCP_PORT": _WRITE_MCP_PORT,
+    "ANTHROPIC_DOUBLE_PORT": _ANTHROPIC_DOUBLE_PORT,
+    "SLACK_DOUBLE_PORT": _SLACK_DOUBLE_PORT,
+    "GITHUB_DOUBLE_PORT": _GITHUB_DOUBLE_PORT,
+    "PAGERDUTY_DOUBLE_PORT": _PAGERDUTY_DOUBLE_PORT
+}
+
 # How to name each swept suite's containers to `docker compose`, for the three
 # that have any. Read only when a suite had to be killed: it is what lets the
 # sweep finish a teardown that never ran, and the reason a suite's project has
 # to be stated somewhere a *different* process can find it.
-#
-# `e2e_replay` is named by saying nothing. It sets no project of its own, and
-# neither does a sweep, so a `docker compose` run from here lands on the same
-# default that child's did - derived by compose, from the directory both ran
-# in. Deriving it here instead would be compose's own rule for turning a
-# directory name into a project name, copied by hand and true until a checkout
-# is named something that rule spells differently.
 _SWEEP_PROJECTS: Final[dict[str, tuple[str, ...]]] = {
     "test_all": ("-p", _TEST_ALL_STACK["COMPOSE_PROJECT_NAME"]),
     "integration": ("-p", _INTEGRATION_STACK["COMPOSE_PROJECT_NAME"]),
-    _E2E_REPLAY_IN_PRODUCTION_MODE: ()
+    _E2E_REPLAY_IN_PRODUCTION_MODE: ("-p", _THE_STACKS_OWN_PLACES["COMPOSE_PROJECT_NAME"])
 }
 
 
@@ -1749,12 +1802,12 @@ _PAGERDUTY_DOUBLE: tuple[str, list[str], str] = (
 )
 
 _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
-    ("read_mcp", ["-m", "read_mcp_server.server"], "http://localhost:8090/mcp"),
+    ("read_mcp", ["-m", "read_mcp_server.server"], f"http://localhost:{_READ_MCP_PORT}/mcp"),
     # Its own process, not a second module inside `read_mcp`: the tier split
     # (spec §12.1, §13) is what makes "read-only" a property of a running
     # process rather than a convention, and a stack that started only one of
     # them would be testing the convention.
-    ("write_mcp", ["-m", "write_mcp_server.server"], "http://localhost:8092/mcp"),
+    ("write_mcp", ["-m", "write_mcp_server.server"], f"http://localhost:{_WRITE_MCP_PORT}/mcp"),
     _ANTHROPIC_DOUBLE,
     _INTENT_ANTHROPIC_DOUBLE,
     _JUDGE_ANTHROPIC_DOUBLE,
@@ -1973,10 +2026,13 @@ def _run_against_the_stack(
     times faster than the real one, counted from now. See `argus_core.clock`.
 
     `shop_stands_in` serves the Target Service through its stand-in
-    (`_THE_SHOP_AT_ITS_STAND_IN`), and is the one setting here that is also
-    taken away when it is not asked for. Every session runs in one process, so
-    a replay followed by `e2e` in the same invocation would otherwise hand a
-    paid run a shop whose draws answer to somebody else's anchor.
+    (`_THE_SHOP_AT_ITS_STAND_IN`).
+
+    The stack's own places - its compose project, its database, its store and
+    every port a process of it listens on - are stated rather than left to each
+    party's default (`_THE_STACKS_OWN_PLACES`). A default is whatever the
+    environment does not say otherwise, and the environment is not this
+    function's alone to say.
 
     Shared by `e2e` and `e2e_replay` so the two cannot drift on anything except
     the one difference that distinguishes them - which service, if any, is
@@ -2016,6 +2072,7 @@ def _run_against_the_stack(
     # every child here inherits it - the services that do the waiting and the
     # pytest process that times them - which is the only way the two cannot
     # disagree about how long Argus waits.
+    os.environ.update(_THE_STACKS_OWN_PLACES)
     os.environ.update(_E2E_SETTINGS)
     # A suite posts at the doubles; a demo posts wherever `.env` says. Set here
     # rather than defaulted into `_E2E_SETTINGS`, so that a stack somebody is
@@ -2030,9 +2087,6 @@ def _run_against_the_stack(
     # Before the first `docker compose`, which is what reads it.
     if shop_stands_in:
         os.environ.update(_THE_SHOP_AT_ITS_STAND_IN)
-    else:
-        for setting in _THE_SHOP_AT_ITS_STAND_IN:
-            os.environ.pop(setting, None)
     # Before docker, because the clock writer reads both as it starts, and on the
     # session's environment for the reason the settings above are: a process that
     # was not handed them runs on the real clock, minutes adrift of the rest.
@@ -2188,7 +2242,7 @@ def _the_containers_said_this(session: nox.Session) -> None:
             )
 
 
-@nox.session
+@_a_session()
 def e2e(session: nox.Session) -> None:
     """
     Registers `e2e` as a nox session, i.e., runnable via `uv run python -m nox -s e2e`.
@@ -2274,7 +2328,7 @@ _THE_UNREACHABLE_PLATFORM_CASE: Final = (
     "tests/e2e/test_an_unreachable_platform_is_narrowed_around.py"
 )
 
-@nox.session
+@_a_session()
 @nox.parametrize("mode", _CODE_SEARCH_MODES)
 def e2e_replay(session: nox.Session, mode: str) -> None:
     """
@@ -2449,7 +2503,7 @@ _RE_RECORDING_THE_SYNOPSIS_ALONE: Final = "--synopsis-only"
 _RE_RECORDING_THE_JUDGE_ALONE: Final = "--judge-only"
 
 
-@nox.session
+@_a_session()
 @nox.parametrize("mode", _CODE_SEARCH_MODES)
 def record(session: nox.Session, mode: str) -> None:
     """
@@ -2524,7 +2578,7 @@ def record(session: nox.Session, mode: str) -> None:
     )
 
 
-@nox.session
+@_a_session()
 def stack(session: nox.Session) -> None:
     """
     Registers `stack` as a nox session, i.e., runnable via
