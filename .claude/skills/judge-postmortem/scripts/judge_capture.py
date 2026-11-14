@@ -36,6 +36,10 @@ new since the first.
 On resume, what came after the handover was written is read back by the same path
 (resume.py, beside this script, says what it writes):
   uv run python .claude/skills/judge-postmortem/scripts/judge_capture.py resume <jsonl> [<since>]
+
+After a commit, the commit check alone, for each captured test given or every one
+under a capture given - the blobs step, without the minutes the rest takes:
+  uv run python .claude/skills/judge-postmortem/scripts/judge_capture.py commit-check <capture>...
 """
 
 import difflib
@@ -954,10 +958,45 @@ def review(drafts: Path, earlier: Path | None = None) -> None:
     print(f"review: {out / 'review.md'}")
 
 
+def commit_check(folders: list[Path]) -> None:
+    """The recording set and the blobs step for every captured test given, or every
+    one under a capture given: whether the working tree and HEAD hold the blobs it
+    was judged on. A test never judged by this script has no judged blobs, and is
+    named and skipped - hashing it now would call whatever is there as judged. Each
+    test's whole output goes to its judge/commit-check.md; one line each is printed.
+    """
+    tests: list[Path] = []
+    for folder in folders:
+        if (folder / "replay_log.json").exists():
+            tests.append(folder)
+        else:
+            tests.extend(sorted(path.parent for path in folder.glob("*/replay_log.json")))
+    for test in tests:
+        label = f"{test.parent.name}/{test.name}"
+        if not (test / "judge" / "recording-blobs.txt").exists():
+            print(f"{label}: SKIPPED, never judged by this script", flush=True)
+            continue
+        print(f"{label}: " + " / ".join(blobs_held(Judge(test, []))), flush=True)
+
+
+def blobs_held(judge: Judge) -> list[str]:
+    """One test's commit check, its whole output written to judge/commit-check.md:
+    the lines saying whether the working tree and HEAD hold its blobs as judged,
+    and any step that failed."""
+    judge.step("recording set", lambda: step_recording_set(judge))
+    judge.step("blobs", lambda: step_blobs(judge))
+    said = "\n".join(judge.sections)
+    judge.write("commit-check.md", said)
+    return re.findall(r"^(?:working tree: .*|HEAD [0-9a-f]{40} .*|## .* - FAILED.*)$", said, re.M)
+
+
 def main(argv: list[str]) -> None:
     if len(argv) < 2:
         print(__doc__)
         sys.exit(2)
+    if argv[1] == "commit-check":
+        commit_check([Path(arg).resolve() for arg in argv[2:]])
+        return
     if argv[1] == "resume":
         status, printed = run([PYTHON, "-B", "-X", "utf8", str(SCRIPTS / "resume.py"), *argv[2:]],
                               REPO, 300)
