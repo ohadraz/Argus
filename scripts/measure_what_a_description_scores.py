@@ -50,7 +50,7 @@ WHAT_THIS_MEASURES = "what_a_description_scores"
 # which candidate won is a judgement, and which one was in force is a fact.
 THE_FLOOR_IN_USE = NEAR_ENOUGH_TO_ANSWER
 
-RECORDINGS_DIR = REPO_ROOT / "modules" / "anthropic_double" / "recordings"
+RECORDINGS_DIR = REPO_ROOT / "test_support" / "anthropic_double" / "recordings"
 
 # The tool whose calls are the sample. Named from the wire rather than the module
 # that defines it: what is being read here is a recorded request body.

@@ -17,7 +17,7 @@ Given a described behavior to add:
 5. Ask the user to run `uv run python -m nox -s "test_module(module='<name>')"` and confirm green.
 
 Never call Write or Edit on any path under `tests/`, or anywhere under
-`modules/argus_testkit/` - both are hook-blocked regardless, but don't attempt
+`test_support/` - both are hook-blocked regardless, but don't attempt
 it; go straight to printing the change in chat. A test that needs a new
 assertion helper needs *two* proposals: the helper for the testkit, and the
 test that uses it.

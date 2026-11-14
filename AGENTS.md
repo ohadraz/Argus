@@ -5,10 +5,11 @@
 Any AI coding agent operating in this repository - Claude Code, or any other tool -
 must never create, edit, or delete a test file. This applies to every `tests/`
 directory in the repo: root `tests/`, every `modules/*/tests/`, and
-`benchmark/tests/`. It applies equally to all of `modules/argus_testkit/`, the
-shared test-support module, and to the stand-ins for an outside party -
-`modules/anthropic_double/` for the Anthropic API, `modules/slack_double/`
-for Slack and `modules/pagerduty_double/` for PagerDuty.
+`benchmark/tests/`. It applies equally to everything under `test_support/`:
+`argus_testkit`, the shared test-support module, and the stand-ins for an
+outside party - `anthropic_double` for the Anthropic API, `slack_double` for
+Slack, `github_double` for GitHub and `pagerduty_double` for PagerDuty. A
+module is covered by living there, not by being named here.
 
 The testkit holds no test cases, but many assertions in the repo runs through it.
 An agent able to edit it could turn the whole suite green from one file - by

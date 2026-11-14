@@ -246,12 +246,9 @@ jobs:
           fi
 
           # Ask nox which modules have a test suite, rather than listing the
-          # directory. `EXCLUDED_FROM_TESTS` in noxfile.py names the modules
-          # that deliberately have none - test-support packages like
-          # `argus_testkit` and the Anthropic double - and nox refuses to
-          # parametrize a `test_module` session for them. Reading `ls modules`
-          # here would put those names in the matrix and ask nox to run a
-          # session that does not exist.
+          # directory: discovery is nox's to define, and a second definition
+          # here is one that can drift from it. The testkit and the doubles
+          # live in `test_support/` and have no suite, so they are never in it.
           all_modules=$(uv run python -c "import noxfile; print(' '.join(noxfile.MODULES))")
 
           changed=()
@@ -269,8 +266,11 @@ jobs:
             all+=("\"$m\"")
           done
 
+          # `test_support/` counts as a test change: the testkit is what every
+          # suite asserts through, and a double is what several suites run
+          # against, so a change to either cannot be attributed to one module.
           tests_changed=false
-          if git diff --name-only "$BASE" HEAD | grep -q "^tests/"
+          if git diff --name-only "$BASE" HEAD | grep -q -e "^tests/" -e "^test_support/"
           then
             tests_changed=true
           fi

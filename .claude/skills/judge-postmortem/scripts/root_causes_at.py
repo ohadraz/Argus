@@ -18,7 +18,7 @@ def git(*args: str) -> str:
 
 
 listed = git("grep", "-l", "causal_chain", revision, "--",
-             "modules/anthropic_double/recordings/both-*.json", ":!*.request.json")
+             "test_support/anthropic_double/recordings/both-*.json", ":!*.request.json")
 latest: dict[str, tuple[int, str]] = {}
 for path in (line.split(":", 1)[1] for line in listed.splitlines() if line):
     stem = path.rsplit("/", 1)[1][:-len(".json")]

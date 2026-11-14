@@ -22,7 +22,8 @@ run after the recording commit is the commit check.
 A change before its commit is reviewed the same way, by one path:
   uv run python .claude/skills/judge-postmortem/scripts/judge_capture.py <drafts> [<earlier review>]
 
-<drafts> is a folder laid out as the repository is (holding modules/ or tests/),
+<drafts> is a folder laid out as the repository is (holding modules/,
+test_support/ or tests/),
 each file in it a drafted whole file; the repository's root drafts nothing. The
 working tree's diff against HEAD and each draft's diff against the repository's
 own file go into a new folder under .claude/local/reviews/, summed up in its
@@ -59,10 +60,10 @@ sys.dont_write_bytecode = True
 
 SCRIPTS = Path(__file__).resolve().parent
 REPO = SCRIPTS.parents[3]
-RECORDINGS = REPO / "modules" / "anthropic_double" / "recordings"
+RECORDINGS = REPO / "test_support" / "anthropic_double" / "recordings"
 E2E = REPO / "tests" / "e2e"
 REVIEWS = REPO / ".claude" / "local" / "reviews"
-CODE = ("modules/", "tests/", "scripts/")
+CODE = ("modules/", "test_support/", "tests/", "scripts/")
 PYTHON = sys.executable
 UNREACHABLE = "http://127.0.0.1:9"
 MODES = ("both", "grep", "meaning")
@@ -1007,7 +1008,8 @@ def main(argv: list[str]) -> None:
     first = Path(argv[1]).resolve()
     earlier = Path(argv[2]).resolve() if len(argv) == 3 else None
     if ((len(argv) == 2 or (earlier and (earlier / "review.md").exists()))
-            and (first == REPO or (first / "modules").is_dir() or (first / "tests").is_dir())):
+            and (first == REPO or any((first / tree).is_dir()
+                                      for tree in ("modules", "test_support", "tests")))):
         review(first, earlier)
         return
     capture = first

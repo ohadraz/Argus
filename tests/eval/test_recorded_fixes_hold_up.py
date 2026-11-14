@@ -60,7 +60,7 @@ from tests.e2e.framework.argus import THE_RECORDINGS_THAT_MUST_CARRY_A_FIX
 
 # tests/eval/test_recorded_fixes_hold_up.py -> the repository root.
 ARGUS_REPO_ROOT = Path(__file__).resolve().parents[2]
-RECORDINGS_DIR = ARGUS_REPO_ROOT / "modules" / "anthropic_double" / "recordings"
+RECORDINGS_DIR = ARGUS_REPO_ROOT / "test_support" / "anthropic_double" / "recordings"
 
 # The Target Service's own checkout, beside this one. Its tests are the grader,
 # and that is the point of them: they are the shop's own, written against the

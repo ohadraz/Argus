@@ -66,8 +66,8 @@ from argus_core import LLMSettings, Settings
 from argus_core.llm import LLMClient, build_llm_client
 from argus_core.models import ToolDefinition, Transcript, Turn
 
-RECORDINGS: Final = (Path(__file__).resolve().parents[1] / "modules" / "anthropic_double"
-                     / "recordings")
+RECORDINGS: Final = (Path(__file__).resolve().parents[1] / "test_support"
+                     / "anthropic_double" / "recordings")
 
 # The sections of the ask the recordings were made with, in order. The answer's
 # head and the close each in both spellings: the pilot's recordings say "The

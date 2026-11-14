@@ -1,11 +1,11 @@
 ---
 name: hand-apply-edit-format
-description: Use before sending any message that asks the user to apply an edit by hand - anything under tests/, argus_testkit, anthropic_double or slack_double. Covers how an edit location is addressed so the link selects the right thing, and the script that checks the draft before it is sent.
+description: Use before sending any message that asks the user to apply an edit by hand - anything under tests/ or test_support/ (the testkit and every double). Covers how an edit location is addressed so the link selects the right thing, and the script that checks the draft before it is sent.
 ---
 
-Claude cannot write to `tests/`, `modules/argus_testkit/`, `modules/anthropic_double/`
-or `modules/slack_double/`, so every change there is a message the user pastes
-in by hand. The message is only as good as its addresses.
+Claude cannot write to `tests/` or `test_support/` - the testkit and every
+double - so every change there is a message the user pastes in by hand. The
+message is only as good as its addresses.
 
 ## Check the draft before sending it
 

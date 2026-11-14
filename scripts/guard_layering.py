@@ -95,15 +95,12 @@ STORES_THE_FENCE_CANNOT_REACH = ("qdrant_client", "slack_sdk")
 # forbid.
 THE_WAY_RECALL_READS = ("incident_memory.recalling", "qdrant_client")
 
-# Test support and the doubles, which no contract has anything to say about:
-# they are installed as dev dependencies, never imported by anything that ships,
-# and a contract naming them would be a contract about the suites. Stated here
-# rather than read from `noxfile.py`, because that list is about test discovery
-# and the two happening to agree today is not a reason to couple them.
-NOT_LAYERED = frozenset({
-    "argus_testkit", "anthropic_double", "slack_double", "github_double",
-    "pagerduty_double", "target_service_double"
-})
+# The one double that lives under `modules/`, which no contract has anything to
+# say about: it stands in for the shop, is never imported by anything that
+# ships, and a contract naming it would be a contract about the suites. The rest
+# of the test support lives in `test_support/`, which this never reads. Under
+# `modules/` because it has a suite of its own.
+NOT_LAYERED = frozenset({"target_service_double"})
 
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests
 # the modules behind the front doors, and a test that could only reach them

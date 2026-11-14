@@ -25,16 +25,11 @@ import nox
 nox.options.default_venv_backend = "none"
 
 
-EXCLUDED_FROM_TESTS: set[str] = {
-    "argus_testkit", "anthropic_double", "slack_double", "github_double",
-    "pagerduty_double"
-}
-
-
 def _discover_modules() -> list[str]:
     """
     Any subdirectory of `modules/` containing a `pyproject.toml` is a module.
-    Modules named in `EXCLUDED_FROM_TESTS` are left out - they carry no tests.
+    The testkit and the doubles live in `test_support/` instead, which is what
+    keeps them out: they carry no suite of their own.
     """
     current_dir = Path(__file__).parent
 
@@ -47,7 +42,6 @@ def _discover_modules() -> list[str]:
         path.name for path in modules_dir.iterdir()
         if path.is_dir()
         and (path / "pyproject.toml").exists()
-        and path.name not in EXCLUDED_FROM_TESTS
     )
 
 
@@ -111,7 +105,8 @@ def typecheck(session: nox.Session) -> None:
     if not MODULES:
         session.skip("no modules/ yet - nothing to type-check")
     session.run(
-        "uv", "run", "--all-packages", "python", "-m", "mypy", "modules", "tests",
+        "uv", "run", "--all-packages", "python", "-m", "mypy", "modules",
+        "test_support", "tests",
         external=True
     )
     session.run(

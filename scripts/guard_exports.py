@@ -30,7 +30,7 @@ SKIPPED_DIRECTORIES = ("__pycache__", ".venv", ".nox", ".git")
 
 # Where a caller might live. Everything this repo writes, so a name kept only
 # for a script or a test suite is kept rather than reported.
-SEARCHED = ("modules", "tests", "scripts")
+SEARCHED = ("modules", "test_support", "tests", "scripts")
 
 # Names offered on purpose to a caller who has not arrived yet, each with the
 # reason somebody kept it. The same shape `guard_layering`'s ignored imports
@@ -143,7 +143,8 @@ def unused_exports(repo_root: Path) -> list[str]:
     """
     violations: list[str] = []
 
-    for package_init in sorted(repo_root.glob("modules/*/src/*/__init__.py")):
+    for package_init in sorted([*repo_root.glob("modules/*/src/*/__init__.py"),
+                                *repo_root.glob("test_support/*/src/*/__init__.py")]):
         package = package_init.parent
         exported = exported_names(package_init)
 

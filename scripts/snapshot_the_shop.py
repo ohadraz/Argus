@@ -54,7 +54,7 @@ THE_SHOP: Final = HERE.parent / "Argus-Demo-Target-App"
 THE_SHOP_IS: Final = ("src/io_shop", "tests/io_shop", "deploy")
 
 FIXTURE_DIR: Final = (
-    HERE / "modules" / "github_double" / "src" / "github_double" / "fixture"
+    HERE / "test_support" / "github_double" / "src" / "github_double" / "fixture"
 )
 
 # Stored with a suffix rather than as `.py`, so nothing in this repo imports,

@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# modules/anthropic_double/recordings/ - beside src/, not inside the package.
+# test_support/anthropic_double/recordings/ - beside src/, not inside the package.
 # These are test fixtures, not code, and they are not shipped in the wheel.
 RECORDINGS_DIR = Path(__file__).resolve().parents[2] / "recordings"
 

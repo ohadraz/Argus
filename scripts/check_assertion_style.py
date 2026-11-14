@@ -72,7 +72,7 @@ def main() -> int:
     closes: dict[str, list[tuple[int, str]]] = defaultdict(list)
     total = 0
 
-    for base in (ROOT / "modules", ROOT / "tests"):
+    for base in (ROOT / "modules", ROOT / "test_support", ROOT / "tests"):
         for path in base.rglob("*.py"):
             if "recordings" in path.parts:
                 continue

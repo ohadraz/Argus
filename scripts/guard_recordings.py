@@ -70,7 +70,7 @@ CODE_FIX_ANSWERED: Final = ("submit_fix", "report_nothing_to_change")
 
 RECORDINGS_DIR: Final = (
     Path(__file__).resolve().parent.parent
-    / "modules" / "anthropic_double" / "recordings"
+    / "test_support" / "anthropic_double" / "recordings"
 )
 
 TOOL_USE_TYPE: Final = "tool_use"

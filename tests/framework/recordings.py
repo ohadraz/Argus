@@ -1,5 +1,5 @@
 """The recordings the cross-module suites replay, by the names they are stored
-under in modules/anthropic_double/recordings/.
+under in test_support/anthropic_double/recordings/.
 
 Here rather than in each file because two suites now answer from the same one
 and mean the same thing by it: any real tool-use turn, for a test whose subject

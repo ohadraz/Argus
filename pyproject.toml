@@ -53,7 +53,11 @@ package = false
 # apply to each.
 
 [tool.uv.workspace]
-members = ["modules/*"]
+# `test_support/` holds what the suites run on and nothing ships: the testkit and
+# the doubles. Members all the same, because a double is a process the stack
+# starts and the testkit a dev dependency - and apart, so that which modules
+# have suites, and which are Claude's to edit, is said by where they live.
+members = ["modules/*", "test_support/*"]
 
 
 # ruff (linter and code formatter)

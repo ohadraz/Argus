@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
 """
 PreToolUse hook: blocks Write/Edit/NotebookEdit against Argus's own tests/
-directories, and against the argus_testkit, anthropic_double, slack_double and
-pagerduty_double modules.
+directories, and against everything under test_support/ - the testkit and the
+doubles.
 
 argus_testkit is not test cases but the machinery every assertion runs
 through — an edit there could neuter every suite in the repo at once
 (`all_of` swallowing failures, `eventually` returning True on timeout)
 without touching a single test file.
 
-anthropic_double stands in for the model itself. Its recordings are what
-the integration and contract suites judge the adapter against; an agent
-able to reshape a recording could make its own code pass without the
-adapter ever being right. Claude wrote it once, then the door closed.
+A double stands where a vendor does, and is what the suites judge Argus's
+adapters against. anthropic_double's recordings are what the integration and
+contract suites hold the model adapter to; slack_double is what the relay's
+own suite and the e2e stack post against; github_double is the repository the
+e2e stack proposes fixes to; pagerduty_double is where it reads on-call
+incidents from. An agent free to reshape what a double accepts or answers
+could make its own code pass against a vendor that never existed.
 
-slack_double stands where Slack does, and is what the relay's own suite and
-the e2e stack post against. Same hazard, same door: an agent free to loosen
-what the double accepts could make its adapter pass against a Slack that
-never existed.
+The directory rather than a list of names: the list this replaced was kept by
+hand, and the double it left out went unguarded for two months. A module is
+off-limits by living in test_support/, which is the same thing that keeps it
+out of test discovery.
 
-pagerduty_double stands where PagerDuty does, and is what the e2e stack reads
-on-call incidents from. Same hazard, same door.
-
-The tests/ rule is scoped to this repository. It exists to enforce the TDD
-policy in AGENTS.md — the human writes the test, the agent writes the code —
-and that policy governs Argus's own modules. The demo Target Service is a
-fixture held to different standards, and its tests are a regression net
+Both rules are scoped to this repository. The tests/ rule exists to enforce
+the TDD policy in AGENTS.md — the human writes the test, the agent writes the
+code — and that policy governs Argus's own modules. The demo Target Service is
+a fixture held to different standards, and its tests are a regression net
 written after the code rather than a specification written before it; a rule
-that guards a policy which does not apply there is only friction. The two
-module rules stay unscoped, because both modules live here and nowhere else.
+that guards a policy which does not apply there is only friction.
 
 Cross-platform by design — runs via `uv run python`, identical on Windows,
 macOS, and Linux. No shell-specific syntax.
@@ -43,12 +42,7 @@ ARGUS_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 TESTS_ANYWHERE = r"(^|[/\\])tests[/\\]"
 
-OFF_LIMITS_EVERYWHERE = (
-    r"(^|[/\\])argus_testkit([/\\]|$)",
-    r"(^|[/\\])anthropic_double([/\\]|$)",
-    r"(^|[/\\])slack_double([/\\]|$)",
-    r"(^|[/\\])pagerduty_double([/\\]|$)"
-)
+TEST_SUPPORT = r"(^|[/\\])test_support[/\\]"
 
 
 def is_inside_argus(file_path: str) -> bool:
@@ -71,12 +65,11 @@ def main() -> None:
     payload = json.load(sys.stdin)
     file_path = payload.get("tool_input", {}).get("file_path", "")
 
-    if any(re.search(pattern, file_path) for pattern in OFF_LIMITS_EVERYWHERE):
+    if re.search(TEST_SUPPORT, file_path) and is_inside_argus(file_path):
         print(
-            "Blocked: modules/argus_testkit/, modules/anthropic_double/, "
-            "modules/slack_double/ and modules/pagerduty_double/ are "
-            "off-limits for Claude. Propose the "
-            "change in chat/console instead - the user applies it by hand.",
+            "Blocked: test_support/ - the testkit and every double - is "
+            "off-limits for Claude. Propose the change in chat/console "
+            "instead - the user applies it by hand.",
             file=sys.stderr
         )
         sys.exit(2)

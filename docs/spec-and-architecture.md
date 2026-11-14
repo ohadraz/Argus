@@ -1309,7 +1309,7 @@ Built test-first, per unit of work:
 
 ### 18.3 AI coding agent test policy (Argus's own repo only)
 
-A policy about **building Argus itself**, unrelated to what Argus does at runtime. **The AI coding agent used to implement Argus (e.g. Claude Code) may never create, edit, or delete test code under `argus/modules/*`, `argus/benchmark/*`, or root `argus/tests/*` (§20.2).** Proposed tests are presented as text/diff for a human to copy in manually - never written directly. This exists because the project is test-first (§18.2), and that division only holds if enforced.
+A policy about **building Argus itself**, unrelated to what Argus does at runtime. **The AI coding agent used to implement Argus (e.g. Claude Code) may never create, edit, or delete test code under `argus/modules/*`, `argus/benchmark/*`, or root `argus/tests/*`, nor anything under `argus/test_support/*` - the testkit every assertion runs through and the doubles the adapters are judged against (§20.2).** Proposed tests are presented as text/diff for a human to copy in manually - never written directly. This exists because the project is test-first (§18.2), and that division only holds if enforced.
 
 Enforced in layers - narrower than originally envisioned:
 
@@ -1508,7 +1508,7 @@ The packages that walk an incident are held to one more rule: they reach no stor
 
 ```
 argus/
-├── pyproject.toml                 # workspace root: [tool.uv.workspace] members = ["modules/*"]
+├── pyproject.toml                 # workspace root: [tool.uv.workspace] members = ["modules/*", "test_support/*"]
 ├── uv.lock
 ├── docker-compose.yml
 ├── AGENTS.md                      # AI coding agent test policy (§18.3), repo-root scope
@@ -1518,6 +1518,12 @@ argus/
 │   ├── integration/                 # multiple modules interacting in-process
 │   ├── contract/                    # an agent's exposed MCP tool schema still matches what the Orchestrator expects
 │   └── e2e/                         # full stack via docker-compose, real chaos scenarios end-to-end
+├── test_support/                    # what the suites run on and nothing ships; no suites of their own, off-limits to the coding agent (§18.3)
+│   ├── argus_testkit/               # Scenario, Assertion, all_of, eventually - the machinery every assertion runs through
+│   ├── anthropic_double/            # the Anthropic API, recorded and replayed
+│   ├── slack_double/
+│   ├── github_double/
+│   └── pagerduty_double/
 ├── modules/
 │   ├── argus_core/                  # shared Pydantic models, tool schemas, config/LLM client factory
 │   ├── argus_incidents/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
