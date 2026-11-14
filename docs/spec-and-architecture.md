@@ -1524,7 +1524,7 @@ argus/
 │   ├── slack_double/
 │   ├── github_double/
 │   ├── pagerduty_double/
-│   └── target_service_double/       # the shop a replay reads, its draws moved to the recording's minutes; the one with a suite of its own
+│   └── target_service_double/       # the shop a replay reads, its draws moved to the recording's minutes
 ├── modules/
 │   ├── argus_core/                  # shared Pydantic models, tool schemas, config/LLM client factory
 │   ├── argus_incidents/             # the incident record: its tables and repositories, intake, withdrawal, event publishing

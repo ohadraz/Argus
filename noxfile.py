@@ -68,10 +68,11 @@ def _discover_suites() -> dict[str, str]:
 
     A member is a subdirectory of `modules/` or `test_support/` holding a
     `pyproject.toml`, and it has a suite when it holds a `tests/` directory too.
-    Every member of `modules/` does. Of `test_support/`, only
-    `target_service_double` does: the testkit and the vendor doubles have none,
-    and are left out by that alone - which pytest needs, since a `tests/` path
-    that does not exist is a non-zero exit.
+    Every member of `modules/` does, and no member of `test_support/` does
+    today: a double is held by its contract against the party it stands in
+    for, not by a suite of its own. One without a `tests/` is left out by that
+    alone - which pytest needs, since a `tests/` path that does not exist is a
+    non-zero exit.
     """
     root = Path(__file__).parent
 

@@ -11,13 +11,17 @@ the failure the stand-in exists to end, back and silent.
 So it is checked here against the shop itself: every generated scenario seeded
 at an anchor by the shop and later by the stand-in from that anchor, and the
 stand-in's windows required to be the shop's minute for minute once their
-instants are moved back. With nothing staged, the stand-in is required to be the
-shop unchanged. And two worlds seeded in turn onto the same replay minutes, from
-two anchors, with the shop's reset between them as a case's teardown makes it,
-are each required to be the shop's at their own anchor: a shop that remembered
-generated minutes past its reset served one case the minutes drawn for the case
-before it, and a replay saw that only as a figure cited now and then that the
-shop had not shown.
+instants are moved back. Both are read the way a replay reads them, on from
+where the seed left the clock, and the stand-in is asked both before the
+anchor's second in a minute and after it - so a stand-in that seeded at the
+wrong instant, before it, or with the shop's clock unpinned draws a world that
+differs, and that is the only way any of those is checked. With nothing staged,
+the stand-in is required to be the shop unchanged. And two worlds seeded in
+turn onto the same replay minutes, from two anchors, with the shop's reset
+between them as a case's teardown makes it, are each required to be the shop's
+at their own anchor: a shop that remembered generated minutes past its reset
+served one case the minutes drawn for the case before it, and a replay saw that
+only as a figure cited now and then that the shop had not shown.
 
 The shop is a party that changes out from under Argus - its own repository, its
 own commits. This runs in its environment, with its own interpreter, the way
@@ -44,8 +48,8 @@ THE_SHOP = ARGUS_REPO_ROOT.parent / "Argus-Demo-Target-App"
 THE_STAND_IN = ARGUS_REPO_ROOT / "test_support" / "target_service_double" / "src"
 BOTH_WORLDS = Path(__file__).with_name("drawing_both_worlds.py")
 
-# Every generated scenario, four times each and the last of them twice over,
-# three readings a time - and every
+# Every generated scenario, five times each and the last of them twice over,
+# four readings a time - and every
 # seed the shop makes tries a cache that is not running here, which on some
 # machines is a refusal that takes seconds to arrive.
 A_WHOLE_COMPARISON_SECONDS = 1200

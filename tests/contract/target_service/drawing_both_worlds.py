@@ -58,15 +58,19 @@ from target_service_double.shop import (
 # down to its microseconds, because those are what the stand-in keeps.
 AN_ANCHOR = datetime(2026, 9, 28, 22, 11, 43, 502554, tzinfo=UTC)
 
-# How much later the stand-in is asked to seed it. Both cross a month, which is
-# the one move a minute's name cannot make alone - a scenario whose figures
-# belong to a month draws from that month's name as well. The stand-in rounds
-# each up to whole minutes, and the first comes to an odd number of them: the
-# shop takes an order every two minutes, so a world moved by an odd number is the
-# one where the grid alone would put the onset a minute off.
+# How much later the stand-in is asked to seed it. Every one crosses a month,
+# which is the one move a minute's name cannot make alone - a scenario whose
+# figures belong to a month draws from that month's name as well. The stand-in
+# rounds each up to whole minutes, and the first comes to an odd number of them:
+# the shop takes an order every two minutes, so a world moved by an odd number is
+# the one where the grid alone would put the onset a minute off. The first two
+# arrive before the anchor's second in their minute, and the last after it, so
+# the stand-in has to wait into the next minute - the way a replay arriving late
+# in a minute is seeded.
 SOME_SHIFTS = (
     timedelta(days=15, hours=2, minutes=8, seconds=17),
-    timedelta(days=33, hours=5, minutes=41, seconds=52)
+    timedelta(days=33, hours=5, minutes=41, seconds=52),
+    timedelta(days=21, hours=7, minutes=3, seconds=9)
 )
 
 # A second recording's anchor, for the comparison that seeds two in turn onto
@@ -75,13 +79,20 @@ SOME_SHIFTS = (
 # the replay's first minute ahead - the same minutes, from different draws.
 ANOTHER_ANCHOR = AN_ANCHOR - timedelta(days=3, minutes=17, seconds=9)
 
-# When each window is read, after its seed: the minutes before the onset, the
-# incident in progress, and a walk's worth of minutes after.
-READ_AFTER = (timedelta(seconds=30), timedelta(minutes=5), timedelta(minutes=20))
+# When each window is read, counted from where the seed left the clock: just
+# before the seed's own minute ends, the minutes before the onset, the incident
+# in progress, and a walk's worth of minutes after. The first is fifteen seconds
+# after a seed at the anchor's second, a second and a half short of the minute's
+# end, so a world seeded later than it should have been is read a minute on from
+# the shop's, and one seeded before its instant is read before it was seeded.
+READ_AFTER = (timedelta(seconds=15), timedelta(seconds=30), timedelta(minutes=5),
+              timedelta(minutes=20))
 
 # How far a look at the stand-in's clock moves it, while it waits for the seed
-# instant.
-A_LOOK = timedelta(milliseconds=500)
+# instant. A step that divides none of the waits, so the clock passes the seed
+# instant rather than landing on it, and a shop whose clock was not pinned to the
+# instant reads a different one while it seeds.
+A_LOOK = timedelta(milliseconds=700)
 
 # An instant as the shop writes one into a minute's name or a log line.
 A_WRITTEN_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
@@ -170,13 +181,14 @@ def _what_the_checks_found(world: Any) -> dict[str, Any]:
             for check, finding in found.items()}
 
 
-def _readings_after(seeded_at: datetime, world: Any) -> list[dict[str, Any]]:
-    """The window and the checks' findings at each reading, the window as the
-    shop's metrics route would build it."""
+def _readings_after(left_at: datetime, world: Any) -> list[dict[str, Any]]:
+    """The window and the checks' findings at each reading, counted from where
+    the seed left the clock, the window as the shop's metrics route would build
+    it."""
     readings = []
 
     for after in READ_AFTER:
-        NOW[0] = seeded_at + after
+        NOW[0] = left_at + after
         readings.append({
             "window": [dataclasses.asdict(minute) for minute in the_app._the_window_now()],
             **_what_the_checks_found(world)
@@ -186,13 +198,14 @@ def _readings_after(seeded_at: datetime, world: Any) -> list[dict[str, Any]]:
 
 
 def the_shops_world(scenario: Any, anchor: datetime = AN_ANCHOR) -> list[dict[str, Any]]:
-    """The scenario seeded by the shop at `anchor`."""
+    """The scenario seeded by the shop at `anchor`, read on from where the seed
+    left the clock - as the stand-in's is."""
     generator.random = random
     world = _a_fresh_shop()
     NOW[0] = anchor
     world.seed(scenario)
 
-    return _readings_after(anchor, world)
+    return _readings_after(NOW[0], world)
 
 
 def the_stand_ins_world(scenario: Any,
@@ -200,7 +213,12 @@ def the_stand_ins_world(scenario: Any,
                         asked_at: datetime) -> tuple[timedelta, list[dict[str, Any]]]:
     """The scenario seeded by the stand-in, asked at `asked_at` with `anchor`
     staged, and how far ahead of the anchor it seeded - then put back by the
-    shop's own reset, as a case's teardown puts it back."""
+    shop's own reset, as a case's teardown puts it back.
+
+    Read on from where the seed left the clock, as a replay reads it, and not
+    from the instant the stand-in says it seeded at: a caller has only the
+    clock, so a stand-in that seeded late, early or at the wrong instant has to
+    show in what the clock reads."""
     draws = ShiftedDraws(random, scenarios.TIMESTAMP_FORMAT)
     own_checks = {check: getattr(state, check) for check in THE_CHECKS}
 
@@ -220,7 +238,7 @@ def the_stand_ins_world(scenario: Any,
 
         seeding.seed(lambda: world.seed(scenario))
         shift = seeding.state().shift
-        readings = _readings_after((anchor or asked_at) + shift, world)
+        readings = _readings_after(NOW[0], world)
         world.reset()
 
         return shift, readings
