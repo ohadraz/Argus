@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSzAsKEAgTGAI4AUIIdGhpbmtpbmcSDJ9vqQz8OdWZ5EKrQxoMhSeFjFTzQcreW9fjIjBLG3lHSFaJRUXaiRC7z4JQxn2wK3Zj0w88h3Ac9EQrCmuGtI+ip8huHST99O+QOPQq6Qrw3fjYU5hYEBs5Utwb1aUxgtnF9OFLDTfyeuPkTOl1MOZlYbG4SDlM3X8Ir2Se1lFGuwgMx5hx9O8o0Te4anKP2YbRZHA4qk8ZiBrNAH9zKoQ+iy3cCjTh35WhixuLjHhIue5+9peHqREPqfjESIrXkemPr6zgNnhccxhFZhatFLiK9/daOI4DowKsKZbHUhudsCx5W3iHDxAkqW6ImNVJ5/Pbepu9tzhMEM6t/SmDiLJGH3xOZ5ncpiQvj2AM8Hx6dZCPuwy6kd8/SU+7v6jEUkoHwEffJagisk82DsDofGgVM5zErWZyv1U5rsXiWgZ0iUUInl7pN6gLsh3obTFakOT7EflbtpqbQhKyGdJJu4xPlhTPUkIEWdEreutzETCveCjKbFvYbtdSQ9nJ+tvp/VUTTJ4BQ8RNGWEl1LdkZFLAzZqYi9pJQJjbQTEuuiuxERNlx4HYNsA9q3kCoWqPPRAJszwfTKyVF1ZFiqbT/hxetzNzk0pTR22QRULlegUQR5cBrIuR7yuJ1WruwpgG/5LdRgSGjDkGQ2yuW+djNQVbkj35fT90t8sutlq2EWgBp8CzvBr9tZ1RHP+WBQV8RtoiYzRQwm/YYeS6/9DHExhnhSv1Fy7xRq0kJEaKjpKBtPZHA1X7sPD4a7yr5e+rqHF+g5FeT1Nn98TFsQi0QZxKFC2T25ytTVrzrTLDVDCUXVDa76gZTcR94zKOxGleOx/TOGj5hRXSFKAt6pe0s0TfYQZGbAn2IG+fR5CaNhJuXVijoJEfLRYVBLa7sRlMxKoicTfJzBNOflfTRopmdXL/QA/u99LVpIjHQfyKy81jRq47kYlmUd4kAuBNG3qsdbHwMF42HCPc4KLw+MTz7KJeyO9xksxD/TrA0poBBcffc5e7semBZ+g+RHT01HpGC1gSx3tHdchoOBRPKyLQfL6ekjfXwhFFKzUHAU76A69R4JeuExWXP4MZEV7udgkUJpRDqfl55CQXZUotf+66Tq1V9jGeMrtxzZwgL3Hotd7FPSjeISh0b6QgA9mx4GVpjXlfLf5m/ND7gK825qvMRMfxFWkCTGtNyIGwq7myz8GisvlvYObJPeJLheUMGg+wmolzfR+cu73DZ1To2DJNxq3A/1EZa5yv6IGErb0jXSuyE+UvCSVYu3bV8t7FbF+enM0y+BCEegMe6ZAJEIi0CzU4E2C9a7rwg1S/wmlcMufitMaliOJcU1ucosxcNKMjJJ+K5HrVpplfOZZxRoSSh+mqUUbPxX+pri5KSZDqHDmJi/ZaV24RA/p/h4VMeYWt+3VQd8ka4v+N14RUxLmbVQAfgbNveT/bBaFQEtlzIlMoDM9It/fTzGy7gweL+wxb1PRXKzQkiljY+ue1QvmQcSXY+DaNrSG/IbW6TSnj2baIlL8g/B0nB0Z0h9fe+3RNQoExC5vmZkkk5YRnHxLam5cvjX0NHqEnPc5c4EQJXbosshcYps6kEFHwntaA1XEx8PNz2HT2o15lMupP8J34Xzsm+vPNffVXK2M/fRA2g8KXOQnCvdWHtZTzY53iUKB4xQxuq7COsojEXayWL1SobcMqkg6AotA2xgq7zblrUkBUTbe4ldsi475jFQr71DBHt96/l/e3MeyD3GvIIbJOWrezVDCrWYYTne7sYWvn4thkXaTqTzM5Rt4brqq90EsjJlwna01f1jfxzyUiBFdkHKfdLtYjWBypSByKJHtchinLYmBfBd1cNqPsHBBIHLuJNNc3yrw61exqm+R8BEqCwYnf2nFXyaBK0Hw4UvGXsQbwN9zDudxoyjLrNMGEq0VefvmOga7EUUAJpz15zNDZhmVgiVjw62DaaRgB",
+      "thinking": "The old pods are reading entries the new revision wrote under the same key, and they crash on ValueError. Since the old code is already deployed and can't be changed, the new revision has to stay readable by old pods during a mixed rollout. I'm weighing a new versioned key against making the writer emit something the old reader can still parse.\n\nI'm looking for where the writer lives. The key is keyed by shopper, so I'll check how `look_up_summary` is called in the endpoints, since that's where the write path would show up.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_014qCN6qUFWUEE5FYKPmHNR2",
+      "input": {
+        "query": "look_up_summary"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgtsC5qsyYwuVm8Kefwg7",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 3512
+    },
+    "cache_creation_input_tokens": 3512,
+    "cache_read_input_tokens": 12580,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 323,
+    "output_tokens_details": {
+      "thinking_tokens": 269
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

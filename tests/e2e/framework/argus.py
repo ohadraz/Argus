@@ -12,7 +12,6 @@ Argus created for it.
 from __future__ import annotations
 
 import os
-import re
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -24,8 +23,13 @@ import httpx2
 import psycopg
 from agent_codefix.prompting import FILES_FIELD, SUBMIT_FIX
 from agent_investigator.tools.answer import ANSWER_TOOL
+from agent_investigator.tools.changes import CHANGES_TOOL
+from agent_investigator.tools.logs import LOGS_TOOL
+from agent_investigator.tools.metrics import METRICS_TOOL
+from agent_postmortem.grounding import JUDGE_TOOL_NAME
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
-from anthropic_double.recordings import RECORDINGS_DIR, load
+from anthropic_double.clock import instants_in, moved_in
+from anthropic_double.recordings import RECORDINGS_DIR, load, load_arrival
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import get_settings, parse_iso, to_iso, utc_now
 from argus_core.events import ActionTaken, ChangesRetrieved, FixAttempted, StatusChanged
@@ -80,6 +84,14 @@ A_POLL_SECONDS: Final = 0.5
 # How many times the double serves each answer seeded into it: once, so a
 # replay that asks for more than was recorded runs the queue dry and says so.
 _SERVED_ONCE: Final = 1
+
+# Where the grounding judge's model double listens: a double of its own, since
+# one queue serving the writer and its judge would hand each the other's
+# answers. Kept in step with the noxfile's `_JUDGE_ANTHROPIC_DOUBLE_PORT` by
+# hand, as the other addresses here are.
+JUDGE_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://localhost:8088"
+# What a set's judge answers are stored under, ahead of the set's own name.
+_JUDGED: Final = "judge-"
 
 # An investigation is bounded by `investigation_max_seconds`, but the budget is
 # only consulted between turns - a model call already in flight runs to
@@ -194,16 +206,15 @@ TOOL_USE_TYPE: Final = "tool_use"
 # And its word for a block of plain prose, for the same reason.
 TEXT_TYPE: Final = "text"
 
-# A clock time as a recorded answer writes one: a whole instant, a date alone,
-# or a time of day alone. The instant is tried first, so its time is never read
-# a second time as a time of day standing on its own.
-_A_CLOCK_TIME: Final = re.compile(
-    r"(?<!\d)(?P<date>\d{4}-\d{2}-\d{2})"
-    r"(?:(?P<between>[T ])(?P<time>\d{2}:\d{2}(?::\d{2})?)(?P<fraction>\.\d+)?"
-    r"(?P<zone>Z|\+00:00)?)?"
-    r"(?![\d:])"
-    r"|(?<![\d:.])(?P<time_of_day>\d{2}:\d{2}(?::\d{2})?)(?![\d:])"
-)
+# The reads that take a window, whose bounds a replay can move by how late
+# their question arrived. Named rather than every tool but the answers, so an
+# answer tool added tomorrow keeps the world's one shift without anyone
+# remembering to list it.
+_THE_READS_THAT_TAKE_A_WINDOW: Final = frozenset({
+    METRICS_TOOL,
+    LOGS_TOOL,
+    CHANGES_TOOL
+})
 
 # The extension a set's capture instant is stored under, beside the recordings.
 ANCHOR_SUFFIX: Final = ".anchor"
@@ -226,6 +237,12 @@ def stored_as(recording: str) -> str:
     to that one setting.
     """
     return f"{get_settings().code_search.value}-{recording}"
+
+
+def judged_as(stored: str) -> str:
+    """The name the grounding judge's answers for the set `stored` are kept
+    under - beside the set, served by the judge's own double."""
+    return f"{_JUDGED}{stored}"
 
 
 def argus_is_triggered_with_alert(
@@ -846,12 +863,19 @@ def the_model_answers_from(recording: str,
     `less_postmortem` leaves the write-up out, for re-recording the postmortem
     alone: everything before it replays, rebased as any replay is, and the
     double forwards the one call nothing answers to the real model.
+
+    The grounding judge's answers too, into its own double, from the set
+    beside the walk's (`judged_as`). Not with `less_postmortem`: a write-up
+    recorded afresh is judged afresh, and whoever records it arms the judge's
+    double to record.
     """
     def step() -> bool:
         with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL,
                            timeout=REQUEST_TIMEOUT_SECONDS) as control:
             control.post("/double-control/reset").raise_for_status()
             _seed_the_answers(control, recording, less_code_fix, less_postmortem)
+        if not less_postmortem:
+            _seed_the_judge(recording)
 
         return True
 
@@ -889,6 +913,7 @@ def the_held_model_answers_from(recording: str, *,
     which would fail the walk this exists to let go.
     """
     def step() -> bool:
+        _seed_the_judge(recording)
         with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL,
                            timeout=REQUEST_TIMEOUT_SECONDS) as control:
             _seed_the_answers(control, recording, less_code_fix)
@@ -944,14 +969,106 @@ def _seed_the_answers(control: httpx2.Client,
     if less_postmortem:
         answers = _less_postmortem(answers)
 
+    _queue(control, answers, shift, load_arrival(stored))
+
+
+def _seed_the_judge(recording: str) -> None:
+    """Queues every answer the grounding judge gave for this case, in order,
+    each once - rebased as the walk's are, since a flag quotes the write-up,
+    and the write-up the judge reads is the rebased one.
+
+    Resets the judge's double first, for `the_model_answers_from`'s reason.
+    A set recorded before the judge existed has no answers of its own and is
+    seeded none: the judge then answers nothing, and the walk logs that it
+    did not.
+    """
+    stored = stored_as(recording)
+    shift = _how_far_the_world_has_moved_since(stored)
+
+    with httpx2.Client(base_url=JUDGE_ANTHROPIC_DOUBLE_BASE_URL,
+                       timeout=REQUEST_TIMEOUT_SECONDS) as control:
+        control.post("/double-control/reset").raise_for_status()
+        state = control.get("/double-control/state")
+        state.raise_for_status()
+        judged = judged_as(stored)
+        answers = sorted((name for name in state.json().get("available_recordings", [])
+                          if name == judged or _is_a_later_answer_of(name, judged)),
+                         key=_the_order_it_was_answered_in)
+        _queue(control, answers, shift)
+
+
+def _queue(control: httpx2.Client,
+           answers: list[str],
+           shift: timedelta | None,
+           walk_began: datetime | None = None) -> None:
+    """Seeds each answer once, in order - rebased by `shift`, where the world
+    has moved since it was recorded.
+
+    `walk_began` is when the set's first question arrived while it was
+    recorded, where that was kept. Given, an answer whose own arrival was kept
+    is seeded with when its question is expected in this run, and with the
+    times in its reads that move by however much later than that it comes -
+    see `_the_times_that_move_on_arrival`.
+    """
     for answered_once in answers:
         control.post(
             "/double-control/seed",
             json={"recording": answered_once, "repeat": _SERVED_ONCE}
             if shift is None
-            else {"body": _rebased(load(answered_once), shift), "recorded_as": answered_once,
-                  "repeat": _SERVED_ONCE}
+            else _a_rebased_seed(answered_once, shift, walk_began)
         ).raise_for_status()
+
+
+def _a_rebased_seed(answered_once: str,
+                    shift: timedelta,
+                    walk_began: datetime | None) -> dict[str, Any]:
+    """One recorded answer as a seed in this run's world - and, where its
+    arrival was kept, with what moves when it is served."""
+    body = _rebased(load(answered_once), shift)
+    seed: dict[str, Any] = {"body": body, "recorded_as": answered_once,
+                            "repeat": _SERVED_ONCE}
+    arrived = load_arrival(answered_once)
+
+    if walk_began is None or arrived is None:
+        return seed
+
+    moves = _the_times_that_move_on_arrival(body, walk_began + shift)
+
+    if not moves:
+        return seed
+
+    return {**seed, "arrives_at": (arrived + shift).isoformat(), "moves_on_arrival": moves}
+
+
+def _the_times_that_move_on_arrival(body: dict[str, Any], walk_began: datetime) -> list[str]:
+    """The times in a rebased answer's reads that the double moves again as it
+    serves the answer, by how late its question arrived.
+
+    The world's times move by the one shift between the two seedings, and that
+    is exact: the service hangs everything it stages off its floored seed.
+    Argus's own acts do not keep to it. They land when the replay reaches them,
+    seconds off the recording - so a read bounded on "now", asked after one of
+    them, can end before it in a replay where it ended after it in the
+    recording, and the walk misses its own act.
+
+    So a time in the arguments of a read that takes a window, at or after the
+    walk began, moves by how late its question arrived. That is right for
+    "now". For the instant of an act it is right only where the replay kept
+    the recording's pace between the act and the question, since the time
+    moves by the question's lateness, not the act's own. Nothing else moves: an
+    earlier time is the world's, and every other tool - every answer the model
+    gives among them - keeps the world's one shift.
+
+    A world event the shop stages after the walk began, quoted in a read's
+    arguments, would move by the walk's lateness too - a flapping world can
+    stage one, so look before recording one with arrivals kept.
+    """
+    return sorted({written
+                   for block in body.get("content", [])
+                   if block.get("type") == TOOL_USE_TYPE
+                   and block.get("name") in _THE_READS_THAT_TAKE_A_WINDOW
+                   for written, instant in instants_in(block.get("input") or {})
+                   if instant >= walk_began})
 
 
 def the_anchor_file_for(recording: str) -> Path:
@@ -1086,12 +1203,8 @@ def _rebased(answer: dict[str, Any], shift: timedelta) -> dict[str, Any]:
     they are the source a pull request is opened with, and a time inside code
     is part of the code.
 
-    What this cannot tell apart, and moves or leaves regardless:
-    - a time of day is read as UTC and moved round the clock, so a duration
-      written like one - `00:10` - moves as though it were a time;
-    - a date written in words - `28 September` - is not seen, and stays;
-    - a date alone moves as its midnight would, so a shift of a day and a half
-      moves it by one.
+    What is read as a clock time, and what is mistaken for one, is
+    `moved_in`'s to say.
     """
     content = []
 
@@ -1099,7 +1212,7 @@ def _rebased(answer: dict[str, Any], shift: timedelta) -> dict[str, Any]:
         if block.get("type") == TOOL_USE_TYPE:
             content.append({**block, "input": _the_arguments_moved(block, shift)})
         elif block.get("type") == TEXT_TYPE:
-            content.append({**block, "text": _moved_in(block.get("text", ""), shift)})
+            content.append({**block, "text": moved_in(block.get("text", ""), shift)})
         else:
             content.append(block)
 
@@ -1109,59 +1222,9 @@ def _rebased(answer: dict[str, Any], shift: timedelta) -> dict[str, Any]:
 def _the_arguments_moved(block: dict[str, Any], shift: timedelta) -> dict[str, Any]:
     return {
         name: value if block.get("name") == SUBMIT_FIX.name and name == FILES_FIELD
-        else _moved_in(value, shift)
+        else moved_in(value, shift)
         for name, value in (block.get("input") or {}).items()
     }
-
-
-def _moved_in(value: Any, shift: timedelta) -> Any:
-    """Any value a recorded answer holds, with each clock time in its strings
-    moved - however deep inside lists and objects it sits."""
-    if isinstance(value, str):
-        return _A_CLOCK_TIME.sub(lambda found: _moved(found, shift), value)
-
-    if isinstance(value, list):
-        return [_moved_in(item, shift) for item in value]
-
-    if isinstance(value, dict):
-        return {name: _moved_in(item, shift) for name, item in value.items()}
-
-    return value
-
-
-def _moved(found: re.Match[str], shift: timedelta) -> str:
-    """One clock time moved, written back in the shape it was found in - with
-    the seconds, fraction and zone it had, and nothing it did not.
-
-    Something shaped like a time that is not one - `27:90` - is left as it was.
-    """
-    try:
-        return _moved_or_refused(found, shift)
-    except ValueError:
-        return found[0]
-
-
-def _moved_or_refused(found: re.Match[str], shift: timedelta) -> str:
-    if found["time_of_day"] is not None:
-        return _a_time_of_day(
-            datetime.fromisoformat(f"2000-01-01T{found['time_of_day']}") + shift,
-            with_seconds=found["time_of_day"].count(":") == 2
-        )
-
-    if found["time"] is None:
-        return (datetime.fromisoformat(found["date"]) + shift).date().isoformat()
-
-    fraction = found["fraction"] or ""
-    moved = datetime.fromisoformat(f"{found['date']}T{found['time']}{fraction}") + shift
-
-    return (f"{moved.date().isoformat()}{found['between']}"
-            f"{_a_time_of_day(moved, with_seconds=found['time'].count(':') == 2)}"
-            f"{f'.{moved.microsecond:06d}'[:len(fraction)] if fraction else ''}"
-            f"{found['zone'] or ''}")
-
-
-def _a_time_of_day(moment: datetime, with_seconds: bool) -> str:
-    return moment.strftime("%H:%M:%S" if with_seconds else "%H:%M")
 
 
 def the_answers_recorded_for(recording: str, control: httpx2.Client) -> list[str]:
@@ -1256,8 +1319,10 @@ def _the_tools_called_in(answer: dict[str, Any]) -> list[str]:
 def _tokens_spent_to_the_write_up(incident_id: str) -> int:
     """Every token the incident spent, up to and including its write-up.
 
-    The write-up's own calls are counted: the figure is what the incident cost
-    Argus, and writing it up is part of that. Nothing after them is - a reply in
+    The write-up's own calls are counted, and the grounding judge's readings of
+    it: the figure is what the incident cost Argus, writing it up is part of
+    that, and the document is stored only once the judge has read it. Nothing
+    after them is - a reply in
     the incident's thread can come once the document is stored, and a figure
     fixed when it was written cannot count it. Which calls are the write-up's is
     read from the tools each request offered, and an incident that never
@@ -1270,7 +1335,10 @@ def _tokens_spent_to_the_write_up(incident_id: str) -> int:
 
     written_up = [position for position, entry in enumerate(calls)
                   if _asked_for_a_postmortem(entry.request)]
-    counted = calls[:written_up[-1] + 1] if written_up else calls
+    end = written_up[-1] + 1 if written_up else len(calls)
+    while end < len(calls) and _asked_to_judge(calls[end].request):
+        end += 1
+    counted = calls[:end]
 
     return sum(
         entry.response.get("input_tokens", 0)
@@ -1283,4 +1351,9 @@ def _tokens_spent_to_the_write_up(incident_id: str) -> int:
 
 def _asked_for_a_postmortem(request: dict[str, Any]) -> bool:
     return any(tool.get("name") == SUBMIT_TOOL_NAME
+               for tool in request.get("tools", []))
+
+
+def _asked_to_judge(request: dict[str, Any]) -> bool:
+    return any(tool.get("name") == JUDGE_TOOL_NAME
                for tool in request.get("tools", []))

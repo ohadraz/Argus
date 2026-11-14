@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.metrics import Quantile, WorseWhen
+from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import ReportChannel
 
@@ -68,6 +69,11 @@ class RuledOut(BaseModel):
 
     text: str
     cites: list[CitedEvidence]
+    # Whether code wrote `text` from the rows it cites - the class of change
+    # Argus's own reads found none of, and those reads' own lines - rather than
+    # the model. A destination then cites those rows by label alone: their
+    # words are the claim already. False on a document written before.
+    said_by_the_record: bool = False
 
 
 class ChainStep(BaseModel):
@@ -312,6 +318,21 @@ class TimelineEntry(BaseModel):
     # after it - the agent at work - says already. The postmortem's page leaves
     # it out where nothing cites it; the incident's own page keeps every line.
     an_agent_called_in: bool = False
+    # What the line is - the kind of event it was said from - and, on a
+    # request for evidence, what it asked for: so the document can pair a read
+    # with the request it answered without matching on either's words. `None`
+    # on a marker and on a document written before.
+    kind: str | None = None
+    channel: RetrievalChannel | None = None
+    # The class of change a read of Argus's own found none of, in the words a
+    # document leads its rule-out with ("A flag change by anyone but Argus") -
+    # empty where the line rules nothing out, and on a document written before.
+    rules_out: str = ""
+    # What the undo of an action judged refuted did, in its own words - "monthly-
+    # spend-feature was put back ON" - where the line says one, so a document
+    # crediting the put-back can say it without the verdict beside it. Empty on
+    # every other line, and on a document written before.
+    put_back: str = ""
 
 
 class CandidateConsidered(BaseModel):

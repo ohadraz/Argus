@@ -78,7 +78,7 @@ THE_ONSET_MAY_BE_MINUTES_AWAY = 1
 
 @pytest.mark.e2e
 def test_a_categoriser_upgrade_that_files_purchases_worse_is_rolled_back() -> None:
-    some_severity = "warning"
+    some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_CONFIDENCE_ALERT,
                                             severity=some_severity,

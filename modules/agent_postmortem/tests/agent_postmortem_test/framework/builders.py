@@ -269,10 +269,14 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
 def a_timeline_entry(text: str,
                      at: datetime = STARTED_AT,
                      who: str = "dont care",
-                     outside_the_walk: bool = False) -> TimelineEntry:
+                     outside_the_walk: bool = False,
+                     kind: str | None = None,
+                     rules_out: str = "") -> TimelineEntry:
     """One line of the narration, as the page said it - the walk's own, unless
-    a test says it was written outside the walk."""
-    return TimelineEntry(at=at, who=who, text=text, outside_the_walk=outside_the_walk)
+    a test says it was written outside the walk; of no kind and ruling nothing
+    out, unless a test says what event it was said from and what it found."""
+    return TimelineEntry(at=at, who=who, text=text, outside_the_walk=outside_the_walk,
+                         kind=kind, rules_out=rules_out)
 
 
 def a_candidate(summary: str,

@@ -149,13 +149,16 @@ def tier_gate_node(
                        tested=False,
                        result=why_it_was_refused(refusal))
 
+    somebody_elses = refusal is Refusal.SOMEBODY_ELSES_SERVICE
     publish(
         ActionRefused(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id if state.hypothesis is not None else None,
             candidate_number=(state.hypothesis.number if state.hypothesis is not None
                               else None),
-            refusal=refusal
+            refusal=refusal,
+            dependency=(_the_entry_blamed(state.hypothesis, state.dependencies)
+                        if somebody_elses else None)
         ),
         publisher
     )
@@ -194,6 +197,12 @@ def tier_gate_node(
         return StateDelta(
             proposed_action=None,
             the_mode_has_no_mitigation=True,
+            # Whose fault it was, so Code-Fix is not asked to write a change
+            # around another company's outage: the refusal's line says whom
+            # to ask instead.
+            somebody_elses_fault_for=(state.hypothesis.id
+                                      if somebody_elses and state.hypothesis is not None
+                                      else None),
             narration=Narration(action="no mitigation taken")
         )
 
@@ -214,6 +223,27 @@ def tier_gate_node(
             if recommended is not None else None
         )
     )
+
+
+def _the_entry_blamed(hypothesis: Hypothesis | None,
+                      dependencies: Sequence[ServiceDependency]) -> ServiceDependency | None:
+    """The register's entry for the service a candidate blames, where it is
+    another company's - or `None` where the register lists no such service.
+
+    By its name or its host, whatever case the model wrote it in: the subject
+    is the model's choice, and one draw names "io-pay" where another names
+    "api.io-pay.example". An entry the register marks as ours is not this:
+    the refusal says the failure is another company's, and naming one of our
+    own services beside it would contradict it.
+    """
+    if hypothesis is None or hypothesis.subject is None:
+        return None
+
+    blamed = hypothesis.subject.casefold()
+
+    return next((entry for entry in dependencies
+                 if not entry.is_ours
+                 and blamed in (entry.name.casefold(), entry.host.casefold())), None)
 
 
 def _why_the_action_cannot_proceed(action: Action | None,

@@ -64,6 +64,13 @@ _A_UNIT: Final = (
 # fraction ("a third", "two thirds"). Joined to what it measures by a space only
 # - "one-minute buckets" describes the buckets, and measures nothing.
 #
+# Only third, fifth and tenth, said singly, double as ordinals: "a
+# third-party service", "a third time". Those are a fraction only where they
+# are of something or more or fewer of it ("a third of the requests", "a third
+# more requests"), or end the phrase - at a stop or a spaced dash ("fell by a
+# third - the worst week"). A half, a quarter and every plural are fractions
+# wherever they stand.
+#
 # The span is first, and takes its "and a half" with it, so that one figure is
 # one fault rather than a span and a fraction. Its units are the ones Argus
 # measures between its own instants: "a second" is an ordinal as often as a span
@@ -73,7 +80,9 @@ _A_FIGURE_IN_A_WORD: Final = re.compile(
     r"\b(?:a|an)\s+(?:minute|hour|day|week)(?:\s+and\s+a\s+half)?\b"
     rf"|\b(?:{_A_NUMBER_WORD}|half(?:\s+an?)?)\s+{_A_UNIT}"
     r"|\b(?:doubled|tripled|quadrupled|halved|twice|thrice)\b"
-    r"|\b(?:a|one|two|three|four)\s+(?:half|halves|thirds?|quarters?|fifths?|tenths?)\b",
+    r"|\b(?:a|one|two|three|four)\s+(?:half|halves|thirds|quarters?|fifths|tenths)\b"
+    r"|\b(?:a|one|two|three|four)\s+(?:third|fifth|tenth)\b"
+    r"(?=\s+(?:of|more|less|fewer|higher|lower)\b|\s+-|\s*(?:[.,;:!?)]|$))",
     re.IGNORECASE
 )
 

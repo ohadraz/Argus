@@ -11,6 +11,7 @@ would be indistinguishable from one that agreed.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
@@ -43,15 +44,18 @@ from argus_core.models import (
     LatencyHarm,
     LogsInTheGap,
     NoTrigger,
+    OpenedPullRequest,
     ResolutionStep,
     RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
+    ServiceDependency,
     TimelineEntry,
     TimelineMarker,
     Trigger,
     Verdict,
     WhyNoTrigger,
 )
+from argus_narration import A_PERSON, as_a_clause, said_as_the_document_shows
 
 from agent_postmortem.estimate import LatencyLevels, Unmeasured
 from agent_postmortem.evidence import CandidateRecord, DeploymentChangesRecord, IncidentEvidence
@@ -112,6 +116,9 @@ CONTRIBUTING_FACTOR_PREFIX: Final = "CF-"
 # number.
 ALERT_PREFIX: Final = "AL"
 NARRATION_PREFIX: Final = "T"
+# How the narration names an agent, which a clause gives "the" to - "the
+# Investigator Agent" - where Argus and a person go by their names.
+_AN_AGENT: Final = " Agent"
 OUTSIDE_THE_WALK_PREFIX: Final = "XW"
 PRODUCTION_CHANGE_PREFIX: Final = "P"
 DEPLOYMENT_CHANGES_PREFIX: Final = "D"
@@ -126,6 +133,11 @@ ACTION_PREFIX: Final = "M"
 # (`argus_core.models.Reading`).
 CAUSE_MEASURED_PREFIX: Final = "R"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
+# The item an incident whose fault is in another company's service is left
+# as: ask whoever the register names to put it right, and to say why it went
+# wrong. Its owner, name and host are the register's; its purpose is not said,
+# since a register's purpose is no verb phrase to build a clause from.
+ASK_THE_OWNER: Final = "Ask {owner} to restore {name} ({host}) and to say why it failed"
 # The fix Code-Fix wrote and did not keep, since it helps only once code outside
 # the repository changes too. Both halves, named by code: left to the model,
 # write-ups asked for the change outside alone, and done alone it leaves the
@@ -1066,8 +1078,9 @@ def record_action_items_of(evidence: IncidentEvidence,
 
     What brought recovery is done, and is Argus's. The fix proposed, the fix
     written and not kept, the fix written and proposed nowhere
-    (`the_unproposed_fix_item`), and the action Argus declined are open, and
-    nobody's: Argus edits no item after the document is written, so whoever
+    (`the_unproposed_fix_item`), asking whoever runs a failed service of
+    another company's to restore it (`the_owner_item`), and the action Argus
+    declined are open, and nobody's: Argus edits no item after the document is written, so whoever
     takes one on does so somewhere else. An action that did not help is in the
     resolution and is not left to do.
 
@@ -1100,12 +1113,20 @@ def record_action_items_of(evidence: IncidentEvidence,
         *([_an_item(the_fix_is, unproposed)] if unproposed is not None else []),
         *(_an_item(ActionItemType.MITIGATE, TURN_SYNC_BACK_ON.format(application=application))
           for application in left_off),
+        *([_an_item(ActionItemType.MITIGATE, the_owner_item(evidence.whose_service_failed))]
+          if evidence.whose_service_failed is not None else []),
         *([_an_item(ActionItemType.MITIGATE, evidence.recommended_action)]
           if evidence.recommended_action is not None else [])
     ]
 
     return [item.model_copy(update={"number": action_item_number(position)})
             for position, item in enumerate(implied, start=1)]
+
+
+def the_owner_item(dependency: ServiceDependency) -> str:
+    """The item asking whoever runs a failed service to restore it."""
+    return ASK_THE_OWNER.format(owner=dependency.owner, name=dependency.name,
+                                host=dependency.host)
 
 
 def the_unproposed_fix_item(evidence: IncidentEvidence) -> str | None:
@@ -1228,6 +1249,45 @@ def said_of_a_line(entry: TimelineEntry) -> str:
     labels = ", ".join(label_of(CANDIDATE_PREFIX, position + 1) for position in entry.candidates)
 
     return f"Formed {formed} candidate cause{'s' if formed != 1 else ''}, best first: {labels}"
+
+
+def as_the_timeline_shows_it(entry: TimelineEntry, shorts: Mapping[str, str],
+                             pull_request: OpenedPullRequest | None) -> TimelineEntry:
+    """A line of the narration as the document's timeline shows it
+    (`said_as_the_document_shows`): each revision in `shorts` said short, the
+    fix by its name, and every name quoted in brackets as code - for a sentence
+    code says in a row's words, which would otherwise say the row as only the
+    model is told it. A line from outside the walk is shown as it was written,
+    as the timeline shows it.
+
+    `shorts` are the timeline's: each revision a change read that can be
+    opened names whole, and its short form."""
+    if entry.outside_the_walk:
+        return entry
+
+    named = {pull_request.url: pull_request.name} if pull_request is not None else {}
+
+    return entry.model_copy(update={"text": said_as_the_document_shows(entry.text, shorts,
+                                                                       named)})
+
+
+def said_as_a_clause(entry: TimelineEntry) -> str:
+    """A line of the narration as a sentence goes on with it, after a span or a
+    class of change: whoever said it, then the line as the narration says it
+    going on - "the Mitigation Agent restarted io-pricing", "Argus moved on to
+    C2" (`as_a_clause`). An agent takes "the"; Argus and a person go by their
+    names, and a person unnamed goes by "a person". No full stop: the sentence
+    it goes into ends it.
+    """
+    said = as_a_clause(entry.kind, said_of_a_line(entry))
+
+    if entry.who is None:
+        return said
+
+    who = (f"the {entry.who}" if entry.who.endswith(_AN_AGENT)
+           else A_PERSON.lower() if entry.who == A_PERSON else entry.who)
+
+    return f"{who} {said}"
 
 
 def labels_of_the_narration(timeline: list[TimelineEntry]) -> list[str]:

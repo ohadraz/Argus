@@ -77,6 +77,7 @@ from argus_core.models import (
     ActionType,
     Actor,
     ChangeEvent,
+    ChangeKind,
     DeploymentComparison,
     FixOutcome,
     FlagChange,
@@ -86,6 +87,7 @@ from argus_core.models import (
     RecalledIncident,
     RecordedPlacement,
     Reference,
+    Refusal,
     ReportChannel,
     RetrievalChannel,
     RolloutAccount,
@@ -106,6 +108,50 @@ from argus_narration.prose import said_plainly
 # system talking about its own internals - what happened is that Argus did.
 _ARGUS = "Argus"
 _INVESTIGATOR = "Investigator Agent"
+
+# What a read of Argus's own found none of, as a document leads a rule-out with
+# it: the class of change, named by what came back empty. A changes read takes
+# in deploys - a release is one - and flag changes together, so its class is
+# whichever of the two it found none of.
+NO_CHANGE_OF_ANY_KIND: Final = "A deploy, release or flag change on the service"
+NO_DEPLOY: Final = "A deploy or release on the service"
+NO_FLAG_CHANGE: Final = "A flag change on the service"
+_NONE_OF: Final = {
+    frozenset(ChangeKind): NO_CHANGE_OF_ANY_KIND,
+    frozenset({ChangeKind.DEPLOY}): NO_DEPLOY,
+    frozenset({ChangeKind.FLAG_TOGGLE}): NO_FLAG_CHANGE
+}
+# The flag provider's read counts every change but Argus's own, so that is the
+# class it rules out - and only over a window it says.
+NO_FLAG_CHANGE_BY_ANYONE_ELSE: Final = "A flag change by anyone but Argus"
+# A rollout read showing one revision on every replica.
+NO_ROLLOUT_UNDER_WAY: Final = "A rollout still under way"
+# A placement whose every replica started after the onset: none ran from
+# before it, so no restart of them set it off.
+NO_RESTART: Final = "A restart of the replicas"
+
+# The lines written as no clause in the past, each beside the words a sentence
+# going on with it says in their place (`as_a_clause`): a move to a candidate
+# and a wait are under way as their lines are written, and a disproof and an
+# offer that ran out open with what they are about rather than what was done.
+_MOVING_ON_TO: Final = "Moving on to "
+_MOVED_ON_TO: Final = "moved on to "
+_WAITING_TO_SEE: Final = "Waiting to see whether "
+_WAITED_TO_SEE: Final = "waited to see whether "
+_READABLE_AGAIN: Final = "its metrics can be read again"
+_READABLE_AGAIN_THEN: Final = "its metrics could be read again"
+_STILL_AT_THE_LEVEL: Final = "the service is still at the incident's level"
+_STILL_AT_THE_LEVEL_THEN: Final = "the service was still at the incident's level"
+_NOTHING_MATCHED: Final = "Nothing in the window matched the alarm's own claim"
+_FOUND_NOTHING_MATCHED: Final = "found nothing in the window that matched the alarm's own claim"
+_NOT_CONFIRMED_IN_TIME: Final = "not confirmed in time"
+_THE_OFFER_RAN_OUT: Final = f"The offer was {_NOT_CONFIRMED_IN_TIME} - carried on"
+_CARRIED_ON: Final = f"carried on - the offer was {_NOT_CONFIRMED_IN_TIME}"
+_CANDIDATE_SELECTED: Final[str] = CandidateSelected.model_fields["kind"].default
+_AWAITING_RECOVERY: Final[str] = AwaitingRecovery.model_fields["kind"].default
+_ALARM_DISPROVEN: Final[str] = AlarmDisproven.model_fields["kind"].default
+_OFFER_EXPIRED: Final[str] = OfferExpired.model_fields["kind"].default
+
 _MITIGATION = "Mitigation Agent"
 _CODEFIX = "Code-Fix Agent"
 _COMMUNICATOR = "Communicator Agent"
@@ -113,8 +159,9 @@ _POSTMORTEM = "Postmortem Agent"
 _INTENT = "Intent Agent"
 # Whoever wrote in the incident's thread, before anybody has looked their name
 # up. Not their platform id: an id is a lookup key, and a reader handed one has
-# been handed a chore rather than a person.
-_A_PERSON = "A person"
+# been handed a chore rather than a person. Public because a destination going
+# on with a line mid-sentence says it lowered, and must know it from a name.
+A_PERSON: Final = "A person"
 
 # Why an alarm was closed as disproven, said wherever the ending is - the move's
 # own line, the channel's announcement and the postmortem's head - in one set of
@@ -148,12 +195,15 @@ _AGENTS = {
 
 # What each retrieval channel is, said so that somebody who has never read the
 # spec knows what was asked for. "changes" in particular: it means deploys,
-# releases and flag changes that landed on the service, not changes Argus made.
+# releases and flag changes that landed on the service, not changes Argus made -
+# the flag changes named as the flag provider's history they are read from,
+# since Argus reads that history itself too, and a write-up shown the two under
+# different names took them for two sources and blamed the shorter read.
 _CHANNELS = {
     RetrievalChannel.METRICS: "the service's per-minute metrics",
     RetrievalChannel.LOGS: "the service's log lines",
-    RetrievalChannel.CHANGES: ("production change events - deploys, releases and flag changes "
-                               "on the service")
+    RetrievalChannel.CHANGES: ("production change events - deploys and releases, and flag "
+                               "changes from the flag provider's history")
 }
 
 # Where a person's report reached Argus, said as the place a reader would go to
@@ -328,6 +378,21 @@ class NarrationLine(BaseModel):
     # them against one another - split apart they read as three separate
     # findings, and the ranking loses the comparison it was made in.
     candidates: list[CandidateLine] = []
+    # What a request for evidence asked for, where the line is one - so a
+    # destination can pair it with the read that answered it without matching
+    # on its words, as `kind` lets it style a line.
+    channel: RetrievalChannel | None = None
+    # The class of change a read of Argus's own found none of, where it found
+    # none (`NO_CHANGE_OF_ANY_KIND` and the rest) - what a document that rules
+    # it out leads with. Left out of `text`: the line says what came back, and
+    # this is what that rules out.
+    rules_out: str = ""
+    # What the undo of an action judged refuted did, in its own words, where the
+    # line says one - "monthly-spend-feature was put back ON" - and nothing on
+    # every other line. Said in `text` after the verdict as well: a document
+    # crediting the put-back alone says this, since the verdict beside it is the
+    # one thing on the line a document may fault.
+    put_back: str = ""
 
 
 def build_narration(events: Sequence[IncidentEvent]) -> list[NarrationLine]:
@@ -403,7 +468,7 @@ def said_as_meant(line: NarrationLine, meaning: Meaning, name: str | None) -> Na
 
     before, marked, after = _set_apart(text, line.emphasis)
 
-    return line.model_copy(update={"who": name or _A_PERSON,
+    return line.model_copy(update={"who": name or A_PERSON,
                                    "text": text,
                                    "before_emphasis": before,
                                    "emphasis": marked,
@@ -553,10 +618,10 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             who = _MITIGATION
             # A blind spot's wait as what it waits for: no level was read while
             # its minutes were missing, so none is left to be still at.
-            waiting_for = ("its metrics can be read again" if event.until_read_again
-                           else "the service is still at the incident's level")
+            waiting_for = (_READABLE_AGAIN if event.until_read_again
+                           else _STILL_AT_THE_LEVEL)
             text = (
-                f"Waiting to see whether {waiting_for}, "
+                f"{_WAITING_TO_SEE}{waiting_for}, "
                 f"from {a_minute(event.from_minute)} - "
                 f"up to {int(event.seconds_allowed)}s"
             )
@@ -603,8 +668,8 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # own words, the cleanup line's, since nothing else live says it.
             # Not an escalated undo's, whose words the move line beside it
             # already says.
-            elif event.outcome is Verdict.REFUTED and event.undone_detail and event.subject:
-                text = f"Judged the action {emphasis} - {event.subject} {event.undone_detail}"
+            elif put_back := _what_its_undo_did(event):
+                text = f"Judged the action {emphasis} - {put_back}"
         case FixAttempted():
             who = _CODEFIX
             emphasis, text = _what_came_of_looking_at_the_code(event)
@@ -631,9 +696,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # the candidate's row, which the number leads to. The number is the
             # candidate's from when it was formed, so a list added to since
             # does not move it.
-            text = (f"Moving on to {a_candidate_cause(event.candidate_number)}"
+            text = (f"{_MOVING_ON_TO}{a_candidate_cause(event.candidate_number)}"
                     if event.candidate_number is not None else
-                    "Moving on to the next candidate cause")
+                    f"{_MOVING_ON_TO}the next candidate cause")
         case ActionRefused():
             who = _ARGUS
             # The reason, for the same reason a refused message marks its
@@ -643,6 +708,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = (f"Refused to act on {a_candidate_cause(event.candidate_number)} - {emphasis}"
                     if event.candidate_number is not None else
                     f"Refused to act - {emphasis}")
+            # Where the failure is another company's, the one line that says
+            # it is theirs says why no change to this code follows - and whom
+            # to ask, where the register says whose. Nothing else on the page
+            # or in the thread says either.
+            if event.refusal is Refusal.SOMEBODY_ELSES_SERVICE:
+                text += (f" - ask {event.dependency.owner} to restore "
+                         f"{event.dependency.name}, and no code fix is looked for"
+                         if event.dependency is not None else
+                         " - no code fix is looked for")
         case ActionRecommended():
             who = _ARGUS
             # The subject rather than the kind, because the kind is not
@@ -674,7 +748,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # Its ends as every other row says a minute, and its signals as the
             # metrics table beside it heads them.
             text = (
-                f"Nothing in the window matched the alarm's own claim - "
+                f"{_NOTHING_MATCHED} - "
                 f"{emphasis} - in {_any_of(event.signals_judged)}, over "
                 f"{event.minutes_judged} minute"
                 f"{'' if event.minutes_judged == 1 else 's'} read between "
@@ -816,7 +890,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             emphasis = event.refusal
             text = f"Could not tell {event.channel} - {emphasis}"
         case PersonWrote():
-            who = _A_PERSON
+            who = A_PERSON
             # Their words, untouched and set apart. What Argus made of them is
             # the next line, in the intent agent's voice, so that the person and
             # Argus's classification of them are never one sentence.
@@ -847,8 +921,8 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # decision. It says why the next step came, so it does not read as
             # one taken over the head of a person who asked for an ending.
             # Whichever ending: the expiry names only the message.
-            emphasis = "not confirmed in time"
-            text = f"The offer was {emphasis} - carried on"
+            emphasis = _NOT_CONFIRMED_IN_TIME
+            text = _THE_OFFER_RAN_OUT
         case LeadWeighed():
             who = _INVESTIGATOR
             # The answer owed to whoever wrote it, in their own thread: what the
@@ -908,8 +982,50 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         flag_changes=event.changes if isinstance(event, FlagChangesRetrieved) else [],
         candidates=(
             [a_candidate_line(event)] if isinstance(event, HypothesisFormed) else []
-        )
+        ),
+        channel=event.channel if isinstance(event, RetrievalRequested) else None,
+        rules_out=_what_it_rules_out(event),
+        put_back=_what_its_undo_did(event)
     )
+
+
+def _what_its_undo_did(event: IncidentEvent) -> str:
+    """What the undo of an action judged refuted did, as the verdict's line says
+    it after the verdict - or nothing, where the line says no such undo."""
+    if (isinstance(event, VerdictReached) and event.outcome is Verdict.REFUTED
+            and event.performed and event.judged and event.undone_detail and event.subject):
+        return f"{event.subject} {event.undone_detail}"
+
+    return ""
+
+
+def _what_it_rules_out(event: IncidentEvent) -> str:
+    """The class of change a read of Argus's own found none of, said as a
+    document leads a rule-out with it - or nothing, where the read found what
+    it looked for or the event is no such read.
+
+    By what the read found, not by what it was: a changes read that came back
+    with the flag that caused the incident rules out a deploy, and said as
+    ruling out "a deploy, release or flag change" it would rule out the cause.
+    A verdict is never one - a revert judged refuted that never reached the
+    service left its flag the cause.
+    """
+    match event:
+        case ChangesRetrieved():
+            found = {change.kind for change in event.changes}
+            return _NONE_OF.get(frozenset(ChangeKind) - found, "")
+        case FlagChangesRetrieved() if (not event.changes and event.window_start is not None
+                                        and event.window_end is not None):
+            return NO_FLAG_CHANGE_BY_ANYONE_ELSE
+        case RolloutRead() if event.account.progress.has_converged:
+            return NO_ROLLOUT_UNDER_WAY
+        case PlacementRecorded() if (event.placement.pods
+                                     and not event.placement.against_the_alarm
+                                     and len(event.placement.started_after_the_onset())
+                                     == len(event.placement.pods)):
+            return NO_RESTART
+        case _:
+            return ""
 
 
 def _what_a_deployment_read_found(event: DeploymentChangesRead) -> str:
@@ -1074,6 +1190,42 @@ def said_in_full(line: NarrationLine) -> str:
 
     if line.candidates:
         said = f"{said} " + "; ".join(candidate.summary for candidate in line.candidates)
+
+    return said
+
+
+def as_a_clause(kind: str | None, line: str) -> str:
+    """A line of the kind `kind` as a sentence goes on with it after whoever
+    said it - "moved on to C2", after "Argus" - with no full stop: the sentence
+    it goes into ends it.
+
+    Most lines are a clause in the past already, and are said with their
+    opening word lowered - a capitalised word that is no acronym: "CPU" stays
+    as it is written. The few written otherwise are said in the words kept
+    beside their own, by their kind: what the line says, in the past, and
+    nothing it does not say. A line of one of those kinds worded as none of
+    them - a document written before - is lowered as the rest are."""
+    said = line.rstrip().rstrip(".")
+
+    if kind == _CANDIDATE_SELECTED and said.startswith(_MOVING_ON_TO):
+        return f"{_MOVED_ON_TO}{said.removeprefix(_MOVING_ON_TO)}"
+
+    if kind == _AWAITING_RECOVERY and said.startswith(_WAITING_TO_SEE):
+        waited = said.removeprefix(_WAITING_TO_SEE)
+        for now, then in ((_READABLE_AGAIN, _READABLE_AGAIN_THEN),
+                          (_STILL_AT_THE_LEVEL, _STILL_AT_THE_LEVEL_THEN)):
+            if waited.startswith(now):
+                return f"{_WAITED_TO_SEE}{then}{waited.removeprefix(now)}"
+
+    if kind == _ALARM_DISPROVEN and said.startswith(_NOTHING_MATCHED):
+        return f"{_FOUND_NOTHING_MATCHED}{said.removeprefix(_NOTHING_MATCHED)}"
+
+    if kind == _OFFER_EXPIRED and said == _THE_OFFER_RAN_OUT:
+        return _CARRIED_ON
+
+    opening = said[:2]
+    if opening[:1].isupper() and not opening[1:2].isupper():
+        return said[:1].lower() + said[1:]
 
     return said
 

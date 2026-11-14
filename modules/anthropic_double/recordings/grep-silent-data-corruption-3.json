@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS8gQKEAgTGAI4AUIIdGhpbmtpbmcSDHX7j2SUExcmo0CUZxoMpId2N90QrnW0Sj0gIjA1J+UOfpgdPD0UD3MFUE7nJfjK1tpAo2Xv65z9CMqVgWLFV0OB9uCg0Y6xWJVNL80qjwTsGzPLWFRWZbR5WwetvdaDs7HD+SeZjJWd04c7aSawk7zap6RYk0Rf6wI8sEg8ZWCUlLtpQgEFfjv+DetY5lWBBc3e6DsofwhtJ84iK39RPI8TCOEFiOBfPn5lbMNNB3+o12DpfWZMuJoBf6c8Af7mfU40wttKMXqewS2KqTvd3sx8g4zoqxxqoFL7ZI3vsd8aTddkJro2egwrLrg90siY4Huuk1f5JqchEwQSpKVOknkcoLPh1E1TyZW6fgJyy/APoQ++UPltw/zzLUICKIih5I7ePo6p0/EnW7O3cHBiIJJO7X57PNIdeoTH+t10HB6aPKLtjxs4iPNuLQ8h2RLAHl2FqGw/ySz14NqP7wSTScSt7wdhrAVa3MhQkPWBnHGoKRdpanZYWmdL5r9Z+WyWCtSljriZvRFTKMP32V4qgKEIaUOfEjClLSy/nTH8FvNPuKG7HY2nz9STNaYAjoPpGUYswSNqJ/nodSc+KFAKjUad7O5FQbPVnGKvNkFEiKI3BDcDHOSPZMCcTyZ6SfUrp1XwqZDVsw8cpX4ASJMsjFolWeY4JJAfXvacCl5Apoz6r+5Io+eGApe5rgrv5Rzss3jbRxciej+HFnUHAew1ZotmljseoFnj8qdgMna7QB+5pVF8mk4x5X5xZOPJ+kdjNjdkM0oSa6ruQAB748wrXHiUR9e5e/INDhpL0nR9gBgB",
+      "thinking": "I'm going to start by searching for the flag.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_017taKtEFCEPRAoFN4TYC9oR",
+      "input": {
+        "query": "monthly-spend-feature"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011Cgtu8REoPoTpBiRxydxJE",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1161
+    },
+    "cache_creation_input_tokens": 1161,
+    "cache_read_input_tokens": 2491,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 71,
+    "output_tokens_details": {
+      "thinking_tokens": 14
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

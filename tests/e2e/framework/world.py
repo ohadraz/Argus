@@ -37,6 +37,12 @@ from tests.e2e.framework.argus import (
     the_anchor_file_for,
     the_shop_stands_in,
 )
+from tests.e2e.framework.flags import (
+    only_the_boot_flags_were_left_in_the_provider,
+    the_boot_flags_were_put_back,
+    the_flag_provider_forgot_every_change,
+)
+from tests.e2e.framework.oncall import the_on_call_platform_forgot_every_incident
 
 # How close to the window's own quickest minute the last one has to be to count as
 # the baseline again. Read off the window rather than copied out of the Target
@@ -132,6 +138,34 @@ def the_shops_stand_in_was_put_back() -> None:
             f"{TARGET_SERVICE_BASE_URL}/double-control/reset",
             timeout=REQUEST_TIMEOUT_SECONDS
         ).raise_for_status()
+
+
+def the_target_environment_was_put_back() -> None:
+    """The Target Environment the way the stack boots it, in the one order that
+    holds.
+
+    One sequence for every caller - the suite between cases and the recorder
+    between recordings - because a recording captured in a world the replaying
+    case never arranges is a recording of a different incident. Two copies of
+    it drifted: the recorder's never learned to put the on-call double back,
+    and a page staged for one recording linked itself to the next.
+
+    - the scenario is reset, which ends what the shop was staging and has the
+      last word on the flags it owns;
+    - the shop's stand-in forgets any anchor staged and never seeded from;
+    - the on-call double forgets every incident staged;
+    - both boot flags are put back, every flag the environment did not boot
+      with is deleted, and the provider's record of what changed is erased -
+      last, because every step above is itself a change the provider records.
+    """
+    httpx2.post(
+        f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    the_shops_stand_in_was_put_back()
+    the_on_call_platform_forgot_every_incident()
+    the_boot_flags_were_put_back()
+    only_the_boot_flags_were_left_in_the_provider()
+    the_flag_provider_forgot_every_change()
 
 
 def the_shops_window() -> list[dict[str, Any]]:

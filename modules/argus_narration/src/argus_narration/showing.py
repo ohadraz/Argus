@@ -41,6 +41,7 @@ from typing import Final
 
 from argus_core import said_short, short_form
 from argus_core.events import ChangesRetrieved, FixAttempted, IncidentEvent
+from argus_core.models import CitedChange
 from pydantic import BaseModel, ConfigDict
 
 from argus_narration.narrating import NarrationLine
@@ -163,6 +164,32 @@ def said_as_shown(text: str, revisions: Mapping[str, ShownRevision]) -> str:
     return as_shown(said_short(text, {whole: revision.short
                                       for whole, revision in revisions.items()}),
                     bare=frozenset(revision.short for revision in revisions.values()))
+
+
+def the_short_forms(changes: Sequence[CitedChange]) -> dict[str, str]:
+    """Each revision a change read that can be opened names whole, and its
+    short form - the one the document says it by, in its prose, its timeline,
+    its hypotheses and every sentence code says in a row's words.
+
+    Here, beside `said_as_the_document_shows`, because the document and the
+    agent that writes it say a row alike only where both take its forms from
+    the one map."""
+    return {cited.change.reference: cited.short_reference
+            for cited in changes if cited.change.revision_source is not None}
+
+
+def said_as_the_document_shows(text: str, shorts: Mapping[str, str],
+                               pull_requests: Mapping[str, str]) -> str:
+    """Words of the walk as a postmortem shows them: each pull request in
+    `pull_requests`, by its address, said by its name; each revision in
+    `shorts`, whole, by its short form and bare; and every other name quoted
+    in brackets as code.
+
+    Public because the document's timeline says a row so, and so does every
+    sentence code says in a row's words - one spelling of a row wherever the
+    document says it, rather than one for each place that says it."""
+    return as_shown(said_short(_by_their_names(text, pull_requests), shorts),
+                    bare=frozenset(shorts.values()))
 
 
 def the_revisions(events: Sequence[IncidentEvent]) -> dict[str, ShownRevision]:

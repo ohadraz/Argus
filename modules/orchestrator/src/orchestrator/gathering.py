@@ -15,7 +15,7 @@ would be describing a different incident.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Final, NamedTuple, get_args
 
@@ -86,6 +86,7 @@ from argus_core.models import (
     ReplicaUndo,
     ReportChannel,
     RetrievalChannel,
+    ServiceDependency,
     TakenAction,
     TimelineEntry,
     Undone,
@@ -119,6 +120,8 @@ from argus_narration import (
     what_was_not_done,
 )
 from postmortem_rendering import (
+    as_text,
+    render,
     the_reported_resolution,
     the_resolution_list,
     the_synopsis_figures,
@@ -150,6 +153,7 @@ def write_postmortem_for(incident_id: str,
                          connections: Connections,
                          sources: Sources,
                          client_for: ClientFor,
+                         judge_for: ClientFor,
                          recorder: Recorder = records_nothing) -> PostmortemDocument:
     """The real postmortem for one incident: gather, then write.
 
@@ -174,12 +178,17 @@ def write_postmortem_for(incident_id: str,
     write-up's own among them, and a total read before the writer ran left its
     calls out of a figure that claims to be all of them. Recording is done
     before a client returns, so every call the writer made is there to count.
+
+    `judge_for` builds the grounding judge's client the same way, filing its
+    calls under the incident too: they are what the write-up cost as much as
+    the writer's are.
     """
     with connections() as conn:
         evidence = gather_evidence(conn, incident_id)
 
     document = write_postmortem(
-        evidence, sources, client_for(Replay(incident_id, recorder))
+        evidence, sources, client_for(Replay(incident_id, recorder)),
+        judge=judge_for(Replay(incident_id, recorder))
     )
 
     with connections() as conn:
@@ -192,6 +201,8 @@ def write_synopsis_for(incident_id: str,
                        connections: Connections,
                        sources: Sources,
                        client_for: ClientFor,
+                       judge_for: ClientFor,
+                       address_of: Callable[[str], str],
                        recorder: Recorder = records_nothing) -> ExecutiveSynopsisDocument:
     """The executive synopsis for one incident, from its stored postmortem.
 
@@ -201,6 +212,11 @@ def write_synopsis_for(incident_id: str,
     to work out. Read off the row rather than handed from the postmortem's
     node, which stores it and moves on - the postmortem is not changed for the
     synopsis's sake.
+
+    And the whole postmortem as its reader reads it, with every label its rows
+    go by, for the grounding judge (`judge_for`) to read the overview against:
+    the document a reader of both would hold the overview to. `address_of`
+    gives an incident's page by its id, as the page itself links one.
     """
     with connections() as conn:
         incident = incidents.get(conn, incident_id)
@@ -211,6 +227,7 @@ def write_synopsis_for(incident_id: str,
         raise ValueError(f"no postmortem for incident [{incident_id}] to write a synopsis of")
 
     alert = Alert.model_validate(incident.alert_payload)
+    rendered = render(postmortem, alert, account, address_of)
 
     return write_executive_synopsis(
         postmortem,
@@ -219,8 +236,11 @@ def write_synopsis_for(incident_id: str,
         figures=the_synopsis_figures(postmortem, alert),
         said=the_synopsis_figures_said(postmortem, alert),
         resolution=the_resolution_list(postmortem, the_reported_resolution(account)),
+        document=as_text(rendered),
+        labels=rendered.labels,
         sources=sources,
-        llm=client_for(Replay(incident_id, recorder)))
+        llm=client_for(Replay(incident_id, recorder)),
+        judge=judge_for(Replay(incident_id, recorder)))
 
 
 def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvidence:
@@ -296,6 +316,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         files_as_they_ran=reading.as_it_ran if reading is not None else [],
         uses_outside=reading.uses_outside if reading is not None else [],
         recommended_action=_what_is_still_owed(conn, incident_id),
+        whose_service_failed=_whose_service_failed(account),
         refusals=_what_was_refused(account, told),
         # Off the record rather than the account: the account says a lead was
         # weighed, and the record is where its words and standing are kept
@@ -340,6 +361,17 @@ def _what_was_refused(account: list[IncidentEvent],
 
     return [RefusalRecord(line=line, refusal=refusal)
             for line, refusal in zip(lines, refused, strict=True)]
+
+
+def _whose_service_failed(account: list[IncidentEvent]) -> ServiceDependency | None:
+    """The register's entry for the service another company runs that a
+    refusal said the failure was in - the last such, for the reason the last
+    recommendation is the one still owed - or `None` where no refusal named one.
+    """
+    named = [event.dependency for event in account
+             if isinstance(event, ActionRefused) and event.dependency is not None]
+
+    return named[-1] if named else None
 
 
 def _what_is_still_owed(conn: psycopg.Connection, incident_id: str) -> str | None:
@@ -605,7 +637,11 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
     and in what words the line names it, so the document can say it by its
     label; a line about another incident names it, so the document can lead
     there. A line saying an agent was called in says so, by its kind, so the
-    document's page can leave it out without matching on its words.
+    document's page can leave it out without matching on its words. And every
+    line carries its kind, what a request asked for, and what a read ruled
+    out, so the document can say a rule-out resting on reads in the record's
+    own words - and what a refuted action's undo did, so the document can
+    credit the put-back without the verdict beside it.
     """
     return [
         TimelineEntry(at=line.at,
@@ -617,7 +653,11 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
                       for_candidate=_the_candidate_it_acted_for(line, considered),
                       names_incident=line.names_incident or None,
                       outside_the_walk=line.outside_the_walk,
-                      an_agent_called_in=line.kind == _AGENT_INVOKED)
+                      an_agent_called_in=line.kind == _AGENT_INVOKED,
+                      kind=line.kind,
+                      channel=line.channel,
+                      rules_out=line.rules_out,
+                      put_back=line.put_back)
         for line in told
     ]
 

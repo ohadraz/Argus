@@ -1,0 +1,99 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The record:\nWrite the postmortem for the incident below.\n\nAlert: HighLatency on io-shop\nWhat the alert said [AL1]: p95 latency above threshold for 5m {A1}\nAlert raised: 2026-11-11T03:22:54Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-11T03:23:16Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires. The alert came 6 minutes 54 seconds {detection_gap} after its series passed its line, within the 7 minutes 30 seconds {accounted_for} accounted for by its rule waiting 5 minutes {rule_waits} with its condition holding, its evaluation at intervals of 1 minute {rule_evaluated_every}, an unmeasured allowance of 30 seconds {scraping_allowance} for scraping and storing its samples and the whole minute its series is read in.\nBroken from 2026-11-11T03:15:00Z {began} (the onset) to 2026-11-11T03:23:43Z {back_to_normal}, when the metrics show it back to normal.\nThat is 8 minutes 43 seconds {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 2 minutes 57 seconds {held}, until 2026-11-11T03:26:12Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nThe service's error rate over all its requests, before it began: 0.9% {errors_before}.\nThe same rate while it was broken: 1.4% {errors_while_broken}, peaking at 2.0% {errors_at_worst} - no higher than the worst minutes of stretches as long before it began.\nRise above baseline: none beyond its normal variation - stretches as long before it began averaged as high on their own.\nThe series behind the alert, `max(http_request_duration_seconds{quantile=\"0.95\"}) * 1000` - its alert said \"p95 latency above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 215.23333333333332 ms {series_before} before it began, 1033.75 ms {series_while_broken} on average while it was broken, and 1811 ms {series_at_worst} at its worst. Say what it measures in words, not by its query.\nNo rise in failed requests was measured, so the harm to report is what this series did: say what it meant for the people using the service, not that little or nothing failed.\nCustomer loss: none - the shop's takings over the incident fell short of the same hours whole weeks earlier by no more than those hours vary on their own, if at all.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-11T03:23:15Z {T1.1} Argus: Received HighLatency on io-shop\n  - [T2] 2026-11-11T03:23:19Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-11T03:23:19Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-11T03:23:27Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 03:22:54 {T4.2}\n  - [T5] 2026-11-11T03:23:32Z {T5.1} Investigator Agent: Read back 361 {T5.2} minutes of metrics\n  - [T6] 2026-11-11T03:23:33Z {T6.1} Investigator Agent: Placed the start of the incident at 03:15 {T6.2}\n  - [T7] 2026-11-11T03:23:33Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-11-11T03:23:35Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 1 {T8.2} day 1 {T8.3} minute before Nov 11 03:16 {T8.4}\n  - [T9] 2026-11-11T03:23:36Z {T9.1} Investigator Agent: Read back 0 {T9.2} production changes\n  - [T10] 2026-11-11T03:23:37Z {T10.1} Investigator Agent: Formed 2 {T10.2} candidate causes, best first: C1, C2\n  - [T11] 2026-11-11T03:23:37Z {T11.1} Investigator Agent: Did not read logs\n  - [T12] 2026-11-11T03:23:37Z {T12.1} Argus: Read the flag provider's history - 0 {T12.2} flag changes by anyone but Argus, the 1 {T12.3} hour before 03:23:37 {T12.4}\n  - [T13] 2026-11-11T03:23:41Z {T13.1} Argus: Moved the incident to MITIGATING to act on a candidate\n  - [T14] 2026-11-11T03:23:41Z {T14.1} Argus: Called in the Mitigation Agent\n  - [T15] 2026-11-11T03:23:43Z {T15.1} Mitigation Agent: Raised the autoscaler floor of io-shop for C1\n  - [T16] 2026-11-11T03:23:50Z {T16.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 03:24 {T16.2} - up to 196s {T16.3}\n  - [T17] 2026-11-11T03:26:12Z {T17.1} Mitigation Agent: Looked at the service - no longer at the incident's level since 03:23 {T17.2}\n  - [T18] 2026-11-11T03:26:12Z {T18.1} Mitigation Agent: Judged the action CONFIRMED\n  - [T19] 2026-11-11T03:26:12Z {T19.1} Argus: Moved the incident to MITIGATED - raised [io-shop]'s autoscaler floor from [3 {T19.2}] replicas to [6 {T19.3}] and the rule that fired stopped firing\n  - [T20] 2026-11-11T03:28:13Z {T20.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/544\n\nChanges to production it read:\n  - Deploys read, none came back; flags read, none came back.\n\nLog lines it read, one per message:\n  - Not read.\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1, also C2] Candidates blaming the same move of io-shop, each reading it as a different kind of failure - different accounts of what it did, not one cause counted twice - each in its own words:\n      C1: Capacity will not settle: cpu_limit_cores flips between 3.0 {C1.1} and 6.0 {C1.2} from 2026-11-11T03:11:00Z {C1.3} onward while traffic climbs. In the minutes served at 3.0 {C1.4} cores, CPU is pinned at the limit and p95 jumps to 1.3-1.8s {C1.5}. In the minutes served at 6.0 {C1.6} cores, p95 returns to about 212ms {C1.7}. Nothing was deployed. [autoscaling-pathology, confidence 0.6 {C1.8}, confirmed]\n      C2: Request volume rose from 1200 {C1.9} to 5400 {C1.10} req/min starting 2026-11-11T03:10:00Z {C1.11}. This outgrew the 3-core allocation, so CPU saturated and requests queued, pushing p95 up. [demand-saturation, confidence 0.3 {C1.12}, confirmed, as tested for C1]\n\nActions it took:\n  - [M1] Raised the autoscaler floor of io-shop for [C1] (can be put back) - confirmed, still in place\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] deploy/values-production.yaml renders the shop's HorizontalPodAutoscaler with minReplicas 3 {F1.1}, maxReplicas 6 {F1.2}, targetCpuPercent 70 {F1.3} and scaleDownStabilizationSeconds 0 {F1.4}. The file's own comment says what that window is for: Kubernetes defaults it to 300 {F1.5} seconds, so the controller acts on the highest recommendation from the last five minutes. Otherwise it acts on a reading that its own last action produced.\n      \n      At 0 {F1.6} the loop flaps. At 3 {F1.7} replicas CPU is pinned, so the controller scales to 6 {F1.8}. At 6 {F1.9} replicas the per-replica CPU falls below target, and with no window the controller scales straight back to 3 {F1.10} on that reading, which pins CPU again. That fits the capacity the investigation saw moving between 3.0 {F1.11} and 6.0 {F1.12} cores. The 6-to-3 flip is one minute after a scale-up, while traffic is still climbing.\n      \n      This change sets scaleDownStabilizationSeconds to 300 {F1.13}, the Kubernetes default. Scale-up is unchanged and happens as soon as it is needed. Scale-down now only happens once the higher recommendation has held for five minutes, so the post-scale-up dip can no longer undo the scale-up.\n      \n      Nothing under src/ reads the autoscaling block (a search for scaleDownStabilization matches only this file), so no service code or tests need to change. There is no test because the fix is in deployment configuration, not code this repository's tests exercise.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'.\n\nAction items the record already holds:\n  - AI-1 (mitigate, done): Raised the autoscaler floor of io-shop\n  - AI-2 (prevent, open): Review and merge the proposed fix\n  - AI-3 (mitigate, open): Turn automatic sync of io-shop back on once its repository says what should run - until then nothing merged reaches it, and turned on sooner it puts back what the repository says, undoing what Argus changed by hand\nPR #544 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.\n\nThe document, by field:\nroot_cause: The production values for io-shop's HorizontalPodAutoscaler set its scale-down stabilization window to {F1.4} seconds. As Code-Fix reads it, after scaling up from {F1.1} to {F1.2} replicas, the controller acted straight away on the lower per-replica CPU that its own scale-up had produced. It scaled back to {F1.1} replicas, where CPU was pinned again, so serving capacity kept flipping up and down instead of holding. It rests on F1, a reading of the source nothing ran, so it is unverified.\ncause_in_plain_words: The shop's automatic scaling likely kept taking away the extra servers it had just added, because a setting meant to make it wait before scaling back down was set to zero, and that left too few servers to answer requests quickly.\nstill_at_risk: While the scale-down window in the shop's configuration stays at zero, the autoscaler could again drop the shop back to too few replicas as soon as its floor is lowered, and responses could slow again.\nsymptom: Shop requests responded far more slowly than usual\ncausal_chain 1: People using the shop got much slower responses: its slowest requests took far longer than usual, while failed requests stayed within their normal variation. (cites AL1; T6, under \"What Argus did, in order\")\ncausal_chain 2: Responses slowed because io-shop had too little serving capacity for the requests coming in. (cites T17, under \"What Argus did, in order\"; T18, under \"What Argus did, in order\"; T19, under \"What Argus did, in order\")\ncausal_chain 3: It had too little capacity because the autoscaler did not hold the higher replica count. It kept taking the service back down to its floor of {T7.2} replicas, the count read at {T7.1}. (cites T7, under \"What Argus did, in order\"; T19, under \"What Argus did, in order\"; F1, under \"What Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix\")\ncausal_chain 4: The autoscaler scaled back down straight away because the production values set its scale-down stabilization window to {F1.4} seconds. That let it act on the low per-replica CPU that its own scale-up had produced. (cites F1, under \"What Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix\")\ncontributing_factors 1: No check was seen that would have stopped a production autoscaler configuration with a scale-down stabilization window of zero from going out.\ncontributing_factors 1 had_it_been_otherwise: The window would have stayed at a non-zero value such as the default. The autoscaler would then have held its scale-up, and capacity would not have kept dropping back to the floor.\ncontributing_factors 2: No alert was seen on the autoscaler repeatedly scaling io-shop up and back down. The fault was found only by the latency alert.\ncontributing_factors 2 had_it_been_otherwise: The flapping could have been caught from the replica count itself, before slow responses had gone on long enough to set off the latency alert.\naction_items 1: Add a CI check that rejects production autoscaler values with a scale-down stabilization window of zero, or below an agreed minimum, for every service.\naction_items 2: Add an alert that fires when a service's autoscaler keeps reversing its replica count within a short window.\naction_items 3: Link io-shop's HighLatency alert to the on-call rotation so that a person is paged when it fires.\nwent_wrong 1: The alert fired on the production shop, but no on-call incident was linked to it, so nobody was paged.\n\nNot to be judged:\n  - Names in braces, such as {T5.1} or {duration}, are figures code writes in from the row they name. They are not judged.\n  - Action items propose what to do; they make no claim about the record.\n  - Whether something went well, went wrong or was lucky is a judgement. Only a fact it states is judged.\n\nJudge every claim in the document, and answer by calling judge_claims.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "medium"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You check a document about a software incident against the record it was written from. Another model wrote the document from that record. Your one job is to find each claim in the document that the record does not support. Style, wording, tone, emphasis, length, and what the document leaves out are not yours to judge.\n\nA wrong flag costs as much as a missed one: every flag sends the document back to be rewritten, and a correct sentence rewritten can come back wrong.\n\nThe record is what the writer was given, whole. Some of its facts carry a label, in brackets or bare - [T4], T4 |, AL1:, C1, G7e5d - and some stand as plain lines, such as the alert, its times and the list of figures. All of them are your evidence. Name a line by its label, or, where it has none, by a few of its own words. The record also holds instructions to the writer on what to say and how. They are not facts about the incident, but a sentence that does what an instruction asked for is not a fault for doing it.\n\nGo through the document claim by claim. A claim is a statement of fact about this incident: what happened, when, how much, who or what did it, what was read, what was found, what caused what. For each one, find the record's lines that support it and list it as supported, naming them - or, where you cannot, flag it.\n\nA claim is supported when:\n- a line of the record says it, in any words; a number matches the record's, rounded as the document rounds it;\n- it follows from lines of the record taken together - a duration from two times, which came first from their times, a difference or a sum of two numbers - and the working is right; name every line it rests on;\n- it says no such thing was seen - no other check, no blocking test - and the record holds none of it;\n- it says something was not found or not changed in a place that was read - the logs, the changes, the flag history - and the record shows that place read over that time with nothing of the kind;\n- it is said as a reading - suspected, likely, suggests, consistent with, may have, appears - and the record holds it as possible, as it does a candidate cause;\n- it is said to be someone's - Code-Fix reads the code as, the investigation suspected, a C or F row - and they said it; whether what they said is true is not the question;\n- it is a judgement that rests on facts - detection was slow, the rollback was quick - and the record holds the facts it rests on.\n\nJudge a claim with the whole of the sentence and the field it is in: a hedge, or a source named, anywhere in them covers it. A sentence saying what would have happened had something been otherwise is judged only for what it states did happen, never for the what-if.\n\nEvery other claim is flagged: a fact no line says, a number the record does not give, something possible said as certain, a count or an all the record contradicts, and anything else the record does not hold.\n\nNot judged, and listed neither way: recommendations and action items, which propose rather than claim; general knowledge of how software works; and whatever the ask says is not judged. In a lesson, an opinion, or a verdict that something went well, went wrong or was lucky, only the verdict is not judged: every fact it states is judged like any other.\n\nAnswer by calling judge_claims once, with every claim you judged.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit every claim in the document, each either as supported or as flagged. Supported: the document's own words, quoted exactly, and the record's rows that support it. Flagged: the document's own words, quoted exactly, why, and the record's rows that contradict it (none where no row speaks to it at all). Empty lists say the document makes no claim to judge.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "flags": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "why": {
+                  "description": "One sentence: what the record holds instead. Never empty.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "quote",
+                "why",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "supported": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "quote",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "supported",
+          "flags"
+        ],
+        "type": "object"
+      },
+      "name": "judge_claims",
+      "strict": true
+    }
+  ]
+}

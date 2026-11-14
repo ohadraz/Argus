@@ -25,6 +25,7 @@ from argus_core.models import (
     FirstTold,
     OpenedPullRequest,
     Refusal,
+    ServiceDependency,
     ThreadMessage,
     TimelineEntry,
     Verdict,
@@ -332,6 +333,11 @@ class IncidentEvidence(BaseModel):
     # exactly this, and a summary is free to be written well without mentioning
     # it.
     recommended_action: str | None = None
+    # The register's entry for the service whose fault the incident was, where
+    # the gate refused to act because that service is another company's and the
+    # register lists it: who to ask to restore it is the item that ends the
+    # incident, and no code fix was looked for. Off the refusal on the account.
+    whose_service_failed: ServiceDependency | None = None
     # Each refusal to act at the gate, by where its line sits in `timeline`. A
     # refusal is a decision about how the incident ended - an action declined,
     # or none there to take - and the resolution lists it beside the actions

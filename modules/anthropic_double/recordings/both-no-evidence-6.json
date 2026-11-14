@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSsAUKEAgTGAI4AUIIdGhpbmtpbmcSDG7QbWDXYNDiOKXS/BoM396a40YgbduWS/kbIjABL5+X91YunjCGTPfseMkOJbZNKJUJGTCAWNhXoevKSuvMGZrACpMlMQDlT5iweXoqzQQagOsEr7nRfXqqHqCIhO2Bjj8rPglC89BKtycaOBRH1AWdYoZ6zIefBPlDSpYmhamHBKCrvNvVUqp0aokMZ8cZv2Fd0Ldzuyn9SQdmIfaYOaRa2XuxDNmN7mHvZvBjEUcg9d2ZQY4CsZ5t4aEDi1eYiHrlG6HhjYEDiLRahQHY4zX7/TInftVUrc4hn3BGRwJ9G1NpOwBP7YorRCtT5ykf4dvjSpBb5zW3HkUKubyaofTixEjE/QqkPnBksZ444NC5++s7WwC3LNzCIhXrlRyK3XLnW0xa9EiINQsNkWruu8C1QF1Wqrx6sRJfcXIye4eOh93G9tnpUOl2rpGVZJaBwDQz77lNkG2o3vPi8b90KIEWhP9BW0ObRnME3TCMDKLVk2n2w2JIJRiMt3Bw+KJxyB+FC3Zr/oE8jZKEljtse4gANRzyoFGgGpWFjy6oPLMJSqhksQrPdjnEBTURbzkwuFHn2QFPH1IXz6IamjnWRUUJGUC1+29rNHc9x+acycMYhWkRQ+/M9y2UhJ3S2Hm5lbmoBWb7O1lEC91wJEgIhZQSiMkv9NVzIoiT1WQfA6EwJ0Jy8U0ECak4P74WC/MIrx9fjdMKFTptX52PfY2FCqjZBiSQlqIoeqmS1RxK1hrKskOhDUVRkhhNE4DaGRgD10EG9/UZek+7bRxrnAEupR2HtOpPtXQyQNiZ9Zn+ghUmyrsookji9gib6D/9129oq8Yr8zvnAmdvlXfThWYIteab1E3FL2VUJvka3sN/JBQ47AIbTDzn9HKFgrS7GAE=",
+      "thinking": "I need to hedge here, since the record doesn't say what the cost to the business was, so I shouldn't claim one. I'll say the record doesn't estimate a cost to the business.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_017wa2zh8Me5K6tTgNBuQNY1",
+      "input": {
+        "overview": "Some requests to io-shop failed with errors, and the incident lasted {duration}. The record gives no estimate of what this cost the business. The cause is not known. No on-call responder was paged, because no on-call incident was linked to this one. Nothing was done to end the incident."
+      },
+      "name": "submit_executive_overview",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011Cgy4ufAXGHmkKzNs38gDr",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 296
+    },
+    "cache_creation_input_tokens": 296,
+    "cache_read_input_tokens": 868,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 170,
+    "output_tokens_details": {
+      "thinking_tokens": 33
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

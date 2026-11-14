@@ -31,6 +31,7 @@ from argus_core.events import ChangesRetrieved, FixAttempted
 from argus_core.models import (
     ChangeEvent,
     ChangeKind,
+    CitedChange,
     FixOutcome,
     OpenedPullRequest,
     RevisionSource,
@@ -39,13 +40,17 @@ from argus_narration import CandidateLine, Finding, NarrationLine
 from argus_narration.showing import (
     ShownRevision,
     as_shown,
+    said_as_the_document_shows,
     shown,
     the_pull_requests,
     the_revisions,
+    the_short_forms,
 )
 from argus_testkit import Scenario, the_answer_was
 
 DONT_CARE_MOMENT = datetime(2026, 10, 11, 12, 18, tzinfo=UTC)
+# The label a change read goes by, where which one it is matters to nothing.
+DONT_CARE_LABEL = "dont care"
 
 # A line shown with no revision the incident read to say short.
 NO_REVISIONS: Mapping[str, ShownRevision] = {}
@@ -263,6 +268,49 @@ def test_a_line_shown_twice_reads_as_it_did_shown_once() -> None:
         ) \
         .then(
             the_answer_was(once))
+
+
+@pytest.mark.unit
+def test_words_of_the_walk_are_said_as_the_document_shows_them() -> None:
+    # The postmortem's timeline, and every sentence code says in a row's words,
+    # say a row by this one function - so the two read alike: the revision
+    # short and bare, the fix by its name, and every other quoted name as code.
+    some_short = SOME_REVISION[:7]
+    some_service = "io-shop"
+
+    Scenario() \
+        .when(
+            lambda: said_as_the_document_shows(
+                f"Rolled [{some_service}] back off [{SOME_REVISION}] - a draft is open at "
+                f"{SOME_PULL_REQUEST}", {SOME_REVISION: some_short}, SOME_PULL_REQUESTS)
+        ) \
+        .then(
+            the_answer_was(f"Rolled `{some_service}` back off {some_short} - a draft is open at "
+                           f"{SOME_PULL_REQUESTS[SOME_PULL_REQUEST]}"))
+
+
+@pytest.mark.unit
+def test_a_revision_is_said_short_only_where_its_change_can_be_opened() -> None:
+    # A short form leads to its commit; a revision with nowhere to open stays
+    # whole, which a reader can still look up by hand.
+    some_short = SOME_REVISION[:7]
+    some_short_rival = SOME_RIVAL[:8]
+
+    Scenario() \
+        .given(
+            an_opened_deploy := CitedChange(label=DONT_CARE_LABEL,
+                                            change=_a_deploy(SOME_REVISION),
+                                            short_reference=some_short),
+            a_deploy_nowhere_to_open := CitedChange(
+                label=DONT_CARE_LABEL,
+                change=_a_deploy(SOME_RIVAL).model_copy(update={"revision_source": None}),
+                short_reference=some_short_rival)
+        ) \
+        .when(
+            lambda: the_short_forms([an_opened_deploy, a_deploy_nowhere_to_open])
+        ) \
+        .then(
+            the_answer_was({SOME_REVISION: some_short}))
 
 
 @pytest.mark.unit

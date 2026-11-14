@@ -1,0 +1,331 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "## Alert\nservice: io-shop\nname: CachedSpendTotalsAreStale\nseverity: critical\nfired at: 2026-11-10T06:17:31Z\nsummary: 90 of 240 cached spend figures disagree with the purchases behind them. The purchases are correct and the cached copies are behind: the widest gap is 89.29, the most any one figure is missing is 1 purchase, and the oldest purchase none of them account for was recorded at 2026-11-10T03:18:00Z, which is when the copies stopped keeping up, and they were being served from 2026-11-10T06:12:30Z. Discarding the entries listed will send those pages back to the purchase ledger, which never moved. The list is what disagreed when this check ran: nothing is putting the copies right, so a figure goes stale as soon as its shopper buys again and a later check will name more.\n\n## Onset\nThe incident began at 2026-11-10T06:12:30Z, stated by the alert rather than measured. The service's metrics were read and came back with no minute in them. So nothing here says how the service is doing, or has done, at all - not that it is well and not that it is broken. The change that caused it is at that minute, not at the one the alert fired in.\n\n## Per-minute metrics\nNone.\n\n## Where the replicas run\nEach of the service's pods as the platform placed it, read at the onset: the node it runs on, the accelerator card that node carries, and when the pod started. A pod marked started at the onset was placed within a minute of the incident beginning; one marked started after the onset was placed later. Either has only ever served during the incident.\n- io-shop-7d9c4f8b6-x2k9p on gpu-v100-0 (Tesla-V100-SXM2-16GB), started 2026-11-09T18:17:30Z\n- io-shop-7d9c4f8b6-m4q7r on gpu-v100-1 (Tesla-V100-SXM2-16GB), started 2026-11-09T18:17:30Z\n- io-shop-7d9c4f8b6-c8v2n on gpu-v100-2 (Tesla-V100-SXM2-16GB), started 2026-11-09T18:17:30Z",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_017J6sfQZ3ZC55XbAbo8Q1Nh",
+          "input": {},
+          "name": "get_changes",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_013cmmuMqWYYTprNuan6MfMG",
+          "input": {},
+          "name": "get_logs",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Every recorded change to io-shop from 2026-11-09T06:12:30Z to 2026-11-10T06:17:31Z.\n(nothing changed in this window)",
+          "tool_use_id": "toolu_017J6sfQZ3ZC55XbAbo8Q1Nh",
+          "type": "tool_result"
+        },
+        {
+          "content": "Log lines from 2026-11-10T05:42:30Z to 2026-11-10T06:17:31Z.\n(no log lines in this window)",
+          "tool_use_id": "toolu_013cmmuMqWYYTprNuan6MfMG",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_011AAfqiG3AtAYbGGZiV8WwM",
+          "input": {
+            "window_end": "2026-11-10T06:17:31Z",
+            "window_start": "2026-11-10T03:00:00Z"
+          },
+          "name": "get_logs",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_0137L8BvGLkfLbYMviDwNXfW",
+          "input": {},
+          "name": "get_service_dependencies",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "The window you asked for was wider than the maximum of 180 minutes, so it was clamped at its start. What follows is the last 180 minutes of it, and nothing before that.\nLog lines from 2026-11-10T03:17:31Z to 2026-11-10T06:17:31Z.\n(no log lines in this window)",
+          "tool_use_id": "toolu_011AAfqiG3AtAYbGGZiV8WwM",
+          "type": "tool_result"
+        },
+        {
+          "content": "What io-shop depends on, as the organisation's service register records it:\n- io-pricing: internal, owned by checkout-platform, at pricing.io-internal.svc - What a shopper's basket comes to once their discounts are applied. Called while the account page renders\n- io-summary-cache: internal, owned by checkout-platform, at cache.io-shop.svc.cluster.local - Holds a shopper's spend figure so the account page does not have to walk their purchase history. Optional by design - the page is correct without it\n- io-pay: third-party, owned by IO Payments Ltd, at api.io-pay.example - Holds the card Io charges. Called while the account page renders, because Io has never stored a card number",
+          "tool_use_id": "toolu_0137L8BvGLkfLbYMviDwNXfW",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are the Investigator in an autonomous incident-response system. One production incident is described below. Find what caused it.\n\nYou have six ways to read evidence and one way to finish. Ask for whatever you need, in whatever order, over whatever windows look worth reading - that judgement is the reason you are here rather than a fixed sequence of reads. When you have seen enough, call final_answer.\n\nThree of the six answer about something other than a stretch of time, and are easy to leave unread for that reason. One says what this service calls and whose each of those is. One says what a deployment changed, and it is the answer to a question the rest of the evidence cannot settle: a deployment that shipped bad code and a deployment that shipped a broken configuration value arrive identically and are fixed differently, so where a deployment is your best explanation, read what was in it before naming which of the two it was. It takes the revision the change channel gave you.\n\nThe third says whether the deployment that landed actually finished arriving, and it settles a question the change channel cannot even raise. A deploy history records syncs that completed; a rollout that stopped part way is in none of them, and for as long as it is stopped the service is running two versions at once - which fails the requests that cross between them and leaves neither revision at fault. So where a deployment precedes the onset, read the rollout before you blame the revision it carried. A deployment that converged is an answer worth having too: it rules the split out and leaves the revision itself as the subject.\n\nOne of the series you already have separates two causes that are otherwise identical, and it is easy to read past because it is not a symptom. `cpu_limit_cores` is the capacity a minute was served with. Held at one value across the window, it is capacity the load outgrew; taking more than one value, it is a controller that will not settle - and at the bottom of every cycle those two agree on the alert, the latency, the traffic and the change channels alike. So before naming the load outgrowing a resource, or a resource consumed on its own, look at what that series did across the window.\n\nWhere the service's replicas run is in front of you too, read once at the onset, and it is the only record of a cause nothing deployed. A platform can move a replica onto another node with nothing changing in the deploy history, the diff or the flags - and where that node carries a different accelerator card, the replica can answer differently from the rest without failing or slowing: it decides differently. So where the service's answers changed with no deployment at the onset, look for a pod marked started at the onset on an accelerator the pods serving before it do not run on.\n\nJudge only from the evidence you actually retrieved. Saying the cause is undetermined is a correct and expected answer, not a failure: every window is bounded, and a cause outside the one you read will not be in it. A confident-sounding guess is worse than an honest \"I don't know\", because a human reading it cannot tell the two apart.\n\n`confidence` is your probability that the cause you named is the real one, given this evidence - a probability, so 0.0 to 1.0 inclusive and nothing outside it. Calibrate it against what the evidence does, not against how cautious you feel: 0.9 to 1.0 when something in the evidence records the cause directly, 0.7 to 0.9 when it strongly implies it and nothing else in view accounts for the symptoms, 0.5 to 0.7 when it is the best of several explanations the evidence permits, and below 0.5 you are guessing - prefer no cause at all. Being the only thing on offer is not being the best of several: a lone explanation nothing in the evidence supports belongs below 0.5, not in the middle of the range.\n\n`subject` names the specific thing the cause is about, as one name with no spaces. A feature flag, a revision or a service this one depends on is copied verbatim, as the evidence spells it; a file by its path in the repository; a key nested in a configuration file by its full dotted path, `section.key`. Something acts on that name, so a description of the thing identifies nothing.\n\n`from_state` and `to_state` are what that subject moved between, in the words the evidence uses - `off` and `on` for a feature flag, two versions for a deployment. Both or neither: a cause that is not a change from one state to another names no states at all. Do not leave them to be read back out of your summary - a sentence that merely uses the word \"off\" is not a transition, and whatever reads it cannot tell the difference.\n\n`faulting_service` is different from all of those, and it is an address rather than a description: it names the service that will be acted on. Fill it in when the fault is in a service this one calls and the organisation owns - which is what `get_service_dependencies` tells you, and the only thing that tells you, since a host name is a spelling somebody chose. Name it exactly as the register does, because that is the name the platform knows it by. An answer of `internal-dependency-failure` naming no service is one nothing can act on; every other cause leaves this null, because the service at fault is the one that alerted.\n\nGive every explanation the evidence supports, best first. The one you name first is tried first, and the rest are tried in turn if it does not help.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Per-minute error rate, latency and request volume for the service, over the fixed span around the alert. The onset you were given was located from this. Where the alert rule that fired watches a series of its own, each minute also carries that series' value as rule_reading. Takes no window: the span is one the metrics source decides, and it is already wider than any log window you may ask for.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "get_metrics",
+      "strict": true
+    },
+    {
+      "description": "The service's log lines over one window. This is the expensive channel and the one that says what the service actually did. Defaults to a window that starts shortly before the onset and ends at the alert. A window wider than the maximum is clamped at its start, and you are told when that happened.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "window_end": {
+            "description": "Where the window ends. An ISO-8601 instant, as the evidence writes them: 2026-08-29T22:15:00Z.",
+            "type": "string"
+          },
+          "window_start": {
+            "description": "Where the window begins. An ISO-8601 instant, as the evidence writes them: 2026-08-29T22:15:00Z.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "get_logs",
+      "strict": true
+    },
+    {
+      "description": "What changed on the service over one window - deploys and other recorded changes. Sparse where the logs are dense, so the window can be far wider. Defaults to a long lookback ending with the onset, because a change made after the incident began did not begin it - or at the alert where no reading covers the incident's minutes, since what ended the readings lies at or after the last one.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "window_end": {
+            "description": "Where the window ends. An ISO-8601 instant, as the evidence writes them: 2026-08-29T22:15:00Z.",
+            "type": "string"
+          },
+          "window_start": {
+            "description": "Where the window begins. An ISO-8601 instant, as the evidence writes them: 2026-08-29T22:15:00Z.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "get_changes",
+      "strict": true
+    },
+    {
+      "description": "What this service calls, what each of those is for, and whether the organisation owns it. Worth reading whenever the time a request spends, or the failure it reports, points at something this service does not run - because the response depends entirely on whose that something is, and nothing else you can retrieve says. A host name will not tell you: an internal-looking name is internal-looking because somebody chose the spelling. Takes no arguments; it answers about the service this incident is about.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "get_service_dependencies",
+      "strict": true
+    },
+    {
+      "description": "What one deployment changed: the files that differ from the revision deployed before it, and the change made to each. Read this before saying which of two causes a deployment was - a deployment that shipped bad code and one that shipped a broken configuration value arrive identically, move the same signals, and are put right the same way, and the only thing that separates them is what was in the commit. Nothing else you can retrieve says: the path a deployment syncs from is where its manifests live, and is the same directory whatever the commit touched. Takes the deploy's own revision, exactly as get_changes reported it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "description": "The deployment's revision, copied from the change this asks about. What it is compared against is not yours to name - the revision deployed before it is in the deployment history, which you cannot see.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "type": "object"
+      },
+      "name": "get_what_a_deployment_changed",
+      "strict": true
+    },
+    {
+      "description": "Whether the deployment this service is running has finished arriving: how many replicas are on the revision being rolled out, how many are still on the one before it, and whether the rolling update is paused. Read this before saying a deployment at the onset is the fault - a revision that is wrong and a revision that reached only half the fleet arrive identically in the change channel, and the second fails only the requests that cross between the two versions now serving. Nothing else you can retrieve says: a deploy history records syncs that finished, and a rollout that has not finished is not in it. A deployment that has converged is an answer worth having too - it rules the split out. Takes no arguments; it answers about the service this incident is about.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "get_rollout_state",
+      "strict": true
+    },
+    {
+      "description": "Give your answer and end the investigation. Every explanation the evidence supports, best first - something will try the first and fall through to the rest when it does not help. Naming no cause is a real answer: say so in one explanation carrying no cause and no confidence, and say what you would have needed to see.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "hypotheses": {
+            "description": "The competing accounts of this same evidence, most likely first. Never empty.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Your probability that this cause is the real one, given this evidence, between 0 and 1. Null exactly when failure_mode is null."
+                },
+                "failure_mode": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "feature-flag-toggle",
+                        "bad-deployment",
+                        "resource-leak",
+                        "demand-saturation",
+                        "autoscaling-pathology",
+                        "upstream-dependency-failure",
+                        "internal-dependency-failure",
+                        "config-induced-failure",
+                        "in-flight-compatibility-break",
+                        "silent-data-corruption",
+                        "monitoring-blind-spot",
+                        "state-divergence",
+                        "monitoring-configuration-drift",
+                        "output-quality-degradation",
+                        "accelerator-heterogeneity"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The cause, if the evidence identifies one. Null when it does not, which is a valid answer and not a failure. The causes, and what each one means: feature-flag-toggle - a feature flag was switched and the service got worse; the code and the configuration are both unchanged. Choose this over silent-data-corruption when the flag changed how the service behaves and left nothing written behind it - what the service has already written is still right. The two arrive identically, as one flag moved at the onset, and the flag history cannot separate them. Choose it over monitoring-blind-spot when what got worse is the service rather than the reporting of it: there the shop serves as it did before and the minutes a monitor would read are the thing that is wrong, so a window with rows in it that step is this mode and a window whose rows stop is that one; bad-deployment - a deployment shipped new or changed source code and the service got worse; the fault is in the code that was released. Choose this over in-flight-compatibility-break only once the rollout has converged - every replica on the revision that landed. The two arrive the same way, as one deployment at the onset, so the deploy history cannot separate them: it records that a revision was deployed and never whether that revision finished arriving. Choose it over monitoring-blind-spot on whether the service or the reporting of it stopped: a revision can change what a monitor can reach without touching a single request, and there the shop serves everything correctly while the minutes that would show it go missing. Choose it over output-quality-degradation when the request-level series moved - an error rate that stepped or latency that climbed; where all of them held still and only rule_reading, the series the alert rule watches, departed, the revision made the answers worse rather than the serving; resource-leak - consumption climbs while traffic does not - a heap never released, a pool never returned, a disk filling - so the service degrades the longer the process runs. Choose this over demand-saturation when the traffic is where it always was: both are a resource running out and they look alike in the latency, and what separates them is whether the consumption moved with the traffic or on its own; demand-saturation - the resource was sized correctly and the load outgrew it - the requests arriving are several times what the deployment was built for, so every one of them queues for capacity that is already busy. Choose this over resource-leak when the traffic climbed with the consumption rather than the consumption climbing on its own, which is the whole of what separates the pair. Choose it over bad-deployment and over the two dependency modes when nothing changed and nothing was deployed, and the time is spent in this service's own work rather than waiting on somebody else's. Choose it over autoscaling-pathology when cpu_limit_cores holds one value across the whole window: capacity that was outgrown sits still while the demand climbs past it, where capacity that will not settle moves; autoscaling-pathology - the capacity is not wrong, it will not settle - a controller adds replicas, sees the load it has just relieved, takes them away again, and the deployment is a different size every few minutes, so the service is starved in some minutes and comfortable in others. cpu_limit_cores takes more than one value across the window, and that is what separates this from demand-saturation: at the bottom of every cycle the two are identical in the alert, the latency, the traffic and the change channels, so read that series rather than judging between them; upstream-dependency-failure - a service this one depends on stopped answering and the failure arrived here through that dependency, and the organisation running the alerting service does not own it. Choose this over internal-dependency-failure only once the service register says the failing dependency belongs to another company: the evidence for the two is identical, and a host name is not evidence of who owns it; internal-dependency-failure - a service this one depends on and the same organisation *does* own is slow or failing, and the failure arrived here through it; the alerting service itself is healthy and its own code, configuration and deployment are all unchanged. Choose this over upstream-dependency-failure when the service register says the failing dependency is the organisation's own, and over bad-deployment when the request time is spent waiting on that dependency rather than in this service's own work; config-induced-failure - a deployment changed a configuration value into a broken one - an endpoint, port, limit or credential - while the source code is untouched and the thing the configuration points at is healthy. Choose this over bad-deployment whenever the change that landed was to configuration rather than to code, even though it arrived as a deployment: what differs is where the fault is, a values file rather than the source. Which of the two landed is what the deployment changed, which is retrievable - read it rather than inferring it. The path a deployment shipped from is not the answer: that is where its manifests live, and it is the same directory whatever the commit touched; in-flight-compatibility-break - a deployment landed and stopped part way, so two versions of the service are serving at once and the requests that cross between them fail - neither revision is faulty on its own, and each one alone would work. Choose this over bad-deployment when the rollout has not converged: replicas split across two revisions, or a rolling update reported as paused. That is a fact about the deployment rather than about the code it carried, it is retrievable, and the deploy history does not carry it - read the rollout rather than inferring from the entry. Choose it over feature-flag-toggle when no flag moved, because the metrics here are a flag toggle's exactly: an error rate that steps while every quantile stays flat. Behind it is a migration that changed a stored shape with no version able to read both. Choose it over state-divergence on whether the requests that read the shared store fail or succeed: here a shape no reader can parse fails them and steps the error rate, and there they succeed carrying a value that is merely out of date, which moves no series at all; silent-data-corruption - what the service has already written is wrong, while the service itself serves as it did before - its error rate and every quantile hold their baseline, nothing accumulates, and the only evidence is a value that disagrees with the values it was derived from. Expect the metrics to be flat across the whole window: that is the mode rather than a sign there is nothing to find, and the alert's own reconciliation finding is what says otherwise. Date it from the oldest record the finding reports as wrong, never from when the alert fired - a check that runs on a schedule reports long after the writing went wrong, and the change that caused it is at the older minute. Choose this over feature-flag-toggle and bad-deployment even where a flag moved or a revision landed at that minute: they may well be the cause, and what separates the modes is that the change left wrong values written behind it. Choose it over monitoring-blind-spot on whether the minutes are there: here every minute of the window is present and sitting at its baseline, and there the minutes are missing altogether because nothing was reporting them. Choose it over state-divergence on which store is wrong: here the store of record itself holds the wrong value, where there the record is right and only a derived copy is stale; monitoring-blind-spot - the service is well and nothing can see that it is - it serves as it did before, failing and slowing no more than it did, and what stopped is the reporting. So the window's rows run up to a minute and then stop, and the minutes after it are missing rather than flat or zeroed. Read rows that stop as the shape of the fault rather than as a window that is merely short: the alert says a series that was reporting has stopped, and the distance between its firing and the last row is how much of the service nobody can account for. The logs are what corroborate it - they answer normally across the very minutes the metrics are missing, which is what says the shop behind them is fine. Expect the change that caused it to land after the last row rather than at it: the rows stop because of the change, so the change is necessarily later than the last one written, and a candidate is not too late to be the cause here. Expect the service to be untouched around it too - a revision or a flag that landed while the service went on serving as it did before is not evidence against it, because a shop that is well across the change is exactly what this mode is. Choose this over feature-flag-toggle and bad-deployment even where a flag moved or a revision landed there: they are very likely the cause, and what separates the modes is that what got worse was the watching rather than the service. Choose it over silent-data-corruption, the other mode no series speaks for, on whether the minutes exist at all - there they are all present and at baseline with a reconciliation finding to date them, and here they are simply not there. Choose it over monitoring-configuration-drift when the change altered one value on its own: where the diff applies a convention - every name changed to one rule - the change was meant; state-divergence - two stores that hold the same thing disagree about it, and the one that is wrong is a copy rather than the store of record - a cache, a replica, a projection, serving what was true when it last kept up. The service serves as it did before - its error rate and every quantile hold their baseline - and the values it serves from the copy are out of date: expect the metrics to be flat across the whole window, because serving a stale value adds no failure and no wait. The evidence is a reconciliation the service runs on itself, comparing the copy against what it was derived from, and nothing else carries it. Two times come with that finding and they are not the same: date the onset from when the stale copy began being served, never from the oldest record it is missing - that older time is when the copy fell behind, which is how long it had been drifting while nobody could see it, and the copy was harmless until something started reading it. Choose this over silent-data-corruption on which store is wrong: there the store of record holds the bad value, and here the record is correct and only the copy is stale. Choose it over in-flight-compatibility-break on whether the requests that read the shared store succeed: there two versions disagree about a stored shape and the requests between them fail, and here the shape is agreed and the request is served with a wrong number in it. The fault is in how the copy is kept rather than in any code; monitoring-configuration-drift - the service was deliberately changed and is well, and the monitoring's own configuration was not changed with it - a name, a port, a label the scrape selects by was renamed on purpose and the scrape still asks for the old one. Everything else is monitoring-blind-spot's evidence exactly: an absence alert, rows that stop at the onset, logs answering normally across the missing minutes, a revision at that minute. Choose this over monitoring-blind-spot on what the revision's diff did: where it applies a convention - every name of its kind changed to one rule in one commit - the change was meant. Choose it over config-induced-failure because the service's configuration is the intended one: what is behind is the configuration doing the watching; output-quality-degradation - a model the service runs is answering worse - filing, ranking or generating with less confidence or less sense than before - while its requests fail and slow no more than they did before. Expect the error rate and every latency and resource series to be flat: the departure is in rule_reading, the series the alert rule watches, which is a quality measure rather than a request-level one. Choose this over bad-deployment when a revision landed at the onset and only rule_reading moved: both arrive as one deployment, and what separates them is whether the revision made requests fail or slow, or left them as they were and made their answers worse. The fault is in the model or what it is fed - a training and serving pipeline that disagree, a vocabulary, a prompt. Choose accelerator-heterogeneity instead when no revision sits at the onset and the placement shows a replica started there on a card the others do not run on; accelerator-heterogeneity - a model the service runs is answering worse on one replica because that replica was placed on a different kind of accelerator, with nothing deployed. Expect what output-quality-degradation shows - the error rate and every latency and resource series flat, the departure in rule_reading - with no revision at the onset, and a placement in which a pod started at the onset on a card none of the pods before it ran on. Choose this over output-quality-degradation on what changed at the onset: a revision there is that mode, and a replica moved to another card with nothing deployed is this one. Choose it over bad-deployment too, though a pod was replaced at the onset: there requests fail or slow, and here they fail and slow no more than they did. The fault is in the model's tolerance of the card, or in where the deployment may land."
+                },
+                "faulting_service": {
+                  "description": "The name of the service the fault is in, when that is not the service the alert is about - copied verbatim from the service register, not from a log line or a host name. Required whenever the cause is internal-dependency-failure: something will act on this service, and an answer of that cause naming none is one nothing can act on. Null for every other cause, where the service at fault is the one that alerted.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "from_state": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The state the subject was in before the change, copied from the evidence - for a feature flag, `off` or `on`. Null when the cause is not a change from one state to another, and null when there is no subject."
+                },
+                "subject": {
+                  "description": "The specific thing the cause names, as one name with no spaces: a feature flag, a revision or a service copied verbatim from the evidence, a file by its path in the repository, or a key nested in a configuration file by its full dotted path, `section.key`. An explanation that reads a change another explanation blames another way gives that change the same subject, from_state and to_state as the other, word for word. Null only when the cause names nothing specific at all, and null when you named no cause.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "summary": {
+                  "description": "One or two sentences: what happened and, if known, why. Never what to do about it - no fix, revert, rollback or next step - and not as the way an alternative differs: tell an alternative apart by what happened. The action is chosen from the failure mode, and the fix by an agent that reads the code. A moment it names is written in full, date and time, as the evidence's `at` gives it - 2026-08-30T12:30:00Z - never a time of day alone.",
+                  "type": "string"
+                },
+                "supporting_evidence": {
+                  "description": "The exact lines or buckets this rests on, quoted rather than paraphrased. Empty when no cause was determined.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "at": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "When it happened, copied from the evidence in the wire format the tools speak - 2026-08-30T12:30:00Z. Null when the claim names no moment, such as nothing having changed in a window."
+                      },
+                      "claim": {
+                        "description": "The line, bucket or absence this rests on, quoted rather than paraphrased.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "claim",
+                      "at"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "to_state": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The state the subject was in after the change, in the same vocabulary as from_state. Null exactly when from_state is null: half a transition describes a position rather than a move."
+                }
+              },
+              "required": [
+                "summary",
+                "failure_mode",
+                "confidence",
+                "supporting_evidence",
+                "subject",
+                "from_state",
+                "to_state",
+                "faulting_service"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "hypotheses"
+        ],
+        "type": "object"
+      },
+      "name": "final_answer",
+      "strict": true
+    }
+  ]
+}

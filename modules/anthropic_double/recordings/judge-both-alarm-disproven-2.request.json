@@ -1,0 +1,99 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The record:\nWrite the overview of the executive synopsis for the incident on io-shop below: a short paragraph in plain words, for the people who lead the company rather than the engineers who responded - what happened, how long it lasted, what it cost the business and the people who responded, and how it was resolved.\n\nWhat a reader saw: Nobody using the shop saw anything wrong; an error-rate alarm fired with no matching errors\nWhy, in plain words: An error alarm for the shop service went off even though the service's own measurements showed nothing wrong, and the record does not show why the alarm went off.\n\nFigures:\n- Nothing broke: the alarm was disproven, so there was no failure to time.\n- Nobody was paged: no on-call incident was linked to this one.\n\nWhat was done to end it:\n- Nothing needed doing: the alarm was disproven.\n\nWrite no figure yourself - not in digits, not spelled out, and not as a word that sizes it (\"a brief outage\", \"a minor loss\", \"tripled\"). Where a figure goes, write its name, braces and all, and the synopsis writes the figure in.\nSay nothing about how the incident was resolved beyond what the list of what was done says: a draft fix has not run, and nothing it would do has happened.\nSpeak of Argus by name, never as \"we\", \"our\" or \"us\": Argus is the system that responded, and each line of what was done says who did it.\nWhere you say who was affected, say which ones, as the cause does, or that some were, where it does not say which - never how many, and never all of them, where the cause does not say all.\nKeep \"likely\" on what the cause says is likely, and only there.\n\nCall submit_executive_overview with your overview.\n\nThe postmortem it is written from:\nNobody using the shop saw anything wrong; an error-rate alarm fired with no matching errors\nIncident: HighErrorRate on io-shop\nDate: alerted Nov 10, 2026, 22:51:12 UTC, disproven at 22:51:52 UTC\nStatus: Draft. 0 of 2 action items are done.\nWritten by: Argus Postmortem agent, Nov 10, 2026, 22:59:14 UTC. Not reviewed yet. Each part is as of when the work it reports ended, which the timeline dates; who ended the incident is as of now.\nFirst told: Argus posted in Slack, Nov 10, 2026, 22:51:38 UTC\nEnded by: Argus: closed it as disproven, Nov 10, 2026, 22:51:52 UTC - the alarm's own claim was not in the window\n\nSummary\nThe alert came at 22:51:12 UTC, and Argus closed it as disproven at 22:51:52 UTC. An error alarm for the shop service went off even though the service's own measurements showed nothing wrong, and the record does not show why the alarm went off. The same alarm could fire again while the service is working normally.\n\nImpact\nnone - the alarm was disproven\n0.5% to 1.5% - what the alert watches, 22:45 to 22:51 (the rule's line is 10%)\n\nRoot cause and contributing factors\nThe evidence does not show why the HighErrorRate rule fired: no minute of the window read, including the rule's own series, departed from the service's baseline. So the record shows no failure mechanism behind the alarm.\nCausal chain\nsymptom Nobody using io-shop was seen to have any problem. What was seen instead was the HighErrorRate alarm saying the error rate was above its threshold, while the metrics read showed no such errors.\n  Evidence:\n    AL1 Error rate above threshold for 5m\n    T5 22:51:52 Argus: Nothing in the window matched the alarm's own claim - Error rate above threshold for 5m - in errors, p50, p95, p99, memory or the alert rule's series, over 360 minutes read between 16:52 and 22:51. The rule fired rather than the service failing\nwhy 1 The rule fired but the service did not fail: across errors, p50, p95, p99, memory and the alert rule's own series, no minute of the window read departed from baseline. The record does not show why the rule fired. Deploys and flags were not read, so no change was tied to the alarm and none was ruled out.\n  Evidence:\n    T4 22:51:51 Investigator Agent: Read back 360 minutes of metrics\n    T5\nContributing factors\nNo contributing factors were named.\n\nHypotheses considered\nNo hypotheses were ranked.\n\nTrigger\nNo trigger was established.\n\nResolution\nNothing needed doing: the alarm was disproven.\n\nDetection\nThere was no onset: no minute departed from the baseline. HighErrorRate fired at 22:51:12 UTC - its rule fires only once its condition has held for 5 minutes.\nWhat the alert said\nAL1 | Error rate above threshold for 5m\n\nAction items\nItem | Action | Type | Owner | Tracking | Status\nAI-1 | Look into the HighErrorRate rule for io-shop and find out why it fired when its own series, as read, showed no departure from baseline. | detect | unassigned | - | open\nAI-2 | Decide whether HighErrorRate on io-shop should page on-call. If it should, link the rule to an on-call paging route. | process | unassigned | - | open\n\nLessons learned\nWhat went well\n- 39 seconds after the alert was raised, the Investigator Agent read back 360 minutes of metrics.\n- 40 seconds after the alert was raised, Argus found nothing in the window that matched the alarm's own claim - Error rate above threshold for 5m - in errors, p50, p95, p99, memory or the alert rule's series, over 360 minutes read between 16:52 and 22:51. The rule fired rather than the service failing.\n- 40 seconds after the alert was raised, Argus moved the incident to DISPROVEN - the alarm's own claim was not in the window.\nWhat went wrong\n- The alert was not linked to an on-call incident, so nobody was paged by it.\nWhere it got lucky\nNothing.\n\nTimeline (UTC)\n | Nov 10 22:51:12 | DETECTED | HighErrorRate on io-shop fired\nT1 | 22:51:33 |  | Argus Received HighErrorRate on io-shop\nT2 | 22:51:36 |  | Argus Moved the incident to INVESTIGATING - a worker took the incident up\nT3 | 22:51:47 |  | Investigator Agent Asked for the service's per-minute metrics, anchored on 22:51:12\nT4 | 22:51:51 |  | Investigator Agent Read back 360 minutes of metrics\nT5 | 22:51:52 |  | Argus Nothing in the window matched the alarm's own claim - Error rate above threshold for 5m - in errors, p50, p95, p99, memory or the alert rule's series, over 360 minutes read between 16:52 and 22:51. The rule fired rather than the service failing\nT6 | 22:51:52 |  | Argus Moved the incident to DISPROVEN - the alarm's own claim was not in the window\n\nResponse effort\nnone - engineer time\n13,735 - tokens spent by Argus\n\nSupporting information\nThe incident's walk: http://localhost:8000/incidents/3316ca31-1490-4714-846b-809a3b7c31ed\nChanges to production read\nDeploys not read; flags not read.\nLog messages read (UTC)\nNot read.\nAssumptions\n- No loss estimate: no minute departed from the baseline, so there is no measured incident to attribute a loss to\n- No engineer minutes: no on-call incident was linked to this one, so nobody was paged to respond\n\nReview checklist\n\u2713 Key incident data collected (met)\n\u2713 Impact assessed (met)\n\u2717 Root-cause analysis complete (not met)\n  no candidate was confirmed - none was tried; the chain does not reach a cause\n\u25cb Every action item owned and dated (for a person)\n\u25cb Reviewed and shared (for a person)\n\nThe document, by field:\noverview: An error alarm for the io-shop service went off, but nobody using the shop saw anything wrong. The shop service's own measurements showed no errors to match the alarm, and the record does not show why the alarm went off. Because the alarm was disproven, there was no failure and so no length of disruption to report. The business lost nothing and no customers were affected. Nobody on call was paged, since no on-call incident was linked to this one. Nothing needed to be done to resolve it beyond disproving the alarm.\n\nNot to be judged:\n  - Names in braces, such as {duration}, are figures code writes in from the list of figures in the ask. They are not judged.\n  - The overview is written in plain words for the people who lead the company. A claim said more plainly than the postmortem says it is grounded where it means the same.\n\nJudge every claim in the document, and answer by calling judge_claims.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "medium"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You check a document about a software incident against the record it was written from. Another model wrote the document from that record. Your one job is to find each claim in the document that the record does not support. Style, wording, tone, emphasis, length, and what the document leaves out are not yours to judge.\n\nA wrong flag costs as much as a missed one: every flag sends the document back to be rewritten, and a correct sentence rewritten can come back wrong.\n\nThe record is what the writer was given, whole. Some of its facts carry a label, in brackets or bare - [T4], T4 |, AL1:, C1, G7e5d - and some stand as plain lines, such as the alert, its times and the list of figures. All of them are your evidence. Name a line by its label, or, where it has none, by a few of its own words. The record also holds instructions to the writer on what to say and how. They are not facts about the incident, but a sentence that does what an instruction asked for is not a fault for doing it.\n\nGo through the document claim by claim. A claim is a statement of fact about this incident: what happened, when, how much, who or what did it, what was read, what was found, what caused what. For each one, find the record's lines that support it and list it as supported, naming them - or, where you cannot, flag it.\n\nA claim is supported when:\n- a line of the record says it, in any words; a number matches the record's, rounded as the document rounds it;\n- it follows from lines of the record taken together - a duration from two times, which came first from their times, a difference or a sum of two numbers - and the working is right; name every line it rests on;\n- it says no such thing was seen - no other check, no blocking test - and the record holds none of it;\n- it says something was not found or not changed in a place that was read - the logs, the changes, the flag history - and the record shows that place read over that time with nothing of the kind;\n- it is said as a reading - suspected, likely, suggests, consistent with, may have, appears - and the record holds it as possible, as it does a candidate cause;\n- it is said to be someone's - Code-Fix reads the code as, the investigation suspected, a C or F row - and they said it; whether what they said is true is not the question;\n- it is a judgement that rests on facts - detection was slow, the rollback was quick - and the record holds the facts it rests on.\n\nJudge a claim with the whole of the sentence and the field it is in: a hedge, or a source named, anywhere in them covers it. A sentence saying what would have happened had something been otherwise is judged only for what it states did happen, never for the what-if.\n\nEvery other claim is flagged: a fact no line says, a number the record does not give, something possible said as certain, a count or an all the record contradicts, and anything else the record does not hold.\n\nNot judged, and listed neither way: recommendations and action items, which propose rather than claim; general knowledge of how software works; and whatever the ask says is not judged. In a lesson, an opinion, or a verdict that something went well, went wrong or was lucky, only the verdict is not judged: every fact it states is judged like any other.\n\nAnswer by calling judge_claims once, with every claim you judged.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit every claim in the document, each either as supported or as flagged. Supported: the document's own words, quoted exactly, and the record's rows that support it. Flagged: the document's own words, quoted exactly, why, and the record's rows that contradict it (none where no row speaks to it at all). Empty lists say the document makes no claim to judge.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "flags": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "why": {
+                  "description": "One sentence: what the record holds instead. Never empty.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "quote",
+                "why",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "supported": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "quote",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "supported",
+          "flags"
+        ],
+        "type": "object"
+      },
+      "name": "judge_claims",
+      "strict": true
+    }
+  ]
+}

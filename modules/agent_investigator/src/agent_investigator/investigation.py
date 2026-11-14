@@ -68,6 +68,7 @@ from argus_core.models import (
     EstablishedOnset,
     Evidence,
     Exchange,
+    FailureMode,
     Findings,
     HowTheMinuteIsKnown,
     Hypothesis,
@@ -709,6 +710,10 @@ def investigate(
             loose = _an_answer_naming_loosely(answered, turn)
             answered = _and_weighed_beside_the_next(loose, shown) if loose else answered
 
+        if isinstance(answered, list) and not reached:
+            unnamed = _an_answer_naming_no_dependency(answered, turn)
+            answered = _and_weighed_beside_the_next(unnamed, shown) if unnamed else answered
+
         if isinstance(answered, list):
             for candidate in answered:
                 _say_formed(narrator, candidate)
@@ -1071,6 +1076,40 @@ def _an_answer_naming_loosely(answered: list[Hypothesis], turn: Turn) -> ToolRes
         content=(f"that answer was not taken: {named}. A subject is the one key, flag, "
                  f"revision, service or path the explanation blames, as a single name - "
                  f"or null. Call {ANSWER_TOOL} again."),
+        failed=True
+    )
+
+
+def _an_answer_naming_no_dependency(answered: list[Hypothesis],
+                                    turn: Turn) -> ToolResult | None:
+    """The answer refused, because a candidate blames an upstream dependency
+    and names none - or `None` where every such candidate names one.
+
+    The dependency is what the incident is handed on about: an escalation, the
+    owner it goes to. Blamed and not named, there is nobody to hand it to. The
+    service register is where its name is to be found, so that is what the
+    model is pointed at.
+
+    Refused while a turn remains, and taken as it stands on the last one, as a
+    loosely worded subject is.
+    """
+    unnamed = [hypothesis.rank for hypothesis in answered
+               if hypothesis.failure_mode == FailureMode.UPSTREAM_DEPENDENCY_FAILURE
+               and hypothesis.subject is None]
+    if not unnamed:
+        return None
+
+    answering = next(call for call in turn.tool_calls if call.name == ANSWER_TOOL)
+    # A clause for each, as the loose check names each: one verb for two reads
+    # as one candidate, and the model may name a dependency for only one.
+    named = "; ".join(f"explanation {rank} blames an upstream dependency and names none"
+                      for rank in unnamed)
+
+    return ToolResult(
+        call_id=answering.id,
+        content=(f"that answer was not taken: {named}. The subject of an upstream failure "
+                 f"is the dependency that failed - its name or its host as the service "
+                 f"register lists it. Call {ANSWER_TOOL} again."),
         failed=True
     )
 

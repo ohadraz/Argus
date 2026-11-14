@@ -1,0 +1,99 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The record:\nWrite the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-11-12T20:51:27Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-12T20:51:49Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires. The alert came within the 7 minutes 30 seconds {accounted_for} accounted for by its rule waiting 5 minutes {rule_waits} with its condition holding, its evaluation at intervals of 1 minute {rule_evaluated_every}, an unmeasured allowance of 30 seconds {scraping_allowance} for scraping and storing its samples and the whole minute the onset is measured to.\nBroken from 2026-11-12T20:45:00Z {began} (the onset, dated to its minute: a change came during that minute) to 2026-11-12T20:53:28Z {back_to_normal}, when Some Person reported it resolved [XW3] - their report is the end, as given. A report is not a hypothesis: do not test it against the rest of the record, and do not propose checking reports like it. Argus stopping at the report before it judged an action is the design: do not say it went wrong.\nThat is 8 minutes 28 seconds {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 1 minute 40 seconds {held}, until 2026-11-12T20:53:28Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nThe service's error rate over all its requests, before it began: 0.9% {errors_before}.\nThe same rate while it was broken: 32.4% {errors_while_broken}, peaking at 40.5% {errors_at_worst}.\nRise above baseline: 31.6% {errors_rise} of traffic failed that otherwise would not have.\nThe series behind the alert, `sum(rate(http_requests_total{code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))` - its alert said \"Error rate above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 0.8583333333333333% {series_before} before it began, 32.44444444444444% {series_while_broken} on average while it was broken, and 40.5% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nCustomer loss: 6,370.09 USD {customer_loss} - how far the shop's takings over the incident fell short of the same hours whole weeks earlier, beyond how much those hours vary on their own.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-12T20:51:48Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-11-12T20:52:01Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-12T20:52:01Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-12T20:52:01Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 20:51:27 {T4.2}\n  - [T5] 2026-11-12T20:52:05Z {T5.1} Investigator Agent: Read back 361 {T5.2} minutes of metrics\n  - [T6] 2026-11-12T20:52:05Z {T6.1} Investigator Agent: Placed the start of the incident at 20:45 {T6.2}\n  - [T7] 2026-11-12T20:52:06Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [XW1] 2026-11-12T20:52:31Z {XW1.1} Some Person: Reported the incident resolved in the thread: rolled the flag back by hand, we're fine\n  - [T8] 2026-11-12T20:52:32Z {T8.1} Investigator Agent: Asked for production change events - deploys and releases, and flag changes from the flag provider's history, the 1 {T8.2} day 1 {T8.3} minute before Nov 12 20:46 {T8.4}\n  - [T9] 2026-11-12T20:52:32Z {T9.1} Investigator Agent: Read back 1 {T9.2} production change\n  - [T10] 2026-11-12T20:52:32Z {T10.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T10.2} replicas run one revision, which the history does not name\n  - [T11] 2026-11-12T20:52:32Z {T11.1} Investigator Agent: Asked for the service's log lines, the 36 {T11.2} minutes 27 {T11.3} seconds before 20:51:27 {T11.4}\n  - [T12] 2026-11-12T20:52:33Z {T12.1} Investigator Agent: Read back 127 {T12.2} log lines\n  - [T13] 2026-11-12T20:52:35Z {T13.1} Investigator Agent: Formed 1 {T13.2} candidate cause, best first: C1\n  - [T14] 2026-11-12T20:52:35Z {T14.1} Investigator Agent: Read every channel available\n  - [T15] 2026-11-12T20:52:35Z {T15.1} Argus: Read the flag provider's history - 1 {T15.2} flag change by anyone but Argus, the 1 {T15.3} hour before 20:52:35 {T15.4}\n  - [XW2] 2026-11-12T20:53:05Z {XW2.1} Intent Agent: Classified the message as a resolution\n  - [XW3] 2026-11-12T20:53:28Z {XW3.1} Some Person: Moved the incident to RESOLVED from Slack - rolled the flag back by hand, we're fine\nA person's message never stops a step already running: between steps, Argus starts no new one while a message waits to be answered.\n\nChanges to production it read:\n  - [P1] 2026-11-12T20:45:31Z {P1.1} flag-toggle monthly-spend-feature by admin: feature flag monthly-spend-feature was switched on\n  - Deploys read, none came back.\n\nLog lines it read, one per message:\n  - [G7e5d] INFO io-shop: monthly-spend-feature=off - 200 {G7e5d.1} evaluations - 30 {G7e5d.2} occurrences in 30 {G7e5d.3} minutes, 20:15\u201320:44 {G7e5d.4}\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 39 {G46bc.1} occurrences in 30 {G46bc.2} minutes, 20:15\u201320:44 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 29 {Gbac1.1} occurrences in 37 {Gbac1.2} minutes, 20:15\u201320:51 {Gbac1.3}; # was 0.50% {Gbac1.4} to 40.50% {Gbac1.5}, typically 1.50% {Gbac1.6}, highest at 20:48 {Gbac1.7}\n  - [Gad41] INFO io-shop: account pages rendered normally - 8 {Gad41.1} occurrences in 21 {Gad41.2} minutes, 20:21\u201320:41 {Gad41.3}\n  - [G971b] INFO io-shop: monthly-spend-feature=off 101 {G971b.1} / on 99 {G971b.2} - 200 {G971b.3} evaluations - 1 {G971b.4} occurrence in 1 {G971b.5} minute, 20:45 {G971b.6}\n  - [G5309] ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47 - 14 {G5309.1} occurrences in 7 {G5309.2} minutes, 20:45\u201320:51 {G5309.3}\n  - [Gce95] INFO io-shop: monthly-spend-feature=on - 200 {Gce95.1} evaluations - 6 {Gce95.2} occurrences in 6 {Gce95.3} minutes, 20:46\u201320:51 {Gce95.4}\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1] The feature flag monthly-spend-feature was switched from off to on at 2026-11-12T20:45:31Z {C1.1}. The newly enabled spend-summary path then raised ZeroDivisionError at src/io_shop/spend_summary.py:47 on account page requests, and the error rate rose from about 1% {C1.2} to 20-40% {C1.3}. [feature-flag-toggle, confidence 0.93 {C1.4}, never tried]\n\nActions it took:\n  - none\n\nAction items the record already holds:\n  - none\nThe document already states what set it off, in a section of its own: the change [P1] - suspected, not confirmed.\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.\n\nThe document, by field:\nroot_cause: Switching monthly-spend-feature on sent account page requests through the spend-summary code, which divides by a value that is zero for some of those requests and raises ZeroDivisionError at src/io_shop/spend_summary.py:47, failing the request. The record does not show which value was zero or why.\ncause_in_plain_words: Turning on a new monthly-spending feature sent account page requests through new code that tried to divide by zero on some of them, and those pages failed.\nstill_at_risk: If monthly-spend-feature is switched on again, account page requests could fail again with the same division by zero.\nsymptom: Account pages failed for shoppers\ncausal_chain 1: Shoppers' account page requests failed from the onset, far more often than before. (cites Gbac1, under \"Log lines it read, one per message\"; G5309, under \"Log lines it read, one per message\")\ncausal_chain 2: Account pages started failing when admin switched the monthly-spend-feature flag on at {P1.1}. That turned the spend-summary path on for account page requests. Before this, every evaluation read off. In the onset minute they were split. From the next minute on, every evaluation read on. (cites P1, under \"Changes to production it read\"; G7e5d, under \"Log lines it read, one per message\"; G971b, under \"Log lines it read, one per message\"; Gce95, under \"Log lines it read, one per message\")\ncausal_chain 2 ruled_out 2: Another flag change: the flag provider's history showed only this one flag change by anyone but Argus in the hour read. (cites T15, under \"What Argus did, in order\")\ncausal_chain 3: The spend-summary path divides by zero at src/io_shop/spend_summary.py:47 on some account page requests, and each of those requests fails. Before the onset, the only failures logged were shoppers closing the connection. (cites G5309, under \"Log lines it read, one per message\"; G46bc, under \"Log lines it read, one per message\")\ncontributing_factors 1: No test or pre-production run of the spend-summary path was seen before monthly-spend-feature was switched on in production.\ncontributing_factors 1 had_it_been_otherwise: The division by zero on account page requests could have been found and fixed before any shopper reached that code.\ncontributing_factors 2: The flag went from off to on for every evaluation at once, with no staged rollout seen.\ncontributing_factors 2 had_it_been_otherwise: Only a small share of account page requests would have gone through the failing code at first, so fewer shoppers would have been hurt while the error was found.\ncontributing_factors 3: The HighErrorRate alert on io-shop paged nobody: no on-call incident was linked to it.\ncontributing_factors 3 had_it_been_otherwise: An on-call responder would have been called when the alert fired, instead of the fix depending on someone happening to notice.\naction_items 1: Guard the division at src/io_shop/spend_summary.py:47 so that a zero value does not fail the account page request, before monthly-spend-feature is switched on again.\naction_items 2: Add a test of the spend-summary path that covers the case where the value at src/io_shop/spend_summary.py:47 is zero.\naction_items 3: Require the code a feature flag turns on to pass its tests in a pre-production environment before the flag can be switched on in production.\naction_items 4: Make flags that gate new code paths roll out to a small share of traffic first, and widen them only while the service's error rate stays at its usual level.\naction_items 5: Watch io-shop's error rate after every flag change and switch the flag back off automatically if errors rise.\naction_items 6: Route the HighErrorRate alert on io-shop to an on-call page.\ngot_lucky 1: Nobody was paged, but someone rolled the flag back by hand anyway, and that ended the failures.\n\nNot to be judged:\n  - Names in braces, such as {T5.1} or {duration}, are figures code writes in from the row they name. They are not judged.\n  - Action items propose what to do; they make no claim about the record.\n  - Whether something went well, went wrong or was lucky is a judgement. Only a fact it states is judged, and whether a went_wrong item is one its field excludes.\n\nJudge every claim in the document, and answer by calling judge_claims.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "medium"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You check a document about a software incident against the record it was written from. Another model wrote the document from that record. Your job is to find each claim in the document that the record does not support, and each went_wrong item that its field excludes. Style, wording, tone, emphasis, length, and what the document leaves out are not yours to judge.\n\nA wrong flag costs as much as a missed one: every flag sends the document back to be rewritten, and a correct sentence rewritten can come back wrong.\n\nThe record is what the writer was given, whole. Some of its facts carry a label, in brackets or bare - [T4], T4 |, AL1:, C1, G7e5d - and some stand as plain lines, such as the alert, its times and the list of figures. All of them are your evidence. Name a line by its label, or, where it has none, by a few of its own words. The record also holds instructions to the writer on what to say and how. They are not facts about the incident, but a sentence that does what an instruction asked for is not a fault for doing it.\n\nGo through the document claim by claim. A claim is a statement of fact about this incident: what happened, when, how much, who or what did it, what was read, what was found, what caused what. For each one, find the record's lines that support it and list it as supported, naming them - or, where you cannot, flag it.\n\nA claim is supported when:\n- a line of the record says it, in any words; a number matches the record's, rounded as the document rounds it;\n- it follows from lines of the record taken together - a duration from two times, which came first from their times, a difference or a sum of two numbers - and the working is right; name every line it rests on;\n- it says no such thing was seen - no other check, no blocking test - and the record holds none of it;\n- it says something was not found or not changed in a place that was read - the logs, the changes, the flag history - and the record shows that place read over that time with nothing of the kind;\n- it is said as a reading - suspected, likely, suggests, consistent with, may have, appears - and the record holds it as possible, as it does a candidate cause;\n- it is said to be someone's - Code-Fix reads the code as, the investigation suspected, a C or F row - and they said it; whether what they said is true is not the question;\n- it is a judgement that rests on facts - detection was slow, the rollback was quick - and the record holds the facts it rests on.\n\nJudge a claim with the whole of the sentence and the field it is in: a hedge, or a source named, anywhere in them covers it. A sentence saying what would have happened had something been otherwise is judged only for what it states did happen, never for the what-if.\n\nEvery other claim is flagged: a fact no line says, a number the record does not give, something possible said as certain, a count or an all the record contradicts, and anything else the record does not hold.\n\nNot judged, and listed neither way: recommendations and action items, which propose rather than claim; general knowledge of how software works; and whatever the ask says is not judged. In a lesson, an opinion, or a verdict that something went well, went wrong or was lucky, only the verdict is not judged: every fact it states is judged like any other.\n\nOne field is judged for where a sentence sits as well as for its facts: went_wrong. The writer was told what does not belong in it: \"A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge, a change Argus refused to undo, for a reason the record bears out, and left for a person - a refusal the record contradicts did go wrong, and belongs here. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already. Not that Code-Fix read another revision than the one that ran, or that nothing ran its reading: where the record holds them, the document says the first in its summary and the second beside the root cause.\" Flag a went_wrong item that says what this excludes, even where every fact in it is supported. Repeating is saying the same point again, not drawing a different lesson from the same facts. In why, say which part it breaks and where the document or the record already says it; in rows, name that line or field.\n\nAnswer by calling judge_claims once, with every claim you judged.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit every claim in the document, each either as supported or as flagged. Supported: the document's own words, quoted exactly, and the record's rows that support it. Flagged: the document's own words, quoted exactly, why, and the record's rows that contradict it (none where no row speaks to it at all). Empty lists say the document makes no claim to judge.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "flags": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "why": {
+                  "description": "One sentence: what the record holds instead. Never empty.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "quote",
+                "why",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "supported": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "quote",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "supported",
+          "flags"
+        ],
+        "type": "object"
+      },
+      "name": "judge_claims",
+      "strict": true
+    }
+  ]
+}

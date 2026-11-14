@@ -51,7 +51,7 @@ from itertools import pairwise
 from typing import Final
 
 from argus_core import A_REVISION, the_revision_named
-from argus_core.models import CodeUse, ThreadMessage, Turn, labelled
+from argus_core.models import CodeUse, ThreadMessage, TimelineEntry, Turn, labelled
 from pydantic import BaseModel
 
 from agent_postmortem.figure_rules import (
@@ -102,7 +102,6 @@ from agent_postmortem.sections import (
     is_a_code_reading,
     label_of,
 )
-from agent_postmortem.timing import LOWERED_AFTER_A_SPAN
 
 # The words a range is opened with, and the dash a range figure is written
 # with: "between {G}" where G writes in as "21:41–22:01" opens it twice. And
@@ -170,8 +169,11 @@ _CLOSE_AFTER: Final = re.compile(r"\s*(?:\w+\s+){0,3}")
 # A working of two figures, as the model writes one: "{T13.1 - alert_raised}".
 _A_WORKING: Final = re.compile(r"\{[^{}]+\s[-+*/]\s[^{}]+\}")
 # What an item timed by a row may open with besides the first word of who said
-# a line: an article the sentence lowers after the span, or Argus.
-_A_TIMED_ITEM_S_OPENINGS: Final = frozenset({*LOWERED_AFTER_A_SPAN, "Argus"})
+# a line: an article ("The Investigator Agent"), or Argus. The description asks
+# a timed item to begin with who did it; held to that still, though code now
+# says a timed item as its row, because the check reads the answer as sent and
+# a refusal moved is every recording made of the old one gone stale.
+_A_TIMED_ITEM_S_OPENINGS: Final = frozenset({"The", "A", "An", "Argus"})
 # What a first word may carry after the name it is - "Argus's", "Argus," - and
 # still open the item with who did it.
 _A_WORD_S_TAIL: Final = re.compile(r"(?:['’]s)?\W*$")
@@ -223,6 +225,18 @@ class Given(BaseModel):
     # an item of what went well may be timed by: another row's first figure
     # is a claim's instant or a count, not when anything was done.
     timeline_rows: frozenset[str] = frozenset()
+    # Those rows themselves, by label in the order they happened, as the model
+    # was told them.
+    rows: dict[str, TimelineEntry] = {}
+    # The same rows as the document's timeline shows them - what code says a
+    # rule-out resting on Argus's reads, and a timed item, in the words of
+    # (`ruling`, `timing`): said in the document, a row reads as the timeline
+    # beside it says it, not as the model was told it.
+    rows_as_shown: dict[str, TimelineEntry] = {}
+    # The heading each label is listed beneath (`the_headings_of`): what the
+    # grounding judge reads beside a citation, as the page says a row by what
+    # it is.
+    headings: dict[str, str] = {}
     # Each word in braces the evidence holds as its own text and no figure is
     # named - a format string a candidate or a diff quotes, '{amount_cents}'.
     # Quoted back, it is the evidence, and nothing is to be written in for it.
@@ -988,7 +1002,9 @@ def _moments_timed_out_of_shape(answer: SubmittedPostmortem, given: Given) -> _P
     Opening with who did it is what lets the item go on after the span as a
     sentence - "When the evidence could not support a cause, Argus escalated"
     does not. Nothing of an answer whose every item came as a plain sentence:
-    that is the shape answers came in before rows were asked for.
+    that is the shape answers came in before rows were asked for. Nor of an
+    item said as its row, whose words go: its row is the timeline's, or code
+    would not say it.
     """
     if answer.lessons is None or answer.went_well_timed_by is None:
         return []
@@ -997,6 +1013,8 @@ def _moments_timed_out_of_shape(answer: SubmittedPostmortem, given: Given) -> _P
     for position, (item, row) in enumerate(zip(answer.lessons.went_well, answer.went_well_timed_by,
                                                strict=False), start=1):
         place = f"{WENT_WELL_FIELD} {position}"
+        if place in answer.said_by_code:
+            continue
         if _A_WORKING.search(item):
             faults.append((place, f"[{item}] says a span of its own: the document says how "
                                   f"long after the alert a moment came, ahead of the item, "

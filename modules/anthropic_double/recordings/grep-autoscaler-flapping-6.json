@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSiggKEAgTGAI4AUIIdGhpbmtpbmcSDNmqJvdguQNAJQqpNxoM+UzrbJ5WaF3OoMdhIjBcMqX44SDPPF2X+ZswzZdYZx3xI35EVTotuNambbQeuRT36vnsFwMhADvGJA6mzeoqpwfERl1PhFIpRlc/TfEaiAfOJ93uoSct5Q61O+5VYFrpaeIH4M1X4U9YRkfgxarsB+u216No2ugqfmfye3G5DsJvF+UeqVyKFD8Yp0K9mVLBmdRiaCmSI8jGLlr9CzG7QmzbP1dSS8xdY3SHyt/AmQC4hLJUyw5hnJGGwIRGCVk5jZRw1mBYGVlqT9wEwHMcS2rRVt6zeEsv4U6CDool0CnP+1TJNtOiRs3ynxPuI80WTrcwhcjj+q/tpiw19WLylU1dpq/qyRDqduijIAIxVecAulvCm3i6TH3xwMy7NAO37n+yXxBhrKfnEf5xVEPb5VWjKuXswgUwTX+FkVczwlXjtTSUophiLziNyTC1sYJgg+JkSqhtkpbMukbwqxxuKIs6TVXnWshF924YCSTlnrlX4kU+0uXBzZRj6FiY9E+4IBokor0YF1KI8cTycUGF7JSJaP8k7A9fu2sNtY0hxWgFAnyLXu9w9f35X9x0Oddww9DFl6Bd1GE5qsLW+phKb0vn98VGg0g3r4XijFJCyNKjPF5GFoNMDrpCcuAZhlohiKpesgOF6X0VAgt/iDXsfO7G9SAgGY4fOx1/jnuHBogTxqGWPliSQW2LABysGNcDxI/kn0nXHQLt8cyZnaS25aQpRAOEXfJFD4QUhod/dfOBNdqaUY+SeAF1cGFvCdJiMok4Ss9Qvt9RHX/xohogvlBpe44tLSX8JYVYeSRv3bzh7tRQR23fbrAejhpHyK7dVrrr9+v/2y/eDdW7dV8bgr10S8NChOQP0au11CWeZnsNPukNSxOe3WH9le2DtzbQxjYL0b/pHNRZYo/049JLUp5aZOJTQxIkz1KSxsgoBauBiXgrkYvRPoE5BqWqd9jh9er99lKOJQ3s7AvIS+gT6gIEEKI0/A4pw4B+MQbkYlq8qe+lo4Ls7tfNUrZOhIt8gYQez7l6GnCisVTxQ12t+cilMSZe0SSd9TsXYyCTFwkVK5fvf7E/b36pQLXqpq2AihV1R2ztDZ2Kt60cFXyDlQfJnwe/f80+JWVK9mlQbpkUT5MOZx0JG4u6zRu4WztQ6HLO0BY0IvSvAIEEx9r63T1farQSy7zJ+eoKHpRz9IIdrfzFFrEWVXQVVWJrPdpiHL63zLYi9uT5dQ6alwPwXic1KHCXroRMpRfJcvcWBLztjUkL3LrX3miFAeifNAawRzPFex9f0N48aoqTCblPeh3ICQGkVyibqdz4jLgul1xq0YTaGFxR8BgB",
+      "thinking": "The fault is the scaleDownStabilizationSeconds: 0 setting in the deploy config, so I'd change it to 300. A test is harder since it's YAML with no test runner, so I'm checking whether any code already loads that file, like the cache or categoriser, and whether tests parse YAML.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01CDomxVPsFwpNgaHACSKcww",
+      "input": {
+        "query": "values-production"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgtkQ5fUtRbDoWemVNfiA",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 77
+    },
+    "cache_creation_input_tokens": 77,
+    "cache_read_input_tokens": 4678,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 205,
+    "output_tokens_details": {
+      "thinking_tokens": 154
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

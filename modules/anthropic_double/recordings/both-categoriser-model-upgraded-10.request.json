@@ -1,0 +1,392 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "Write the postmortem for the incident below.\n\nAlert: CategorisationConfidenceLow on io-shop\nWhat the alert said [AL1]: Share of purchases categorised confidently below 80% {A1} for 5m {A2}\nAlert raised: 2026-11-12T02:11:00Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-12T02:11:02Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires. The alert came within the 7 minutes 30 seconds {accounted_for} accounted for by its rule waiting 5 minutes {rule_waits} with its condition holding, its evaluation at intervals of 1 minute {rule_evaluated_every}, an unmeasured allowance of 30 seconds {scraping_allowance} for scraping and storing its samples and the whole minute the onset is measured to.\nBroken from 2026-11-12T02:05:00Z {began} (the onset, dated to its minute: a change came during that minute) to 2026-11-12T02:12:00Z {back_to_normal}, when the metrics show it back to normal.\nThat is 7 minutes {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 2 minutes 58 seconds {held}, until 2026-11-12T02:14:00Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nThe service's error rate over all its requests, before it began: 0.9% {errors_before}.\nThe same rate while it was broken: 1.4% {errors_while_broken}, peaking at 4.5% {errors_at_worst}.\nRise above baseline: none beyond its normal variation - no more than two of the steps the rate moves in.\nThe series behind the alert, `avg(categoriser_confident_ratio)` - its alert said \"Share of purchases categorised confidently below 80% {A1} for 5m {A2}\" - which its alert rule evaluates and calls worse falling: 89.95433333333334% {series_before} before it began, 45.54857142857143% {series_while_broken} on average while it was broken, and 37.68% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nNo rise in failed requests was measured, so the harm to report is what this series did: say what it meant for the people using the service, not that little or nothing failed.\nCustomer loss: none - the shop's takings over the incident fell short of the same hours whole weeks earlier by no more than those hours vary on their own, if at all.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-12T02:11:02Z {T1.1} Argus: Received CategorisationConfidenceLow on io-shop\n  - [T2] 2026-11-12T02:11:04Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-12T02:11:04Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-12T02:11:05Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 02:11 {T4.2}\n  - [T5] 2026-11-12T02:11:05Z {T5.1} Investigator Agent: Read back 361 {T5.2} minutes of metrics\n  - [T6] 2026-11-12T02:11:06Z {T6.1} Investigator Agent: Placed the start of the incident at 02:05 {T6.2}\n  - [T7] 2026-11-12T02:11:06Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-11-12T02:11:10Z {T8.1} Investigator Agent: Asked for production change events - deploys and releases, and flag changes from the flag provider's history, the 1 {T8.2} day 1 {T8.3} minute before Nov 12 02:06 {T8.4}\n  - [T9] 2026-11-12T02:11:10Z {T9.1} Investigator Agent: Read back 2 {T9.2} production changes\n  - [T10] 2026-11-12T02:11:10Z {T10.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T10.2} replicas run revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342, deployed at 02:05:10 {T10.3}\n  - [T11] 2026-11-12T02:11:13Z {T11.1} Investigator Agent: Read what the deployment of 7c3ca00c7528df68d533f6e87acd4f23a55ab342 changed\n  - [T12] 2026-11-12T02:11:21Z {T12.1} Investigator Agent: Formed 2 {T12.2} candidate causes, best first: C1, C2\n  - [T13] 2026-11-12T02:11:21Z {T13.1} Investigator Agent: Did not read logs\n  - [T14] 2026-11-12T02:11:21Z {T14.1} Argus: Read the flag provider's history - 0 {T14.2} flag changes by anyone but Argus, the 1 {T14.3} hour before 02:11:21 {T14.4}\n  - [T15] 2026-11-12T02:11:21Z {T15.1} Argus: Moved the incident to MITIGATING to act on a candidate\n  - [T16] 2026-11-12T02:11:21Z {T16.1} Argus: Called in the Mitigation Agent\n  - [T17] 2026-11-12T02:11:21Z {T17.1} Mitigation Agent: Rolled back the deployment of io-shop for C1\n  - [T18] 2026-11-12T02:11:22Z {T18.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 02:12 {T18.2} - up to 218s {T18.3}\n  - [T19] 2026-11-12T02:14:00Z {T19.1} Mitigation Agent: Looked at the service - no longer at the incident's level since 02:11 {T19.2}\n  - [T20] 2026-11-12T02:14:00Z {T20.1} Mitigation Agent: Judged the action CONFIRMED\n  - [T21] 2026-11-12T02:14:00Z {T21.1} Argus: Moved the incident to MITIGATED - rolled [io-shop] back off revision [7c3ca00c7528df68d533f6e87acd4f23a55ab342] and the rule that fired stopped firing\n  - [T22] 2026-11-12T02:15:00Z {T22.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/567\n\nChanges to production it read:\n  - [P1] 2026-11-11T22:05:10Z {P1.1} deploy d268103129978816ce705c50c14cd42c7c5fe46e by kuki: deployed revision d268103129978816ce705c50c14cd42c7c5fe46e from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - [P2] 2026-11-12T02:05:10Z {P2.1} deploy 7c3ca00c7528df68d533f6e87acd4f23a55ab342 by kuki: deployed revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - Flags read, none came back.\n\nLog lines it read, one per message:\n  - Not read.\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1, also C2] Candidates blaming the same move of categoriser.model, each reading it as a different kind of failure - different accounts of what it did, not one cause counted twice - each in its own words:\n      C1: The deployment at 2026-11-12T02:05:10Z {C1.1} moved the categoriser from model v1 to v2 in deploy/values-production.yaml. Categorisation confidence fell from about 0.90 {C1.2} to about 0.40 {C1.3}, while error rate, latency, memory and CPU stayed at baseline. The new model answers worse, but requests are not failing or slowing. [output-quality-degradation, confidence 0.6 {C1.4}, confirmed]\n      C2: The deployment changed a configuration value, categoriser.model, to v2 and the source code is untouched. This is the same change as the first explanation, read as a broken configuration value. [config-induced-failure, confidence 0.25 {C1.5}, confirmed, as tested for C1]\n\nActions it took:\n  - [M1] Rolled back the deployment of io-shop for [C1] (can be put back) - confirmed, still in place\n\nWhat each deployment it looked into changed:\n  - [D1] Deployment of revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342 to io-shop, compared against d268103129978816ce705c50c14cd42c7c5fe46e - the revision deployed before it.\n      modified deploy/values-production.yaml\n        @@ -61,4 +61,4 @@ cache:\n         # shop loads - so moving to a new model is a change here, reviewed and synced\n         # like any other, and moving back is a rollback rather than a rebuild.\n         categoriser:\n        -  model: v1\n        +  model: v2\n  - A file [D1] does not list is as it was at the revision [D1] compares against.\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] All of this describes main. The deployed revision 7c3ca00c is not in main's history, so I can't confirm its categorising.py matches what I read.\n      \n      The fault: in src/io_shop/categorising.py, the comment above V2 says its vocabulary was built from titles the training pipeline had already lowercased, and that V2 \"takes words exactly as it is given them\" (`lowercases_its_input=False`). The serving path did not match that. `categorise` passed `title.split()` straight to `predict` without lowercasing anything. So under V2, any word in a title that wasn't already lowercase was looked up as-is and missed the lowercase vocabulary. \"Kettle in brushed steel\" went to \"General\" with `confident=False`. V1 never had this problem because it lowercases inside `predict`. Switching `categoriser.model` to v2 in deploy/values-production.yaml didn't break anything new. It took away the lowercasing V1 had been doing for the code, so capitalised product words stopped matching. And because a \"General\" filing is not an error, error rate and latency stayed flat while confidence fell.\n      \n      The fix: `categorise` now lowercases the title before splitting it (`title.lower().split()`), doing the same step the comment says V2's training pipeline did. For V1 nothing changes, since its `predict` already lowercases every word before lookup. Both versions stay loadable, so the config is safe on v1 or v2. `predict` and the model definitions are unchanged.\n      \n      The test: tests/io_shop/test_categorising.py gets a case asserting that V2 files capitalised titles (\"Kettle in brushed steel\", \"KEYBOARD with backlight\", \"Fitness Smartwatch\") confidently and in the right category. Against the old `categorise` those lookups would miss and return \"General\", so the new assertions should fail on the old code. The existing V2 tests only used words that were already lowercase, which is why they never caught this. None of this has been run.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'. [F1] was written against main, which does not contain the revision running when the alert fired: merged, its fix changes what runs only once a deploy carries it. [F1] names revision 7c3ca00c and [D1] is that revision's own diff - say what it shows rather than ask for it to be checked.\n\nWhat ran, read at the revision running when the alert fired:\n  - [S1] deploy/values-production.yaml at 7c3ca00\n      # Deployment configuration for the io-shop account service, production.\n      #\n      # Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n      # why the service reads this file rather than being handed environment\n      # variables: the values here are the deployment's, not the code's, and changing\n      # one is a change to configuration that ships without the service being rebuilt.\n      #\n      # Owned by whoever runs the shop. Changes here go out the way any other change\n      # goes out - reviewed, merged, and synced by the platform - and land without a\n      # single line of io-shop's source being touched.\n      \n      replicas: 3 {S1.1}\n      \n      resources:\n        memoryLimitMiB: 2048 {S1.2}\n      \n      # How the platform scales the shop.\n      #\n      # Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n      # deployment starts: the controller decides the count from there, between the\n      # floor and the ceiling here, aiming to keep each replica at the CPU target.\n      #\n      # `scaleDownStabilizationSeconds` is how far back the controller looks before it\n      # believes a fall in load is real. Kubernetes defaults it to 300 {S1.3} - five minutes\n      # of the highest recommendation it saw - because a controller acting on the\n      # reading in front of it acts on a reading its own last action produced.\n      autoscaling:\n        minReplicas: 3 {S1.4}\n        maxReplicas: 6 {S1.5}\n        targetCpuPercent: 70 {S1.6}\n        scaleDownStabilizationSeconds: 0 {S1.7}\n      \n      # How the platform finds the shop's metrics.\n      #\n      # The shop exposes its per-minute figures on this port, and the scrape config\n      # selects the target by the port's *name* rather than its number - which is\n      # what lets the number move without anything having to be re-pointed at it.\n      #\n      # The name is therefore load-bearing in a way the number is not. Nothing in the\n      # shop reads it: the process serves the same endpoint whatever this says, and a\n      # name nothing matches leaves a shop that is publishing perfectly well and a\n      # scraper that has stopped collecting it. No request fails, no page slows, and\n      # the only sign is that the series stops.\n      metrics:\n        port: 9090 {S1.8}\n        portName: http-metrics\n      \n      # Where the rendered-summary cache lives.\n      #\n      # The account page reads this cache before it works a shopper's spend figure\n      # out, and recomputes when the cache has nothing or cannot be reached. So the\n      # shop stays correct whatever is written here - it only stays *fast* while the\n      # address is right.\n      cache:\n        host: cache.io-shop.svc.cluster.local\n        port: 6380 {S1.9}\n      \n      # Which model files a purchase under a category.\n      #\n      # Every version ships in the image beside the code, and this picks the one the\n      # shop loads - so moving to a new model is a change here, reviewed and synced\n      # like any other, and moving back is a rollback rather than a rebuild.\n      categoriser:\n        model: v2\n      \n\nAction items the record already holds:\n  - AI-1 (mitigate, done): Rolled back the deployment of io-shop\n  - AI-2 (prevent, open): Review and merge the proposed fix\n  - AI-3 (mitigate, open): Turn automatic sync of io-shop back on once its repository says what should run - until then nothing merged reaches it, and turned on sooner it puts back what the repository says, undoing what Argus changed by hand\nPR #567 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\nThe document already states what set it off, in a section of its own: the change [P2].\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_019rjbTWoGc93tTse1JRPQVW",
+          "input": {
+            "action_items": [
+              {
+                "answers": [
+                  "CF-1"
+                ],
+                "item": "Add a pre-release check for categoriser model changes: run the candidate model over a sample of real, mixed-case purchase titles and block the change if its confident share falls below the current model's.",
+                "type": "prevent"
+              },
+              {
+                "answers": [
+                  "CF-2"
+                ],
+                "item": "Roll out categoriser model changes to part of the replicas first, and go on only if the confident-categorisation share holds.",
+                "type": "prevent"
+              },
+              {
+                "answers": [],
+                "item": "Set categoriser.model back to v1 in deploy/values-production.yaml until a deploy carrying the fix from PR #567 has gone out, so the repository says what should run.",
+                "type": "mitigate"
+              },
+              {
+                "answers": [],
+                "item": "Route CategorisationConfidenceLow alerts on io-shop to the on-call rota so a person is paged.",
+                "type": "process"
+              }
+            ],
+            "causal_chain": [
+              {
+                "cites": [
+                  "AL1",
+                  "T6"
+                ],
+                "ruled_out": [],
+                "step": "Many shoppers' purchases were no longer filed confidently under a category, while failed requests stayed within their normal variation."
+              },
+              {
+                "cites": [
+                  "P2",
+                  "D1",
+                  "S1",
+                  "T10",
+                  "M1",
+                  "T20"
+                ],
+                "ruled_out": [
+                  {
+                    "cites": [
+                      "T5",
+                      "T6",
+                      "M1",
+                      "T20"
+                    ],
+                    "what": "The earlier deploy P1 of revision d268103129978816ce705c50c14cd42c7c5fe46e. The metrics read reach back before it and show the service healthy until the onset at {T6.2}, and rolling back to that revision was confirmed to bring the service back to normal."
+                  },
+                  {
+                    "cites": [
+                      "T14",
+                      "T8",
+                      "T9"
+                    ],
+                    "what": "A feature flag change. The flag provider's history showed no flag changes by anyone but Argus in the hour before the investigation, and the flag read before the onset returned none."
+                  }
+                ],
+                "step": "The production categoriser had been switched from model v1 to model v2. Deploy P2 at {P2.1} changed categoriser.model in deploy/values-production.yaml from v1 to v2. That is the only file the diff D1 lists, and S1 shows v2 set at the running revision. As of {T10.1}, all {T10.2} replicas ran that revision, and rolling the service back off it put things right (M1)."
+              },
+              {
+                "cites": [
+                  "F1"
+                ],
+                "ruled_out": [],
+                "step": "Under v2, purchase titles with capitalised words likely stopped matching the model's vocabulary, so those purchases fell to the general category without a confident filing."
+              }
+            ],
+            "cause_in_plain_words": "Switching the shop to a newer model for sorting purchases into categories likely left capitalised words in product titles unrecognised: the new model only knows lowercase words, and the shop passed titles on without lowercasing them.",
+            "cause_rests_on_an_unrun_reading": true,
+            "contributing_factors": [
+              {
+                "addressed_by": [],
+                "factor": "No check was seen that runs a new categoriser model against mixed-case purchase titles and compares its confident share with the current model's before the config change ships. According to Code-Fix, the existing v2 tests used only words that were already lowercase.",
+                "had_it_been_otherwise": "The v2 switch would have shown a fall in confident filings before it reached production, and would have been stopped before it went out.",
+                "label": "CF-1"
+              },
+              {
+                "addressed_by": [],
+                "factor": "The model switch went out as a plain config change to the whole deployment. No staged rollout and no gate on the confidence series were seen.",
+                "had_it_been_otherwise": "Only some of the traffic would have been served by v2 before the fall in confidence was noticed, so fewer purchases would have been filed without confidence.",
+                "label": "CF-2"
+              }
+            ],
+            "lessons": {
+              "got_lucky": [],
+              "went_well": [
+                {
+                  "item": "The Investigator Agent read the diff of the suspect deployment, which showed the categoriser model moving from v1 to v2.",
+                  "timed_by": "T11"
+                },
+                {
+                  "item": "The Mitigation Agent rolled the io-shop deployment back off revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342.",
+                  "timed_by": "T17"
+                },
+                {
+                  "item": "The Mitigation Agent confirmed the rollback, after which the alerting rule stopped firing.",
+                  "timed_by": "T20"
+                },
+                {
+                  "item": "The Code-Fix Agent proposed a fix as draft pull request #567 for a person to review.",
+                  "timed_by": "T22"
+                }
+              ],
+              "went_wrong": [
+                "Nobody was paged: the alert was not linked to any on-call incident, so no person was brought in while Argus handled it."
+              ]
+            },
+            "reaches_a_cause": true,
+            "root_cause": "Model v2 looks words up exactly as it is given them, against a vocabulary built from titles that were already lowercased. The shop's `categorise` passes `title.split()` to `predict` without lowercasing it, a step v1 does itself inside `predict`. Under v2, any capitalised word in a purchase title missed the vocabulary, so the purchase was filed under \"General\" with `confident=False`. This is Code-Fix's reading of src/io_shop/categorising.py on main.",
+            "still_at_risk": "If automatic sync is turned back on, or the service is deployed again, while the repository still sets the categoriser to v2, the new model could come back and many purchases could again be filed without a confident category.",
+            "symptom": "The shop stopped confidently categorising many shoppers' purchases"
+          },
+          "name": "submit_postmortem",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your postmortem was not accepted:\n  - the causal_chain step [Under v2, purchase titles with capitalised words likely stopped matching the model's vocabulary, so those purchases fell to the general category without a confident filing.] cites [F1], Code-Fix's reading, and none of the files as they ran - [S1] deploy/values-production.yaml at 7c3ca00: cite the one it rests on for what the file says\n\nCall submit_postmortem again with the whole answer, corrected.",
+          "is_error": true,
+          "tool_use_id": "toolu_019rjbTWoGc93tTse1JRPQVW",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit the postmortem for this incident. Every field is required. Write no figure yourself anywhere in your answer - no time, duration, percentage, count or amount, not in digits and not spelled out in words. Every figure you are shown is followed by its name in braces, like {A3} or {duration}: where your prose states one, write its name, braces and all, and the document writes the figure in. A figure you were not shown but could work out from two you were - the span between two instants, how far one share is above another, how many times one is the other - is written as that working, braces and all: {back_to_normal - began}, {T3.1 - alert_raised}, {errors_at_worst / errors_before}. The document works it out from the figures as you were shown them. Say any other size with no number in it, not even in a word - \"most requests\", \"for several minutes\", never \"twenty minutes\", \"a third\" or \"tripled\". A number is a figure even with a unit or a clock's marks on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a name - a label (T2, G3fa2, C1, AI-1), a version (v2), a revision, a pod - and is written as given. State only what the evidence you are shown says: where the record does not show something - a check that was or was not run, how many replicas - leave it out or say it was not seen.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_items": {
+            "description": "What should be done that the record does not already hold, each one thing a person could take on: two things to do are two items. Empty where the record's own items answer every factor. Propose nothing to confirm a cause the record already confirmed - a mitigation that worked, a hypothesis marked confirmed - and no check of what the evidence you are shown already shows: a diff states what changed. Where an F row says to check something a D row shows, say what the D row shows, and the item is what follows from it. Where Code-Fix proposed a fix, propose no item to run or check its reading: where the cause rests on it, the review checklist says what would confirm it, under the record's own item for the fix.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "answers": {
+                  "description": "The labels of the contributing factors it answers: CF-1. Empty where it answers none.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "item": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mitigate",
+                    "prevent",
+                    "detect",
+                    "process"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "item",
+                "type",
+                "answers"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "assumptions": {
+            "description": "Anything else the reader should know was assumed rather than measured. Empty is a valid answer.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "causal_chain": {
+            "description": "The cause as the five whys, from the symptom down: the first step is what users saw - or, where nobody using the service saw anything wrong, that and what was seen instead - and each step after it answers why the step directly before it happened. The first why says why the symptom happened, not the symptom again in more detail. Where the record holds them, the document says itself how bad it got, which change set it off, what put the service back and the root cause: a step cites the row that shows one of those and does not say it again - no figure the impact gives in the first step, no action Argus took, nor its verdict, in the step naming the change, and, where the chain says why the change broke the service, its last step says that in one sentence, its mechanism left to the root cause. Where the incident needed two things at once - something going wrong, and nothing in place to contain it - follow the one that leads to what set it off; the other is one of the contributing_factors, not named in the chain. A safeguard that did not stop it is never a step of its own: it is one of the contributing_factors. Every step cites at least one piece of evidence by its label. Date a change by its own row's instant - the T or P row that records it - never by an effect it had. A state a row read - how many replicas run a revision, which way a flag is set - is known as of the row that read it, by that row's instant, which is its first figure, as T3.1 is T3's - not from when the change was made. What else the record ruled out - an earlier change, a flag the provider showed unchanged, a candidate refuted - goes in the ruled_out of the step that ties the incident to the change that set it off, citing what ruled it out, and never as a step. An earlier change is ruled out only by the service measured healthy with it in place - in metrics read between it and the onset, in an alert that dates the first harm itself at or after a later change (at, where the two instants are the same), or after a confirmed action that left it there - never by how long before the onset it came. Where the record shows none of these, it was not ruled out: say so in that step itself. Stop where the evidence stops.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cites": {
+                  "description": "The labels of the evidence that shows this step: T3, G3fa2. Not rows that merely happened at the same time.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ruled_out": {
+                  "description": "What else the record ruled out at this step, each what it was and why. Empty on every step but the one that ties the incident to the change that set it off.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cites": {
+                        "description": "The labels of what ruled it out.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "what": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "what",
+                      "cites"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "step": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step",
+                "cites",
+                "ruled_out"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cause_in_plain_words": {
+            "description": "What caused the incident, in one sentence for a reader who does not work on the service: no component names unless they are unavoidable. When it began, for how long, how bad it got, what customers lost and what was done the document says itself - say none of them. Say only what the record says - of a change, of the service, of the people - and nothing it does not. Where part of it rests only on a reading nothing ran, say that part as likely, in plain words, without mentioning the reading.",
+            "type": "string"
+          },
+          "cause_rests_on_an_unrun_reading": {
+            "description": "Whether the mechanism in root_cause rests on an F row - a reading of the code nothing ran - with no S or D row showing what it rests on. Where you answer true, the document says itself, beside the root cause, that the cause is unverified, and leaves its root-cause review box for a person: say neither in root_cause.",
+            "type": "boolean"
+          },
+          "contributing_factors": {
+            "description": "Conditions that had to hold for the incident to happen and did not cause it alone - a safeguard that did not stop it, a gap in detection or review. A factor held before the incident began: what the response did, declined or left behind - an action taken or not, automatic sync left off - is not one; where it went wrong, say it under went_wrong. Not the root cause again in other words: a factor is something that, had it been otherwise, would have stopped or shortened the incident even with what root_cause says still true. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran - and of a check the record does show, say that no other check was seen, never that it is the only one, unless a line of the record says so. An alert finds what its rule watches, not the cause behind it: say a fault was found only by what the record shows found it. Each is answered by at least one action item: one of the record's, named in its addressed_by, or one you propose, whose answers name it.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "addressed_by": {
+                  "description": "The record's own action items that answer it, by the numbers the record gives them: AI-1. Empty where none of them does. Never an item you propose: that item names, in its own answers, the factors it answers. The record's item that merges this incident's fix answers the fault its own tests cover, never a check missing before the change went out: answer that with an item that puts the check in place for every change like it.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "factor": {
+                  "type": "string"
+                },
+                "had_it_been_otherwise": {
+                  "description": "What would have gone differently had this been otherwise - stopped, shortened or caught sooner - with what root_cause says still true. A factor that only says the root cause again cannot answer this: leave it out of the list.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "CF-1 for the first factor, CF-2 for the next, and so on in the order you give them. Written here and in an item's answers, never in your prose: the reader never sees it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "factor",
+                "had_it_been_otherwise",
+                "addressed_by"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "lessons": {
+            "additionalProperties": false,
+            "description": "What went well, what went wrong, and where the incident got lucky - a risk that went unnoticed this time. Any list may be empty. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran - and of a check the record does show, say that no other check was seen, never that it is the only one, unless a line of the record says so. How soon the alert came is weighed by the document already, from what was measured: say nothing of it here.",
+            "properties": {
+              "got_lucky": {
+                "description": "Something the record shows went the fortunate way by chance, and how it kept the harm down - never what would have happened otherwise. Empty where the record shows none. Not what kind of fault it was, which the impact already says, nor a limit of what the record shows, which is said in assumptions as what was assumed. Not how the service did over a stretch its metrics did not cover, nor what a failure there would have done - the document says how it did.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "went_well": {
+                "description": "Only what went well; empty where nothing did. A timed item says one thing, done at its row; what came later goes in an item of its own. Say no span of time, in figures or in words (\"within seconds\"): name the row in timed_by instead, and begin an item timed so with who did it (\"The Investigator Agent ...\", \"Argus ...\"), since the document says the time ahead of it. Set a purpose or a reason beside the action it belongs to, and say it once. Name what Code-Fix proposed without saying what it does: the action items and Code-Fix's own reading say that, with its conditions.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "item": {
+                      "type": "string"
+                    },
+                    "timed_by": {
+                      "description": "The T or XW row the item happened on (T13), where when it happened is part of why it went well: the document says how long after the alert that was. Left out where its time is not the point.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "item"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "went_wrong": {
+                "description": "A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge, a change Argus refused to undo, for a reason the record bears out, and left for a person - a refusal the record contradicts did go wrong, and belongs here. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already. Not that Code-Fix read another revision than the one that ran, or that nothing ran its reading: where the record holds them, the document says the first in its summary and the second beside the root cause.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "went_well",
+              "went_wrong",
+              "got_lucky"
+            ],
+            "type": "object"
+          },
+          "reaches_a_cause": {
+            "description": "Whether the chain says why the change that set the incident off broke the service, rather than stopping at that change. A step resting on F rows - a reading of the code nothing ran - counts: whether that leaves the cause unverified is cause_rests_on_an_unrun_reading's to say. That a new version does worse is what the change did, not why it broke the service: answer false where the chain says the evidence does not show why.",
+            "type": "boolean"
+          },
+          "root_cause": {
+            "description": "What caused the incident, in one or two sentences, written for an engineer who was not on the call: the mechanism - why the change that set it off broke the service, as far as the evidence goes, a missing protection or not. Not the trigger, how it was confirmed, what resolved it or what was ruled out - the document states each of those itself. Not one of the contributing_factors: a safeguard that would have stopped it with this mechanism unchanged is said there, not here. What the service did over the stretch the metrics did not watch is not the mechanism: the document says it itself. Whether it was verified the document says itself, from your answer to cause_rests_on_an_unrun_reading - do not say it.",
+            "type": "string"
+          },
+          "still_at_risk": {
+            "description": "What was still at risk at the end of the time Argus held the incident, in one sentence for the same reader - what the fault still in place then could yet do, or the same thing able to happen again. Empty where nothing was. Not whether the service or its metrics were back, nor why - the summary says both. Not what Argus left to a person - a draft fix, automatic sync left off, a recommended action - which the document says itself. Say what could happen, never why it would: no \"because\". The summary says the cause, or that none was found. Say only what the record says: nothing of the service after that was read.",
+            "type": "string"
+          },
+          "symptom": {
+            "description": "What went wrong as somebody using the service saw it, as short as it can be: it is the document's title. One sentence with no number in it, never over 16 words - the thing that went wrong and what happened to it, with an active verb: 'Account pages failed'. Not the metric the alert fired on, not the cause - the document adds the change it began with itself, after your sentence and a 'while', so end on what went wrong, with no clause after it - and not how it was found, which the document's Detection says. Where nobody using the service saw anything wrong, say that and what was seen instead, in that one sentence.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_cause",
+          "cause_in_plain_words",
+          "still_at_risk",
+          "symptom",
+          "causal_chain",
+          "contributing_factors",
+          "action_items",
+          "lessons",
+          "reaches_a_cause",
+          "cause_rests_on_an_unrun_reading"
+        ],
+        "type": "object"
+      },
+      "name": "submit_postmortem",
+      "strict": true
+    }
+  ]
+}

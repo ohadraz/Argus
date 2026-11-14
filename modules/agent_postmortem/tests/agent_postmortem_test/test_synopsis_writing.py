@@ -36,7 +36,7 @@ from agent_postmortem_test.framework.builders import (
 )
 
 SOME_SERVICE = "io-shop"
-DONT_CARE_INCIDENT_ID = "6f1c2a8e-4b1d-4c6e-9a51-0d2f3b7e8c11"
+SOME_INCIDENT_ID = "6f1c2a8e-4b1d-4c6e-9a51-0d2f3b7e8c11"
 SOME_CURRENCY = "USD"
 SOME_TITLE = "Senior Kuki"
 
@@ -65,6 +65,10 @@ SOME_SYMPTOM = "Checkout failed"
 SOME_CAUSE = "A flag change turned off the path checkout relies on."
 SOME_OVERVIEW = (f"{SOME_SYMPTOM} for {SOME_FIGURES_SAID['duration']}; "
                  f"the response cost {SOME_FIGURES_SAID['responder_cost']}.")
+# The postmortem as its reader reads it, and every label its rows go by.
+SOME_LABEL = "T1"
+SOME_DOCUMENT = f"Timeline (UTC)\n{SOME_LABEL} | 14:03 | Argus turned the flag off."
+SOME_LABELS = frozenset({SOME_LABEL})
 # The draft this incident's record holds.
 SOME_PULL_REQUEST_NUMBER = 1
 SOME_PULL_REQUEST = OpenedPullRequest(
@@ -125,21 +129,28 @@ def test_an_overview_given_up_leaves_the_synopsis_without_one_saying_why() -> No
 
 
 @pytest.mark.unit
-def test_the_overview_is_asked_of_the_postmortem_s_symptom_and_cause() -> None:
+def test_the_overview_is_asked_of_the_postmortem_and_judged_against_it() -> None:
+    # Its symptom and cause to write from, and the whole of it as a reader
+    # reads it - with every label its rows go by - for the judge to read the
+    # overview against.
     asked: Kept[dict[str, Any]] = Kept()
 
     Scenario() \
         .given(
-            an_overview := _an_overview_of(Overview(text=SOME_OVERVIEW), asked_into=asked)
+            an_overview := _an_overview_of(Overview(text=SOME_OVERVIEW), asked_into=asked),
+            some_judge := a_model_answering_in_turn()
         ) \
         .when(
-            lambda: _the_synopsis_of(_a_postmortem_of_two_seniors(), an_overview)
+            lambda: _the_synopsis_of(_a_postmortem_of_two_seniors(), an_overview,
+                                     judge=some_judge)
         ) \
         .then(
             _asked_with(asked, {"service": SOME_SERVICE, "symptom": SOME_SYMPTOM,
                                 "cause": SOME_CAUSE, "figures": SOME_FIGURES,
                                 "said": SOME_FIGURES_SAID, "paging": Paging.ANSWERED,
-                                "disproven": False, "resolution": SOME_RESOLUTION})
+                                "disproven": False, "resolution": SOME_RESOLUTION,
+                                "judge": some_judge, "document": SOME_DOCUMENT,
+                                "labels": SOME_LABELS, "incident_id": SOME_INCIDENT_ID})
         )
 
 
@@ -221,13 +232,14 @@ def test_a_response_that_cannot_be_read_again_is_left_out_and_said() -> None:
     Scenario() \
         .when(
             lambda: write_executive_synopsis(
-                _a_postmortem_of_two_seniors(), incident_id=DONT_CARE_INCIDENT_ID,
+                _a_postmortem_of_two_seniors(), incident_id=SOME_INCIDENT_ID,
                 service=SOME_SERVICE, figures=SOME_FIGURES, said=SOME_FIGURES_SAID,
-                resolution=SOME_RESOLUTION,
+                resolution=SOME_RESOLUTION, document=SOME_DOCUMENT, labels=SOME_LABELS,
                 sources=some_sources(engagement=an_engagement_source_that_cannot_answer(),
                                      bands=a_band_source_pricing({SOME_TITLE: A_BAND}),
                                      working_hours_a_year=WORKING_YEAR),
-                llm=_dont_care_llm(), overview_of=_an_overview_of(Overview(text=SOME_OVERVIEW)))
+                llm=_dont_care_llm(), judge=_dont_care_llm(),
+                overview_of=_an_overview_of(Overview(text=SOME_OVERVIEW)))
         ) \
         .then(
             _left_unmatched()
@@ -244,12 +256,13 @@ def test_a_response_nobody_was_paged_for_has_nothing_to_break_down() -> None:
     Scenario() \
         .when(
             lambda: write_executive_synopsis(
-                a_postmortem_nobody_responded_to, incident_id=DONT_CARE_INCIDENT_ID,
+                a_postmortem_nobody_responded_to, incident_id=SOME_INCIDENT_ID,
                 service=SOME_SERVICE, figures=SOME_FIGURES, said=SOME_FIGURES_SAID,
-                resolution=SOME_RESOLUTION,
+                resolution=SOME_RESOLUTION, document=SOME_DOCUMENT, labels=SOME_LABELS,
                 sources=some_sources(engagement=lambda dont_care_incident_id: NotPaged(),
                                      working_hours_a_year=WORKING_YEAR),
-                llm=_dont_care_llm(), overview_of=_an_overview_of(Overview(text=SOME_OVERVIEW)))
+                llm=_dont_care_llm(), judge=_dont_care_llm(),
+                overview_of=_an_overview_of(Overview(text=SOME_OVERVIEW)))
         ) \
         .then(
             all_of(
@@ -283,18 +296,21 @@ def test_a_response_shared_with_other_incidents_is_said_in_the_postmortem_s_word
 
 def _the_synopsis_of(postmortem: PostmortemDocument,
                      overview_of: Overviewing | None = None,
-                     engaged: list[EngagedResponder] | None = None) -> ExecutiveSynopsisDocument:
+                     engaged: list[EngagedResponder] | None = None,
+                     judge: LLMClient | None = None) -> ExecutiveSynopsisDocument:
     """The synopsis of `postmortem`, its responders read again as `engaged` - the
     two seniors it was written from, unless a test says otherwise."""
     return write_executive_synopsis(
-        postmortem, incident_id=DONT_CARE_INCIDENT_ID, service=SOME_SERVICE,
+        postmortem, incident_id=SOME_INCIDENT_ID, service=SOME_SERVICE,
         figures=SOME_FIGURES, said=SOME_FIGURES_SAID, resolution=SOME_RESOLUTION,
+        document=SOME_DOCUMENT, labels=SOME_LABELS,
         sources=some_sources(
             engagement=an_engagement_source_reporting_each(
                 engaged if engaged is not None else TWO_SENIORS),
             bands=a_band_source_pricing({SOME_TITLE: A_BAND}),
             working_hours_a_year=WORKING_YEAR),
         llm=_dont_care_llm(),
+        judge=judge if judge is not None else _dont_care_llm(),
         overview_of=(overview_of if overview_of is not None
                      else _an_overview_of(Overview(text=SOME_OVERVIEW))))
 
@@ -336,11 +352,17 @@ def _an_overview_of(overview: Overview,
                     said: Mapping[str, str],
                     paging: Paging,
                     disproven: bool,
-                    resolution: Sequence[str]) -> Overview:
+                    resolution: Sequence[str],
+                    judge: LLMClient | None,
+                    document: str,
+                    labels: frozenset[str],
+                    incident_id: str) -> Overview:
         if asked_into is not None:
             asked_into.take({"service": service, "symptom": symptom, "cause": cause,
                              "figures": figures, "said": said, "paging": paging,
-                             "disproven": disproven, "resolution": resolution})
+                             "disproven": disproven, "resolution": resolution,
+                             "judge": judge, "document": document, "labels": labels,
+                             "incident_id": incident_id})
 
         return overview
 

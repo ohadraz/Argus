@@ -2,15 +2,15 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSjgcKEAgTGAI4AUIIdGhpbmtpbmcSDICHsEfXXfmTHUeasxoMihHVO6AiosSZEuJRIjCGJU16YCH+1u4l/PE3L10p+eYrYUUF+YKe+K3Ivugy910MITA+gefB24pc79wdy4gqqwbq51uCR3xU5tI4nXSdAxHLbDKG8z71HSzMf0f790HdXKTJeNAAlmElOuZ1fdyYP2Qw3JbWErBmh6W4MQBbtNZykF9NGz2Q1it9/4fIthRgeLGE9mYTfy6KMzet2JZbmoM3h5+C3afZN3ACNOwEypJ5JRTMOty87EWaGNIhw0MnE3hn6QMhV8n63IUE7X7W8ny4L8sOIeHlLkY1kOmEJepX+v2rySx/913ze1g6jtLZPouBOYnQ6DtgPz/RPM2s7pEMStVIyoIxRBBtcdvJ1WzFLBpjwHQNhPMRy5swlLvL4G5bxu0OyFvdvBEkpABcWGlF1QdnICQTi6myj3921zDM20S+dMgcXCdCvB6Rzl/4j/5WC9aR8TurKzHZeZs4yZ34F4tu0xy57oMRS2i+lb6CKG+mm2XiV08GCwJRcuiRPSYRshYF7OHxJwfrpC2b66RuSi2642+FRYhVrQvztYHCAbrFk+0P7sDoWQcZIfpiR5kNMuPS47rk6laqMNrnPnhTNa11FqnEHPvL8b9iBnVdu5JVJg48PKF952jqSSeHnLWviw6wnw3wfSMgK50TboCKy7ie922SKA8gj2NKePl5pKyKC5goNa1e1sxRAKVJQnM3zmhiQ6V35AMIV2nIgU20e5Z47y1yDx/aiPyQa+cYrzlWQ1sEmZETpqLy/V4oOL2fk0La97UyU6S7dJpTL6LD+Rpt7TCUTfkQETk8FpCkNW+ghRLPgQFG7PiM5Dv/ki1GgJVsySu8wS2y3CUfFZjgB4/yGXgnmZ1krWhMy/fXKGkIRBgdPZzmAvv6qExV8O3KlZ3l1ThWxJDZkgeKjXMWjPOTNhJDzbObfZgOGNiKrq8i/nJebWef0RxXyNjMj3kD8x2KgDJ3MWDIBxIOUtk3BNciKETQYkb4kT0LgT962dc2AxWVprlytyuf2PsUOL4nbemzZj9aNfVw7dG4PbS27BkglroHXnxGtV0oIfpxg/ejwUtLorEaAM+SG1ZD1z7ZQf1QkJDt880kvMW+YQJxTjZ1cL2Q+TIL6gRbEj3FBNlkPQwN9trsVmc+3ufO6xiDk36MOQkXRWv0GAE=",
-      "thinking": "The rollout stalled mid-deployment, with half the replicas on the new version and half on the old, now paused. The old revision's reader expects cache values as plain integers in cents, but it's choking on new-format entries like \"2400/8\" written by the updated replicas \u2014 a genuine in-flight compatibility break between old and new readers.\n\n",
+      "signature": "CAQS6AYKEAgTGAI4AUIIdGhpbmtpbmcSDElrXg/o9gAG+kqcqxoM0i7AUXDVL2jnzhOcIjAVERgmNa3SLRJNMnl2VB53OaZut6r36bQGXaIi47Tt+8wbHYpJ4outDmYKb5CM5YoqhQahV2PjSe2IAbDhzn2tJElKi5uWN72/k+CRTi8gFYGcfmXQLygovnDRiTmvrc9EGX3IvByftXyHLcT1iJ7D9Vs54vVPU9+mj0l96qi/UaziPvjuDg1P8Vo0ngSip7NwShdiEQKVdN2GDEDp4sRrqEa5+ZvKV4vD54vxU1YYYPAhwtqgjCf3ZdaJMs1LXQooiokcO+I+pSy4Na6BfLMbMxrZfKJF+9C8T2PnoTFl7yS6eOuoqfqGkpQH7s2dogIX0NCLPbPJKpJED846T6pKLfarEeTXIPszkYXfXLQYpNzlx2IZ80CPOxY+H2jjCuM6viMnLkxTyaAUgGcILG60mMFx9rGM2asamelYjrw1zqS0muu0a2U9DBKSg0sgdFrzEk21mknzG1e7hHJMEhTukOZhHmZKDZWpqlZptkIFMrkWWgdbGpHVcKKULfJTadNJjOsTyHia1w3Ozs3WzeylLoqDez3F8oHT6g2+67BZYGj2GndTPK4sldROGBMLeOo2VV1HuqXDQqA9Qpq9DsknGreFirjkn5r10RSHIYpWnTS9T73vJDgl4NwIwDhnOZ8X26ljksaVfsL7+aepRBg5cdng/x9S4BqG1Eq+W9CT/uZ17/kmmJIl329PkkKzI3e2IttgFXBCzc8ivhO0ngqzuhtOh80nCS2vsfHKk8rq+5PWMzbyPdLBGIxHEPbTydpsbwbTt7ZTnL6yyF4kbx5yhyc84Al8Yq934oUMMDXKa3YBkCFXJdgLhXYrJHIxJbPSxgvoVO6AqGSqHFSBQyXA6vzgy+Ai0I9PhcwafEXqBbRPxfNqTvmpHINxDuy+j7b3ajfL0v5G9ZcR1mGZMm9XX79GONgPvjeWxpgYfDKRxwz4OU+PIruadruS1EyWQa0CDWEShOEVLOawossx7ENYbRaSv3cGikLxVyEZ417iH5iJ8ExBYtgQV37cvW5WMOZLF9uast9Es6Xq5LYBB6IUd4rb2ubQ0pFYesfOAiRvsWFTdMQrXu4erLbhEdVcNHJo6ZYmllrTrBgB",
+      "thinking": "The rollout is paused with mixed versions, and the old replicas can't read the new \"2400/8\" cache entries, which aren't plain cent values. That's a compatibility break mid-flight, and the error rate is around 20% instead of 50%, which is acceptable for now.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01VLdf6t6RBXza4Xn79i87JH",
+      "id": "toolu_01WJLM5QUgfmr3PgEzQcx5A5",
       "input": {
         "hypotheses": [
           {
@@ -19,23 +19,23 @@
             "faulting_service": null,
             "from_state": "5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e",
             "subject": "696c33a68b36aed6456cdc5b3806f33038488515",
-            "summary": "The rollout of 696c33a68b36aed6456cdc5b3806f33038488515 stopped half-way, so 3 replicas run the new revision and 3 still run 5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e, and the rolling update is paused. The new revision writes summary cache entries as 'amount/items' (e.g. '2400/8'). The old revision expects a bare cents figure and fails the account page when it reads one. Neither revision is faulty alone; the failures come from the two versions sharing the cache.",
+            "summary": "The rollout of revision 696c33a68b36aed6456cdc5b3806f33038488515, deployed 2026-11-12T12:17:36Z, stopped part way and is paused with 3 of 6 replicas on the new revision and 3 on 5470c1a.... The new revision writes summary cache entries as 'amount/items' text, such as '2400/8'. The old replicas still expect a bare cents figure and raise ValueError on those entries, which failed account pages from 2026-11-12T12:17:00Z.",
             "supporting_evidence": [
               {
-                "at": "2026-11-03T11:12:00Z",
+                "at": "2026-11-12T12:17:36Z",
                 "claim": "Deployment of io-shop has not converged: 3 of 6 replicas are running revision [696c33a6...], and 3 are still running revision [5470c1a6...]. Its rolling update is paused."
               },
               {
-                "at": "2026-11-03T11:12:00Z",
-                "claim": "ValueError: summary cache entry '2400/8' is not a figure in cents at src/io_shop/summary_cache.py (45 of 200 requests)"
+                "at": "2026-11-12T12:17:00Z",
+                "claim": "ERROR io-shop: summary cache entry could not be read - ValueError: summary cache entry '2400/8' is not a figure in cents at src/io_shop/summary_cache.py (15 of 200 requests)"
               },
               {
-                "at": "2026-11-03T11:12:00Z",
-                "claim": "696c33a diff changes the cache entry format from a bare cents int to '{amount_cents}/{items_counted}' in src/io_shop/summary_cache.py"
+                "at": "2026-11-12T12:17:36Z",
+                "claim": "The diff to src/io_shop/summary_cache.py changes the cache entry format to '{amount_cents}/{items_counted}'. The old reader expected a bare figure in cents."
               },
               {
-                "at": "2026-11-03T11:12:00Z",
-                "claim": "error_rate stepped from 0.0 at 2026-11-03T11:11:00Z to 0.23 at 2026-11-03T11:12:00Z with latency flat"
+                "at": "2026-11-12T12:18:00Z",
+                "claim": "error_rate stepped from 0.005 at 12:16 to 0.085 at 12:17, then to 0.245 at 12:18, with p50, p95 and p99 flat and cpu_limit_cores constant at 3.0."
               }
             ],
             "to_state": "696c33a68b36aed6456cdc5b3806f33038488515"
@@ -46,11 +46,11 @@
             "faulting_service": null,
             "from_state": "5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e",
             "subject": "696c33a68b36aed6456cdc5b3806f33038488515",
-            "summary": "The revision 696c33a, which changed the summary cache entry format, is itself the bad code, and the rollout state is incidental.",
+            "summary": "The revision 696c33a68b36aed6456cdc5b3806f33038488515 has a code bug in how summary cache entries are written and read. This would matter only if the rollout had converged, which it has not.",
             "supporting_evidence": [
               {
-                "at": "2026-11-03T11:12:00Z",
-                "claim": "deployed revision 696c33a68b36aed6456cdc5b3806f33038488515 at the onset"
+                "at": "2026-11-12T12:17:36Z",
+                "claim": "The code change in src/io_shop/summary_cache.py and account_page.py landed at 2026-11-12T12:17:36Z."
               }
             ],
             "to_state": "696c33a68b36aed6456cdc5b3806f33038488515"
@@ -62,7 +62,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgfuJnftZVqBdLhPaaEzn",
+  "id": "msg_011Cgy2cBzwp12T515w1sfWF",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -75,12 +75,12 @@
       "ephemeral_5m_input_tokens": 3343
     },
     "cache_creation_input_tokens": 3343,
-    "cache_read_input_tokens": 37190,
+    "cache_read_input_tokens": 37488,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 1065,
+    "output_tokens": 1114,
     "output_tokens_details": {
-      "thinking_tokens": 109
+      "thinking_tokens": 92
     },
     "service_tier": "standard",
     "speed": "standard"

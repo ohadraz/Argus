@@ -5,17 +5,45 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01V9rZH15drC7gfFs3g4r1x8",
+      "id": "toolu_017QTr8MpbBvVxTCpYYTSea1",
       "input": {
-        "query": "typical-purchase-feature"
+        "hypotheses": [
+          {
+            "confidence": 0.88,
+            "failure_mode": "feature-flag-toggle",
+            "faulting_service": null,
+            "from_state": "off",
+            "subject": "typical-purchase-feature",
+            "summary": "Feature flag typical-purchase-feature was switched on at 2026-11-12T14:15:47Z. p99 latency jumped from about 200ms to 1000-2000ms from 2026-11-12T14:16:00Z, while p50, p95, error rate, memory and CPU stayed at baseline. No deploy occurred, the rollout and pods were unchanged, and the dependencies show no failure.",
+            "supporting_evidence": [
+              {
+                "at": "2026-11-12T14:15:47Z",
+                "claim": "feature flag typical-purchase-feature was switched on (actor: admin)"
+              },
+              {
+                "at": "2026-11-12T14:15:00Z",
+                "claim": "typical-purchase-feature=off 163 / on 37 - 200 evaluations"
+              },
+              {
+                "at": "2026-11-12T14:16:00Z",
+                "claim": "p99_ms 1339 (previously ~200), p50 28, p95 201, error_rate and resource columns at baseline"
+              },
+              {
+                "at": "2026-11-12T14:22:00Z",
+                "claim": "typical-purchase-feature=on - 200 evaluations"
+              }
+            ],
+            "to_state": "on"
+          }
+        ]
       },
-      "name": "search_repository",
+      "name": "final_answer",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CggUECHu78H2Z4xKd4fU4",
-  "model": "claude-opus-5-5",
+  "id": "msg_011CgyBcCGMdkv31B9v9DxDG",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -24,13 +52,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3788
+      "ephemeral_5m_input_tokens": 692
     },
-    "cache_creation_input_tokens": 3788,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 692,
+    "cache_read_input_tokens": 37770,
     "inference_geo": "global",
-    "input_tokens": 4,
-    "output_tokens": 56,
+    "input_tokens": 2,
+    "output_tokens": 491,
     "output_tokens_details": {
       "thinking_tokens": 0
     },

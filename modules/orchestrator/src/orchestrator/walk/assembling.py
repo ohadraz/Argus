@@ -47,8 +47,8 @@ from agent_mitigation import (
     rules_read_over,
     take_action,
 )
-from agent_postmortem import postmortem_policy, synopsis_policy
-from argus_core import Connections, Holding, SettingsSlice, get_settings
+from agent_postmortem import judge_policy, postmortem_policy, synopsis_policy
+from argus_core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
 from argus_core.events import Publisher
@@ -197,6 +197,8 @@ class IncidentMemorySettings(SettingsSlice):
     incident_memory_embedding_model: str
     incident_memory_recall_limit: int
     incident_memory_similarity_floor: float
+    incident_memory_recall_attempts: int
+    incident_memory_recall_retry_seconds: float
 
 
 @contextmanager
@@ -294,6 +296,13 @@ def against(connections: Connections,
         # ever reaches this process to refuse.
         oncall=pagerduty_from(OnCallSettings.of(settings), webhook_secret="")
     )
+    # The grounding judge both writers are read by, at its own model and
+    # address. Its address is settled here, where the process starts, so one
+    # pointed at the agents' stand-in and at nothing for the judge refuses to
+    # start rather than judging out of the writer's recordings.
+    judging = partial(build_llm_client,
+                      policy=judge_policy(settings.judge_model, settings.judge_effort),
+                      settings=LLMSettings.for_the_judge(settings))
 
     return Collaborators(
         # Bound here because this is where a deployment's configuration meets
@@ -399,6 +408,7 @@ def against(connections: Connections,
                 policy=postmortem_policy(settings.postmortem_model,
                                          settings.postmortem_effort)
             ),
+            judge_for=judging,
             recorder=recorder),
         record_postmortem=records.postmortem,
         # The postmortem's model and effort - one short paragraph, every figure
@@ -412,6 +422,8 @@ def against(connections: Connections,
                 policy=synopsis_policy(settings.postmortem_model,
                                        settings.postmortem_effort)
             ),
+            judge_for=judging,
+            address_of=partial(_the_page_of, settings.argus_base_url),
             recorder=recorder),
         record_synopsis=records.synopsis,
         transition_incident=records.transition,
@@ -425,6 +437,12 @@ def against(connections: Connections,
         what_argus_did=records.what_argus_did,
         max_rounds=settings.investigation_max_rounds
     )
+
+
+def _the_page_of(argus_at: str, incident_id: str) -> str:
+    """Where an incident's page is, as somebody outside Argus reaches it - or,
+    where nobody configured that, as Argus's own pages address it."""
+    return f"{argus_at.rstrip('/')}/incidents/{incident_id}"
 
 
 def _recalling(settings: IncidentMemorySettings,
@@ -451,7 +469,9 @@ def _recalling(settings: IncidentMemorySettings,
         settings.incident_memory_collection,
         an_embedder(settings.incident_memory_embedding_model),
         limit=settings.incident_memory_recall_limit,
-        floor=settings.incident_memory_similarity_floor
+        floor=settings.incident_memory_similarity_floor,
+        attempts=settings.incident_memory_recall_attempts,
+        retry_seconds=settings.incident_memory_recall_retry_seconds
     )
 
     def recall_what_it_can(described_as: str, service: str) -> list[RememberedIncident]:

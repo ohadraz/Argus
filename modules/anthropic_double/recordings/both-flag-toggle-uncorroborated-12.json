@@ -2,29 +2,167 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSlgcKEAgTGAI4AUIIdGhpbmtpbmcSDO/ZsppnjYKa/plbWBoMstVcNQ23/bNZO+igIjAAOGrbc+qd4rnk7vVsKL7HpoALe/O92wiyRb+3W5ChX8fmfryR8FiUuWtefkoj4owqswaa2uD7rNCyg4CjedeWQ8so2RWS8qgX2pe+f2Umu/k1l33dNmwM8rFlCdflUlHsGLIEnhMqHpljd6gBcaPzYTx7dPeJ8SmaSAj+ohr9A6dOSeeDX+CGvfe0LADpMfWcWkE2i5W3pgK2UKsOfrFCJrIXOF7oZ6MLpZLmQGh+kPsnb2eMJgFRnGfbqImvpnK62jdnLpVhXYeF5ksBj+F15yyNDuDtqdCOBvws6Int0FiSeeDaYfkGsu1AvrbOWXk6MiReZ0auffB7LRUhh3a1lb78asUSm8FfI1vQAHJf4CCyqsToOg9PQoVYCvE9deQu6n80xP9kjMdlPJXqv5y0wAZzW+VsCwL4RBKl7S/qB76kt1YuFSEog1q94kzxwty8NTPgoAioqtOgMr4NQf9K14G4cXkP8qr01WqIgwgP6TqFXpM5oqUUQ/FlBpkGZJsT3FmbqoahoqLCyZrViNI6LaAGZHeOOGjpa4qdwHzCmAlqdz043pfZqI7idti6vpFQ6/GBgslaHVx8p6XWQy6fyTQ2f17QRDW3gMf828qsAR+Qq9wWPElRu+HjMe5wRX5Mp/xWuqps9Cxqtx9Ic3A0dxG5yDlQgM9Cd2ynyHZboZsgPHKe4kZZHw6nJ77+atXxsEnBdtjeGasTjKw3o4uuCSaJvJREinAyuxaPFbYBu7kgMEkzuPvxgKacYJlHk5oHbvt8xnMJiFl7X8xuzTDd2sxrs8tllPXAZrRJ2L3aWuZM0sodfhqFpr3rxbSfr3v3GTwwY4RxtodjX/XgVYTt26LTwU/MUqJZDMg45Wo7M5GSD8bMXIrvT/EeT51I1ctNGWhbyFwGeE/WwlzxyDHlyIl0IS0XUbn+rNbOPTZHoUG9sB7XDSl4kP2rXTVDyMA20YZshO3MxVAaJReMju9uX1jJLk58cpEZQ/PSefCnxSQGmLzyaJ5zsWZyfo80+4Bi4hD1c0hApqt4caZFDmqwQVWnp+3VB0iQ+JEsG768dAXJFqRjdotSmgzTfKRK22aBGNBdjRD6SVuLAnSjdsHZqu3XQ3iUGzYDcWmcmE+/Z+jK0Z3NCEEIW+BI/UZJibh7AUy621EYAQ==",
-      "thinking": "I'm working out the causal ordering: the symptom comes first, then the error itself, then why the error occurred (division failing because count was empty), and finally the mechanism showing the flag being turned on triggered that code path. That settles the sequence as 1, 2, 3, 4.\n\n",
+      "signature": "CAQS1gUKEAgTGAI4AUIIdGhpbmtpbmcSDCjJYVhxa2n9cn2W6RoMyNZ4HS9taltR/A03IjDcIydJhMqboqt0p9v+7uCOttEMx/ZfsmQgrFrjdRPu0ham8iWZlX4T1yqY2KfVEp4q8wQNYTtemnWhhjKJykTclL4gv2BNNISFAUHyt8n+fjYnJHxRsksI101Trcm8kJXrBvhu9g9/b/3rI4ko5LePMVXZlu4VrGkDglsBDluo0XMzCb2k9AuoZs+62/Sqg/ZMy33nJ4BbY4ZR/ChK2Oen3La/ox70QTO1lCwVtK/aFGWcuCrOA0/DOuBBayTzfwgtk7/BnoabP4jX2YahDAu1EgP11j4eulCK/2cHM+2RDaBGVFX8qN9PirvGtTahveeZEUiSOWNURVsy9c8f2mUKfGiL32Y5PGibCSHtOf+BONHM1XsPI10jw5H4xLsoU6aK+ROuljdi0bciq24+BxaMUfiFN6Okv+1qrcn4oPa3NkeTgC9xNdZrEu5eIFmRmWbbq5ODZA5775aZCU47iXkWpu6w6KDf4XGClZ8Nz+xbsTtQP8Fg4Yy1smaISoaE4Sj4454WSEiD0GMqT3b7RI/iW5l4ujwA/oaXdnbw4/18YjQ8PwZMK5ekCvtK1fBPyDToWg3OmlChkPEX/Oh6Y6dywOK6JlhBKncynDjZoA8CGfMS5nlR0LV1AgpqwKbVrNv9w9nnJDhl0mxG2+lVj8eMHT98X0Rh/vAJBIqU0MSf+boIaipaTFfJ1229qpOHhSFUBN8+S5k4TABnVKQvftGWUrdjHgFwlvD4oflQ0OrGzuqH7FDtOlNMmLkiJJQUMouTeQcSV2xPEvtpgU1w8xheC2dtV5ryCg4UuLbYbWjAzajoo3XRa/bBmS7FK74Gt5/0irHgdRSd90O0b7NuI87hGQQkEE9uDO5QvA/boUbevKejClRrIhVHhuRHckNWXoszMFo5+KYYAQ==",
+      "thinking": "I need to fix the first step, and I'm checking the CF-2 \"by the next minute\" claim against the timestamps: G971b is at 04:13 and Gce95 runs 04:14 to 04:19, so the claim holds and I'll keep it.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01UbGwvrUmkZj9K75Yr3KvJd",
+      "id": "toolu_01RRrVwjRBLK3x74HBDyNhn5",
       "input": {
-        "order": [
-          1,
-          2,
-          3,
-          4
-        ]
+        "action_items": [
+          {
+            "answers": [],
+            "item": "Turn monthly-spend-feature off on io-shop until the fix in PR #557 is merged and deployed.",
+            "type": "mitigate"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Before any feature flag on io-shop can be enabled in production, require tests that run the code behind the flag with the flag on, including the case of a shopper with no purchases in the current period.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Roll out flags such as monthly-spend-feature in stages that pause and switch the flag back off automatically when the account page error rate rises.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Find out how monthly-spend-feature came on with no change in the flag provider's history or in the production change events.",
+            "type": "process"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Make every change to io-shop feature flags go through the flag provider so that the change appears in its history.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-4"
+            ],
+            "item": "Link the HighErrorRate alert on io-shop to on-call paging so that a person is paged when it fires.",
+            "type": "detect"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "Gbac1",
+              "AL1"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' account page requests failed with server errors from the onset, and the account page error rate was at its highest at {Gbac1.7}."
+          },
+          {
+            "cites": [
+              "G5309"
+            ],
+            "ruled_out": [],
+            "step": "Account page requests raised ZeroDivisionError at spend_summary.py:47 during {G5309.3}. This error did not appear in the log lines before the onset."
+          },
+          {
+            "cites": [
+              "G7e5d",
+              "G971b",
+              "Gce95",
+              "T9",
+              "T15",
+              "T10"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "G46bc",
+                  "Gbac1"
+                ],
+                "what": "The client-disconnect failures on account pages: they were logged well before the onset while the account page error rate stayed at its usual {Gbac1.6}, and they stopped at the onset."
+              },
+              {
+                "cites": [
+                  "T9",
+                  "T15"
+                ],
+                "what": "A recorded deploy, release or flag change by anyone but Argus: the production change events for the day before the onset came back empty, and so did the flag provider's history for the hour before it was read."
+              }
+            ],
+            "step": "The monthly-spend-feature flag was off for every evaluation during {G7e5d.4}. It was on for part of the evaluations at {G971b.6} (on {G971b.2}, off {G971b.1} of {G971b.3}) and on for every evaluation during {Gce95.4}. Neither the production change events read at {T9.1} nor the flag provider's history read at {T15.1} shows this change, so the record does not show what switched the flag. All replicas ran the same revision when read at {T10.1}, but the record does not show whether that revision was already running before the onset, so a change to it was not ruled out."
+          },
+          {
+            "cites": [
+              "F1",
+              "G5309"
+            ],
+            "ruled_out": [],
+            "step": "With the flag on, the account page runs average_spend_per_item_this_month, which divides by the number of purchases the shopper made this month and fails for a shopper who has bought before but not this month."
+          }
+        ],
+        "cause_in_plain_words": "A setting that shows shoppers their spending this month came on, and the code behind it likely fails when a shopper has bought nothing yet this month, so those shoppers' account pages returned errors.",
+        "cause_rests_on_an_unrun_reading": true,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "No check was seen that ran the spend summary with monthly-spend-feature on for a shopper with no purchases this month before the flag was switched on for shoppers.",
+            "had_it_been_otherwise": "The division failure would have been found before the flag reached any shopper, and the flag would not have been switched on with the fault in place.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The flag went from on for part of the evaluations to on for all of them by the next minute. No rollout stage was seen that held or reversed it as account page errors rose.",
+            "had_it_been_otherwise": "A staged rollout that stopped on the rising account page error rate would have kept the failures to a small share of shoppers and switched the flag back off.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The flag coming on did not appear in the flag provider's history or in the production change events, so the change was not in the record of what changed.",
+            "had_it_been_otherwise": "With the change recorded, Argus could have acted on C1 and turned the flag off, which would have ended the failures sooner instead of leaving it to a person.",
+            "label": "CF-3"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No on-call incident was linked to the HighErrorRate alert on io-shop, so nobody was paged.",
+            "had_it_been_otherwise": "A paged person could have turned the flag off once Argus left undoing it to a person, which would have shortened the incident.",
+            "label": "CF-4"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            {
+              "item": "The Investigator Agent formed C1, which named the monthly-spend-feature flag and the ZeroDivisionError at spend_summary.py:47 from the log lines.",
+              "timed_by": "T13"
+            },
+            {
+              "item": "Argus did not undo a change it could not find in the record of what changed, and left that to a person.",
+              "timed_by": "T17"
+            },
+            {
+              "item": "The Code-Fix Agent opened draft pull request #557 with a proposed fix and a regression test for a person to review.",
+              "timed_by": "T19"
+            }
+          ],
+          "went_wrong": []
+        },
+        "reaches_a_cause": true,
+        "root_cause": "With monthly-spend-feature on, the account page's spend summary runs average_spend_per_item_this_month, which divides the shopper's spend this month by the number of purchases they made this month without handling a shopper who bought nothing this month, so for any shopper who has bought before but not this month the page raises ZeroDivisionError at spend_summary.py:47.",
+        "still_at_risk": "Account pages of shoppers who have not bought anything this month could keep failing while the monthly spend feature stays on, and the feature could come on again without any change showing in the flag provider's history.",
+        "symptom": "Shoppers' account pages failed"
       },
-      "name": "order_chain",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgeRBGsncgzYjawjfqVRn",
+  "id": "msg_011CgvVEcLwCj3QnGBJXn8xZ",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -34,15 +172,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 1327
+      "ephemeral_5m_input_tokens": 2463
     },
-    "cache_creation_input_tokens": 1327,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 2463,
+    "cache_read_input_tokens": 11821,
     "inference_geo": "global",
-    "input_tokens": 4,
-    "output_tokens": 203,
+    "input_tokens": 2,
+    "output_tokens": 2330,
     "output_tokens_details": {
-      "thinking_tokens": 145
+      "thinking_tokens": 55
     },
     "service_tier": "standard",
     "speed": "standard"

@@ -1,0 +1,56 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSjAUKEAgTGAI4AUIIdGhpbmtpbmcSDLbzyxK6mfrYZkBenRoMSZPJRA3ZNLawBCb4IjAbsP9FF7v0RObI/WPCwQsd+d0G1vRLaV4HXWkZ14WZrOwjEmYq5pm//koPa0BXblAqqQRRUok7qMei53diWjnT3YYWyXEbbiy1rHt9yQd/y4jZtt24rK40iTEmuojPThCmbe+SHlOQb+vHnpbBjUoKhnX8YhSbwjDEfEqI4+XF+7Adl4u01g/Bp3L00273RLMgWctOG4L4SlLj4J2Rf/5jpcmdMhC1xlYM7IKdRGCxjOzRGWp5QjH6KWPVi5945vdB/4N6RN6Qg86JHbysju1FQPUUm2ACZ9TkGnBtbxPr7XrZTQ4mDrZDacEh1cv57YngGtLQeM0AtYv7hoc4f0p8FbF8y5vTPOYlfGAPsMJtL/nw+UmvLZaiFnGRrYC6+APE88grV0cN8TO5qu1+yR5NC4q6kgg3/tJyCjr8w64NxPVa7A7Qt3Ohm77yfu9HLerwrdC+ZEeaQF+Typi6Ve2p4iv8hL8D/0h9A8TPMWOxnF5BhzyJDQK+E2B55S6oNGP48lcfiIQYerMb700mWh0LDopMZFmtkd4tVS7sdG/hugXh/c2+L/XhYoMNj/34sGrQ+eyGZyBJm6GcG+SvP8MnYvYVgtmal6dzDx2XvvCifr/yoqtstBUgsS5J/7VQdv47iBWuTdSbEUw82WlXbNN/onK01NeEOn1SQF1kPMbgpabRPTdSAEdYdauZMe7SUzeIMJu9Jt5rZxBfRp7iPCO0vlj6fmabuDdqrc0tmCMwyf6ZzTXfVygt3oG1wt1ygQP4vwizRqRwAZHbNsJc8MaKbqboFKK7a/0+RFAKGAE=",
+      "thinking": "I'm going to open deploy/scrape.yaml and deploy/values-production.yaml to see how they're set up.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_017UXLHGcHkV6A1rXDLJpozf",
+      "input": {
+        "path": "deploy/scrape.yaml"
+      },
+      "name": "read_repository_file",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01EFhrok6TtBNXekuU4gjSQR",
+      "input": {
+        "path": "deploy/values-production.yaml"
+      },
+      "name": "read_repository_file",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgtsjhKwE5UiCgy6xhwau",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1169
+    },
+    "cache_creation_input_tokens": 1169,
+    "cache_read_input_tokens": 2491,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 148,
+    "output_tokens_details": {
+      "thinking_tokens": 30
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

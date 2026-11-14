@@ -1,0 +1,41 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01KaB5N4FdZ3YP4dqYQtSoEf",
+      "input": {
+        "window_end": "2026-11-10T07:47:34Z",
+        "window_start": "2026-10-27T00:00:00Z"
+      },
+      "name": "get_changes",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgtstwkrBNrHuhZt9scR1",
+  "model": "claude-sonnet-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 20345
+    },
+    "cache_creation_input_tokens": 20345,
+    "cache_read_input_tokens": 8701,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 99,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

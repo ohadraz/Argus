@@ -166,6 +166,13 @@ class IncidentState(BaseModel):
     # standing, and where it says no mitigation applies, acting on a less likely
     # one is acting against the diagnosis.
     the_mode_has_no_mitigation: bool = False
+    # The candidate the gate refused because its fault is in a service another
+    # company runs, by id. Code-Fix is not asked about it: a change written
+    # around somebody else's outage is nobody's to merge, and the refusal's own
+    # line has already said whom to ask. By the candidate rather than as a flag
+    # on the incident, so a walk that went on to another candidate - one whose
+    # fault is in this code - is asked about as any walk is.
+    somebody_elses_fault_for: str | None = None
     # Whether the round that just ran found any candidate worth acting on. The
     # Investigator's own answer, recorded because it is the one thing that
     # distinguishes an investigation with nothing to offer from a walk that has

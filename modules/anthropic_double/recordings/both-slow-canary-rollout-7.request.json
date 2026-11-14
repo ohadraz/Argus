@@ -5,13 +5,13 @@
   "max_tokens": 128000,
   "messages": [
     {
-      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: The feature flag typical-purchase-feature was switched from off to on at 2026-11-03T18:21:00Z. From that minute p99 latency jumped from about 200ms to 1100-1900ms. The error rate, p50 and p95 stayed flat, and no deploy was recorded.\n\nWhat that rests on:\n  - feature flag typical-purchase-feature was switched on (actor: admin)\n  - typical-purchase-feature=off 16 / on 184 - 200 evaluations\n  - p99_ms 1333 (previous minute 201); p50 and p95 flat, error_rate 0.01\n  - p99_ms 1901 while typical-purchase-feature=on; cpu_limit_cores 3.0 throughout, volume steady at 1200\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: Feature flag typical-purchase-feature was switched on at 2026-11-12T14:15:47Z. p99 latency jumped from about 200ms to 1000-2000ms from 2026-11-12T14:16:00Z, while p50, p95, error rate, memory and CPU stayed at baseline. No deploy occurred, the rollout and pods were unchanged, and the dependencies show no failure.\n\nWhat that rests on:\n  - feature flag typical-purchase-feature was switched on (actor: admin)\n  - typical-purchase-feature=off 163 / on 37 - 200 evaluations\n  - p99_ms 1339 (previously ~200), p50 28, p95 201, error_rate and resource columns at baseline\n  - typical-purchase-feature=on - 200 evaluations\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
       "role": "user"
     },
     {
       "content": [
         {
-          "id": "toolu_01V9rZH15drC7gfFs3g4r1x8",
+          "id": "toolu_01L48AU3Wj3aLdjpuyAFRC2s",
           "input": {
             "query": "typical-purchase-feature"
           },
@@ -25,7 +25,7 @@
       "content": [
         {
           "content": "src/io_shop/typical_spend.py:8: `typical-purchase-feature` decides whether a request gets this figure, and a",
-          "tool_use_id": "toolu_01V9rZH15drC7gfFs3g4r1x8",
+          "tool_use_id": "toolu_01L48AU3Wj3aLdjpuyAFRC2s",
           "type": "tool_result"
         }
       ],
@@ -34,7 +34,7 @@
     {
       "content": [
         {
-          "id": "toolu_01XmNS9Y1fE5T7PWXvGdJhSf",
+          "id": "toolu_01Bio8E9y92edeazxHSoZSaW",
           "input": {
             "path": "src/io_shop/typical_spend.py"
           },
@@ -42,37 +42,9 @@
           "type": "tool_use"
         },
         {
-          "id": "toolu_01GwyxzA5saVzPE44Z17DfMk",
+          "id": "toolu_01KW12XPMpgK8bmdVDNB3wxN",
           "input": {
-            "path": "tests/io_shop/test_typical_spend.py"
-          },
-          "name": "read_repository_file",
-          "type": "tool_use"
-        }
-      ],
-      "role": "assistant"
-    },
-    {
-      "content": [
-        {
-          "content": "\"\"\"What this shopper's middle purchase cost.\n\nThe newest thing on the account page, and the one still behind a rollout. An\naverage is dragged around by a single expensive buy - one laptop among twenty\ncoffees averages to a figure describing neither - so the page offers the middle\nof the history instead: the price as many purchases sit below as above.\n\n`typical-purchase-feature` decides whether a request gets this figure, and a\nrequest that does not get it renders the figure it rendered before.\n\nThe figure it produces is right for every history the shop has. What it is not\nis cheap, and the cost follows the shape of the code rather than anything it is\nwaiting on.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\n\n\ndef typical_spend_per_item(account: Account) -> int:\n    \"\"\"The middle price in this shopper's history.\n\n    Found by taking the cheapest purchase that is left, over and over, until\n    the middle of the history is what remains. On an even-length history that\n    lands on the lower of the two middles, which is the one a shopper reading\n    \"your typical purchase\" can point at - a figure interpolated between two\n    prices is one nobody paid.\n    \"\"\"\n    remaining = [purchase.price_cents for purchase in account.purchases]\n    below_the_middle = (len(remaining) - 1) // 2\n\n    for _ in range(below_the_middle):\n        remaining.remove(min(remaining))\n\n    return min(remaining)\n",
-          "tool_use_id": "toolu_01XmNS9Y1fE5T7PWXvGdJhSf",
-          "type": "tool_result"
-        },
-        {
-          "content": "from __future__ import annotations\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\"\"\"The middle of a shopper's history - the account page's newest figure.\n\nCorrect on every history the shop has, which is the whole of what this file\ncovers. That it is also expensive is not asserted here: what it costs is\nmodelled by the generator, and a test timing a loop over twelve integers would\nmeasure the machine it ran on rather than the shape of the code.\n\"\"\"\n\n\ndef an_account_of(*prices: int) -> Account:\n    return Account(\n        shopper_id=\"shopper-with-a-history\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef test_the_middle_price_of_an_odd_history_is_the_one_in_the_middle() -> None:\n    assert typical_spend_per_item(an_account_of(1000, 9000, 3000)) == 3000\n\n\ndef test_an_even_history_takes_the_lower_of_its_two_middles() -> None:\n    # A figure interpolated between two prices is one nobody paid, and the\n    # whole point of showing the middle rather than the average is that a\n    # shopper can point at the purchase it names.\n    assert typical_spend_per_item(an_account_of(1000, 3000, 5000, 9000)) == 3000\n\n\ndef test_a_single_purchase_is_its_own_middle() -> None:\n    assert typical_spend_per_item(an_account_of(2500)) == 2500\n\n\ndef test_repeated_prices_do_not_lose_the_middle() -> None:\n    # Taking the cheapest that is left, over and over, has to count a repeated\n    # price once per purchase rather than once per value - a shopper who bought\n    # the same thing five times has a middle, and it is that thing.\n    assert typical_spend_per_item(an_account_of(500, 500, 500, 9000, 9000)) == 500\n\n\ndef test_one_expensive_buy_does_not_drag_the_middle_the_way_it_drags_a_mean() -> None:\n    # Why the figure exists at all. Twenty coffees and a laptop average to a\n    # price describing neither; the middle still describes the coffee.\n    a_history_of_coffees_and_a_laptop = an_account_of(*([300] * 20), 180_000)\n\n    assert typical_spend_per_item(a_history_of_coffees_and_a_laptop) == 300\n",
-          "tool_use_id": "toolu_01GwyxzA5saVzPE44Z17DfMk",
-          "type": "tool_result"
-        }
-      ],
-      "role": "user"
-    },
-    {
-      "content": [
-        {
-          "id": "toolu_01Q5SEmB57RUT32BnxouLXrj",
-          "input": {
-            "query": "typical_spend_per_item"
+            "query": "typical_spend"
           },
           "name": "search_repository",
           "type": "tool_use"
@@ -83,8 +55,13 @@
     {
       "content": [
         {
-          "content": "src/io_shop/spend_summary.py:13: from io_shop.typical_spend import typical_spend_per_item\nsrc/io_shop/spend_summary.py:67: return typical_spend_per_item(account)\nsrc/io_shop/typical_spend.py:21: def typical_spend_per_item(account: Account) -> int:\ntests/io_shop/test_typical_spend.py:4: from io_shop.typical_spend import typical_spend_per_item\ntests/io_shop/test_typical_spend.py:27: assert typical_spend_per_item(an_account_of(1000, 9000, 3000)) == 3000\ntests/io_shop/test_typical_spend.py:34: assert typical_spend_per_item(an_account_of(1000, 3000, 5000, 9000)) == 3000\ntests/io_shop/test_typical_spend.py:38: assert typical_spend_per_item(an_account_of(2500)) == 2500\ntests/io_shop/test_typical_spend.py:45: assert typical_spend_per_item(an_account_of(500, 500, 500, 9000, 9000)) == 500\ntests/io_shop/test_typical_spend.py:53: assert typical_spend_per_item(a_history_of_coffees_and_a_laptop) == 300",
-          "tool_use_id": "toolu_01Q5SEmB57RUT32BnxouLXrj",
+          "content": "\"\"\"What this shopper's middle purchase cost.\n\nThe newest thing on the account page, and the one still behind a rollout. An\naverage is dragged around by a single expensive buy - one laptop among twenty\ncoffees averages to a figure describing neither - so the page offers the middle\nof the history instead: the price as many purchases sit below as above.\n\n`typical-purchase-feature` decides whether a request gets this figure, and a\nrequest that does not get it renders the figure it rendered before.\n\nThe figure it produces is right for every history the shop has. What it is not\nis cheap, and the cost follows the shape of the code rather than anything it is\nwaiting on.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\n\n\ndef typical_spend_per_item(account: Account) -> int:\n    \"\"\"The middle price in this shopper's history.\n\n    Found by taking the cheapest purchase that is left, over and over, until\n    the middle of the history is what remains. On an even-length history that\n    lands on the lower of the two middles, which is the one a shopper reading\n    \"your typical purchase\" can point at - a figure interpolated between two\n    prices is one nobody paid.\n    \"\"\"\n    remaining = [purchase.price_cents for purchase in account.purchases]\n    below_the_middle = (len(remaining) - 1) // 2\n\n    for _ in range(below_the_middle):\n        remaining.remove(min(remaining))\n\n    return min(remaining)\n",
+          "tool_use_id": "toolu_01Bio8E9y92edeazxHSoZSaW",
+          "type": "tool_result"
+        },
+        {
+          "content": "src/io_shop/account_page.py:103: use_typical_spend: bool = False,\nsrc/io_shop/account_page.py:123: `use_monthly_summary` and `use_typical_spend` are the rollout decisions\nsrc/io_shop/account_page.py:145: use_typical_spend\nsrc/io_shop/account_page.py:213: use_typical_spend: bool\nsrc/io_shop/account_page.py:231: use_typical_spend=use_typical_spend\nsrc/io_shop/account_page.py:247: use_typical_spend=use_typical_spend\nsrc/io_shop/spend_summary.py:13: from io_shop.typical_spend import typical_spend_per_item\nsrc/io_shop/spend_summary.py:52: use_typical_spend: bool = False) -> int:\nsrc/io_shop/spend_summary.py:66: if use_typical_spend:\nsrc/io_shop/spend_summary.py:67: return typical_spend_per_item(account)\nsrc/io_shop/typical_spend.py:21: def typical_spend_per_item(account: Account) -> int:\ntests/io_shop/test_typical_spend.py:4: from io_shop.typical_spend import typical_spend_per_item\ntests/io_shop/test_typical_spend.py:27: assert typical_spend_per_item(an_account_of(1000, 9000, 3000)) == 3000\ntests/io_shop/test_typical_spend.py:34: assert typical_spend_per_item(an_account_of(1000, 3000, 5000, 9000)) == 3000\ntests/io_shop/test_typical_spend.py:38: assert typical_spend_per_item(an_account_of(2500)) == 2500\ntests/io_shop/test_typical_spend.py:45: assert typical_spend_per_item(an_account_of(500, 500, 500, 9000, 9000)) == 500\ntests/io_shop/test_typical_spend.py:53: assert typical_spend_per_item(a_history_of_coffees_and_a_laptop) == 300",
+          "tool_use_id": "toolu_01KW12XPMpgK8bmdVDNB3wxN",
           "type": "tool_result"
         }
       ],
@@ -93,7 +70,15 @@
     {
       "content": [
         {
-          "id": "toolu_01Q5vXGUzuGfmbnBH2Su5Fwt",
+          "id": "toolu_01QboT7vvh2dvVAB78Hh45W5",
+          "input": {
+            "path": "tests/io_shop/test_typical_spend.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_012xVQExtR1AJTufZ437EuuM",
           "input": {
             "path": "src/io_shop/spend_summary.py"
           },
@@ -106,8 +91,13 @@
     {
       "content": [
         {
+          "content": "from __future__ import annotations\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\"\"\"The middle of a shopper's history - the account page's newest figure.\n\nCorrect on every history the shop has, which is the whole of what this file\ncovers. That it is also expensive is not asserted here: what it costs is\nmodelled by the generator, and a test timing a loop over twelve integers would\nmeasure the machine it ran on rather than the shape of the code.\n\"\"\"\n\n\ndef an_account_of(*prices: int) -> Account:\n    return Account(\n        shopper_id=\"shopper-with-a-history\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef test_the_middle_price_of_an_odd_history_is_the_one_in_the_middle() -> None:\n    assert typical_spend_per_item(an_account_of(1000, 9000, 3000)) == 3000\n\n\ndef test_an_even_history_takes_the_lower_of_its_two_middles() -> None:\n    # A figure interpolated between two prices is one nobody paid, and the\n    # whole point of showing the middle rather than the average is that a\n    # shopper can point at the purchase it names.\n    assert typical_spend_per_item(an_account_of(1000, 3000, 5000, 9000)) == 3000\n\n\ndef test_a_single_purchase_is_its_own_middle() -> None:\n    assert typical_spend_per_item(an_account_of(2500)) == 2500\n\n\ndef test_repeated_prices_do_not_lose_the_middle() -> None:\n    # Taking the cheapest that is left, over and over, has to count a repeated\n    # price once per purchase rather than once per value - a shopper who bought\n    # the same thing five times has a middle, and it is that thing.\n    assert typical_spend_per_item(an_account_of(500, 500, 500, 9000, 9000)) == 500\n\n\ndef test_one_expensive_buy_does_not_drag_the_middle_the_way_it_drags_a_mean() -> None:\n    # Why the figure exists at all. Twenty coffees and a laptop average to a\n    # price describing neither; the middle still describes the coffee.\n    a_history_of_coffees_and_a_laptop = an_account_of(*([300] * 20), 180_000)\n\n    assert typical_spend_per_item(a_history_of_coffees_and_a_laptop) == 300\n",
+          "tool_use_id": "toolu_01QboT7vvh2dvVAB78Hh45W5",
+          "type": "tool_result"
+        },
+        {
           "content": "\"\"\"What a shopper has spent, and what that averages to.\n\nThree figures about one history. The lifetime average has been on the account\npage for years; the monthly one narrows it to the current month; the typical\npurchase abandons the average altogether for the middle of the history. The\nlast two are the ones still behind a rollout, and which of them a request gets\nis decided before it reaches here.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\ndef average_spend_per_item(account: Account) -> int:\n    \"\"\"Average spend per item across everything this account has ever bought.\n\n    Live for years. Its divisor is empty only for an account that has never\n    bought anything at all, which no real shopper is.\n\n    Derives the total from the purchases rather than reading the one the account\n    carries, taking each purchase in and recomputing what has been spent by\n    then, so that the figure agrees with the list the shopper is looking at even\n    where the totals the query returned have drifted from it.\n    \"\"\"\n    spent_by_then = 0\n\n    for index, _ in enumerate(account.purchases):\n        spent_by_then = sum(\n            earlier.price_cents for earlier in account.purchases[:index + 1]\n        )\n\n    return spent_by_then // len(account.purchases)\n\n\ndef average_spend_per_item_this_month(account: Account) -> int:\n    \"\"\"Average spend per item this month.\n\n    Narrows the lifetime figure to the current month, so the account page can\n    show what a shopper is spending now rather than what they averaged over\n    three years.\n    \"\"\"\n    bought_this_month = [\n        purchase for purchase in account.purchases if purchase.in_current_month\n    ]\n    return account.total_this_month_cents // len(bought_this_month)\n\n\ndef render_spend_summary(account: Account,\n                         use_monthly_summary: bool,\n                         use_typical_spend: bool = False) -> int:\n    \"\"\"The figure Io's account page shows, through whichever version the rollout\n    selects.\n\n    Raises whatever the selected version raises. Catching belongs at the request\n    boundary - see `io_shop.account_page` - where there is a response to turn a\n    failure into and a log to record it in. A page that swallowed its own errors\n    would render a wrong number instead of an error, which is a worse incident\n    than the one it hid.\n\n    Two rollouts, so two flags to be told about, and the newer one wins where a\n    request is inside both. That is the ordinary arrangement: each is a slice of\n    traffic, the slices overlap, and the page has to render one figure.\n    \"\"\"\n    if use_typical_spend:\n        return typical_spend_per_item(account)\n\n    if use_monthly_summary:\n        return average_spend_per_item_this_month(account)\n\n    return average_spend_per_item(account)\n",
-          "tool_use_id": "toolu_01Q5vXGUzuGfmbnBH2Su5Fwt",
+          "tool_use_id": "toolu_012xVQExtR1AJTufZ437EuuM",
           "type": "tool_result"
         }
       ],

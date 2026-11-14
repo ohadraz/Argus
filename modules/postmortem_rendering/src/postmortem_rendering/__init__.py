@@ -48,6 +48,7 @@ from postmortem_rendering.supporting import (
 from postmortem_rendering.synopsis import SynopsisLines, the_synopsis
 from postmortem_rendering.synopsis_figures import the_synopsis_figures, the_synopsis_figures_said
 from postmortem_rendering.synopsis_pdf import synopsis_as_pdf
+from postmortem_rendering.text import as_text
 from postmortem_rendering.timeline import TimelineRow, TimelineSection, the_timeline
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 
@@ -86,6 +87,7 @@ __all__ = [
     "as_pdf",
     "as_revision",
     "as_span",
+    "as_text",
     "in_utc",
     "on_the_clock",
     "render",

@@ -1356,6 +1356,11 @@ _PAGERDUTY_DOUBLE_BASE_URL = "https://localhost:8097"
 # the walk the intent agent's answer and the intent agent the walk's.
 _INTENT_ANTHROPIC_DOUBLE_PORT = "8098"
 _INTENT_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTENT_ANTHROPIC_DOUBLE_PORT}"
+# The grounding judge's model double, for the intent agent's reason: the judge
+# reads each write-up between the writer's own calls, and one queue serving
+# both would hand each the other's answers.
+_JUDGE_ANTHROPIC_DOUBLE_PORT = "8088"
+_JUDGE_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_JUDGE_ANTHROPIC_DOUBLE_PORT}"
 
 # Where the sessions that can run beside an e2e stack put the things that would
 # otherwise collide with it. Every collision is a port or a database: a second
@@ -1723,6 +1728,13 @@ _INTENT_ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     f"{_INTENT_ANTHROPIC_DOUBLE_BASE_URL}/health"
 )
 
+_JUDGE_ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
+    "judge_anthropic_double",
+    ["-m", "uvicorn", "anthropic_double.server:app",
+     "--port", _JUDGE_ANTHROPIC_DOUBLE_PORT],
+    f"{_JUDGE_ANTHROPIC_DOUBLE_BASE_URL}/health"
+)
+
 _SLACK_DOUBLE: tuple[str, list[str], str] = (
     "slack_double",
     ["-m", "slack_double.server"],
@@ -1750,6 +1762,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
     ("write_mcp", ["-m", "write_mcp_server.server"], "http://localhost:8092/mcp"),
     _ANTHROPIC_DOUBLE,
     _INTENT_ANTHROPIC_DOUBLE,
+    _JUDGE_ANTHROPIC_DOUBLE,
     # Slack, for a stack that has no workspace and wants none. Up before the
     # relay, which posts to it from its first pass.
     _SLACK_DOUBLE,
@@ -1844,11 +1857,13 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
 ]
 
 # Where each process that asks a model anything is pointed, when the model is a
-# double: the walk at one, the intent agent at its own. A map rather than two
-# entries written out at each session, so that the sessions which replay and
-# the one that records cannot come to point a process at different places.
+# double: the walk at one, its grounding judge at another, the intent agent at
+# its own. A map rather than entries written out at each session, so that the
+# sessions which replay and the one that records cannot come to point a process
+# at different places.
 _THE_MODEL_AT_ITS_DOUBLES: Final = {
-    "worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL},
+    "worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL,
+               "JUDGE_ANTHROPIC_BASE_URL": _JUDGE_ANTHROPIC_DOUBLE_BASE_URL},
     "intent": {"ANTHROPIC_BASE_URL": _INTENT_ANTHROPIC_DOUBLE_BASE_URL}
 }
 
@@ -1891,7 +1906,8 @@ def _the_services_for(slack_stands_in: bool,
         # is the leftover this function exists to avoid, and the most
         # misleading kind: a process answering `/v1/messages` on a port, beside
         # a suite whose whole claim is that it spent real tokens.
-        *([] if model_stands_in else [_ANTHROPIC_DOUBLE, _INTENT_ANTHROPIC_DOUBLE])
+        *([] if model_stands_in else [_ANTHROPIC_DOUBLE, _INTENT_ANTHROPIC_DOUBLE,
+                                      _JUDGE_ANTHROPIC_DOUBLE])
     ]
 
     return [service for service in _LOCAL_SERVICES if service not in unwanted]
@@ -1901,8 +1917,8 @@ def _the_services_for(slack_stands_in: bool,
 # anything of Argus's does, and before the index is built: what they stand in
 # for is exactly what the rest of the stack reads.
 _THE_STAND_INS: Final = (
-    _ANTHROPIC_DOUBLE, _INTENT_ANTHROPIC_DOUBLE, _SLACK_DOUBLE, _GITHUB_DOUBLE,
-    _PAGERDUTY_DOUBLE
+    _ANTHROPIC_DOUBLE, _INTENT_ANTHROPIC_DOUBLE, _JUDGE_ANTHROPIC_DOUBLE, _SLACK_DOUBLE,
+    _GITHUB_DOUBLE, _PAGERDUTY_DOUBLE
 )
 
 
@@ -2434,6 +2450,8 @@ def _the_cases_for(mode: str) -> list[str]:
 _RE_RECORDING_THE_WRITE_UP_ALONE: Final = "--postmortem-only"
 # And for the executive synopsis captured over a walk and write-up on disk.
 _RE_RECORDING_THE_SYNOPSIS_ALONE: Final = "--synopsis-only"
+# And for the grounding judge's readings captured over a whole walk on disk.
+_RE_RECORDING_THE_JUDGE_ALONE: Final = "--judge-only"
 
 
 @nox.session
@@ -2491,14 +2509,16 @@ def record(session: nox.Session, mode: str) -> None:
         # The stand-in, so a write-up re-recorded over an existing walk sees the
         # world that walk saw. With no anchor staged it is the shop unchanged.
         shop_stands_in=True,
-        # A write-up or a synopsis re-recorded alone runs on the replay's clock,
-        # because everything before it is a replay: the walk it follows was
-        # recorded against the world a replay draws, and the paid calls take
-        # their seconds whatever the clock says. A fresh capture stays on the
-        # real clock, where a real model's answer takes the time it takes.
+        # A write-up, a synopsis or the judge's readings re-recorded alone run
+        # on the replay's clock, because everything before them is a replay:
+        # the walk they follow was recorded against the world a replay draws,
+        # and the paid calls take their seconds whatever the clock says. A
+        # fresh capture stays on the real clock, where a real model's answer
+        # takes the time it takes.
         on_a_simulated_clock=any(flag in session.posargs
                                  for flag in (_RE_RECORDING_THE_WRITE_UP_ALONE,
-                                              _RE_RECORDING_THE_SYNOPSIS_ALONE)),
+                                              _RE_RECORDING_THE_SYNOPSIS_ALONE,
+                                              _RE_RECORDING_THE_JUDGE_ALONE)),
         # The real repository, for the reason `e2e` uses it and one more. A
         # recording is a walk captured in a particular world, and the world a
         # code fix is decided by is the source Code-Fix reads - so a recording

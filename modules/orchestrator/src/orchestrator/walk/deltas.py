@@ -141,6 +141,8 @@ class StateDelta(BaseModel):
     # Set by the gate alone, when the candidate in hand names a mode no
     # mitigation answers - which ends the mitigation phase.
     the_mode_has_no_mitigation: bool | None = None
+    # Set by the gate alone, to the candidate whose fault is another company's.
+    somebody_elses_fault_for: str | None = None
     nothing_worth_trying: bool | None = None
     # The window that contradicted what the alarm claimed, where it did. Set by
     # the investigating node alone, and the one thing that ends a walk without

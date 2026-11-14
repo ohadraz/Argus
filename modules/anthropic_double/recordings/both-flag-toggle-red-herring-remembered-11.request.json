@@ -5,7 +5,7 @@
   "max_tokens": 16000,
   "messages": [
     {
-      "content": "The causal chain of a postmortem, its steps numbered as written:\n1. Shoppers' account page requests failed, and the service's error rate over all requests rose well above its usual level.\n2. Account page requests raised ZeroDivisionError in src/io_shop/spend_summary.py at line 47 from the onset minute onward. According to Code-Fix's reading of the source, `serve_account_page` catches that exception and returns a failed page.\n3. An admin switched the feature flag monthly-spend-feature on at 23:23:44 UTC. Before that the service evaluated the flag off every time. In the onset minute some evaluations came back on, and over 23:24\u201323:30 UTC every evaluation was on, which sent account pages down the monthly spend-summary path. Switching the flag off did not end the failures, but that does not clear the flag: the service's own log in 23:30 UTC, after the revert, still showed every evaluation on, so the revert was not seen to reach the service.\n4. According to Code-Fix's reading, the monthly spend-summary path fails for any shopper who has bought before but has made no purchase in the current month.\n\nPut the steps in the order in which each step answers why the step directly before it happened - the first and the last stay where they are. Call order_chain with the steps' numbers in that order.",
+      "content": "Write the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-11-12T18:22:00Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-12T18:22:02Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires. The alert came 6 minutes {detection_gap} after its series passed its line, within the 7 minutes 30 seconds {accounted_for} accounted for by its rule waiting 5 minutes {rule_waits} with its condition holding, its evaluation at intervals of 1 minute {rule_evaluated_every}, an unmeasured allowance of 30 seconds {scraping_allowance} for scraping and storing its samples and the whole minute its series is read in.\nBroken from 2026-11-12T18:15:00Z {began} (the onset, dated to its minute: a change came during that minute). The service was not back to normal by 2026-11-12T18:26:13Z {argus_stopped}, so it was broken for at least 11 minutes 13 seconds {duration} - a lower bound, not a measurement, and every impact figure below is bounded the same way.\nArgus held the incident for 4 minutes 10 seconds {held}, until 2026-11-12T18:26:13Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nThe service's error rate over all its requests, before it began: 0.9% {errors_before}.\nThe same rate while it was broken: 30.5% {errors_while_broken}, peaking at 36.0% {errors_at_worst}.\nRise above baseline: 29.6% {errors_rise} of traffic failed that otherwise would not have.\nThe series behind the alert, `sum(rate(http_requests_total{code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))` - its alert said \"Error rate above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 0.9083333333333334% {series_before} before it began, 30.541666666666667% {series_while_broken} on average while it was broken, and 36% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nCustomer loss: at least 7,545.67 USD {customer_loss} - how far the shop's takings over the incident fell short of the same hours whole weeks earlier, beyond how much those hours vary on their own; a lower bound, counted with the service not seen back to normal.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-12T18:22:02Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-11-12T18:22:03Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-12T18:22:03Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-12T18:22:04Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 18:22 {T4.2}\n  - [T5] 2026-11-12T18:22:05Z {T5.1} Investigator Agent: Read back 361 {T5.2} minutes of metrics\n  - [T6] 2026-11-12T18:22:05Z {T6.1} Investigator Agent: Placed the start of the incident at 18:15 {T6.2}\n  - [T7] 2026-11-12T18:22:05Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-11-12T18:22:08Z {T8.1} Investigator Agent: Asked for production change events - deploys and releases, and flag changes from the flag provider's history, the 1 {T8.2} day 1 {T8.3} minute before Nov 12 18:16 {T8.4}\n  - [T9] 2026-11-12T18:22:08Z {T9.1} Investigator Agent: Read back 1 {T9.2} production change\n  - [T10] 2026-11-12T18:22:08Z {T10.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T10.2} replicas run one revision, which the history does not name\n  - [T11] 2026-11-12T18:22:08Z {T11.1} Investigator Agent: Asked for the service's log lines, the 37 {T11.2} minutes before 18:22 {T11.3}\n  - [T12] 2026-11-12T18:22:08Z {T12.1} Investigator Agent: Read back 129 {T12.2} log lines\n  - [T13] 2026-11-12T18:22:13Z {T13.1} Investigator Agent: Formed 1 {T13.2} candidate cause, best first: C1\n  - [T14] 2026-11-12T18:22:13Z {T14.1} Investigator Agent: Read every channel available\n  - [T15] 2026-11-12T18:22:13Z {T15.1} Argus: Read the flag provider's history - 1 {T15.2} flag change by anyone but Argus, the 1 {T15.3} hour before 18:22:13 {T15.4}\n  - [T16] 2026-11-12T18:22:13Z {T16.1} Argus: Found 1 {T16.2} earlier incident like this one in memory, the closest match being incident 9c1d4e7a-0000-4000-8000-00000000fee1, which tried reverting monthly-spend-feature (refuted)\n  - [T17] 2026-11-12T18:22:13Z {T17.1} Argus: Moved the incident to MITIGATING to act on a candidate\n  - [T18] 2026-11-12T18:22:13Z {T18.1} Argus: Called in the Mitigation Agent\n  - [T19] 2026-11-12T18:22:14Z {T19.1} Mitigation Agent: Reverted the feature flag monthly-spend-feature for C1, moved from ON to OFF\n  - [T20] 2026-11-12T18:22:14Z {T20.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 18:23 {T20.2} - up to 165s {T20.3}\n  - [T21] 2026-11-12T18:24:09Z {T21.1} Mitigation Agent: Looked at the service - still at the incident's level\n  - [T22] 2026-11-12T18:25:02Z {T22.1} Mitigation Agent: Judged the action REFUTED - monthly-spend-feature was put back ON\n  - [T23] 2026-11-12T18:25:02Z {T23.1} Argus: Moved the incident to INVESTIGATING - no explanation left to try, investigating again\n  - [T24] 2026-11-12T18:25:02Z {T24.1} Argus: Called in the Investigator Agent\n  - [T25] 2026-11-12T18:25:02Z {T25.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 18:22 {T25.2}\n  - [T26] 2026-11-12T18:25:02Z {T26.1} Investigator Agent: Read back 361 {T26.2} minutes of metrics\n  - [T27] 2026-11-12T18:25:02Z {T27.1} Investigator Agent: Recorded where the 3 {T27.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T28] 2026-11-12T18:25:07Z {T28.1} Investigator Agent: Asked for production change events - deploys and releases, and flag changes from the flag provider's history, the 18 {T28.2} hours 25 {T28.3} minutes before 18:25 {T28.4}\n  - [T29] 2026-11-12T18:25:07Z {T29.1} Investigator Agent: Read back 2 {T29.2} production changes\n  - [T30] 2026-11-12T18:25:07Z {T30.1} Investigator Agent: Asked for the service's log lines, the 9 {T30.2} minutes before 18:22 {T30.3}\n  - [T31] 2026-11-12T18:25:07Z {T31.1} Investigator Agent: Read back 38 {T31.2} log lines\n  - [T32] 2026-11-12T18:25:07Z {T32.1} Investigator Agent: Read the service register - the service calls io-pricing (internal, owned by checkout-platform), io-summary-cache (internal, owned by checkout-platform), io-pay (third-party, owned by IO Payments Ltd)\n  - [T33] 2026-11-12T18:25:07Z {T33.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T33.2} replicas run one revision, which the history does not name\n  - [T34] 2026-11-12T18:25:11Z {T34.1} Investigator Agent: Asked for the service's log lines, the 4 {T34.2} minutes before 18:26 {T34.3}\n  - [T35] 2026-11-12T18:25:11Z {T35.1} Investigator Agent: Read back 16 {T35.2} log lines\n  - [T36] 2026-11-12T18:25:17Z {T36.1} Investigator Agent: Formed 1 {T36.2} candidate cause, best first: C2\n  - [T37] 2026-11-12T18:25:17Z {T37.1} Investigator Agent: Read every channel available\n  - [T38] 2026-11-12T18:25:17Z {T38.1} Argus: Read the flag provider's history - 1 {T38.2} flag change by anyone but Argus, the 1 {T38.3} hour before 18:25:17 {T38.4}\n  - [T39] 2026-11-12T18:25:18Z {T39.1} Argus: Found 1 {T39.2} earlier incident like this one in memory, the closest match being incident 9c1d4e7a-0000-4000-8000-00000000fee1, which tried reverting monthly-spend-feature (refuted)\n  - [T40] 2026-11-12T18:25:18Z {T40.1} Argus: Moved the incident to FIXING - no explanation left to try - 1 {T40.2} action was taken, and the evidence offers nothing further\n  - [T41] 2026-11-12T18:26:13Z {T41.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/576\n  - [T42] 2026-11-12T18:26:13Z {T42.1} Argus: Moved the incident to ESCALATED - a draft pull request is open at https://github.com/ohadraz/Argus-Demo-Target-App/pull/576\n\nChanges to production it read:\n  - [P1] 2026-11-12T18:15:47Z {P1.1} flag-toggle monthly-spend-feature by admin: feature flag monthly-spend-feature was switched on\n  - [P2] 2026-11-12T18:22:13Z {P2.1} flag-toggle monthly-spend-feature by Argus: feature flag monthly-spend-feature was switched off\n  - Deploys read, none came back.\n\nLog lines it read, one per message:\n  - [G7e5d] INFO io-shop: monthly-spend-feature=off - 200 {G7e5d.1} evaluations - 30 {G7e5d.2} occurrences in 30 {G7e5d.3} minutes, 17:45\u201318:14 {G7e5d.4}\n  - [Gad41] INFO io-shop: account pages rendered normally - 8 {Gad41.1} occurrences in 30 {Gad41.2} minutes, 17:45\u201318:14 {Gad41.3}\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 37 {G46bc.1} occurrences in 28 {G46bc.2} minutes, 17:46\u201318:13 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 33 {Gbac1.1} occurrences in 40 {Gbac1.2} minutes, 17:46\u201318:25 {Gbac1.3}; # was 0.50% {Gbac1.4} to 36.00% {Gbac1.5}, typically 1.50% {Gbac1.6}, highest at 18:21 {Gbac1.7}. After Argus first acted, logged in 18:23\u201318:25 {Gbac1.8}\n  - [G971b] INFO io-shop: monthly-spend-feature=off 149 {G971b.1} / on 51 {G971b.2} - 200 {G971b.3} evaluations - 1 {G971b.4} occurrence in 1 {G971b.5} minute, 18:15 {G971b.6}\n  - [G5309] ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47 - 22 {G5309.1} occurrences in 11 {G5309.2} minutes, 18:15\u201318:25 {G5309.3}. After Argus first acted, logged in 18:23\u201318:25 {G5309.4}\n  - [Gce95] INFO io-shop: monthly-spend-feature=on - 200 {Gce95.1} evaluations - 10 {Gce95.2} occurrences in 10 {Gce95.3} minutes, 18:16\u201318:25 {Gce95.4}. After Argus first acted, logged in 18:23\u201318:25 {Gce95.5}\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1, also C2] Candidates blaming the same move of monthly-spend-feature, each in its own words:\n      C1: The feature flag monthly-spend-feature was switched on at 2026-11-12T18:15:47Z {C1.1}. Account page requests that evaluate it then fail with ZeroDivisionError at src/io_shop/spend_summary.py:47, and the error rate rose from about 1% {C1.2} to about 30% {C1.3}. No deployment or config change was recorded. [feature-flag-toggle, confidence 0.95 {C1.4}, refuted]\n      C2: The feature flag monthly-spend-feature was switched on at 2026-11-12T18:15:47Z {C1.5}. Evaluations then moved from off to on, and account page requests started failing with a ZeroDivisionError at src/io_shop/spend_summary.py:47. The error rate went from about 1% {C1.6} to about 30% {C1.7}. No deployment is recorded, and the 3 {C1.8} replicas are converged. Latency, memory and CPU stayed flat. Argus switched the flag back off at 2026-11-12T18:22:13Z {C1.9}, but the logs still showed it on and errors continued through 18:25 {C1.10}. [feature-flag-toggle, confidence 0.88 {C1.11}, refuted, as tested for C1]\n\nActions it took:\n  - [M1] Reverted the feature flag monthly-spend-feature for [C1] (can be put back) - refuted, put back when it did not help\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] The fault is in `average_spend_per_item_this_month` in src/io_shop/spend_summary.py. It divides `account.total_this_month_cents` by the number of purchases flagged `in_current_month`. When a shopper has bought nothing this month, that number is zero, and line 47 {F1.1} raises ZeroDivisionError. Plenty of shoppers have bought before but not this month (the test file's own helper calls this \"the ordinary case\"). So every request that `render_spend_summary` sent down the monthly path (`use_monthly_summary=True`) for such a shopper failed at the account-page boundary. Turning on monthly-spend-feature did not create the fault. It started sending requests to code that had always crashed on this input.\n      \n      The fix: when nothing was bought this month, the function now returns 0 {F1.2}, because a shopper with no purchases this month has spent 0 {F1.3} this month. For any month with at least one purchase it divides exactly as before. The lifetime figure (`average_spend_per_item`) is unchanged, so its existing test still expects ZeroDivisionError for an account that has never bought anything while the flag is off. The function's return type is still `int`, so `account_page._the_figure_for` and the rest of the page get the same kind of value as before.\n      \n      Tests added to tests/io_shop/test_spend_summary.py:\n      - one calls `average_spend_per_item_this_month` directly, for a shopper with past purchases but none this month, and expects 0 {F1.4};\n      - one goes through `render_spend_summary(..., use_monthly_summary=True)` and expects the same.\n      \n      With the code as it stood, both would raise ZeroDivisionError.\n      \n      Not addressed: the investigation reports the flag still evaluating \"on\" after it was switched off. Nothing I read in this repository evaluates or caches that flag (`rollout.py` holds only a share constant), so I made no change for it. With this fix, an \"on\" evaluation for such a shopper no longer fails.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'.\n\nAction items the record already holds:\n  - AI-1 (mitigate, open): Review and merge the proposed fix\nPR #576 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
       "role": "user"
     }
   ],
@@ -32,24 +32,230 @@
   },
   "tools": [
     {
-      "description": "Give the order the causal chain's steps should be read in, as their numbers. Change nothing else.",
+      "description": "Submit the postmortem for this incident. Every field is required. Write no figure yourself anywhere in your answer - no time, duration, percentage, count or amount, not in digits and not spelled out in words. Every figure you are shown is followed by its name in braces, like {A3} or {duration}: where your prose states one, write its name, braces and all, and the document writes the figure in. A figure you were not shown but could work out from two you were - the span between two instants, how far one share is above another, how many times one is the other - is written as that working, braces and all: {back_to_normal - began}, {T3.1 - alert_raised}, {errors_at_worst / errors_before}. The document works it out from the figures as you were shown them. Say any other size with no number in it, not even in a word - \"most requests\", \"for several minutes\", never \"twenty minutes\", \"a third\" or \"tripled\". A number is a figure even with a unit or a clock's marks on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a name - a label (T2, G3fa2, C1, AI-1), a version (v2), a revision, a pod - and is written as given. State only what the evidence you are shown says: where the record does not show something - a check that was or was not run, how many replicas - leave it out or say it was not seen.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {
-          "order": {
-            "description": "Every step's number, each once, in the order that makes each step answer why the step directly before it happened. The first and the last stay where they are.",
+          "action_items": {
+            "description": "What should be done that the record does not already hold, each one thing a person could take on: two things to do are two items. Empty where the record's own items answer every factor. Propose nothing to confirm a cause the record already confirmed - a mitigation that worked, a hypothesis marked confirmed - and no check of what the evidence you are shown already shows: a diff states what changed. Where an F row says to check something a D row shows, say what the D row shows, and the item is what follows from it. Where Code-Fix proposed a fix, propose no item to run or check its reading: where the cause rests on it, the review checklist says what would confirm it, under the record's own item for the fix.",
             "items": {
-              "type": "integer"
+              "additionalProperties": false,
+              "properties": {
+                "answers": {
+                  "description": "The labels of the contributing factors it answers: CF-1. Empty where it answers none.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "item": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mitigate",
+                    "prevent",
+                    "detect",
+                    "process"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "item",
+                "type",
+                "answers"
+              ],
+              "type": "object"
             },
             "type": "array"
+          },
+          "assumptions": {
+            "description": "Anything else the reader should know was assumed rather than measured. Empty is a valid answer.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "causal_chain": {
+            "description": "The cause as the five whys, from the symptom down: the first step is what users saw - or, where nobody using the service saw anything wrong, that and what was seen instead - and each step after it answers why the step directly before it happened. The first why says why the symptom happened, not the symptom again in more detail. Where the record holds them, the document says itself how bad it got, which change set it off, what put the service back and the root cause: a step cites the row that shows one of those and does not say it again - no figure the impact gives in the first step, no action Argus took, nor its verdict, in the step naming the change, and, where the chain says why the change broke the service, its last step says that in one sentence, its mechanism left to the root cause. Where the incident needed two things at once - something going wrong, and nothing in place to contain it - follow the one that leads to what set it off; the other is one of the contributing_factors, not named in the chain. A safeguard that did not stop it is never a step of its own: it is one of the contributing_factors. Every step cites at least one piece of evidence by its label. Date a change by its own row's instant - the T or P row that records it - never by an effect it had. A state a row read - how many replicas run a revision, which way a flag is set - is known as of the row that read it, by that row's instant, which is its first figure, as T3.1 is T3's - not from when the change was made. What else the record ruled out - an earlier change, a flag the provider showed unchanged, a candidate refuted - goes in the ruled_out of the step that ties the incident to the change that set it off, citing what ruled it out, and never as a step. An earlier change is ruled out only by the service measured healthy with it in place - in metrics read between it and the onset, in an alert that dates the first harm itself at or after a later change (at, where the two instants are the same), or after a confirmed action that left it there - never by how long before the onset it came. Where the record shows none of these, it was not ruled out: say so in that step itself. Stop where the evidence stops.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cites": {
+                  "description": "The labels of the evidence that shows this step: T3, G3fa2. Not rows that merely happened at the same time.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ruled_out": {
+                  "description": "What else the record ruled out at this step, each what it was and why. Empty on every step but the one that ties the incident to the change that set it off.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cites": {
+                        "description": "The labels of what ruled it out.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "what": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "what",
+                      "cites"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "step": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step",
+                "cites",
+                "ruled_out"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cause_in_plain_words": {
+            "description": "What caused the incident, in one sentence for a reader who does not work on the service: no component names unless they are unavoidable. When it began, for how long, how bad it got, what customers lost and what was done the document says itself - say none of them. Say only what the record says - of a change, of the service, of the people - and nothing it does not. Where part of it rests only on a reading nothing ran, say that part as likely, in plain words, without mentioning the reading.",
+            "type": "string"
+          },
+          "cause_rests_on_an_unrun_reading": {
+            "description": "Whether the mechanism in root_cause rests on an F row - a reading of the code nothing ran - with no S or D row showing what it rests on. Where you answer true, the document says itself, beside the root cause, that the cause is unverified, and leaves its root-cause review box for a person: say neither in root_cause.",
+            "type": "boolean"
+          },
+          "contributing_factors": {
+            "description": "Conditions that had to hold for the incident to happen and did not cause it alone - a safeguard that did not stop it, a gap in detection or review. A factor held before the incident began: what the response did, declined or left behind - an action taken or not, automatic sync left off - is not one; where it went wrong, say it under went_wrong. Not the root cause again in other words: a factor is something that, had it been otherwise, would have stopped or shortened the incident even with what root_cause says still true. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran - and of a check the record does show, say that no other check was seen, never that it is the only one, unless a line of the record says so. An alert finds what its rule watches, not the cause behind it: say a fault was found only by what the record shows found it. Each is answered by at least one action item: one of the record's, named in its addressed_by, or one you propose, whose answers name it.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "addressed_by": {
+                  "description": "The record's own action items that answer it, by the numbers the record gives them: AI-1. Empty where none of them does. Never an item you propose: that item names, in its own answers, the factors it answers. The record's item that merges this incident's fix answers the fault its own tests cover, never a check missing before the change went out: answer that with an item that puts the check in place for every change like it.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "factor": {
+                  "type": "string"
+                },
+                "had_it_been_otherwise": {
+                  "description": "What would have gone differently had this been otherwise - stopped, shortened or caught sooner - with what root_cause says still true. A factor that only says the root cause again cannot answer this: leave it out of the list.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "CF-1 for the first factor, CF-2 for the next, and so on in the order you give them. Written here and in an item's answers, never in your prose: the reader never sees it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "factor",
+                "had_it_been_otherwise",
+                "addressed_by"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "lessons": {
+            "additionalProperties": false,
+            "description": "What went well, what went wrong, and where the incident got lucky - a risk that went unnoticed this time. Any list may be empty. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran - and of a check the record does show, say that no other check was seen, never that it is the only one, unless a line of the record says so. How soon the alert came is weighed by the document already, from what was measured: say nothing of it here.",
+            "properties": {
+              "got_lucky": {
+                "description": "Something the record shows went the fortunate way by chance, and how it kept the harm down - never what would have happened otherwise. Empty where the record shows none. Not what kind of fault it was, which the impact already says, nor a limit of what the record shows, which is said in assumptions as what was assumed. Not how the service did over a stretch its metrics did not cover, nor what a failure there would have done - the document says how it did.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "went_well": {
+                "description": "Only what went well; empty where nothing did. A timed item says one thing, done at its row; what came later goes in an item of its own. Say no span of time, in figures or in words (\"within seconds\"): name the row in timed_by instead, and begin an item timed so with who did it (\"The Investigator Agent ...\", \"Argus ...\"), since the document says the time ahead of it. Set a purpose or a reason beside the action it belongs to, and say it once. Name what Code-Fix proposed without saying what it does: the action items and Code-Fix's own reading say that, with its conditions.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "item": {
+                      "type": "string"
+                    },
+                    "timed_by": {
+                      "description": "The T or XW row the item happened on (T13), where when it happened is part of why it went well: the document says how long after the alert that was. Left out where its time is not the point.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "item"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "went_wrong": {
+                "description": "A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge, a change Argus refused to undo, for a reason the record bears out, and left for a person - a refusal the record contradicts did go wrong, and belongs here. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already. Not that Code-Fix read another revision than the one that ran, or that nothing ran its reading: where the record holds them, the document says the first in its summary and the second beside the root cause.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "went_well",
+              "went_wrong",
+              "got_lucky"
+            ],
+            "type": "object"
+          },
+          "reaches_a_cause": {
+            "description": "Whether the chain says why the change that set the incident off broke the service, rather than stopping at that change. A step resting on F rows - a reading of the code nothing ran - counts: whether that leaves the cause unverified is cause_rests_on_an_unrun_reading's to say. That a new version does worse is what the change did, not why it broke the service: answer false where the chain says the evidence does not show why.",
+            "type": "boolean"
+          },
+          "root_cause": {
+            "description": "What caused the incident, in one or two sentences, written for an engineer who was not on the call: the mechanism - why the change that set it off broke the service, as far as the evidence goes, a missing protection or not. Not the trigger, how it was confirmed, what resolved it or what was ruled out - the document states each of those itself. Not one of the contributing_factors: a safeguard that would have stopped it with this mechanism unchanged is said there, not here. What the service did over the stretch the metrics did not watch is not the mechanism: the document says it itself. Whether it was verified the document says itself, from your answer to cause_rests_on_an_unrun_reading - do not say it.",
+            "type": "string"
+          },
+          "still_at_risk": {
+            "description": "What was still at risk at the end of the time Argus held the incident, in one sentence for the same reader - what the fault still in place then could yet do, or the same thing able to happen again. Empty where nothing was. Not whether the service or its metrics were back, nor why - the summary says both. Not what Argus left to a person - a draft fix, automatic sync left off, a recommended action - which the document says itself. Say what could happen, never why it would: no \"because\". The summary says the cause, or that none was found. Say only what the record says: nothing of the service after that was read.",
+            "type": "string"
+          },
+          "stops_the_harm": {
+            "description": "One action item, said as the one thing to do: what stops the harm the record shows going on once the action that did not help was put back, and how to confirm at the service that it took effect. Not how long it is kept: the document adds that it stays in place until the fault is fixed. Say only what the record shows. It is listed after your own action items: do not repeat it among them, nor any of the record's own.",
+            "type": "string"
+          },
+          "symptom": {
+            "description": "What went wrong as somebody using the service saw it, as short as it can be: it is the document's title. One sentence with no number in it, never over 16 words - the thing that went wrong and what happened to it, with an active verb: 'Account pages failed'. Not the metric the alert fired on, not the cause - the document adds the change it began with itself, after your sentence and a 'while', so end on what went wrong, with no clause after it - and not how it was found, which the document's Detection says. Where nobody using the service saw anything wrong, say that and what was seen instead, in that one sentence.",
+            "type": "string"
+          },
+          "why_it_did_not_help": {
+            "description": "One action item: what to find out about why the action that was put back did not help - whether it reached the service, and if it did, why it did not end the harm. The document already lists that the Mitigation Agent is to confirm a change reached the service before judging it: leave that out of your items.",
+            "type": "string"
           }
         },
         "required": [
-          "order"
+          "root_cause",
+          "cause_in_plain_words",
+          "still_at_risk",
+          "symptom",
+          "causal_chain",
+          "contributing_factors",
+          "action_items",
+          "lessons",
+          "reaches_a_cause",
+          "cause_rests_on_an_unrun_reading",
+          "stops_the_harm",
+          "why_it_did_not_help"
         ],
         "type": "object"
       },
-      "name": "order_chain",
+      "name": "submit_postmortem",
       "strict": true
     }
   ]

@@ -13,6 +13,7 @@ from collections.abc import Callable
 import pytest
 from argus_core.config import (
     DatabaseSettings,
+    LLMSettings,
     ReadMcpEndpoint,
     Settings,
     SettingsSlice,
@@ -26,6 +27,12 @@ from argus_testkit import (
     attempting,
 )
 from pydantic import ValidationError
+
+SOME_KEY = "some-key"
+SOME_STAND_IN = "http://every-agent.example"
+SOME_STAND_IN_FOR_THE_JUDGE = "http://the-judge.example"
+# No address: the SDK's own, which is the real API.
+THE_REAL_API = ""
 
 
 @pytest.mark.unit
@@ -555,3 +562,70 @@ def _it_is(expected: TelemetrySettings) -> Assertion[TelemetrySettings]:
         return True
 
     return it_is
+
+
+@pytest.mark.unit
+def test_the_judge_is_reached_at_its_own_address_where_one_is_set() -> None:
+    # Its own, so a replay can answer the writer from one stand-in and the
+    # judge from another, each in the order its own calls were recorded.
+    Scenario() \
+        .given(
+            some_settings := Settings(anthropic_api_key=SOME_KEY,
+                                      anthropic_base_url=SOME_STAND_IN,
+                                      judge_anthropic_base_url=SOME_STAND_IN_FOR_THE_JUDGE)
+        ) \
+        .when(
+            lambda: LLMSettings.for_the_judge(some_settings)
+        ) \
+        .then(
+            _reaches(LLMSettings(anthropic_api_key=SOME_KEY,
+                                 anthropic_base_url=SOME_STAND_IN_FOR_THE_JUDGE))
+        )
+
+
+@pytest.mark.unit
+def test_the_judge_reaches_the_real_api_where_every_agent_does() -> None:
+    Scenario() \
+        .given(
+            some_settings := Settings(anthropic_api_key=SOME_KEY,
+                                      anthropic_base_url=THE_REAL_API,
+                                      judge_anthropic_base_url=THE_REAL_API)
+        ) \
+        .when(
+            lambda: LLMSettings.for_the_judge(some_settings)
+        ) \
+        .then(
+            _reaches(LLMSettings(anthropic_api_key=SOME_KEY, anthropic_base_url=THE_REAL_API))
+        )
+
+
+@pytest.mark.unit
+def test_a_judge_with_no_address_where_every_agent_has_a_stand_in_is_refused() -> None:
+    # Neither default is safe. The writer's stand-in would serve the judge the
+    # writer's recordings out of turn, or record the judge's calls into the
+    # writer's scenario; the real API would spend on every write-up judged.
+    Scenario() \
+        .given(
+            some_settings := Settings(anthropic_api_key=SOME_KEY,
+                                      anthropic_base_url=SOME_STAND_IN,
+                                      judge_anthropic_base_url=THE_REAL_API)
+        ) \
+        .when(
+            attempting(lambda: LLMSettings.for_the_judge(some_settings))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValueError),
+                _it_complained_about("JUDGE_ANTHROPIC_BASE_URL")
+            )
+        )
+
+
+def _reaches(expected: LLMSettings) -> Assertion[LLMSettings]:
+    def assertion(reached: LLMSettings) -> bool:
+        if reached != expected:
+            raise AssertionError(f"Expected the judge to reach {expected}, got {reached}.")
+
+        return True
+
+    return assertion

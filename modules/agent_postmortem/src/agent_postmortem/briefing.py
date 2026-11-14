@@ -64,7 +64,11 @@ STANDING_BRIEF: Final = "\n\n".join([
 
     "Never stop at a person. Where somebody's action set the incident off, ask "
     "why the system let that action do harm - why it was possible at all - and "
-    "carry on from there."
+    "carry on from there.",
+
+    "Say that two things happened over the same minutes, or in the same number, "
+    "only where the record's figures for them are the same; where they differ, "
+    "however little, say each as its own."
 ])
 
 

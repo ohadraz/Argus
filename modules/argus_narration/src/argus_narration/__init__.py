@@ -25,12 +25,14 @@ from argus_narration.flags import (
 from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
 from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_narration.narrating import (
+    A_PERSON,
     THE_CLAIM_WAS_NOT_IN_THE_WINDOW,
     CandidateLine,
     CandidateNamed,
     NarrationLine,
     a_candidate_cause,
     a_narration_line,
+    as_a_clause,
     build_narration,
     each_wait_told_once,
     said_as_meant,
@@ -46,13 +48,16 @@ from argus_narration.showing import (
     ShownRevision,
     as_shown,
     said_as_shown,
+    said_as_the_document_shows,
     shown,
     the_links_in,
     the_pull_requests,
     the_revisions,
+    the_short_forms,
 )
 
 __all__ = [
+    "A_PERSON",
     "BucketRow",
     "CandidateLine",
     "CandidateNamed",
@@ -72,6 +77,7 @@ __all__ = [
     "a_moment",
     "a_narration_line",
     "a_window",
+    "as_a_clause",
     "as_shown",
     "build_narration",
     "each_wait_told_once",
@@ -81,6 +87,7 @@ __all__ = [
     "said_as_a_state",
     "said_as_meant",
     "said_as_shown",
+    "said_as_the_document_shows",
     "said_in_full",
     "said_plainly",
     "shown",
@@ -89,6 +96,7 @@ __all__ = [
     "the_minutes_logged",
     "the_pull_requests",
     "the_revisions",
+    "the_short_forms",
     "what_the_action_does",
     "what_to_do",
     "what_was_done",

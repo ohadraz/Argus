@@ -81,6 +81,19 @@ def the_on_call_platform_holds(incident_id: str,
     return staged
 
 
+def the_on_call_platform_forgot_every_incident() -> None:
+    """Nothing staged in the on-call double.
+
+    Two cases paging for the same alert group stage the same key, and the one
+    found first would answer for both.
+    """
+    httpx2.post(
+        f"{PAGERDUTY_DOUBLE_BASE_URL}/double-control/reset",
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        verify=False
+    )
+
+
 def a_resolution_by(person: str, person_id: str, incident_id: str) -> dict[str, Any]:
     """PagerDuty's `incident.resolved`, as a person resolving it from its page sends it.
 

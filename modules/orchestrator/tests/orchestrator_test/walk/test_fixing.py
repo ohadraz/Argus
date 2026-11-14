@@ -616,6 +616,55 @@ def test_the_move_after_a_fix_left_unopened_says_why_and_not_that_a_person_has_i
 
 
 @pytest.mark.unit
+def test_a_failure_in_somebody_elses_service_asks_code_fix_nothing() -> None:
+    # The gate ruled the candidate's fault another company's, and its own line
+    # said so and whom to ask. A change written around their outage is nobody's
+    # to merge, so the agent is not asked and no attempt is announced. The
+    # incident is still handed over, as any walk with no fix to propose is.
+    published: list[IncidentEvent] = []
+    a_hypothesis = a_determined_hypothesis(DONT_CARE_INCIDENT_ID)
+
+    Scenario() \
+        .given(
+            an_incident_in_somebody_elses_service := _an_incident_in(
+                IncidentStatus.FIXING, hypothesis=a_hypothesis
+            ).model_copy(update={"somebody_elses_fault_for": a_hypothesis.id}),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_in_somebody_elses_service, the_agent.propose,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            the_updates_carry("fix_found", False),
+            _the_agent_was_never_asked(the_agent),
+            _no_attempt_was_announced(published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_candidate_after_one_whose_fault_was_somebody_elses_is_still_asked_about() -> None:
+    # Ruled of one candidate, not of the incident: a walk that went on to
+    # another, whose fault is in this code, asks Code-Fix as any walk does.
+    a_hypothesis = a_determined_hypothesis(DONT_CARE_INCIDENT_ID)
+    an_earlier_hypothesis = a_determined_hypothesis(DONT_CARE_INCIDENT_ID)
+
+    Scenario() \
+        .given(
+            an_incident_past_it := _an_incident_in(
+                IncidentStatus.FIXING, hypothesis=a_hypothesis
+            ).model_copy(update={"somebody_elses_fault_for": an_earlier_hypothesis.id}),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_past_it, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_asked_about(the_agent, a_hypothesis)
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_stopped_because_nobody_wants_it_any_more_says_nothing() -> None:
     # Not an attempt that ended in any of its outcomes - somebody said stop.
     # Announcing one would put a line on the timeline about a fix nobody asked
@@ -1094,6 +1143,19 @@ def _the_agent_was_told_what_ran(
             raise AssertionError(
                 f"Expected Code-Fix to be told [{revision}] was running, it was "
                 f"told [{agent.deployed}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_agent_was_never_asked(agent: _AnAgentRememberingWhatItWasAsked) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        if agent.incident_id is not None:
+            raise AssertionError(
+                f"Expected Code-Fix not to be asked, it was asked about "
+                f"[{agent.hypothesis}]."
             )
 
         return True

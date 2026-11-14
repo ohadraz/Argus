@@ -53,11 +53,13 @@ from agent_postmortem.prompting import (
     LESSONS_FIELD,
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     ROOT_CAUSE_FIELD,
+    RULED_OUT_FIELD,
     STILL_AT_RISK_FIELD,
     STOPS_THE_HARM_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
+    WENT_WELL_FIELD,
     WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedFactor,
     SubmittedItem,
@@ -132,6 +134,16 @@ SOME_GIVEN_WITH_A_ROW = SOME_GIVEN.model_copy(update={
                 **{name: DONT_CARE_FIGURE for name in ("C1.1", "G7e5d.1")}},
     "speakers": frozenset({"Investigator"}),
     "timeline_rows": frozenset({"T13"})})
+
+
+# A figure written in digits and a size said in words: each named wherever a
+# reader would see it.
+A_FIGURE_IN_DIGITS = "541"
+A_SIZE_IN_WORDS = "an hour"
+# The first item of what went well, and a first step's first rule-out, by the
+# place a check names them.
+THE_FIRST_ITEM = f"{WENT_WELL_FIELD} 1"
+THE_FIRST_RULE_OUT = f"{CAUSAL_CHAIN_FIELD} 1 {RULED_OUT_FIELD} 1"
 
 
 def _timed(item: str, row: str | None) -> SubmittedPostmortem:
@@ -424,6 +436,76 @@ def test_an_item_timed_by_nothing_is_held_to_no_opening() -> None:
         ) \
         .then(
             _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_an_item_said_as_its_row_is_held_to_no_opening() -> None:
+    # Code says it as its row: none of its words reach a reader.
+    Scenario() \
+        .when(
+            lambda: faults_in(_said_by_code(_timed("When the evidence could not support a "
+                                                   "cause, Argus escalated.", "T13"),
+                                            THE_FIRST_ITEM),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_in_digits_in_an_item_said_as_its_row_is_not_named() -> None:
+    # "Draft pull request 541", in an item code said as its row, sent a
+    # write-up back for a figure the document never printed.
+    Scenario() \
+        .when(
+            lambda: faults_in(_said_by_code(_timed(f"The Investigator Agent opened pull request "
+                                                   f"{A_FIGURE_IN_DIGITS}.", "T13"),
+                                            THE_FIRST_ITEM),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_in_digits_in_an_item_a_reader_sees_is_named() -> None:
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed(f"The Investigator Agent opened pull request "
+                                     f"{A_FIGURE_IN_DIGITS}.", "T13"),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _named(f"[{A_FIGURE_IN_DIGITS}]")
+        )
+
+
+@pytest.mark.unit
+def test_a_size_in_words_in_a_rule_out_code_says_is_not_named() -> None:
+    Scenario() \
+        .when(
+            lambda: faults_in(_said_by_code(_ruling_out(f"A restart: none in {A_SIZE_IN_WORDS} "
+                                                        f"after it."),
+                                            THE_FIRST_RULE_OUT),
+                              given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_size_in_words_in_a_rule_out_a_reader_sees_is_named() -> None:
+    Scenario() \
+        .when(
+            lambda: faults_in(_ruling_out(f"A restart: none in {A_SIZE_IN_WORDS} after it."),
+                              given=SOME_GIVEN)
+        ) \
+        .then(
+            _named(f"[{A_SIZE_IN_WORDS}]")
         )
 
 
@@ -798,6 +880,56 @@ def test_a_figure_said_in_one_word_is_named(said: str) -> None:
 
 
 @pytest.mark.unit
+def test_a_fraction_of_something_is_named() -> None:
+    # udf's write-up said "io-pay is a third-party service", and was refused
+    # for [a third]: a fraction is one only where it is of something, or ends
+    # the phrase - before a noun it is an ordinal.
+    fraction = "a third"
+    Scenario() \
+        .given(
+            an_answer_saying_a_fraction_of_something := _an_answer(
+                cause_in_plain_words=f"{fraction} of the requests failed")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_a_fraction_of_something, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(f"[{fraction}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("said", "fraction"), [
+    ("two thirds were refused", "two thirds"),
+    ("a quarter failed", "a quarter"),
+    ("takings fell by a third - the worst week", "a third"),
+    ("a third more requests failed", "a third"),
+    ("a fifth fewer orders went through", "a fifth")
+], ids=["a-plural-is-never-an-ordinal", "a-quarter-is-never-an-ordinal",
+        "a-spaced-dash-ends-the-phrase", "a-comparative-follows", "fewer-follows"])
+def test_a_fraction_that_cannot_be_an_ordinal_is_named(said: str, fraction: str) -> None:
+    # Only third, fifth and tenth double as ordinals, and only where a noun
+    # follows: a plural, a quarter or a half never does, a spaced dash ends a
+    # phrase as a full stop does, and "more" or "fewer" after it asks "of what".
+    Scenario() \
+        .given(
+            an_answer_saying_a_fraction := _an_answer(cause_in_plain_words=said)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_a_fraction, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(f"[{fraction}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_figure_spelled_out_with_what_it_measures_is_named_once() -> None:
     # One figure, one fault: refused as spelled out, it is not refused again
     # for the unit after it.
@@ -826,6 +958,9 @@ def test_a_figure_spelled_out_with_what_it_measures_is_named_once() -> None:
     "one-minute buckets",
     "the one that failed",
     "a second candidate",
+    "a third-party service",
+    "a third party",
+    "a third time",
     "no purchases in a month"
 ])
 def test_a_size_with_no_figure_in_it_is_accepted(said: str) -> None:
@@ -2769,6 +2904,19 @@ def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:
     }
 
     return SubmittedPostmortem(**(complete | overrides))
+
+
+def _said_by_code(answer: SubmittedPostmortem, *places: str) -> SubmittedPostmortem:
+    """`answer`, with code saying each of `places` instead of the model."""
+    return answer.model_copy(update={"said_by_code": frozenset(places)})
+
+
+def _ruling_out(what: str) -> SubmittedPostmortem:
+    """An answer that passes every check but for its one step's one rule-out,
+    resting on the second label, which says `what`."""
+    return _an_answer(causal_chain=[SubmittedStep(
+        step=DONT_CARE_PROSE, cites=["E1"],
+        ruled_out=[SubmittedRuledOut(what=what, cites=["E2"])])])
 
 
 def _given_figures(*names: str, figures: Mapping[str, Figure] = SOME_FIGURES) -> Given:

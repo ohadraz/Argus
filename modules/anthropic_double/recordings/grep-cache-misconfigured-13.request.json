@@ -1,0 +1,56 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The causal chain of a postmortem, its steps numbered as written:\n1. Shoppers' account pages loaded slowly: the slowest replica's median time to answer a request rose far above its usual level, while failed requests stayed within their normal range.\n2. Pages were slow because the account page could not use its rendered-summary cache. Its configuration says that when the cache cannot be reached, the page works out the shopper's spend figure from scratch, and the logs show that happening on every request.\n3. The cache could not be used because every lookup was refused: the service connected to the cache on port 6380, and the cache refused the connection. As read at 03:49:51 UTC, all replicas ran revision 0d8e826, whose configuration sets that port.\n4. The service pointed at that port because the deploy of revision 0d8e826 at 03:42:44 UTC changed the cache port in deploy/values-production.yaml from 6379 to 6380, a port on which the cache refused connections.\n\nPut the steps in the order in which each step answers why the step directly before it happened - the first and the last stay where they are. Call order_chain with the steps' numbers in that order.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Give the order the causal chain's steps should be read in, as their numbers. Change nothing else.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Every step's number, each once, in the order that makes each step answer why the step directly before it happened. The first and the last stay where they are.",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "name": "order_chain",
+      "strict": true
+    }
+  ]
+}

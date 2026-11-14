@@ -259,6 +259,13 @@ class Settings(BaseSettings):
     # and a candidate is demoted on the strength of it.
     incident_memory_recall_limit: int = Field(default=5, gt=0)
     incident_memory_similarity_floor: float = Field(default=0.5, ge=0.0, le=1.0)
+    # How many times one search is asked in all when the store fails it for
+    # itself (a 5xx), and how many seconds apart. Qdrant failed a search with
+    # "Expected at least one response for one query" while the record was there.
+    # Both are starting guesses: why it failed is unshown, so nothing yet says
+    # how long such a failure lasts.
+    incident_memory_recall_attempts: int = Field(default=3, gt=0)
+    incident_memory_recall_retry_seconds: float = Field(default=0.5, ge=0.0)
 
     log_initial_lookback_minutes: int = Field(default=30)
     log_initial_lookahead_minutes: int = Field(default=10)
@@ -349,6 +356,12 @@ class Settings(BaseSettings):
     # the seam sits below the SDK, so the real adapter, the real
     # `messages.parse` and the real schema transform still run.
     anthropic_base_url: str = Field(default="")
+    # Where the grounding judge's requests go, which is a stand-in of its own
+    # wherever every agent's is one: a replay serves each stand-in's calls in
+    # the order they were recorded, and the judge's calls are not the writer's.
+    # Empty means the real API, and only where every agent's is the real API
+    # too (`LLMSettings.for_the_judge` refuses the rest).
+    judge_anthropic_base_url: str = Field(default="")
 
     # Which model answers each agent, and how hard it is asked to think.
     #
@@ -406,6 +419,13 @@ class Settings(BaseSettings):
     # different few of them in each of three re-records of one incident.
     postmortem_model: str = Field(default=DEFAULT_MODEL)
     postmortem_effort: Effort = Field(default=DEFAULT_EFFORT)
+    # The grounding judge, which reads a write-up and an overview against what
+    # they were written from. Opus at medium effort: no weaker than the writer
+    # it judges, and thinking. Checking each claim against a record is
+    # reasoning, and Sonnet at low effort, which did not think, flagged claims
+    # its own record supported in every write-up of the pilot.
+    judge_model: str = Field(default="claude-opus-5-5")
+    judge_effort: Effort = Field(default="medium")
 
     # The model that classifies what a person wrote in an incident's thread, and
     # how often the intent agent looks for something new to understand. One short
@@ -959,6 +979,27 @@ class LLMSettings(SettingsSlice):
 
     anthropic_api_key: str
     anthropic_base_url: str
+
+    @classmethod
+    def for_the_judge(cls, settings: Settings) -> Self:
+        """What it takes for the grounding judge to reach its model: the same
+        key, at the judge's own address.
+
+        Refused where every agent is pointed at a stand-in and the judge at
+        nothing, since neither default is safe there. The agents' stand-in
+        would serve the judge the writer's recordings out of turn, or record
+        the judge's calls into the writer's scenario; the real API would spend
+        on every write-up judged. Built at a process's start, so a stack
+        addressed that way never starts.
+        """
+        if settings.anthropic_base_url and not settings.judge_anthropic_base_url:
+            raise ValueError(
+                f"JUDGE_ANTHROPIC_BASE_URL is empty while ANTHROPIC_BASE_URL is "
+                f"{settings.anthropic_base_url}: give the grounding judge a stand-in of "
+                f"its own, or point every agent at the real API")
+
+        return cls(anthropic_api_key=settings.anthropic_api_key,
+                   anthropic_base_url=settings.judge_anthropic_base_url)
 
 
 class TelemetrySettings(SettingsSlice):

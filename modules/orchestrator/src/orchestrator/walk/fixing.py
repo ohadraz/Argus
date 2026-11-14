@@ -59,7 +59,9 @@ def codefix_node(state: IncidentState,
 
     The agent is asked even when the walk concluded nothing, about nothing.
     "I looked and found no fix" and "nobody looked" reach the same human and
-    only one of them would be true.
+    only one of them would be true. The one candidate it is not asked about is
+    one the gate ruled another company's fault (`somebody_elses_fault_for`):
+    there "nobody looked" is the finding, and the gate's refusal line says it.
 
     Three outcomes rather than two, because a proposal that could not be *made*
     is a different thing from one that was not warranted - and the difference
@@ -92,6 +94,17 @@ def codefix_node(state: IncidentState,
     record is what says whether each change still stands.
     """
     narrator = Narrator(state.incident_id, publisher)
+
+    if (state.hypothesis is not None
+            and state.somebody_elses_fault_for == state.hypothesis.id):
+        # Nobody looked, and on purpose: the gate ruled this candidate's fault
+        # another company's, and its refusal's line already says so, whom to
+        # ask, and that no code fix is looked for. That line is this step's
+        # account - announcing an attempt here would say one that never was.
+        # Still no fix, though, so the incident is handed over as any walk
+        # with none to propose is, and the move says why.
+        return StateDelta(fix_found=False,
+                          narration=Narration(action="no code fix looked for"))
 
     try:
         proposed = propose_fix(

@@ -141,7 +141,9 @@ def _it_was_remembered_as_having_tried(
                 )[0],
                 service=THE_SERVICE_NAME,
                 limit=settings.incident_memory_recall_limit,
-                floor=settings.incident_memory_similarity_floor
+                floor=settings.incident_memory_similarity_floor,
+                attempts=settings.incident_memory_recall_attempts,
+                retry_seconds=settings.incident_memory_recall_retry_seconds
             )
         finally:
             store.close()

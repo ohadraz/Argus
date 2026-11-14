@@ -5,7 +5,7 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_016pyqnCP6LaNsM92j2UFvdT",
+      "id": "toolu_01MSXNoprRqhLyFVXUryue4x",
       "input": {
         "hypotheses": [
           {
@@ -13,24 +13,24 @@
             "failure_mode": "feature-flag-toggle",
             "faulting_service": null,
             "from_state": "off",
-            "subject": "typical-purchase-feature",
-            "summary": "The feature flag typical-purchase-feature was switched from off to on at 2026-11-03T18:21:00Z. From that minute p99 latency jumped from about 200ms to 1100-1900ms. The error rate, p50 and p95 stayed flat, and no deploy was recorded.",
+            "subject": null,
+            "summary": "Feature flag typical-purchase-feature was switched on at 2026-11-12T14:15:47Z. p99 latency jumped from about 200ms to 1000-2000ms from 2026-11-12T14:16:00Z, while p50, p95, error rate, memory and CPU stayed at baseline. No deploy occurred, the rollout and pods were unchanged, and the dependencies show no failure.",
             "supporting_evidence": [
               {
-                "at": "2026-11-03T18:21:00Z",
+                "at": "2026-11-12T14:15:47Z",
                 "claim": "feature flag typical-purchase-feature was switched on (actor: admin)"
               },
               {
-                "at": "2026-11-03T18:21:00Z",
-                "claim": "typical-purchase-feature=off 16 / on 184 - 200 evaluations"
+                "at": "2026-11-12T14:15:00Z",
+                "claim": "typical-purchase-feature=off 163 / on 37 - 200 evaluations"
               },
               {
-                "at": "2026-11-03T18:21:00Z",
-                "claim": "p99_ms 1333 (previous minute 201); p50 and p95 flat, error_rate 0.01"
+                "at": "2026-11-12T14:16:00Z",
+                "claim": "p99_ms 1339 (previously ~200), p50 28, p95 201, error_rate and resource columns at baseline"
               },
               {
-                "at": "2026-11-03T18:27:00Z",
-                "claim": "p99_ms 1901 while typical-purchase-feature=on; cpu_limit_cores 3.0 throughout, volume steady at 1200"
+                "at": "2026-11-12T14:22:00Z",
+                "claim": "typical-purchase-feature=on - 200 evaluations"
               }
             ],
             "to_state": "on"
@@ -42,7 +42,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CggU1Ecw7pE7tG9suwf61",
+  "id": "msg_011CgyBbuEfoxuXoUdYxEnFQ",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -52,13 +52,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 6495
+      "ephemeral_5m_input_tokens": 6255
     },
-    "cache_creation_input_tokens": 6495,
-    "cache_read_input_tokens": 31519,
+    "cache_creation_input_tokens": 6255,
+    "cache_read_input_tokens": 31515,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 465,
+    "output_tokens": 471,
     "output_tokens_details": {
       "thinking_tokens": 0
     },

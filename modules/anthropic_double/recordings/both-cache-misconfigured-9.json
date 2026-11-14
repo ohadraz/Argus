@@ -2,30 +2,164 @@
   "container": null,
   "content": [
     {
+      "signature": "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",
+      "thinking": "I'm starting with the symptom: account pages were loading slowly, though nothing was failing. Next I'm working through a causal chain, starting with the idea that shoppers saw slow account pages and median latency went up. I'm weighing whether the ClientDisconnected entries in the logs could explain it, since shoppers may have closed their connections, but I can't yet tell if those were already present before the 01:36\u201301:43 window.\n\nI'm now checking why the cache lookups were refused. The deploy changed the cache port from 6379 to 6380, and the connection failures happen at 6380, while the service rendered normally before that change.\n\nI'm now ruling out the earlier deploy: the metrics I read cover the period after it, and they stay at baseline until the onset at 01:37, and the account page rendered normally with that earlier change in place. The only other flag change came from the rollback I confirmed, which just restored the port. That leaves the cache port change as the candidate, since the service was healthy at 6379 and connections to 6380 are refused.\n\nI'm checking the causal chain against the record: account pages are slow for shoppers, and the lookups that should serve the cached summary are being refused at port 6380 instead of the 6379 the service used before. The deploy changed that port, and nothing accepting connections there means every lookup falls back to the slower recompute path.\n\nI'm noting the log lookups were refused for most requests, peaking at 01:37, which fits the 01:36 start. The deploy's port change is the step I'm checking now, and I'm working through why the new port failed while the old one served normally.\n\nI'm settling on the cause in plain terms: the deploy pointed account pages at a cache address where nothing accepted connections, so each page recomputed its spend figure from scratch, which stayed correct but slow. The mechanism rests only on readings already checked, so I'm treating it as a real cause, with the repository still holding the changed port as the open item.\n\nI'm settling on what the repository still says: the cache port the lookups were refused on is still held there, so if automatic sync goes back on before a fix is merged, the slowdown could come straight back. Next I'm turning to the contributing factors, starting with whether anyone checked that the configured cache address accepted connections before the deploy went out.\n\nI'm listing contributing factors now: the change went out without anyone checking that the configured cache address accepted connections, and no readiness check tested cache connectivity, which could have halted the rollout.\n\nI'm weighing the remaining contributing factors: the missing readiness check for cache connectivity let new replicas take traffic they couldn't serve properly, and I'm setting aside the paging gap for the went-wrong list instead of treating it as a factor that would have shortened the incident.\n\nI'm drafting the action items now, starting with a pre-deploy check that the cache host and port accept connections before a release goes out. I'm also weighing a startup check that halts the io-shop rollout when new replicas can't reach the summary cache, and I'm considering an alert on cache connection failures so the problem surfaces sooner than the latency alert did.\n\nI'm picking up the post-incident review now: the investigator's onset timing and the rollback, confirmation, and draft fix all went as planned, along with the flag-history check that ruled out other changes. The remaining item is the paging gap, which I'm noting for the went-wrong list.\n\nI'm checking the remaining sections of the review: nobody was paged, and that's the only gap I'm noting. The fault was a deliberate configuration choice, so leaving automatic sync off is by design, and the incident's cause is settled. The main thing left is the assumption that the cache was listening on its previous port, which I'm inferring from normal renders before the change and recovery after the rollback rather than measuring directly.\n\nI'm ruling out the earlier deploy again: metrics from before the onset show the service healthy with that revision in place, and account pages rendered normally in the minutes before 01:37. Rolling back to it also restored service, and no feature-flag changes came from anyone but Argus in the hour before. The source code side looks unchanged, since the only file the deploy touched was the production values file.\n\nI'm settling the wording of the cache-port sentence, then writing up the remaining report sections: the rolled-out date, how the latency series is measured, and the went-well entries, each tied to the actor who did it.\n\n",
+      "type": "thinking"
+    },
+    {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01KsFwX8gBNf5nNNAfWuMggf",
+      "id": "toolu_01GDSMM7UZwCwpvRLkTVcBMR",
       "input": {
-        "explanation": "The fault is in deploy/values-production.yaml. Revision 0d8e826 changed `cache.port` from 6379 to 6380. The investigation's evidence shows every lookup being refused at redis://cache.io-shop.svc.cluster.local:6380, while the cache itself is healthy. That points to 6379 as the port the cache listens on.\n\nThe change sets `cache.port` back to 6379 in deploy/values-production.yaml. Nothing else in that file changes.\n\nI added tests/io_shop/test_deploy_values.py. It reads deploy/values-production.yaml, pulls out the keys under the top-level `cache:` block, and checks that `port` is 6379 and `host` is cache.io-shop.svc.cluster.local. A wrong port doesn't make pages fail, only slow, so this test is what would catch the same edit in review before it ships. Against the file as it stands (6380) the port check should fail; with this change it should pass. Nothing has run it yet.\n\nOne caveat: if the cache is ever moved to 6380 on purpose, the test's `CACHE_PORT` constant has to be updated along with the cache itself.",
-        "files": [
+        "action_items": [
           {
-            "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 0\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6379\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
-            "path": "deploy/values-production.yaml"
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a pre-deploy check that the summary cache host and port in deploy/values-production.yaml accept connections in the production cluster, and block the deploy if they do not.",
+            "type": "prevent"
           },
           {
-            "content": "\"\"\"The production deployment values point the shop at the cache it has.\n\nThis pins the address the summary cache listens on, so a change to it in\ndeploy/values-production.yaml is a deliberate one rather than a silent one.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom pathlib import Path\n\nVALUES = Path(__file__).resolve().parents[2] / \"deploy\" / \"values-production.yaml\"\n\n# The port the summary cache service listens on.\nCACHE_PORT = 6379\n\n\ndef _cache_block() -> dict[str, str]:\n    block: dict[str, str] = {}\n    inside = False\n\n    for line in VALUES.read_text().splitlines():\n        if not line.strip() or line.lstrip().startswith(\"#\"):\n            continue\n        if not line.startswith(\" \"):\n            inside = line.strip() == \"cache:\"\n            continue\n        if inside:\n            key, _, value = line.strip().partition(\":\")\n            block[key.strip()] = value.strip()\n\n    return block\n\n\ndef test_the_cache_port_is_the_one_the_cache_listens_on() -> None:\n    assert _cache_block()[\"port\"] == str(CACHE_PORT)\n\n\ndef test_the_cache_host_is_configured() -> None:\n    assert _cache_block()[\"host\"] == \"cache.io-shop.svc.cluster.local\"\n",
-            "path": "tests/io_shop/test_deploy_values.py"
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Make io-shop's rollout stop when new replicas cannot connect to the summary cache at startup, leaving the previous revision serving.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Add an alert on io-shop's summary cache lookup failures (refused connections) and cache hit ratio.",
+            "type": "detect"
+          },
+          {
+            "answers": [],
+            "item": "Link the HighLatency alert on io-shop to an on-call rotation so that a person is paged when it fires.",
+            "type": "process"
           }
         ],
-        "summary": "Point the summary cache back at port 6379 in production values"
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T6"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' account pages loaded slowly. The typical (median) time io-shop took to answer a request rose well above its usual level and stayed there, while no more requests failed than usual."
+          },
+          {
+            "cites": [
+              "Gd3f7",
+              "S1"
+            ],
+            "ruled_out": [],
+            "step": "Account pages could not use the rendered-summary cache. Every lookup to it was refused, so the page fell back to working each shopper's spend figure out again on each request, which is the slow path."
+          },
+          {
+            "cites": [
+              "P2",
+              "D1",
+              "T11",
+              "S1"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T5",
+                  "T6",
+                  "M1",
+                  "T23"
+                ],
+                "what": "The earlier deploy P1 of revision 544cef3: metrics read back over the hours before the onset show the service healthy with it in place until the onset, and rolling back to it put the service back to normal."
+              },
+              {
+                "cites": [
+                  "T17"
+                ],
+                "what": "A feature flag change: the flag provider's history showed no flag changes by anyone but Argus in the hour before."
+              },
+              {
+                "cites": [
+                  "D1"
+                ],
+                "what": "A change to io-shop's source code: the deploy's diff changes only deploy/values-production.yaml."
+              }
+            ],
+            "step": "The lookups went to a new cache port. Deploy P2 at {P2.1} changed the cache port in deploy/values-production.yaml from {D1.1} to {D1.2} and changed nothing else. As of {T11.1}, all {T11.2} replicas were running that revision."
+          },
+          {
+            "cites": [
+              "Gd3f7",
+              "Gad41",
+              "D1"
+            ],
+            "ruled_out": [],
+            "step": "The change broke the service because nothing accepted connections on the new port, while the old port had served account pages normally."
+          }
+        ],
+        "cause_in_plain_words": "A configuration change pointed the shop's account pages at an address where their cache could not be reached, so every page had to work its figures out from scratch, which kept the pages correct but made them slow.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "No check was seen, in review or before the deploy, that the cache address in the deployment configuration accepts connections in production.",
+            "had_it_been_otherwise": "The port change would have been caught before it reached production, and account pages would not have slowed.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No check was seen during the rollout that new replicas could reach the summary cache, so all replicas moved to the revision that could not reach it.",
+            "had_it_been_otherwise": "The rollout would have stopped with the previous revision still serving, and the slowdown would have been held back or cut short.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No alert on refused summary cache lookups was seen. The fault was found only by the latency alert, whose rule waits with its condition holding before it fires.",
+            "had_it_been_otherwise": "The refused lookups, logged from the minute of the deploy, could have raised an alert sooner, and the rollback would have come sooner.",
+            "label": "CF-3"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            {
+              "item": "The Investigator Agent read the diff of the deploy running on every replica and found the cache port change.",
+              "timed_by": "T12"
+            },
+            {
+              "item": "Argus checked the flag provider's history and found no flag changes by anyone but itself.",
+              "timed_by": "T17"
+            },
+            {
+              "item": "The Mitigation Agent rolled io-shop back off revision 0d8e826.",
+              "timed_by": "T20"
+            },
+            {
+              "item": "The Mitigation Agent saw that the service was no longer at the incident's level and judged the rollback confirmed.",
+              "timed_by": "T23"
+            },
+            {
+              "item": "The Code-Fix Agent proposed a fix to the deployment configuration as draft pull request #566.",
+              "timed_by": "T25"
+            }
+          ],
+          "went_wrong": [
+            "Nobody was paged: the alert was linked to no on-call incident, so no person was brought in while production was slow."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "Deploy 0d8e826 changed the summary cache port in deploy/values-production.yaml from {D1.1} to {D1.2}. Nothing on the cache host accepted connections on the new port, so every cache lookup was refused. The account page handles an unreachable cache by working each shopper's spend figure out again from scratch, so pages stayed correct but became slow.",
+        "still_at_risk": "The repository still sets the cache port that refused every lookup, so syncing the repository back into production before a fix is merged could slow account pages again.",
+        "symptom": "Shoppers' account pages loaded slowly"
       },
-      "name": "submit_fix",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgRGcb8z1tkpAjug5Hw4J",
+  "id": "msg_011CgxBwTa8j7BCNkEbDxt4B",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -35,15 +169,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2406
+      "ephemeral_5m_input_tokens": 10667
     },
-    "cache_creation_input_tokens": 2406,
-    "cache_read_input_tokens": 12526,
+    "cache_creation_input_tokens": 10667,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 1966,
+    "input_tokens": 4,
+    "output_tokens": 5555,
     "output_tokens_details": {
-      "thinking_tokens": 0
+      "thinking_tokens": 3536
     },
     "service_tier": "standard",
     "speed": "standard"

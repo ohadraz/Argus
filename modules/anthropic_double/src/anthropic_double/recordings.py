@@ -16,11 +16,18 @@ which is what lets a re-record be of the answers that went stale rather than
 of every one. Kept whole rather than as a digest, because what counts as "the
 same question" is a judgment about the request, and a digest would bake the
 first version of that judgment into every file it was taken for.
+
+And beside each answer, the instant its question arrived while it was being
+recorded. A replay runs at its own pace, and Argus's own acts land when the
+replay reaches them rather than when the recording did - so a question asked
+"up to now" names a different now in each. The instant is what lets a replay
+tell how late a question arrived, and move with it the times that were "now".
 """
 
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +40,10 @@ RECORDINGS_DIR = Path(__file__).resolve().parents[2] / "recordings"
 # with the two functions below as the only way in: spelled again by each script
 # that moves recordings, it was three spellings of one name.
 _QUESTION_SUFFIX = ".request"
+
+# What a stored arrival's file name ends in. Not `.json`, so `available()`
+# never lists one as an answer.
+_ARRIVAL_SUFFIX = ".arrived"
 
 
 class RecordingNotFound(LookupError):
@@ -47,6 +58,12 @@ def question_beside(answer: Path) -> Path:
     """Where the question the answer stored at `answer` was given to is
     stored: beside it, under its name with `.request` before `.json`."""
     return answer.with_name(f"{answer.stem}{_QUESTION_SUFFIX}{answer.suffix}")
+
+
+def arrival_beside(answer: Path) -> Path:
+    """Where the instant the question answered at `answer` arrived is
+    stored: beside it, under its name with `.arrived` for `.json`."""
+    return answer.with_name(f"{answer.stem}{_ARRIVAL_SUFFIX}")
 
 
 def is_a_question(path: Path) -> bool:
@@ -107,6 +124,27 @@ def load_question(name: str) -> dict[str, Any] | None:
         return None
     body: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     return body
+
+
+def save_arrival(name: str, at: datetime) -> Path:
+    """Writes the instant `name`'s question arrived, beside its answer.
+
+    Overwritten with the answer, for `save_question`'s reason.
+    """
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    path = arrival_beside(_path_for(name))
+    path.write_text(f"{at.isoformat()}\n", encoding="utf-8", newline="\n")
+    return path
+
+
+def load_arrival(name: str) -> datetime | None:
+    """The instant `name`'s question arrived while it was recorded - or `None`
+    for an answer recorded before arrivals were kept, which a replay then
+    moves by the world's shift alone, as it always did."""
+    path = arrival_beside(_path_for(name))
+    if not path.exists():
+        return None
+    return datetime.fromisoformat(path.read_text(encoding="utf-8").strip())
 
 
 def _write(path: Path, body: dict[str, Any]) -> Path:

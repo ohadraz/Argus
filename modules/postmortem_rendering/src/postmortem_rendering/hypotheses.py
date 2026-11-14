@@ -23,11 +23,11 @@ from typing import Final
 
 from argus_core import said_short
 from argus_core.models import HypothesisConsidered, PostmortemDocument
-from argus_narration import as_shown, the_instants_in
+from argus_narration import as_shown, the_instants_in, the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run
-from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
+from postmortem_rendering.supporting import the_revision_addresses
 
 _HEADINGS: Final = ("", "Hypothesis", "Confidence", "Result")
 

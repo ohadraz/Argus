@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS1woKEAgTGAI4AUIIdGhpbmtpbmcSDAcp8yv3Nb9t2RF1ExoMhDwFSkGDpI0ydh9iIjDRvI+cTrmAwuJUWc7+Zgr5szM1oWGkGRSLB0Eg/zRR5GSze6FTTTblmhW4BjFdxZAq9AlXwsOSKReWZ50X1Xue/k8KtemtdfRyW3FLv1RRZR1cpxKcDaMX27WtPk8EE3+V9AQlmiwHd330KEgveHjBqRPnSk3isjOAJnnyhCYus8KHUt/9fHVDtJwWlvteqCzuvZi41MdRxCfvPZTl9GgpoInxG2wM2ZgyaikRnojjSmN+YJwOwKCj18y+kAVp3aKCtnjE65xs+iyFlPKFW+KCzWiRlAIVYox8jsis1vwATvwH4ebRCcBS0u3eGApjkv+cLqAPWqv21OKKsQ3754dq0WVh6pOkLbWHnh60RsRLkMZDU8dC2smlYQV1cnKoRXNZsOvUZdqBQWLrmhYGKr77tLnxXtQyUvNPi9LJokAo1GeTb5Zlp84Nzpz+CuTGzRuIbPoGp1P4sT/Qq4K9Z0SuphwG5JLK/urJ+nfwdzRgzWPuytL3T26PuzRL81ehNKYLmAM0a6lTMxO1DtDVSNsZ9r5wcbmpnAni9H5GjBoUvozNAA/wHNzIUvkDlgsBk1zXu7KM+IpGu3QHQgPr/hQxiV1JSmBjQSiaj0pgMYX53n3dbHsCy414T26NyIzq/I5JfnEpMyF6DON2EW+a/FFmwg2h7NKPoeb9kbfszZ5CuV5efvn4ne+YXZVQ54WsUmjUn/NHv3rgQRk5gzzUZAgzIMcpcbYF3vN3XaU4NoBTHGd9ub5Ml2Q7fbh1EkgiILqb1p6RWQNpDPrvagWSZRzq2yBAffMk8AbcI5i17mRc3rR2HAxxrtmCgCVMRTTaFAo7NwfFULqCm5NkJG1xEk+MNFu6zuwnZ/5tqYrGb96UkOw5hRRpOzIUNfsIK+AgXanlPNiJaQui8HTtuxT+4v7QNuwC07DF2XQ4Nd5Xze1Du1ppEprrhHyNXQTlejkM/nG+vAFzjKkKT38heeOi75fDRu8r8XYIryNyZOc2GGG3exw+hrQnuA2MzlNKf+Q26gnUreQpKrxULhixM9m+G6kK8LorhhsJspk23ztkfIrHHhY+5xGFWaKvbE6slS0pYp7EYfGRtRwPZVSb093sTBxLUDEgxXD6MPY0AaunPTQnAEUkBzZ3AIQ+VkE3T9TKIT72Df+MzntgjLNhDXdUVbPQ8qZHQHI+5NIzehn3ZbPVV7S2Ha00UyJnxZWF5E7vdT+6COxj8+TwNBw/U+qn05mUknBepnpZwYRg9duC5ZyMfxQFZeKIGxFJA5Ed8ITxrqlzs9+vlLGID4+bKZIKsV+jJj8UeSyivIotB2R6MNLucyPeR2ZCZrLz0pg9fNQJ6DwX4OCdK9hsnFSKU3UYpyYWySSPHq34TTquJMkvwFtp+BdL1BsA/HkcJNhoyut2dOpp1I4DqX32W+5w2AVK/mpdwTJPGTuGKjFZAVtojXi5vjQSI7OsItOJAZvnAdkBNAom26ylMs9X8oC+3cjHCZ2imzbJShD4pjHdzDy1XpTRD2idEOUhMmYl2vDypSU3zNfT7LDyKfcG/EF1W+0GZ7qqKznlyYe451IpoQyod5lQN44c2wfztR1BDMG6E5PzD3sWV8wGkt4XgKoWjzDoGKH4ge48UbGOGhHQl8YwBgeEH23qewqg7o9NvS6G1xwodkkTDfYrd+DSWkrUtrTiTFdsVv65C81zK6l4eVRWZRGoemJMGclkKXqvG5c0aIcm5E7IRHsJmgE81RRi8Y2Jrd1UrH3Y7anblhgB",
+      "thinking": "I'm working out a short paragraph for this, keeping {duration} as a placeholder instead of a figure, and noting that the cause is unknown, nobody was paged, and no action was taken to end it. I'll say some requests were affected and avoid calling the outage brief.\n\nI'm weighing whether to say \"lasted {duration}\" without \"at least\", since the placeholder may already carry that wording. I don't need to name Argus, and I'll note that some customer requests failed while nobody was paged.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01U8DKGQd7kMkRRE2aUGehSB",
+      "input": {
+        "overview": "Some requests to io-shop failed with errors, and the incident lasted {duration}. The cost to the business was those failed requests from customers who were trying to use io-shop. The cause is not known. No on-call responder was paged, because no on-call incident was linked to this one. Nothing was done to end the incident."
+      },
+      "name": "submit_executive_overview",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011Cgy4tR99hNuxL6FozTj9V",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 868
+    },
+    "cache_creation_input_tokens": 868,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 425,
+    "output_tokens_details": {
+      "thinking_tokens": 278
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

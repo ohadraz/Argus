@@ -1,0 +1,43 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "Write the overview of the executive synopsis for the incident on io-shop below: a short paragraph in plain words, for the people who lead the company rather than the engineers who responded - what happened, how long it lasted, what it cost the business and the people who responded, and how it was resolved.\n\nWhat a reader saw: Account pages failed for many shoppers\nWhy, in plain words: Switching on a new feature made the account page use a new monthly spending calculation, and that calculation likely breaks for any shopper who has bought nothing this month because it ends up dividing by zero.\n\nFigures:\n- How long it lasted: 8m 0s {duration}\n- Requests failing at the worst minute: 38.5% {peak_error_rate}\n- What it cost the shop in takings (estimated by Argus): 5,182.30 USD {customer_loss}\n- People who responded: 2 {responders}\n- Their time, added together: 17 min {engineer_minutes}\n\nWhat was done to end it:\n- Argus: reverted the feature flag monthly-spend-feature - confirmed, still in place\n- Argus: proposed a fix, PR #552 - opened as a draft\n\nName {duration} and {customer_loss} in your overview.\nWrite no figure yourself - not in digits, not spelled out, and not as a word that sizes it (\"a brief outage\", \"a minor loss\", \"tripled\"). Where a figure goes, write its name, braces and all, and the synopsis writes the figure in.\nSay nothing about how the incident was resolved beyond what the list of what was done says: a draft fix has not run, and nothing it would do has happened.\nSpeak of Argus by name, never as \"we\", \"our\" or \"us\": Argus is the system that responded, and each line of what was done says who did it.\nWhere you say who was affected, say which ones, as the cause does, or that some were, where it does not say which - never how many, and never all of them, where the cause does not say all.\nKeep \"likely\" on what the cause says is likely, and only there.\n\nCall submit_executive_overview with your overview.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit the overview of the executive synopsis: one short paragraph in plain words, naming figures rather than writing them.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "overview": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "overview"
+        ],
+        "type": "object"
+      },
+      "name": "submit_executive_overview",
+      "strict": true
+    }
+  ]
+}

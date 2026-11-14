@@ -662,6 +662,12 @@ class ActionRefused(_Event):
     # refusal from the first's otherwise, nor two refused for one reason apart.
     candidate_number: int | None = None
     refusal: Refusal
+    # The register's entry for the service whose fault it is, where the refusal
+    # is that the failure is another company's and the register lists the
+    # service the candidate blames: whom to ask is the one thing anybody can act
+    # on. Absent for every other refusal, and for one whose service the register
+    # does not list.
+    dependency: ServiceDependency | None = None
 
 
 class ActionRecommended(_Event):

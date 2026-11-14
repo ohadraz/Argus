@@ -21,7 +21,9 @@ import asyncio
 import json
 import os
 import re
+import time
 from collections import deque
+from datetime import UTC, datetime
 from typing import Any, Final
 
 import httpx2
@@ -30,6 +32,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, model_validator
 
 from anthropic_double import recordings
+from anthropic_double.clock import moved_in
 from anthropic_double.streaming import SSE_MEDIA_TYPE, as_stream, from_stream
 
 UPSTREAM_BASE_URL = os.environ.get("ANTHROPIC_DOUBLE_UPSTREAM", "https://api.anthropic.com")
@@ -65,6 +68,45 @@ _A_HELD_CALL_LOOKS_EVERY = 0.05
 # destination or recomputed by httpx2.
 _FORWARDED_HEADERS = ("x-api-key", "authorization", "anthropic-version", "anthropic-beta")
 
+# Anthropic's word for a block that calls a tool: the only blocks whose times
+# move on arrival.
+_TOOL_USE_TYPE: Final = "tool_use"
+
+# The two settings a stack hands every process, the double among them, to put
+# it on the stack's clock. Spelled here rather than imported from
+# `argus_core.clock`: the double does not depend on Argus.
+_CLOCK_EPOCH_VARIABLE: Final = "SIM_CLOCK_EPOCH"
+_CLOCK_SPEED_VARIABLE: Final = "SIM_CLOCK_SPEED"
+
+
+def _the_stacks_now() -> datetime:
+    """The stack's instant, read as every other process of it reads it:
+    `epoch + (real - epoch) * speed`, and the real clock where the stack hands
+    neither setting.
+
+    Not the real clock regardless. A replay runs every party on the stack's
+    clock, the shop included - and the instant a question was expected at is
+    in that frame, so a lateness read off the real one would come out short by
+    however far the stack has run ahead of it.
+
+    Raises `ValueError` where only one is set, for `argus_core.clock`'s reason.
+    """
+    epoch = os.environ.get(_CLOCK_EPOCH_VARIABLE)
+    speed = os.environ.get(_CLOCK_SPEED_VARIABLE)
+
+    if epoch is None and speed is None:
+        return datetime.now(UTC)
+
+    if epoch is None or speed is None:
+        raise ValueError(
+            f"A simulated clock needs both {_CLOCK_EPOCH_VARIABLE} and "
+            f"{_CLOCK_SPEED_VARIABLE}; this environment sets only one."
+        )
+
+    return datetime.fromtimestamp(
+        float(epoch) + (time.time() - float(epoch)) * float(speed), UTC
+    )
+
 
 class Seed(BaseModel):
     """One queued answer for the next `POST /v1/messages`.
@@ -83,6 +125,12 @@ class Seed(BaseModel):
     # question is, so a rebased answer to a question that has since changed is
     # listed in `/double-control/state` like any other.
     recorded_as: str | None = None
+    # When the question this body answers is expected to arrive, and the times
+    # in its tool calls - as the body writes them - that move by however much
+    # later than that it does arrive. Which times those are is the seeder's to
+    # say; the double only moves them. Both or neither.
+    arrives_at: datetime | None = None
+    moves_on_arrival: list[str] = []
     # How many calls this seed answers before the queue moves on. `None` means
     # "until reset", which is the only honest way to express a condition the
     # SDK retries through: it answers a 429 up to `max_retries` times on its
@@ -103,15 +151,25 @@ class Seed(BaseModel):
         if self.recorded_as is not None and self.body is None:
             raise ValueError("`recorded_as` names the recording a body was made from - "
                              "a seed with no body was made from nothing")
+        if self.moves_on_arrival and (self.body is None or self.arrives_at is None):
+            raise ValueError("`moves_on_arrival` names times in a body that move from "
+                             "`arrives_at` - a seed with times to move needs both")
         if self.repeat is not None and self.repeat < 1:
             raise ValueError("a seed answers at least one call, or `null` for until-reset")
         return self
 
 
 class RecordRequest(BaseModel):
-    """Turns record mode on: the next calls go upstream and are saved."""
+    """Turns record mode on: the next calls go upstream and are saved.
+
+    `keeps_arrivals` stores beside each answer the instant its question
+    arrived. Only for a session that records a set from its first answer: an
+    arrival is in the frame of the run that recorded it, and only a whole
+    capture's run is the one the set's anchor was taken in.
+    """
 
     name: str
+    keeps_arrivals: bool = False
 
 
 class _State:
@@ -126,6 +184,7 @@ class _State:
         self.seeds: deque[Seed] = deque()
         self.record_as: str | None = None
         self.recorded: int = 0
+        self.keeps_arrivals: bool = False
         # A hold asked for and not yet caught, and a call caught and waiting.
         self.holding: bool = False
         self.held: bool = False
@@ -143,6 +202,7 @@ class _State:
         self.seeds.clear()
         self.record_as = None
         self.recorded = 0
+        self.keeps_arrivals = False
         self.holding = False
         self.held = False
         self.held_tools = []
@@ -303,6 +363,7 @@ def record(request: RecordRequest) -> dict[str, str]:
     """
     _state.record_as = request.name
     _state.recorded = 0
+    _state.keeps_arrivals = request.keeps_arrivals
     return {"recording_as": request.name}
 
 
@@ -427,6 +488,27 @@ def _masked(conversation: Any) -> str:
     return _A_RUN_OF_ROWS.sub(r"#\\n", said)
 
 
+def _moved_on_arrival(seed: Seed, body: dict[str, Any]) -> dict[str, Any]:
+    """A seeded body with the times its seed marks moved by how much later than
+    expected its question arrived - in its tool calls only, never its prose.
+
+    Moved here, as the answer is served, because only here is the arrival
+    known: a replay seeds the whole walk up front, before any question has
+    been asked.
+    """
+    if seed.arrives_at is None or not seed.moves_on_arrival:
+        return body
+
+    late_by = _the_stacks_now() - seed.arrives_at
+    marked = frozenset(seed.moves_on_arrival)
+
+    return {**body, "content": [
+        {**block, "input": moved_in(block.get("input") or {}, late_by, marked)}
+        if block.get("type") == _TOOL_USE_TYPE else block
+        for block in body.get("content", [])
+    ]}
+
+
 def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = None) -> Response:
     """One seeded answer, said whichever way the caller asked for it.
 
@@ -455,7 +537,8 @@ def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = N
             return StreamingResponse(as_stream(answered), media_type=SSE_MEDIA_TYPE)
         return JSONResponse(status_code=200, content=answered)
 
-    body = seed.body if seed.body is not None else _error_body(seed.status)
+    body = (_moved_on_arrival(seed, seed.body) if seed.body is not None
+            else _error_body(seed.status))
     if streaming and seed.status == 200:
         return StreamingResponse(as_stream(body), media_type=SSE_MEDIA_TYPE)
 
@@ -478,7 +561,13 @@ async def _record_upstream(request: Request, streaming: bool) -> Response:
     timeout honest. Ten minutes bounding a whole generation is a bound a
     large answer can reach by being large; ten minutes bounding the gap
     between two events is a bound only a stall reaches.
+
+    Where the session keeps arrivals, the instant the question arrived is
+    stored beside it - on the stack's clock, and taken here, where a replay's
+    `_moved_on_arrival` takes its own, after any hold, so the two are read at
+    the same point of a call.
     """
+    arrived = _the_stacks_now()
     headers = {
         name: value
         for name, value in request.headers.items()
@@ -511,6 +600,8 @@ async def _record_upstream(request: Request, streaming: bool) -> Response:
     name = _state.next_recording_name()
     recordings.save(name, answered)
     recordings.save_question(name, json.loads(sent))
+    if _state.keeps_arrivals:
+        recordings.save_arrival(name, arrived)
 
     # Said back the way it was asked for, exactly as a seeded answer is. What
     # is stored is the assembled message either way - but a caller that asked

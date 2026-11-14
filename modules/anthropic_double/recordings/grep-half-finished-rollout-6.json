@@ -1,0 +1,56 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQShwsKEAgTGAI4AUIIdGhpbmtpbmcSDFjk2KzfrkGeYWoRiRoMd3sw/X3DCAZpi03tIjDfRLbnl3+ErcguVDKTqW7HcftnXT/W3Ao4xEN+1o0AYUtT5VG0gNjnJ2JN7VFVGwMqpAr0B2dH3S0vH8d5nWLgPPO5qTcvCL1qUS/MIYmXCBNZ4NqimXd+Y3WrwUpf45KIzMqnXhRKw3BKKXKM74ddluZBtnYWp03/luFkeYCX1KNoWB6411VND7NeC86CFTBsFjq34FWeOUOa0lsOOLwVZWfb9CgbuB3Mi2e0+ui/IcbGy90O/q6HDc/ChUDmKr+3ASoXbXz20WSpPiNFsF6y19kMEDkjidrFRjbp8v99ITjDjwvdH89AvfkeaRHTmrCHJEtEvlG3C/FtxndO8GaeqKSLaD9IpP3f/CS7WqadNrcnFgURIce6sLIOZpb6ZV0qb0dL9ahTfryEOHtWYd07ITGFoEczNlCDYb7f/5k6GEb7d8VUsfOKa7WGm+7VPx+iTO2YI7LClsD4AQBmTm1LVRnP7POM9gGyvCxdPscZ3czXj6vhKq/4pJIOGOqDiQQDZ0hSZXba54XvB8k2kMIIKBY9HNjI+ZHWJhutgjbxT3349ZuFIk9JJ8X/xbWCj6A++jOarfZLsmWfq6ys4igNghU03erH5W/yqBdANS81MpVck70/BOz0geLQUCgc7ElV8W5+QZGb9RAYHi4269nIe5khlNPpwcXlUblT02KhSIrd3CQTE+dhESc1AHAV89PRtehz2vEfXw5wwxnBBdnaqGZN6dG+H8VMfQC0eLBr35pKCyTbQfrPQq4Lhn46xHLs/K1We3uqgz+EWieKFqCrVj6m6iXiZGWW6jCJ5u+GN6nuBZweZ8rCJDK+J/6BfYliHryMpqwk6pslC3txGmGoJq3Y1q61RQz8l1ZC2ALNTo4iQQfv7EfOWYwzsr+HACU5rBae1fKzK7n0efllpDdfWOmZLro9e2qbilwEogAoE1JtJbzGIzh43/xg5ORgyXLXQuHe0byXd1BYrv0WWSPNvSZqpNKW8qlQ7+3GasviTqy287nKTi9n950DGkbThmHTUknm2pV2PaDYG0/6YUeMHpRnNSiheNah5c1ZfUFxB8IN9TglCPJ/te+pwJrQoww4qpe17bVrhOtkMwqjI3+jfRehKuHVVbbrxOgAQBeHll6XsmJXNNdmXWPw+OkZLnzFnBV/3TSbS5JsJwiQOgRBC4b2Z07/YKoqwEEezy+fk2naSR3SryNZISYik59zxRM6A3noONV6NeHTQZs1LB6VRKI+4yYjoeuQgatyLExeFKlcU/syZi+NVn38sZlKLV1JOwl/3BjPEwtMHg2LNnTkKSdmRqir3uXEyrUiHoSXvSUoTOxe9bWvqrA/RRJbUkgnjCEh9oDukhi2on8Tc//z/ONjDEx/GZDL0+kFUcEU/10IROytVzFEzDk+Ct61x81Zkb3bba/drVbHQacTyonXpydmZdKLcs/Ewi1T1/MjVzlefXm52HwYCuoV4Tn9BwhqGUOOCksO9B6MQnNtJInoI1KGVYMJbpGJ4PfDFWCoclRhyHMCSjajaRY4S3iYwG06CNxXA94r+CvPYM0KWnDMHQCYCd8pGadNwPrAcloDYJf5czUlG9UrUEoCf7juYjd6ZI0HoEfmWhDEI6zONX6zTXNZ5eiJZEVn3o0iiNixn1SOJ5NQztbd/kOoIoZKzhgGMWbZj6icMP/Ui65VDYfMFQEzZ5wCt9kw+fvHTfFOX1W24pWilQH9p4okt6TwkhUOjISPJ8T4LZNRGMAISJTiZzmxDPhEeCCygoLP1DvF+fwQYQyej49R6JvlaEnRywAroeO7V+YJaxhdH9DERiSMlvmLnt8Z9BgB",
+      "thinking": "I'm working out why the old revision's reader breaks on the new format during a mixed-version rollout. The new reader already handles the old format, so the fault is on the new side writing something the old reader can't parse. One option I'm weighing is writing the new entries under a versioned key so old replicas never encounter them, since the old code can't be changed.\n\nI'm checking whether the new revision writes entries the old reader can't parse, or puts them somewhere it never looks. Next I'll search the code for where entries are written, and see whether cache_reconciliation.py is involved.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Vje5qa3bB8P1pex8gqgDpQ",
+      "input": {
+        "query": "SummaryEntry"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01RuYnzMQkkaK2ZNu5Svyohu",
+      "input": {
+        "path": "src/io_shop/cache_reconciliation.py"
+      },
+      "name": "read_repository_file",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgtsBdijqVAfXQSwkwirP",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 4316
+    },
+    "cache_creation_input_tokens": 4316,
+    "cache_read_input_tokens": 8264,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 356,
+    "output_tokens_details": {
+      "thinking_tokens": 238
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

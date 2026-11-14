@@ -2,131 +2,20 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I'm drafting the symptom-to-cause narrative: account page failures with error rates climbing from baseline to peak, citing the relevant log sources, then tracing the root cause to a ZeroDivision error being raised on account page requests.\n\nI'm tracing deeper into the causal chain. The error occurred at a specific spot in spend_summary.py within a tight time window, following normal ClientDisconnected-only behavior beforehand. I then work out why the code reached that failing line \u2014 the monthly-spend-feature flag was toggled on by an admin, and I rule out deploys as a cause since none landed in that window and the rollout had converged on a single revision, leaving the flag flip as the only real change. Finally I'm starting to connect why that flag caused the division by zero, tracing into the code path it activates.\n\nReordering the chain: step 2 is the ZeroDivisionError itself, step 3 is why it ran\u2014because P1 flipped the flag that routed requests onto the monthly-summary path (G971b, Gce95)\u2014and step 4 is why it divided by zero: that path's average divides by the count of this-month purchases, which is empty for shoppers with past-but-not-current purchases (F1). The empty-case handling gap is the mechanism, so this traces back cleanly to F1 as the root cause.\n\nI'll settle on: step 3 is the flag switching on at P1, routing account page renders through the monthly summary path which only runs when enabled; step 4 is that path failing because it divides by the count of this-month purchases, which is zero for shoppers with past purchases but none recently. So step 4 becomes the root cause, explaining why the newly enabled path produced errors. I also checked that no earlier change exists in the record \u2014 the deploy and flag history both confirm only one change came from Argus, ruling out other causes.\n\nNow for contributing factors: CF-1 is that this empty-purchase edge case in the monthly summary path wasn't covered by any test before the flag was enabled, since the new tests were written to fail against current code \u2014 this gets addressed by adding tests.\n\nCF-2 is that the flag rollout happened nearly all at once rather than gradually \u2014 evaluations jumped from 134/200 to fully on within a minute with no staged guard, so I'm proposing an action item requiring staged rollouts with automatic revert on error rate spikes for flag changes going forward. CF-3 around detection speed seems fine since the alert came within expected wait time, so I'll skip that as a factor.\n\nposed a draft pull request, PR #366, with two new tests, and the investigator placed the onset matching the flag change exactly. For went_wrong and got_lucky, nothing is well-grounded enough to include, so I'll leave those empty.\n\nFor still_at_risk, the faulty division is still in the code, so re-enabling the monthly-spend feature would likely break account pages again for shoppers with past purchases but none this month.\n\nFor cause_in_plain_words, I want something like: switching on a feature setting made the account page run a calculation that divides by the number of items bought this month, which fails for shoppers who bought before but not this month \u2014 no numbers involved.\n\nFor root_cause, I'm framing it as: with the feature on, the render function calls a helper that divides the month's total spend by this month's purchase count, and for shoppers with no purchases this month that count is zero, causing the failure.\n\nNow I'm being careful about how to reference the line number in the log path, treating it as a placeholder rather than a literal digit, and noting that the failure rate rose from one level before the incident to a higher average during it, peaking at some worst point.\n\nI'm tracing the timeline of occurrences before and after the feature flag's rollout, confirming that the function only runs when the monthly summary flag is true, and ruling out deploys or other changes as the cause\u2014leaving a single flag change by Argus as the one relevant event in that hour.\n\nFor the counterfactual, I'm noting that fewer shoppers would have failed had the issue been caught and reverted sooner, and I'm confirming every step in the write-up cites supporting evidence before finalizing it.\n\n",
-      "type": "thinking"
-    },
-    {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01MjfdBN8jy3SRYdmGRbWU6k",
+      "id": "toolu_019vQJCJfLM29osU3fXwDQk6",
       "input": {
-        "action_items": [
-          {
-            "answers": [
-              "CF-2"
-            ],
-            "item": "Roll out feature flag changes on io-shop to a small share of traffic first, and widen them only after the account page error rate is checked.",
-            "type": "prevent"
-          },
-          {
-            "answers": [
-              "CF-2"
-            ],
-            "item": "Automatically switch a feature flag on io-shop back off when the error rate alert fires soon after that flag was switched on.",
-            "type": "mitigate"
-          }
-        ],
-        "causal_chain": [
-          {
-            "cites": [
-              "AL1",
-              "Gbac1",
-              "G5309"
-            ],
-            "ruled_out": [],
-            "step": "Shoppers' account page requests failed. The share of requests that failed rose from {errors_before} before the onset to {errors_while_broken} on average while it was broken, and reached {errors_at_worst} at worst. The service's own warning about the account page error rate peaked at {Gbac1.5} at {Gbac1.7}."
-          },
-          {
-            "cites": [
-              "G5309",
-              "G46bc",
-              "Gad41"
-            ],
-            "ruled_out": [],
-            "step": "Account page requests were failing with ZeroDivisionError at src/io_shop/spend_summary.py, logged {G5309.1} times between {G5309.3}. Before the onset the only failures logged were shoppers closing the connection, and account pages rendered normally."
-          },
-          {
-            "cites": [
-              "P1",
-              "G971b",
-              "Gce95",
-              "G7e5d",
-              "F1"
-            ],
-            "ruled_out": [
-              {
-                "cites": [
-                  "T8",
-                  "T9"
-                ],
-                "what": "A deploy: the search for production changes in the day before the onset came back with the flag change alone, and no deploys."
-              },
-              {
-                "cites": [
-                  "T10"
-                ],
-                "what": "A rollout still in progress: at {T10.1} all {T10.2} replicas ran one revision."
-              },
-              {
-                "cites": [
-                  "T15",
-                  "P1"
-                ],
-                "what": "Another flag change: the flag provider's history showed {T15.2} flag change by anyone but Argus in the hour before {T15.4}, matching P1."
-              }
-            ],
-            "step": "Account page renders had begun going through the monthly spend summary path, because an admin switched the feature flag monthly-spend-feature on at {P1.1}. In the minute of {G971b.6}, flag evaluations split off {G971b.1} / on {G971b.2}, and from {Gce95.4} every evaluation logged was on. Before that the flag was logged off. In Code-Fix's reading, render_spend_summary only calls the failing function when use_monthly_summary is true."
-          },
-          {
-            "cites": [
-              "F1",
-              "G5309"
-            ],
-            "ruled_out": [],
-            "step": "The newly enabled path fails for some shoppers. average_spend_per_item_this_month divides the shopper's total for this month by the number of purchases marked as in the current month. For a shopper who has bought before but not this month, that list is empty, so the line raises ZeroDivisionError at line {F1.1}, the line the logged error points to."
-          }
-        ],
-        "cause_in_plain_words": "Turning on a feature setting made the account page run a calculation that likely divides by the number of items a shopper bought this month, and that fails for shoppers who have bought before but nothing this month.",
-        "cause_rests_on_an_unrun_reading": true,
-        "contributing_factors": [
-          {
-            "addressed_by": [
-              "AI-2"
-            ],
-            "factor": "No test was seen covering the monthly spend summary for a shopper with past purchases but none this month before monthly-spend-feature was switched on. Code-Fix says the two cases it adds are written to raise ZeroDivisionError against the current code.",
-            "had_it_been_otherwise": "The empty case would have failed in a test before the flag was switched on, and account pages would not have failed in production.",
-            "label": "CF-1"
-          },
-          {
-            "addressed_by": [],
-            "factor": "The flag change reached most traffic within its first minute and all traffic soon after. No staged rollout or error-rate check on the flag change was seen.",
-            "had_it_been_otherwise": "Only a small share of shoppers would have hit the failing path before the rise in errors showed, and the flag could have been held back before it reached everyone.",
-            "label": "CF-2"
-          }
-        ],
-        "lessons": {
-          "got_lucky": [],
-          "went_well": [
-            "The Mitigation Agent switched monthly-spend-feature back off {T18.1 - alert_raised} after the alert was raised.",
-            "The Mitigation Agent confirmed {T21.1 - alert_raised} after the alert was raised that the service was no longer at the incident's level.",
-            "The Investigator placed the onset at {T6.2}, the same minute the flag was switched on, which tied the failures to that change.",
-            "Code-Fix proposed a fix as draft pull request PR #366, with two new tests."
-          ],
-          "went_wrong": []
-        },
-        "reaches_a_cause": true,
-        "root_cause": "With monthly-spend-feature on, render_spend_summary calls average_spend_per_item_this_month. That function divides the shopper's total for this month by the number of purchases marked as this month's. For a shopper who has bought before but not this month, that list is empty, so the division raises ZeroDivisionError at line {F1.1} of src/io_shop/spend_summary.py and the account page request fails, because nothing in the files Code-Fix read handles the empty case.",
-        "still_at_risk": "The division is still in the code, so switching monthly-spend-feature back on would likely make account pages fail again for shoppers who have bought before but nothing this month.",
-        "symptom": "Account pages failed for many shoppers"
+        "answer": false,
+        "explanation": "The division by zero is at line 47 of src/io_shop/spend_summary.py, in `average_spend_per_item_this_month`. The fix is in that same function: if there are no purchases this month, it returns 0. Its only caller is `render_spend_summary`, which is called from src/io_shop/account_page.py, and the patch leaves both unchanged. With the flag on, a shopper with no purchases this month gets a figure instead of a failed page. Nothing outside this repository has to change for that to work."
       },
-      "name": "submit_postmortem",
+      "name": "answer_question",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgRSLCUSyfLugerukE6Fc",
+  "id": "msg_011Cgxs425CJfJ2wjjqWiH44",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -136,15 +25,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 9258
+      "ephemeral_5m_input_tokens": 3756
     },
-    "cache_creation_input_tokens": 9258,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 3756,
+    "cache_read_input_tokens": 15629,
     "inference_geo": "global",
-    "input_tokens": 4,
-    "output_tokens": 5551,
+    "input_tokens": 2,
+    "output_tokens": 232,
     "output_tokens_details": {
-      "thinking_tokens": 3595
+      "thinking_tokens": 0
     },
     "service_tier": "standard",
     "speed": "standard"

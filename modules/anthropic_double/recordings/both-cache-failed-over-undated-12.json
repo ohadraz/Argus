@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS7QUKEAgTGAI4AUIIdGhpbmtpbmcSDExT74fdEIGkScFPkhoM4Ff1Dmr2YZgew8sVIjBgEEMwxSP6yKMg9G90isht0HTt5N7rKRm6qtXivDeXELFDQ+O6dHdNL1gLxxmx0CsqigXgbRuZCTPSsQFZZQ8VNrPFS4ztbBHUmXoLQvDZ54/RljefpGUvsx1R4mkV0rTdjymQkKK0ILkWQPXYiYcJisSmHmvyoo7ujoia2wHVJ8gApy7/cT5yAX5PX8puXdbQRlDitRg1aVqpxwng6WP3Oc4SFT9zHXA0bcoa1hjZ2pMl0Hj5WNVB1yrf0Ch6VriJ4lGGMBppQrNDKTfilSWhqaT4a8X30NvV1QsJKVJomKFmLwsJ8SnJqRn+at8yEJnlDETuOKotJnNcpt1GDmwJWa/mDrl7+AGmdnz6+XtoJsNLxAizpPf0O4WavOgqw/ELqbCY+pXbo6V4HGr2aJ860MTbK0Y+MdNFQIMDnmpeCaAoJ5B0ZIQ3kqDZ2mVbDFmDH/kWLaspv0SINmVGkvp3Hw8S+relg8hzISvxonbl2+FtOsuqHq3h9L25v5CiE2tsjWwAGsomdOfB4DqqrTv2e4C/8nnb6wss7Qdxuq6rQml51E48AvVwBU80gOQ/wdx8OyUumtVtwfJlpVyPzyd9ZU9nW2Yg0L1uE2TVzgm6xqioQg3yc+J/KTRukaLNihhSUCNDpqGz9aUFqRua4q8d7z8nMptbcMZnq6BpE3ZHeo2DhEaOOms/bX/sduUMK9nq7jg+NOkAJ9r9fBR4Yi/AtGfIZ32XOshCXq/VXhw+zlHm2wwNTtn9D9p64pbzAK4ThPN0Q322BjPdqd7x1KPnjBBYFq76C8THG6XeA1Z0sm0kf1r/omfw6UIdgMsheziidKeFinbf+lH4PxRkG/mx4vunpha32nE83A7IWvnv1Jvfs/5Nc46bbaGdq2P+unHc/ESLmtlG1h2TlQwiFS5y7AguYNv4k2xGwap7dBgB",
+      "thinking": "I'm working through the order of the steps: step 1 is the symptom and step 4 is last. Step 3 does explain step 2, but step 4 only partly explains step 3, since it's a contributing factor rather than a direct cause. I'll keep it at the end, so the order stays 1, 2, 3, 4.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_019a5etGak19m3budDgUz9cp",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgvPo1Xtox66jEUCjiVdz",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 354
+    },
+    "cache_creation_input_tokens": 354,
+    "cache_read_input_tokens": 854,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 144,
+    "output_tokens_details": {
+      "thinking_tokens": 86
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

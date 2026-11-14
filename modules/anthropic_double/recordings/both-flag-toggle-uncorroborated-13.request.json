@@ -5,7 +5,7 @@
   "max_tokens": 16000,
   "messages": [
     {
-      "content": "Write the overview of the executive synopsis for the incident on io-shop below: a short paragraph in plain words, for the people who lead the company rather than the engineers who responded - what happened, how long it lasted, what it cost the business and the people who responded, and how it was resolved.\n\nWhat a reader saw: Shoppers' account pages failed to load\nWhy, in plain words: The shop started serving a new monthly-spending feature on its account pages, and the feature's calculation divided by the number of purchases a shopper had made this month, which likely broke the page for anyone who had bought before but not yet this month.\n\nFigures:\n- How long it lasted: at least 8m 8s {duration}\n- Requests failing at the worst minute: 40.5% {peak_error_rate}\n- What it cost the shop in takings (estimated by Argus): at least 5,662.30 USD {customer_loss}\n- Nobody was paged: no on-call incident was linked to this one.\n\nWhat was done to end it:\n- Argus: refused to act on a suspected cause - the change the candidate names is not in the record of what changed, so undoing it is left to a person - not taken\n- Argus: proposed a fix, PR #475 - opened as a draft\n\nName {duration} and {customer_loss} in your overview.\nWrite no figure yourself - not in digits, not spelled out, and not as a word that sizes it (\"a brief outage\", \"a minor loss\", \"tripled\"). Where a figure goes, write its name, braces and all, and the synopsis writes the figure in.\nSay nothing about how the incident was resolved beyond what the list of what was done says: a draft fix has not run, and nothing it would do has happened.\nSpeak of Argus by name, never as \"we\", \"our\" or \"us\": Argus is the system that responded, and each line of what was done says who did it.\nWhere you say who was affected, say which ones, as the cause does, or that some were, where it does not say which - never how many, and never all of them, where the cause does not say all.\nKeep \"likely\" on what the cause says is likely, and only there.\n\nCall submit_executive_overview with your overview.",
+      "content": "The causal chain of a postmortem, its steps numbered as written:\n1. Shoppers' account page requests failed with server errors from the onset, and the account page error rate was at its highest at 04:19 UTC.\n2. Account page requests raised ZeroDivisionError at spend_summary.py:47 during 04:13\u201304:19 UTC. This error did not appear in the log lines before the onset.\n3. The monthly-spend-feature flag was off for every evaluation during 03:43\u201304:12 UTC. It was on for part of the evaluations at 04:13 UTC (on 66, off 134 of 200) and on for every evaluation during 04:14\u201304:19 UTC. Neither the production change events read at 04:20:15 UTC nor the flag provider's history read at 04:20:17 UTC shows this change, so the record does not show what switched the flag. All replicas ran the same revision when read at 04:20:15 UTC, but the record does not show whether that revision was already running before the onset, so a change to it was not ruled out.\n4. With the flag on, the account page runs average_spend_per_item_this_month, which divides by the number of purchases the shopper made this month and fails for a shopper who has bought before but not this month.\n\nPut the steps in the order in which each step answers why the step directly before it happened - the first and the last stay where they are. Call order_chain with the steps' numbers in that order.",
       "role": "user"
     }
   ],
@@ -13,6 +13,15 @@
   "output_config": {
     "effort": "high"
   },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
   "thinking": {
     "display": "summarized",
     "type": "adaptive"
@@ -23,20 +32,24 @@
   },
   "tools": [
     {
-      "description": "Submit the overview of the executive synopsis: one short paragraph in plain words, naming figures rather than writing them.",
+      "description": "Give the order the causal chain's steps should be read in, as their numbers. Change nothing else.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {
-          "overview": {
-            "type": "string"
+          "order": {
+            "description": "Every step's number, each once, in the order that makes each step answer why the step directly before it happened. The first and the last stay where they are.",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "overview"
+          "order"
         ],
         "type": "object"
       },
-      "name": "submit_executive_overview",
+      "name": "order_chain",
       "strict": true
     }
   ]

@@ -76,7 +76,8 @@ def the_cause(postmortem: PostmortemDocument, rows: Mapping[str, Line],
     Whole where the chain first cites it, and by its label alone after: a row
     every step rests on, said whole under each, is one paragraph read again
     at every step. By its label alone throughout where it is in `said_above`,
-    the rows said whole above the chain."""
+    the rows said whole above the chain. And by its label alone under a
+    rule-out code said from its rows: its claim is their words already."""
     said_whole = set(said_above)
 
     def as_cited(cited: CitedEvidence) -> Line:
@@ -91,7 +92,11 @@ def the_cause(postmortem: PostmortemDocument, rows: Mapping[str, Line],
                             evidence=tuple(as_cited(cited) for cited in step.cites),
                             ruled_out=tuple(RuledOutLine(
                                 claim=_prose(ruled.text),
-                                evidence=tuple(as_cited(cited) for cited in ruled.cites))
+                                evidence=tuple(
+                                    _by_its_label(cited.label)
+                                    if ruled.said_by_the_record and cited.label in rows
+                                    else as_cited(cited)
+                                    for cited in ruled.cites))
                                 for ruled in step.ruled_out))
                   for whys, step in enumerate(postmortem.causal_chain))
 

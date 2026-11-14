@@ -36,7 +36,8 @@ if TYPE_CHECKING:
 
 def build_llm_client(replay: Replay | None = None,
                      policy: ModelPolicy | None = None,
-                     client: anthropic.Anthropic | None = None) -> LLMClient:
+                     client: anthropic.Anthropic | None = None,
+                     settings: LLMSettings | None = None) -> LLMClient:
     """Builds the client agents get by default, keeping a receipt when asked to.
 
     Built rather than fetched, and named so: each call constructs a client
@@ -86,8 +87,12 @@ def build_llm_client(replay: Replay | None = None,
     from argus_core.llm.adapters.anthropic_adapter import AnthropicLLMClient
 
     asked_of = policy if policy is not None else ModelPolicy()
+    # Where the model is reached, and with whose key: the process's own unless
+    # given - as it is for the grounding judge, reached at an address of its
+    # own (`LLMSettings.for_the_judge`).
+    reached_by = settings if settings is not None else LLMSettings.of(get_settings())
     answering = TracedLLMClient(
-        AnthropicLLMClient(LLMSettings.of(get_settings()), policy=asked_of, client=client),
+        AnthropicLLMClient(reached_by, policy=asked_of, client=client),
         model=asked_of.model,
         provider=GEN_AI_PROVIDER_ANTHROPIC,
         room=asked_of.max_output_tokens

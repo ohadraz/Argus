@@ -27,8 +27,8 @@ from typing import Any
 
 import psycopg
 import pytest
-from agent_postmortem import postmortem_policy
-from argus_core import Connections, Holding, get_settings
+from agent_postmortem import judge_policy, postmortem_policy
+from argus_core import Connections, Holding, LLMSettings, get_settings
 from argus_core.mcp_transport import McpClient
 from argus_core.models import ModelPolicy
 from argus_testkit import (
@@ -183,6 +183,28 @@ def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
         .then(
             _the_postmortem_is_asked_under(
                 postmortem_policy(settings.postmortem_model, settings.postmortem_effort))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("writer", ["write_postmortem", "write_synopsis"])
+def test_both_writers_are_read_by_the_judge_at_its_own_model_and_address(writer: str) -> None:
+    # Its own address, settled where the process starts, so a replay serves
+    # the judge from a stand-in of its own; its own model and effort, since a
+    # reading against a record is not the writing it judges.
+    settings = get_settings()
+
+    Scenario() \
+        .given(no_connections := _connections_that_must_not_be_opened()) \
+        .when(lambda: against(no_connections,
+                              _a_client_that_must_not_be_reached(),
+                              _a_client_that_must_not_be_reached(),
+                              None,
+                              Holding())) \
+        .then(
+            _judged_under(writer,
+                          judge_policy(settings.judge_model, settings.judge_effort),
+                          LLMSettings.for_the_judge(settings))
         )
 
 
@@ -413,6 +435,28 @@ def _the_postmortem_is_asked_under(expected: ModelPolicy) -> Assertion[Collabora
             raise AssertionError(
                 f"Expected the postmortem to be written by a model asked under "
                 f"[{expected}], got [{policy}].")
+
+        return True
+
+    return assertion
+
+
+def _judged_under(writer: str, policy: ModelPolicy,
+                  settings: LLMSettings) -> Assertion[Collaborators]:
+    """The policy and the settings the judge of `writer` is built with, read
+    off the binding - where alone they can be seen, as the postmortem's own
+    model's are."""
+    def assertion(collaborators: Collaborators) -> bool:
+        judge_for = getattr(getattr(collaborators, writer), "keywords", {}).get("judge_for")
+        bound = getattr(judge_for, "keywords", {})
+
+        reached = bound.get("settings")
+        if bound.get("policy") != policy or reached != settings:
+            # By address alone: the settings carry the key.
+            raise AssertionError(
+                f"Expected [{writer}] read by a judge asked under [{policy}] at "
+                f"[{settings.anthropic_base_url}], got [{bound.get('policy')}] at "
+                f"[{getattr(reached, 'anthropic_base_url', None)}].")
 
         return True
 

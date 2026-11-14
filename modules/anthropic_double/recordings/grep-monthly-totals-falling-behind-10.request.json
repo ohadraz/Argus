@@ -1,0 +1,401 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "Write the postmortem for the incident below.\n\nAlert: SpendTotalsDoNotReconcile on io-shop\nWhat the alert said [AL1]: 240 {A1} of 240 {A2} shopper totals do not reconcile with the purchases behind them. The widest is short by 1,297.31 {A3}, and the oldest affected purchase was recorded at 2026-11-04T04:00:00Z {A4}. Found by the spend-integrity check, which runs every 7 {A5} days, so the fault is up to that old.\nAlert raised: 2026-11-11T04:00:13Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-11T04:00:15Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule fires as soon as its condition holds. The alert came 7 days 13 seconds {alerted_after_the_onset} after the onset.\nBroken from 2026-11-04T04:00:00Z {began} (the onset). The service was not back to normal by 2026-11-11T04:00:58Z {argus_stopped}, so it was broken for at least 7 days 58 seconds {duration} - a lower bound, not a measurement, and every impact figure below is bounded the same way.\nArgus held the incident for 44 seconds {held}, until 2026-11-11T04:00:58Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nError rate: not measured by the metrics - metrics were read, but none from the hour before the onset, so there is no calm level to measure a rise against.\nCustomer loss: none so far - the shop's takings over the incident fell short of the same hours whole weeks earlier by no more than those hours vary on their own, if at all; a lower bound, counted with the service not seen back to normal.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-11T04:00:13Z {T1.1} Argus: Received SpendTotalsDoNotReconcile on io-shop\n  - [T2] 2026-11-11T04:00:31Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-11T04:00:32Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-11T04:00:37Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 04:00:13 {T4.2}\n  - [T5] 2026-11-11T04:00:41Z {T5.1} Investigator Agent: Read back 360 {T5.2} minutes of metrics\n  - [T6] 2026-11-11T04:00:42Z {T6.1} Investigator Agent: Placed the start of the incident at Nov 04 04:00 {T6.2}\n  - [T7] 2026-11-11T04:00:42Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB, started at Nov 10 15:59:32 {T7.3}, after the onset\n  - [T8] 2026-11-11T04:00:44Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 14 {T8.2} days 7 {T8.3} hours 47 {T8.4} minutes 34 {T8.5} seconds before Nov 11 03:59:34 {T8.6}\n  - [T9] 2026-11-11T04:00:45Z {T9.1} Investigator Agent: Read back 2 {T9.2} production changes\n  - [T10] 2026-11-11T04:00:51Z {T10.1} Investigator Agent: Read what the deployment of 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 changed\n  - [T11] 2026-11-11T04:00:52Z {T11.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T11.2} replicas run revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2, deployed at Nov 04 03:59:32 {T11.3}\n  - [T12] 2026-11-11T04:00:53Z {T12.1} Investigator Agent: Formed 2 {T12.2} candidate causes, best first: C1, C2\n  - [T13] 2026-11-11T04:00:53Z {T13.1} Investigator Agent: Did not read logs\n  - [T14] 2026-11-11T04:00:53Z {T14.1} Argus: Read the flag provider's history - 0 {T14.2} flag changes by anyone but Argus, the 1 {T14.3} hour 1 {T14.4} minute before Nov 04 04:01 {T14.5}\n  - [T15] 2026-11-11T04:00:57Z {T15.1} Argus: Moved the incident to MITIGATING to act on a candidate\n  - [T16] 2026-11-11T04:00:58Z {T16.1} Argus: Refused to act on C1 - nothing would say whether the action that would test the candidate worked inside the time Argus waits, so it is recommended rather than taken\n  - [T17] 2026-11-11T04:00:58Z {T17.1} Argus: Left for a person to do - rolling io-shop back for C1\n  - [T18] 2026-11-11T04:00:58Z {T18.1} Argus: Moved the incident to RECOMMENDED - action recommended\n  - [T19] 2026-11-11T04:03:36Z {T19.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/554\n\nChanges to production it read:\n  - [P1] 2026-11-03T23:59:32Z {P1.1} deploy 4c810f22894e612ced87f5ee3f3062dfeb785050 by kuki: deployed revision 4c810f22894e612ced87f5ee3f3062dfeb785050 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - [P2] 2026-11-04T03:59:32Z {P2.1} deploy 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 by kuki: deployed revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - Flags read, none came back.\n\nLog lines it read, one per message:\n  - Not read.\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1, also C2] Candidates blaming the same move of 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2, each reading it as a different kind of failure - different accounts of what it did, not one cause counted twice - each in its own words:\n      C1: Revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2, deployed 2026-11-04T03:59:32Z {C1.1}, changed record_purchase in purchase_ledger.py so it stopped maintaining total_this_month_cents. Account totals written from then on disagree with the purchases behind them. Serving stayed healthy, so no metric moved. The oldest wrong record is dated 2026-11-04T04:00:00Z {C1.2}, right after the deploy. [silent-data-corruption, confidence 0.8 {C1.3}, never tried: nothing would say whether the action that would test the candidate worked inside the time Argus waits, so it is recommended rather than taken]\n      C2: The deployment 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 shipped faulty code that no longer maintains the monthly total. The alternative reading is that the deploy is simply a bad code release. [bad-deployment, confidence 0.15 {C1.4}, never tried: nothing would say whether the action that would test the candidate worked inside the time Argus waits, so it is recommended rather than taken]\n\nActions it took:\n  - none\n\nWhat each deployment it looked into changed:\n  - [D1] Deployment of revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 to io-shop, compared against 4c810f22894e612ced87f5ee3f3062dfeb785050 - the revision deployed before it.\n      modified src/io_shop/purchase_ledger.py\n        @@ -28,26 +28,23 @@\n         \n         \n         def record_purchase(account: Account, purchase: Purchase) -> Account:\n        -    \"\"\"The account with this purchase written into it, and both totals moved.\n        +    \"\"\"The account with this purchase written into it, and its total moved.\n         \n        -    How a purchase has always been recorded. Each total is added to rather than\n        -    worked out again: the account already carries what has been spent, and a sale\n        -    changes it by exactly the price of the thing sold.\n        +    How a purchase is recorded. The lifetime total is added to rather than worked\n        +    out again: the account already carries what has been spent, and a sale changes\n        +    it by exactly the price of the thing sold.\n         \n        -    The month is the part worth reading twice. A purchase counts towards the\n        -    month's total only if it falls in the month being counted, so that addition is\n        -    conditional where the lifetime one is not - and a shopper backfilling an older\n        -    order leaves this month's figure exactly where it was.\n        +    The month is no longer carried. Every purchase says whether it falls in the\n        +    current month, so what a shopper has spent this month adds up from the history\n        +    whenever anybody wants it - exactly as the lifetime average is derived from the\n        +    purchases rather than read off the account. A second copy of a figure the\n        +    purchases already hold is a copy that has to be kept in step, and the cheapest\n        +    way to keep it in step is not to keep it.\n             \"\"\"\n             return replace(\n                 account,\n                 purchases=(*account.purchases, purchase),\n        -        total_cents=account.total_cents + purchase.price_cents,\n        -        total_this_month_cents=(\n        -            account.total_this_month_cents + purchase.price_cents\n        -            if purchase.in_current_month\n        -            else account.total_this_month_cents\n        -        )\n        +        total_cents=account.total_cents + purchase.price_cents\n             )\n         \n         \n  - A file [D1] does not list is as it was at the revision [D1] compares against.\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] Which code each claim is about:\n      - The deployed revision 26f1d7e2 is not in main's history, so I have not read it. The claim that it removed the total_this_month_cents update from `record_purchase` comes from the investigation's deploy diff, not from code I saw.\n      - On main, in src/io_shop/purchase_ledger.py, `record_purchase` still moves `total_this_month_cents`. But main has the same fault in `record_purchase_deriving_the_month`, which `record_a_purchase` calls when `derive_the_month` is true. That function adds the purchase and moves `total_cents`, but copies `total_this_month_cents` across unchanged. That is the same omission the investigation describes in the deployed revision. So turning that path on, or deploying the branch again, would leave stored month totals out of line with the purchases again.\n      \n      The fix, in src/io_shop/purchase_ledger.py: `record_purchase_deriving_the_month` now sets `total_this_month_cents` to the sum of `price_cents` over the account's purchases (including the new one) where `in_current_month` is true. So the path writes the month total it derives instead of dropping it. An account with a total that has already drifted gets the correct figure the next time it is written through this path. `record_purchase` and `record_a_purchase` are unchanged, and the field keeps its name and type.\n      \n      Tests (tests/io_shop/test_purchase_ledger.py): three new cases. They assert that the deriving path, called directly and through `record_a_purchase(..., derive_the_month=True)`, leaves `total_this_month_cents` equal to the sum of this month's purchase prices. One case also asserts that `reconcile_monthly_totals` reports nothing for the result. Against main as it stands, they are written to fail, because the deriving path returns the account's old month total. Nothing has run them.\n      \n      Repair (scripts/repair_monthly_totals.py): the patch only prevents new wrong totals. It does not fix the ones already written. This one-off script reads accounts as JSON lines. It passes them to `reconcile_monthly_totals` and takes the shopper ids that come back as disagreeing. For those accounts only, it sets `total_this_month_cents` to the sum of this month's purchase prices and leaves every other field of the input line as it was. It is a dry run unless `--apply` is passed, in which case it writes only the corrected accounts. Either way it prints how many accounts it checked and changed. The JSON-lines format is my assumption, since I don't know how the store exports or loads accounts: whoever runs it has to export the accounts in that shape and load the corrected ones back. **The script has not been run. A person has to run it**, ideally after this fix is deployed and before the month rolls over, because `in_current_month` is what it sums by.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'. [F1] was written against main, which does not contain the revision running when the alert fired: merged, its fix changes what runs only once a deploy carries it. [F1] names tests/io_shop/test_purchase_ledger.py on main as it was at 26f1d7e, which ran. What [F1] says of that file holds for what ran; what it says of the rest of main does not. [F1] names revision 26f1d7e2 and [D1] is that revision's own diff - say what it shows rather than ask for it to be checked.\n\nWhat ran, read at the revision running when the alert fired:\n  - [S1] src/io_shop/purchase_ledger.py at 26f1d7e\n      \"\"\"Writing a purchase down - the other side of what the account page reads.\n      \n      An account carries two running totals beside its purchases: what the shopper has\n      spent altogether, and what they have spent this month. Recording a sale means\n      writing the purchase and moving both of them, and this is where that happens.\n      \n      Running totals rather than figures derived on demand, because that is what they\n      are for. The account page is the most-visited page the shop has and a history is\n      long; a total that was summed on every render would make every page pay for the\n      whole of a shopper's past. What that buys costs something in return, and the cost\n      is the only thing worth knowing about this module: a total is a second copy of\n      what the purchases already say, so a write that moves one and not the other leaves\n      the shop holding two answers to the same question. Nothing here notices if that\n      happens - see `io_shop.spend_reconciliation`, which is the shop's own check on\n      exactly this.\n      \n      Which path a purchase is recorded through arrives here already decided, exactly\n      as the choice of figure does on the read side - see `io_shop.spend_summary`.\n      Nothing in this module reads a flag, and nothing in it knows a rollout is\n      happening.\n      \"\"\"\n      \n      from __future__ import annotations\n      \n      from dataclasses import replace\n      \n      from io_shop.accounts import Account, Purchase\n      \n      \n      def record_purchase(account: Account, purchase: Purchase) -> Account:\n          \"\"\"The account with this purchase written into it, and its total moved.\n      \n          How a purchase is recorded. The lifetime total is added to rather than worked\n          out again: the account already carries what has been spent, and a sale changes\n          it by exactly the price of the thing sold.\n      \n          The month is no longer carried. Every purchase says whether it falls in the\n          current month, so what a shopper has spent this month adds up from the history\n          whenever anybody wants it - exactly as the lifetime average is derived from the\n          purchases rather than read off the account. A second copy of a figure the\n          purchases already hold is a copy that has to be kept in step, and the cheapest\n          way to keep it in step is not to keep it.\n          \"\"\"\n          return replace(\n              account,\n              purchases=(*account.purchases, purchase),\n              total_cents=account.total_cents + purchase.price_cents\n          )\n      \n      \n      def record_purchase_deriving_the_month(account: Account,\n                                             purchase: Purchase) -> Account:\n          \"\"\"The same account, without the month's total being moved.\n      \n          One total to carry instead of two, which is the saving: a month is not\n          something the shop has to keep a figure for. Every purchase says which month\n          it falls in, so what a shopper has spent this month adds up from the history\n          whenever anybody wants it - exactly as the lifetime average is derived from the\n          purchases rather than read off the account (see\n          `io_shop.spend_summary.average_spend_per_item`). Keeping a second copy of a\n          figure the purchases already hold is the work this path exists to drop.\n          \"\"\"\n          return replace(\n              account,\n              purchases=(*account.purchases, purchase),\n              total_cents=account.total_cents + purchase.price_cents\n          )\n      \n      \n      def record_a_purchase(account: Account,\n                            purchase: Purchase,\n                            derive_the_month: bool) -> Account:\n          \"\"\"The account this purchase leaves behind, written through whichever path\n          the rollout selects.\n      \n          The decision arrives made, like every other rollout decision in this shop:\n          whoever handled the sale was told by the flag SDK which cohort this shopper\n          is in, and hands the answer down. A write path that evaluated a flag for\n          itself would be a second place the rollout is decided, and the two would\n          eventually disagree about which shoppers are in it.\n          \"\"\"\n          if derive_the_month:\n              return record_purchase_deriving_the_month(account, purchase)\n      \n          return record_purchase(account, purchase)\n      \n\nHow the code outside Code-Fix's patch uses what it changes, read on main by Argus:\n  - [U1] total_this_month_cents at src/io_shop/monthly_statement.py:650, in the_mean_purchase_this_month: divides with it: account.total_this_month_cents // len(bought)\n  - [U2] total_this_month_cents at src/io_shop/monthly_statement.py:882, in _compared_with_usual: reads it: this_month_cents = account.total_this_month_cents\n  - [U3] total_this_month_cents at src/io_shop/monthly_statement.py:918, in render_monthly_statement: reads it: month_total_cents = account.total_this_month_cents\n  - [U4] total_this_month_cents at src/io_shop/spend_reconciliation.py:109, in reconcile_monthly_totals: compares it with _bought_this_month(account), where _bought_this_month(account) returns sum(purchase.price_cents for purchase in account.purchases if purchase.in_current_month)\n  - [U5] total_this_month_cents at src/io_shop/spend_reconciliation.py:115, in _the_disagreement_in: subtracts with it: _bought_this_month(account) - account.total_this_month_cents, where _bought_this_month(account) returns sum(purchase.price_cents for purchase in account.purchases if purchase.in_current_month)\n  - [U6] total_this_month_cents at src/io_shop/spend_summary.py:47, in average_spend_per_item_this_month: divides with it: account.total_this_month_cents // len(bought_this_month)\n  - Where [F1] says otherwise of these lines, they stand. src/io_shop/monthly_statement.py, src/io_shop/spend_reconciliation.py and src/io_shop/spend_summary.py are on main as they were at 26f1d7e, which ran: what these lines say of them holds for what ran.\n\nAction items the record already holds:\n  - AI-1 (mitigate, open): Review and merge the proposed fix\n  - AI-2 (mitigate, open): Roll io-shop back\nRewriting what the incident wrote wrong is left to a person by design: say it in still_at_risk and the action items, never under went_wrong.\nPR #554 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\nThe document already states what set it off, in a section of its own: the change [P2] - suspected, not confirmed.\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01QCTQVToX2QCpfLducLPUyC",
+          "input": {
+            "action_items": [
+              {
+                "answers": [],
+                "item": "Export the accounts and run Code-Fix's repair script against them (scripts/repair_monthly_totals.py), first as a dry run and then with --apply, and load the corrected accounts back. Do this once a revision that maintains the month total is running, and before the month rolls over.",
+                "type": "mitigate"
+              },
+              {
+                "answers": [
+                  "CF-1"
+                ],
+                "item": "Run the spend-integrity check that compares stored monthly totals with the purchases far more often than it runs now.",
+                "type": "detect"
+              },
+              {
+                "answers": [
+                  "CF-2"
+                ],
+                "item": "Add a test that runs for every change to the purchase ledger. It should record purchases through each write path (record_purchase, record_purchase_deriving_the_month and record_a_purchase both ways) and assert that reconcile_monthly_totals reports nothing for the result.",
+                "type": "prevent"
+              },
+              {
+                "answers": [],
+                "item": "Route SpendTotalsDoNotReconcile to the on-call rotation so that a person is paged when it fires.",
+                "type": "process"
+              }
+            ],
+            "causal_chain": [
+              {
+                "cites": [
+                  "AL1"
+                ],
+                "ruled_out": [],
+                "step": "Shoppers' stored monthly spend totals no longer matched the purchases behind them: each affected total came out short of what the shopper had bought this month."
+              },
+              {
+                "cites": [
+                  "S1",
+                  "U4",
+                  "U5"
+                ],
+                "ruled_out": [],
+                "step": "Purchases recorded on the running code were added to the account and to the lifetime total, but the stored this-month total was left where it was. The reconciliation check compares that stored figure with the sum of the in-month purchases, so it found the stored figure short."
+              },
+              {
+                "cites": [
+                  "P2",
+                  "D1",
+                  "T11"
+                ],
+                "ruled_out": [
+                  {
+                    "cites": [
+                      "AL1",
+                      "P1",
+                      "P2"
+                    ],
+                    "what": "The earlier deploy of revision 4c810f2 at {P1.1}: the alert dates the oldest affected purchase at {A4}, which is after the later deploy at {P2.1}."
+                  },
+                  {
+                    "cites": [
+                      "T14"
+                    ],
+                    "what": "A feature-flag change: the flag provider's history showed {T14.2} flag changes by anyone but Argus in the window before the onset."
+                  }
+                ],
+                "step": "Revision 26f1d7e, deployed at {P2.1}, removed the update to total_this_month_cents from record_purchase. As of {T11.1}, all {T11.2} replicas were running that revision."
+              },
+              {
+                "cites": [
+                  "D1",
+                  "S1",
+                  "U1",
+                  "U2",
+                  "U3",
+                  "U4",
+                  "U5",
+                  "U6"
+                ],
+                "ruled_out": [],
+                "step": "The change stopped keeping the month total on the reasoning that it could be derived from the history, but the code that uses it still reads the stored field instead of deriving it."
+              }
+            ],
+            "cause_in_plain_words": "A code change to the shop stopped updating each shopper's saved running total for the current month when a purchase was recorded, but the shop's statements and checks still read that saved total, so it fell further behind what shoppers had actually bought.",
+            "cause_rests_on_an_unrun_reading": false,
+            "contributing_factors": [
+              {
+                "addressed_by": [],
+                "factor": "The only thing that found the drift was the spend-integrity check, which runs once every {A5} days. No more frequent check was seen comparing stored monthly totals with the purchases behind them.",
+                "had_it_been_otherwise": "A check that ran more often would have caught the wrong totals soon after the deploy, so far fewer totals would have been written wrong before anyone knew.",
+                "label": "CF-1"
+              },
+              {
+                "addressed_by": [],
+                "factor": "Before revision 26f1d7e was deployed, no check was seen that records purchases through the ledger's write paths and confirms the stored monthly total still matches the purchases.",
+                "had_it_been_otherwise": "Such a check would have failed on a change that stopped moving the month total, and the change would have been held back before it reached production.",
+                "label": "CF-2"
+              }
+            ],
+            "lessons": {
+              "got_lucky": [],
+              "went_well": [
+                {
+                  "item": "The Investigator Agent read the deployment's diff, which showed the month-total update removed from record_purchase.",
+                  "timed_by": "T10"
+                },
+                {
+                  "item": "Argus read the flag provider's history and found no flag changes by anyone else before the onset, which ruled out a flag change.",
+                  "timed_by": "T14"
+                },
+                {
+                  "item": "Argus declined to roll back on its own, because nothing would show inside its wait whether the rollback worked. It left the rollback to a person as a recommendation instead.",
+                  "timed_by": "T17"
+                },
+                {
+                  "item": "The Code-Fix Agent proposed a draft pull request, #554, along with a one-off repair script for the totals already written wrong.",
+                  "timed_by": "T19"
+                }
+              ],
+              "went_wrong": [
+                "The alert paged nobody: no on-call incident was linked to it, so the rollback Argus recommended waited on a person noticing it."
+              ]
+            },
+            "reaches_a_cause": true,
+            "root_cause": "Revision 26f1d7e removed the line in record_purchase that added each in-month purchase's price to the account's stored total_this_month_cents, on the reasoning that the month could be derived from the purchase history. The field stayed on the account, though, and the monthly statement, the spend summary and the reconciliation check still read the stored figure rather than summing the purchases. From then on, every recorded purchase left the stored month total further behind the purchases.",
+            "still_at_risk": "Every purchase recorded through either write path on the running revision could keep leaving shoppers' stored monthly totals short, and the totals already written wrong stay wrong in the monthly statements and spend figures that read them until someone rewrites them.",
+            "symptom": "Shoppers' monthly spend totals fell short of the purchases behind them"
+          },
+          "name": "submit_postmortem",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your postmortem was not accepted:\n  - the root_cause names [26f1d7e] by its revision - the document states which change set it off; say why that change broke the service\n  - the root_cause [The field stayed on the account, though, and the monthly statement, the spend summary and the reconciliation check still read the stored figure rather than summing the purchases.] says one thing of code whose rows differ - [U1] divides with it: account.total_this_month_cents // len(bought); [U2] reads it: this_month_cents = account.total_this_month_cents; [U3] reads it: month_total_cents = account.total_this_month_cents; [U4] compares it with _bought_this_month(account), where _bought_this_month(account) returns sum(purchase.price_cents for purchase in account.purchases if purchase.in_current_month); [U5] subtracts with it: _bought_this_month(account) - account.total_this_month_cents, where _bought_this_month(account) returns sum(purchase.price_cents for purchase in account.purchases if purchase.in_current_month); [U6] divides with it: account.total_this_month_cents // len(bought_this_month) - say of each only what its own row says\n\nCall submit_postmortem again with the whole answer, corrected.",
+          "is_error": true,
+          "tool_use_id": "toolu_01QCTQVToX2QCpfLducLPUyC",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit the postmortem for this incident. Every field is required. Write no figure yourself anywhere in your answer - no time, duration, percentage, count or amount, not in digits and not spelled out in words. Every figure you are shown is followed by its name in braces, like {A3} or {duration}: where your prose states one, write its name, braces and all, and the document writes the figure in. A figure you were not shown but could work out from two you were - the span between two instants, how far one share is above another, how many times one is the other - is written as that working, braces and all: {back_to_normal - began}, {T3.1 - alert_raised}, {errors_at_worst / errors_before}. The document works it out from the figures as you were shown them. Say any other size with no number in it, not even in a word - \"most requests\", \"for several minutes\", never \"twenty minutes\", \"a third\" or \"tripled\". A number is a figure even with a unit or a clock's marks on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a name - a label (T2, G3fa2, C1, AI-1), a version (v2), a revision, a pod - and is written as given. State only what the evidence you are shown says: where the record does not show something - a check that was or was not run, how many replicas - leave it out or say it was not seen.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_items": {
+            "description": "What should be done that the record does not already hold, each one thing a person could take on: two things to do are two items. Empty where the record's own items answer every factor. Propose nothing to confirm a cause the record already confirmed - a mitigation that worked, a hypothesis marked confirmed - and no check of what the evidence you are shown already shows: a diff states what changed. Where an F row says to check something a D row shows, say what the D row shows, and the item is what follows from it. Where Code-Fix proposed a fix, propose no item to run or check its reading: where the cause rests on it, the review checklist says what would confirm it, under the record's own item for the fix.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "answers": {
+                  "description": "The labels of the contributing factors it answers: CF-1. Empty where it answers none.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "item": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mitigate",
+                    "prevent",
+                    "detect",
+                    "process"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "item",
+                "type",
+                "answers"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "assumptions": {
+            "description": "Anything else the reader should know was assumed rather than measured. Empty is a valid answer.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "causal_chain": {
+            "description": "The cause as the five whys, from the symptom down: the first step is what users saw - or, where nobody using the service saw anything wrong, that and what was seen instead - and each step after it answers why the step directly before it happened. The first why says why the symptom happened, not the symptom again in more detail. Where the record holds them, the document says itself how bad it got, which change set it off, what put the service back and the root cause: a step cites the row that shows one of those and does not say it again - no figure the impact gives in the first step, no action Argus took, nor its verdict, in the step naming the change, and, where the chain says why the change broke the service, its last step says that in one sentence, its mechanism left to the root cause. Where the incident needed two things at once - something going wrong, and nothing in place to contain it - follow the one that leads to what set it off; the other is one of the contributing_factors, not named in the chain. A safeguard that did not stop it is never a step of its own: it is one of the contributing_factors. Every step cites at least one piece of evidence by its label. Date a change by its own row's instant - the T or P row that records it - never by an effect it had. A state a row read - how many replicas run a revision, which way a flag is set - is known as of the row that read it, by that row's instant, which is its first figure, as T3.1 is T3's - not from when the change was made. What else the record ruled out - an earlier change, a flag the provider showed unchanged, a candidate refuted - goes in the ruled_out of the step that ties the incident to the change that set it off, citing what ruled it out, and never as a step. An earlier change is ruled out only by the service measured healthy with it in place - in metrics read between it and the onset, in an alert that dates the first harm itself at or after a later change (at, where the two instants are the same), or after a confirmed action that left it there - never by how long before the onset it came. Where the record shows none of these, it was not ruled out: say so in that step itself. Stop where the evidence stops.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cites": {
+                  "description": "The labels of the evidence that shows this step: T3, G3fa2. Not rows that merely happened at the same time.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ruled_out": {
+                  "description": "What else the record ruled out at this step, each what it was and why. Empty on every step but the one that ties the incident to the change that set it off.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cites": {
+                        "description": "The labels of what ruled it out.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "what": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "what",
+                      "cites"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "step": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step",
+                "cites",
+                "ruled_out"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cause_in_plain_words": {
+            "description": "What caused the incident, in one sentence for a reader who does not work on the service: no component names unless they are unavoidable. When it began, for how long, how bad it got, what customers lost and what was done the document says itself - say none of them. Say only what the record says - of a change, of the service, of the people - and nothing it does not. Where part of it rests only on a reading nothing ran, say that part as likely, in plain words, without mentioning the reading.",
+            "type": "string"
+          },
+          "cause_rests_on_an_unrun_reading": {
+            "description": "Whether the mechanism in root_cause rests on an F row - a reading of the code nothing ran - with no S or D row showing what it rests on. Where you answer true, the document says itself, beside the root cause, that the cause is unverified, and leaves its root-cause review box for a person: say neither in root_cause.",
+            "type": "boolean"
+          },
+          "contributing_factors": {
+            "description": "Conditions that had to hold for the incident to happen and did not cause it alone - a safeguard that did not stop it, a gap in detection or review. A factor held before the incident began: what the response did, declined or left behind - an action taken or not, automatic sync left off - is not one; where it went wrong, say it under went_wrong. Not the root cause again in other words: a factor is something that, had it been otherwise, would have stopped or shortened the incident even with what root_cause says still true. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. An alert finds what its rule watches, not the cause behind it: say a fault was found only by what the record shows found it. Each is answered by at least one action item: one of the record's, named in its addressed_by, or one you propose, whose answers name it.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "addressed_by": {
+                  "description": "The record's own action items that answer it, by the numbers the record gives them: AI-1. Empty where none of them does. Never an item you propose: that item names, in its own answers, the factors it answers. The record's item that merges this incident's fix answers the fault its own tests cover, never a check missing before the change went out: answer that with an item that puts the check in place for every change like it.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "factor": {
+                  "type": "string"
+                },
+                "had_it_been_otherwise": {
+                  "description": "What would have gone differently had this been otherwise - stopped, shortened or caught sooner - with what root_cause says still true. A factor that only says the root cause again cannot answer this: leave it out of the list.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "CF-1 for the first factor, CF-2 for the next, and so on in the order you give them. Written here and in an item's answers, never in your prose: the reader never sees it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "factor",
+                "had_it_been_otherwise",
+                "addressed_by"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "lessons": {
+            "additionalProperties": false,
+            "description": "What went well, what went wrong, and where the incident got lucky - a risk that went unnoticed this time. Any list may be empty. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. How soon the alert came is weighed by the document already, from what was measured: say nothing of it here.",
+            "properties": {
+              "got_lucky": {
+                "description": "Something the record shows went the fortunate way by chance, and how it kept the harm down - never what would have happened otherwise. Empty where the record shows none. Not what kind of fault it was, which the impact already says, nor a limit of what the record shows, which is said in assumptions as what was assumed. Not how the service did over a stretch its metrics did not cover, nor what a failure there would have done - the document says how it did.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "went_well": {
+                "description": "Only what went well; empty where nothing did. A timed item says one thing, done at its row; what came later goes in an item of its own. Say no span of time, in figures or in words (\"within seconds\"): name the row in timed_by instead, and begin an item timed so with who did it (\"The Investigator Agent ...\", \"Argus ...\"), since the document says the time ahead of it. Set a purpose or a reason beside the action it belongs to, and say it once. Name what Code-Fix proposed without saying what it does: the action items and Code-Fix's own reading say that, with its conditions.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "item": {
+                      "type": "string"
+                    },
+                    "timed_by": {
+                      "description": "The T or XW row the item happened on (T13), where when it happened is part of why it went well: the document says how long after the alert that was. Left out where its time is not the point.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "item"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "went_wrong": {
+                "description": "A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already. Not that Code-Fix read another revision than the one that ran, or that nothing ran its reading: where the record holds them, the document says the first in its summary and the second beside the root cause.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "went_well",
+              "went_wrong",
+              "got_lucky"
+            ],
+            "type": "object"
+          },
+          "reaches_a_cause": {
+            "description": "Whether the chain says why the change that set the incident off broke the service, rather than stopping at that change. A step resting on F rows - a reading of the code nothing ran - counts: whether that leaves the cause unverified is cause_rests_on_an_unrun_reading's to say. That a new version does worse is what the change did, not why it broke the service: answer false where the chain says the evidence does not show why.",
+            "type": "boolean"
+          },
+          "root_cause": {
+            "description": "What caused the incident, in one or two sentences, written for an engineer who was not on the call: the mechanism - why the change that set it off broke the service, as far as the evidence goes, a missing protection or not. Not the trigger, how it was confirmed, what resolved it or what was ruled out - the document states each of those itself. Not one of the contributing_factors: a safeguard that would have stopped it with this mechanism unchanged is said there, not here. What the service did over the stretch the metrics did not watch is not the mechanism: the document says it itself. Whether it was verified the document says itself, from your answer to cause_rests_on_an_unrun_reading - do not say it.",
+            "type": "string"
+          },
+          "still_at_risk": {
+            "description": "What was still at risk at the end of the time Argus held the incident, in one sentence for the same reader - what the fault still in place then could yet do, or the same thing able to happen again. Empty where nothing was. Not whether the service or its metrics were back, nor why - the summary says both. Not what Argus left to a person - a draft fix, automatic sync left off, a recommended action - which the document says itself. Say what could happen, never why it would: no \"because\". The summary says the cause, or that none was found. Say only what the record says: nothing of the service after that was read.",
+            "type": "string"
+          },
+          "symptom": {
+            "description": "What went wrong as somebody using the service saw it, as short as it can be: it is the document's title. One sentence with no number in it, never over 16 words - the thing that went wrong and what happened to it, with an active verb: 'Account pages failed'. Not the metric the alert fired on, not the cause - the document adds the change it began with itself, after your sentence and a 'while', so end on what went wrong, with no clause after it - and not how it was found, which the document's Detection says. Where nobody using the service saw anything wrong, say that and what was seen instead, in that one sentence.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_cause",
+          "cause_in_plain_words",
+          "still_at_risk",
+          "symptom",
+          "causal_chain",
+          "contributing_factors",
+          "action_items",
+          "lessons",
+          "reaches_a_cause",
+          "cause_rests_on_an_unrun_reading"
+        ],
+        "type": "object"
+      },
+      "name": "submit_postmortem",
+      "strict": true
+    }
+  ]
+}

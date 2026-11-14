@@ -127,6 +127,7 @@ from agent_postmortem.prompting import (
     the_deployment_changes_labelled,
     the_evidence_labelled,
     the_files_as_they_ran_labelled,
+    the_headings_of,
 )
 from argus_core import parse_iso, to_iso
 from argus_core.models import (
@@ -145,8 +146,10 @@ from argus_core.models import (
     Lessons,
     LogsInTheGap,
     OpenedPullRequest,
+    Ownership,
     ReportChannel,
     RevisionSource,
+    ServiceDependency,
     Standing,
     ToolCall,
     ToolDefinition,
@@ -763,6 +766,7 @@ def test_an_incident_argus_took_no_action_in_is_said_to_have_none() -> None:
             _says("Actions it took:\n  - none")
         )
 
+
 @pytest.mark.unit
 def test_no_change_listed_is_said_as_what_came_of_reading_each_kind() -> None:
     # "None" under the changes reads as asked and nothing there, and a model
@@ -820,7 +824,6 @@ def test_no_log_line_listed_is_said_as_what_came_of_reading_the_logs() -> None:
             _says("Log lines it read, one per message:\n"
                   "  - Asked for; no answer came back.")
         )
-
 
 
 @pytest.mark.unit
@@ -971,6 +974,29 @@ def test_a_revision_code_fix_names_is_tied_to_the_diff_that_shows_it() -> None:
         .then(
             _says_on_one_line("[F1] names revision", some_revision[:7], "[D1]",
                               "say what it shows rather than ask for it to be checked")
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_code_fix_names_both_ways_is_tied_to_its_diff_once() -> None:
+    # F1 named the revision whole and by its short form, and the brief tied it
+    # to D1 twice, one sentence for each spelling: a reader told one thing
+    # twice looks for the difference between the two.
+    some_revision = "c3c36da3c66c07707f227b7e70b26813083061f3"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation=f"Revision {some_revision} is not in main's history, and "
+                                f"{some_revision[:7]} renamed the port.",
+                deployment_changes=[DeploymentChangesRecord(revision=some_revision,
+                                                            said=["+ portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_once("[D1] is that revision's own diff")
         )
 
 
@@ -1884,6 +1910,29 @@ def test_the_model_is_told_the_fix_not_kept_is_written_again_by_the_record_s_ite
 
 
 @pytest.mark.unit
+def test_the_model_is_told_asking_whoever_runs_the_failed_service_is_the_record_s_item() -> None:
+    # No code fix was looked for, and the item to ask the provider is the
+    # record's: said beside it, so the write-up writes no second one - as it
+    # wrote half of the fix-not-kept item as one of its own.
+    some_provider = ServiceDependency(name="kuki-pay", purpose="dont care",
+                                      host="api.kuki-pay.example", owner="Kuki Payments Ltd",
+                                      ownership=Ownership.THIRD_PARTY)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"whose_service_failed": some_provider})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says(f"{some_provider.owner} runs {some_provider.name}, so no code fix was looked "
+                  f"for: AI-1 asks them to restore it - propose no item of your own for it.")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("branch", "said"), [
     ("argus/fix-abc", "Code-Fix could not propose the fix it wrote: AI-1 is opening its pull "
                       "request from argus/fix-abc - do not propose it again."),
@@ -2780,7 +2829,9 @@ def test_a_post_where_nobody_was_paged_is_told_with_the_one_claim_it_refutes_ref
     # Told only that nobody was paged, a write-up said no person was told at all,
     # of an incident Argus had announced in its thread. Told to say nothing of
     # who was told, the next dropped that nobody was paged as well - so the one
-    # claim is refused by name, and the finding kept open beside it.
+    # claim is refused by name, and the finding kept open beside it. Refused
+    # only "told", a write-up said no person was engaged: taking part is
+    # refused with it.
     some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
 
     Scenario() \
@@ -2795,8 +2846,8 @@ def test_a_post_where_nobody_was_paged_is_told_with_the_one_claim_it_refutes_ref
             _says("Nobody was paged: no on-call incident was linked to this one. An alert rule "
                   "fires; a person is paged. Argus first posted about the incident in Slack at "
                   f"{to_iso(some_post.at)} {{first_told}}, and the document says so already: "
-                  "leave that post out, and do not say that no person was told. That nobody was "
-                  "paged is a finding of its own.")
+                  "leave that post out, and do not say that no person was told or took part. "
+                  "That nobody was paged is a finding of its own.")
         )
 
 
@@ -4745,6 +4796,28 @@ def test_every_sentence_the_answer_would_publish_is_read_with_a_place_of_its_own
 
 
 @pytest.mark.unit
+def test_a_sentence_code_says_instead_is_not_read() -> None:
+    # Code says it in the record's words, or drops it: none of the model's
+    # words there reach a reader, and no rule is held to them.
+    some_step = "a step"
+    some_answer = SubmittedPostmortem(
+        causal_chain=[SubmittedStep(step=some_step, cites=["T1"],
+                                    ruled_out=[SubmittedRuledOut(what="what code says instead",
+                                                                 cites=["T2"])])],
+        lessons=Lessons(went_well=["what code says as its row"], went_wrong=[], got_lucky=[]),
+        said_by_code=frozenset({f"{CAUSAL_CHAIN_FIELD} 1 {RULED_OUT_FIELD} 1",
+                                f"{WENT_WELL_FIELD} 1"}))
+
+    Scenario() \
+        .when(
+            lambda: list(some_answer.sentences())
+        ) \
+        .then(
+            the_answer_was([some_step])
+        )
+
+
+@pytest.mark.unit
 def test_what_a_step_ruled_out_is_rewritten_as_every_other_sentence_is() -> None:
     # Read by the same fields `sentences` reads: a figure named in what was
     # ruled out is written in like one named anywhere else.
@@ -4761,6 +4834,33 @@ def test_what_a_step_ruled_out_is_rewritten_as_every_other_sentence_is() -> None
             the_answer_was([SubmittedStep(step="A STEP", cites=["T1"],
                                           ruled_out=[SubmittedRuledOut(
                                               what="WHAT IT RULED OUT", cites=["T2"])])])
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_out_the_record_says_stays_marked_so_when_rewritten() -> None:
+    # Rewritten is how the figures are written in, after code has said the
+    # rule-out from its rows; rebuilt from its words and citations alone, it
+    # reached the document unmarked, and the page cited its rows twice over.
+    some_step, some_step_cites = "a step", ["T1"]
+    some_rule_out, some_rule_out_cites = "what the record rules out", ["T2"]
+
+    Scenario() \
+        .given(
+            some_answer := SubmittedPostmortem(causal_chain=[SubmittedStep(
+                step=some_step, cites=some_step_cites,
+                ruled_out=[SubmittedRuledOut(what=some_rule_out, cites=some_rule_out_cites,
+                                             by_the_record=True)])])
+        ) \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper).causal_chain
+        ) \
+        .then(
+            the_answer_was([SubmittedStep(
+                step=some_step.upper(), cites=some_step_cites,
+                ruled_out=[SubmittedRuledOut(what=some_rule_out.upper(),
+                                             cites=some_rule_out_cites,
+                                             by_the_record=True)])])
         )
 
 
@@ -4983,6 +5083,24 @@ def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: st
             _the_description_mentions(what_an_unseen_check_is_written_as),
             _the_description_avoids("missing safeguard")
         ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD])
+def test_a_check_the_record_shows_is_asked_for_as_none_other_seen_never_the_only_one(
+        field: str) -> None:
+    # Told only how to write a check the record does not show, three write-ups
+    # of one incident called the check that found it the only one - two of them
+    # "the only check that compares stored spend totals with their purchases" -
+    # no line said so, and the judge passed it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[field]["description"]
+        ) \
+        .then(
+            _the_description_mentions("say that no other check was seen",
+                                      "never that it is the only one")
+        )
 
 
 @pytest.mark.unit
@@ -5340,6 +5458,27 @@ def test_a_draft_fix_left_for_a_person_is_asked_for_as_having_gone_as_designed()
         ) \
         .then(
             _the_description_mentions("a draft fix to review and merge", "went as designed")
+        )
+
+
+@pytest.mark.unit
+def test_a_refusal_is_asked_for_as_gone_as_designed_only_where_the_record_bears_it_out() -> None:
+    # A write-up listed under what went wrong that "no mitigation was applied"
+    # - Argus refusing to undo a change missing from every record, and leaving
+    # it to a person, as designed. Told so without the condition, write-ups of
+    # an incident whose refusal the record contradicted dropped it in 4 draws
+    # of 5; told the condition alone, in 1 of 5; told that one belongs here,
+    # in none.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("a change Argus refused to undo, for a reason the "
+                                      "record bears out, and left for a person",
+                                      "a refusal the record contradicts did go wrong, and "
+                                      "belongs here")
         )
 
 
@@ -6568,6 +6707,7 @@ def test_a_submission_carrying_nothing_usable_is_empty_rather_than_refused() -> 
             )
         )
 
+
 @pytest.mark.unit
 def test_the_model_is_asked_whether_its_chain_reaches_past_the_change_as_a_yes_or_no() -> None:
     # A rollback confirms which change set an incident off and says nothing of
@@ -6764,6 +6904,111 @@ def test_an_answer_from_before_the_question_leaves_whether_it_rests_on_a_reading
         .then(
             the_answer_was(None)
         )
+
+
+@pytest.mark.unit
+def test_a_root_cause_resting_on_no_unrun_reading_is_written_as_the_model_says_it() -> None:
+    some_root_cause = "The average divides by this month's purchases, which can be none."
+
+    Scenario() \
+        .given(
+            an_answer_resting_on_nothing_unrun := SubmittedPostmortem.model_validate(an_answer(
+                root_cause=some_root_cause, cause_rests_on_an_unrun_reading=False))
+        ) \
+        .when(
+            lambda: an_answer_resting_on_nothing_unrun.root_cause_as_written()
+        ) \
+        .then(
+            the_answer_was(some_root_cause)
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_resting_on_an_unrun_reading_is_written_naming_each_reading_cited() -> None:
+    # Each reading once, in the order the chain first cites it, so a reader
+    # can open them; a line cited beside one is no reading.
+    some_root_cause = "The average divides by this month's purchases, which can be none."
+    a_line = "T1"
+    a_reading = "F1"
+    another_reading = "F2"
+
+    Scenario() \
+        .given(
+            an_answer_resting_on_readings := SubmittedPostmortem.model_validate(an_answer(
+                root_cause=some_root_cause, cause_rests_on_an_unrun_reading=True,
+                causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: [a_line, a_reading]},
+                              {STEP_FIELD: "dont care",
+                               CITES_FIELD: [another_reading, a_reading]}]))
+        ) \
+        .when(
+            lambda: an_answer_resting_on_readings.root_cause_as_written()
+        ) \
+        .then(
+            the_answer_was(f"{some_root_cause} It rests on {a_reading}, {another_reading}, a "
+                           f"reading of the source nothing ran, so it is unverified.")
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_resting_on_an_unrun_reading_the_chain_never_cites_names_none() -> None:
+    # Still unverified: the answer says the cause rests on one, whichever
+    # step would have cited it.
+    some_root_cause = "The average divides by this month's purchases, which can be none."
+    a_line = "T1"
+
+    Scenario() \
+        .given(
+            an_answer_citing_no_reading := SubmittedPostmortem.model_validate(an_answer(
+                root_cause=some_root_cause, cause_rests_on_an_unrun_reading=True,
+                causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: [a_line]}]))
+        ) \
+        .when(
+            lambda: an_answer_citing_no_reading.root_cause_as_written()
+        ) \
+        .then(
+            the_answer_was(f"{some_root_cause} It rests on a reading of the source nothing "
+                           f"ran, so it is unverified.")
+        )
+
+
+@pytest.mark.unit
+def test_each_label_is_headed_as_the_record_lists_it() -> None:
+    # What the judge reads beside a citation: what kind of row it is and
+    # whose words - a reading of the source being Code-Fix's, and nothing
+    # having run it. Without what the writer is told there, or the colon the
+    # record ends a heading with.
+    a_line = "T1"
+    a_reading = "F1"
+    # With no pull request opened. MIRRORED FROM THE RECORD'S HEADINGS - NOT
+    # ARBITRARY VALUES.
+    the_narration_s_heading = "What Argus did, in order"
+    the_reading_s_heading = ("What Code-Fix read in the source, in Code-Fix's words - nothing "
+                             "ran to check it")
+
+    Scenario() \
+        .given(
+            evidence_with_a_reading := an_evidence_bundle(fix_explanation="dont care")
+        ) \
+        .when(
+            lambda: the_headings_of(evidence_with_a_reading, a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _headed(a_line, the_narration_s_heading),
+                _headed(a_reading, the_reading_s_heading)
+            )
+        )
+
+
+def _headed(label: str, expected: str) -> Assertion[dict[str, str]]:
+    def assertion(headings: dict[str, str]) -> bool:
+        if headings.get(label) != expected:
+            raise AssertionError(
+                f"Expected [{label}] headed {expected!r}, got {headings.get(label)!r}.")
+
+        return True
+
+    return assertion
 
 
 def _comes_right_after(earlier: str, later: str) -> Assertion[list[str]]:

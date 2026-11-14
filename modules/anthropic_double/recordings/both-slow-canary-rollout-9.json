@@ -5,17 +5,17 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01QPrYZjU1u5zxpypR6mSyoq",
+      "id": "toolu_01WwTSow4M13UsGiHL2Aq2Wp",
       "input": {
         "answer": false,
-        "explanation": "No. The slow work happened inside this repository. `typical_spend_per_item` in src/io_shop/typical_spend.py ran repeated min/remove over the whole purchase list, so its cost grew with the square of the history length. `render_spend_summary` in src/io_shop/spend_summary.py calls it whenever typical-purchase-feature is on. The patch replaces that loop with one sort in the same function and gives the same results. Nothing outside this repo needs to change: once the patch is deployed, turning the flag back on uses the cheaper path."
+        "explanation": "No. The fault is entirely in src/io_shop/typical_spend.py: it removed the minimum over and over, so its cost grew with the square of the history length. That is what drove up p99 on long histories once the flag sent requests to it. Sorting once fixes this inside the repository. The function's signature and output stay the same, so its caller, render_spend_summary, needs no change, and nothing outside this repository has to change for the flag to be safe to turn back on."
       },
       "name": "answer_question",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CggUKdVrT2XJi5h9TzF85",
+  "id": "msg_011CgyBtkkRWvQkTjYNrxtdE",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -25,13 +25,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2899
+      "ephemeral_5m_input_tokens": 2613
     },
-    "cache_creation_input_tokens": 2899,
-    "cache_read_input_tokens": 7706,
+    "cache_creation_input_tokens": 2613,
+    "cache_read_input_tokens": 8008,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 248,
+    "output_tokens": 216,
     "output_tokens_details": {
       "thinking_tokens": 0
     },

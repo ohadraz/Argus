@@ -42,7 +42,11 @@ class Overviewing(Protocol):
                  said: Mapping[str, str],
                  paging: Paging,
                  disproven: bool,
-                 resolution: Sequence[str]) -> Overview:
+                 resolution: Sequence[str],
+                 judge: LLMClient | None,
+                 document: str,
+                 labels: frozenset[str],
+                 incident_id: str) -> Overview:
         ...
 
 
@@ -53,8 +57,11 @@ def write_executive_synopsis(postmortem: PostmortemDocument,
                              figures: Mapping[str, str],
                              said: Mapping[str, str],
                              resolution: Sequence[str],
+                             document: str,
+                             labels: frozenset[str],
                              sources: Sources,
                              llm: LLMClient,
+                             judge: LLMClient | None,
                              overview_of: Overviewing = the_overview
                              ) -> ExecutiveSynopsisDocument:
     """The synopsis of one written-up incident: its overview, or why there is
@@ -63,12 +70,16 @@ def write_executive_synopsis(postmortem: PostmortemDocument,
     `figures` are as the tiles write them, which the model is shown; `said` the
     same, as prose says them, which the overview kept has written in. Any pull
     request the overview names is the record's, as in the postmortem's prose.
+
+    `document` is the postmortem as its reader reads it, and `labels` every
+    label its rows go by: what `judge` reads the overview against.
     """
     overview = overview_of(llm, service=service, symptom=postmortem.symptom,
                            cause=postmortem.cause_in_plain_words, figures=figures, said=said,
                            paging=paging_of(postmortem.paged, postmortem.responders),
                            disproven=postmortem.disproven_at is not None,
-                           resolution=resolution)
+                           resolution=resolution, judge=judge, document=document,
+                           labels=labels, incident_id=incident_id)
     breakdown = _the_breakdown(postmortem, incident_id, sources)
 
     return ExecutiveSynopsisDocument(

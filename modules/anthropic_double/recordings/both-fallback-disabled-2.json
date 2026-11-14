@@ -5,36 +5,32 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01QXJ7FdR2HWmdV8soc8p1Uq",
+      "id": "toolu_013PbgQeJLGkNRa9DWWVHQFK",
       "input": {
         "hypotheses": [
           {
-            "confidence": 0.93,
+            "confidence": 0.9,
             "failure_mode": "feature-flag-toggle",
             "faulting_service": null,
             "from_state": "on",
             "subject": "legacy-checkout-fallback",
-            "summary": "The feature flag legacy-checkout-fallback was switched from on to off at 2026-10-31T10:00:00Z. With the flag off, account page requests hit a ZeroDivisionError at src/io_shop/spend_summary.py:47 and the error rate went from about 1% to 21\u201338%. No deployment landed, so the code and configuration are unchanged.",
+            "summary": "The feature flag legacy-checkout-fallback was switched from on to off at 2026-11-12T09:27:52Z. Account page requests then began failing with ZeroDivisionError at src/io_shop/spend_summary.py:47, and the error rate rose from about 1% to about 33%. No deployment was involved.",
             "supporting_evidence": [
               {
-                "at": "2026-10-31T10:00:00Z",
+                "at": "2026-11-12T09:27:52Z",
                 "claim": "feature flag legacy-checkout-fallback was switched off (actor: admin)"
               },
               {
-                "at": "2026-10-31T10:00:00Z",
-                "claim": "legacy-checkout-fallback=off 138 / on 62 - 200 evaluations"
+                "at": "2026-11-12T09:27:00Z",
+                "claim": "legacy-checkout-fallback=off 20 / on 180 - 200 evaluations, followed by ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47"
               },
               {
-                "at": "2026-10-31T10:00:00Z",
-                "claim": "ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47"
-              },
-              {
-                "at": "2026-10-31T10:00:00Z",
-                "claim": "error_rate 0.21 at onset, then 0.345, 0.325 and so on, from a baseline of about 0.01; latency and volume flat"
+                "at": "2026-11-12T09:28:00Z",
+                "claim": "account page error rate at 28.50% over the last minute; the flag is off in all 200 evaluations from 09:28 onward"
               },
               {
                 "at": null,
-                "claim": "Deployment converged, with no deployment in history. All 3 replicas were started 2026-10-30T22:05:19Z on identical V100 nodes."
+                "claim": "Deployment converged, with no deployment in the history. The three replicas share one start time on identical V100 nodes."
               }
             ],
             "to_state": "off"
@@ -46,7 +42,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cga8Nux33g2VRcTw99qUb",
+  "id": "msg_011CgxodtM6kGFDZ28yjwCxU",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -56,13 +52,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 6327
+      "ephemeral_5m_input_tokens": 6932
     },
-    "cache_creation_input_tokens": 6327,
+    "cache_creation_input_tokens": 6932,
     "cache_read_input_tokens": 30422,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 565,
+    "output_tokens": 491,
     "output_tokens_details": {
       "thinking_tokens": 0
     },

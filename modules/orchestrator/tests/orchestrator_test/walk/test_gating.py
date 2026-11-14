@@ -888,6 +888,64 @@ def test_a_refusal_about_the_action_itself_recommends_nothing_to_anybody(
         .then(_nothing_was_published_recommending_anything(published))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("named_by", ["name", "host"])
+def test_a_failure_in_somebody_elses_service_names_whoever_the_register_says_runs_it(
+    named_by: str,
+    record_outcome: MagicMock
+) -> None:
+    # Argus takes nothing for another company's outage, and asks Code-Fix for no
+    # change around it either. The refusal carries the register's entry for the
+    # service the candidate blames - by its name or its host, in whatever case
+    # the model wrote it - so a reader knows whom to ask; and the walk records
+    # whose candidate it was, so the fix step knows not to look.
+    published: list[IncidentEvent] = []
+    some_provider = _a_dependency_of_theirs("kuki-pay")
+    some_candidate = _a_cause_with_no_mitigation(FailureMode.UPSTREAM_DEPENDENCY_FAILURE) \
+        .model_copy(update={"subject": getattr(some_provider, named_by).upper()})
+
+    Scenario() \
+        .given(
+            a_gated_incident := _a_mitigating_incident(about=some_candidate,
+                                                       listing=[some_provider])
+        ) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(all_of(
+            _the_refusal_named_whose_service_it_is(some_provider, published),
+            _it_was_recorded_whose_fault_it_was(some_candidate)
+        ))
+
+
+@pytest.mark.unit
+def test_a_failure_in_a_service_the_register_does_not_list_is_still_not_fixed_here(
+    record_outcome: MagicMock
+) -> None:
+    # The mode says the fault is another company's whatever the register holds;
+    # the entry only says whom to ask. With none found nobody is named, and the
+    # fix step still does not look.
+    published: list[IncidentEvent] = []
+    some_candidate = _a_cause_with_no_mitigation(FailureMode.UPSTREAM_DEPENDENCY_FAILURE) \
+        .model_copy(update={"subject": "kuki-unlisted"})
+
+    Scenario() \
+        .given(
+            a_gated_incident := _a_mitigating_incident(about=some_candidate, listing=[])
+        ) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(all_of(
+            _the_refusal_named_whose_service_it_is(None, published),
+            _it_was_recorded_whose_fault_it_was(some_candidate)
+        ))
+
+
 def _a_mitigating_incident(proposing: Action | None = None,
                            about: Hypothesis | None = None,
                            already_tried: list[Attempt] | None = None,
@@ -1342,3 +1400,46 @@ def _a_cause_nobody_named() -> Hypothesis:
     here looking exactly like one.
     """
     return an_undetermined_hypothesis(a_random_id())
+
+
+def _the_refusal_named_whose_service_it_is(expected: ServiceDependency | None,
+                                           published: list[IncidentEvent]
+                                           ) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        refusals = [event for event in published if isinstance(event, ActionRefused)]
+        named = refusals[0].dependency if refusals else None
+
+        if not refusals or named != expected:
+            raise AssertionError(
+                f"Expected the refusal to name [{expected}] as the service that failed, it "
+                f"named [{named}]{'' if refusals else ' - nothing was refused'}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_recorded_whose_fault_it_was(candidate: Hypothesis) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.somebody_elses_fault_for != candidate.id:
+            raise AssertionError(
+                f"Expected the gate to record [{candidate.id}] as the candidate whose fault "
+                f"is another company's, it recorded [{updates.somebody_elses_fault_for}] - "
+                f"so Code-Fix would be asked to write a change around their outage."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_dependency_of_theirs(name: str) -> ServiceDependency:
+    """One entry the register marks as another company's."""
+    return ServiceDependency(
+        name=name,
+        purpose="dont care",
+        host=f"api.{name}.example",
+        owner="Kuki Payments Ltd",
+        ownership=Ownership.THIRD_PARTY
+    )

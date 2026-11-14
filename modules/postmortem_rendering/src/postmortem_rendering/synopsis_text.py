@@ -28,7 +28,7 @@ def the_parts(synopsis: SynopsisLines) -> tuple[Part, ...]:
         "overview": Part(synopsis.headings["overview"], (synopsis.overview.said,)),
         "when": Part(synopsis.headings["when"], (synopsis.window.said,)),
         "impact": Part(synopsis.headings["impact"],
-                       tuple(_a_card(card) for card in synopsis.impact)),
+                       tuple(card_said(card) for card in synopsis.impact)),
         "resolution": Part(synopsis.headings["resolution"], synopsis.resolution, listed=True),
         "human-cost": Part(synopsis.headings["human-cost"],
                            (*(_a_row(row) for row in cost.rows),
@@ -39,8 +39,9 @@ def the_parts(synopsis: SynopsisLines) -> tuple[Part, ...]:
     return tuple(said[key] for key in synopsis.headings)
 
 
-def _a_card(card: Card) -> str:
-    """A figure, what it is, and what supports it where anything does."""
+def card_said(card: Card) -> str:
+    """A figure, what it is, and what supports it where anything does - as the
+    synopsis and the postmortem as text both say a tile."""
     note = f" ({card.note})" if card.note else ""
 
     return f"{card.value} - {card.label}{note}"

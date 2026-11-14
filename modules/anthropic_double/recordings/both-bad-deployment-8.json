@@ -2,20 +2,143 @@
   "container": null,
   "content": [
     {
+      "signature": "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",
+      "thinking": "I'm working on the postmortem's symptom, settling on wording that names the problem directly: account pages loaded slowly. I'm looking at the causal chain next, starting with the first step, which is shoppers' account pages taking much longer to load as p95 latency rose.\n\nI'm now going through the causal chain: the revision deployed at P2 swapped the carried-total division for a loop, and I'm checking whether the quadratic re-summing of purchase prefixes is what drives the slowdown.\n\nI'm now working out the second step of the chain: the revision deployed at P2 that replaced the carried-total division with a loop, and I'm checking that the loop re-summing the purchase prefix is what makes the lifetime average spend computation so costly.\n\nI'm now checking whether the earlier P1 deploy could be the cause, and the metrics from roughly six hours before onset show a healthy baseline, with account pages rendering normally until 00:25. Flag changes also turned up nothing, so I'm treating the P1 deploy and flag changes as ruled out.\n\nI'm checking the ruled-out list against the rollback and the metrics, and the earlier P1 deploy and the flag changes both look clear, since the service was healthy before onset and the rollback restored it. I'm still going over which citations belong in the ruled-out entries versus the step text, keeping the step text free of any action or verdict.\n\nI'm settling the chain's later steps: the revision deployed at P2 is the change, and I'm ruling out the earlier P1 deploy and the flag changes against the healthy metrics before onset. Next I'm pinning the mechanism, that the rewritten average spend loop re-sums the purchase prefix on every iteration, so each request's cost grows with the square of the shopper's purchase count.\n\nI'm writing up the root cause now: the rewritten average-spend function re-sums the whole purchase prefix on each pass through the loop, so the work for a shopper grows with the square of their purchase count, and the slowdown is worst for accounts with long histories.\n\nI'm laying out the contributing factors now: the quadratic loop went unnoticed because no performance check covered long purchase histories, and the change reached all three replicas at once without a canary step that might have caught it on a slice.\n\nI'm listing the contributing factors now, and I'm weighing whether the missing paging belongs among them, since a page to a person wouldn't have shortened the outage. I'm going to treat that as a finding for what went wrong instead.\n\nI'm weighing whether any of the action items need to be sharpened: the CI check should cover the account-page spend path, and the canary step should cover io-shop as a whole. The paging item doesn't address any listed factor, so I'll keep it as a process change rather than tie it to a cause.\n\nI'm checking the assumptions the write-up depends on: that the alert's p95 rise was really on account pages, and that the purchase histories were long enough to matter. Neither was measured per endpoint, so I'm noting them as assumptions. Now I'm turning to the lessons that went well, starting with the Investigator Agent tying the onset to the deployment of 5e07d73 and reading its diff.\n\nI'm drafting the went-wrong list now: the alert wasn't linked to an on-call incident, so no one was paged for it.\n\nI'm settling the wording for the root-cause section: the change made account pages redo their spend totals over and over, so the cost grew steeply with each shopper's purchase count.\n\nI'm drafting the contributing factors now: the test suite never checked how the spend calculation's cost grows with purchase history, since the tests the change added only check the result on an account with a short purchase list. I'm also noting that no staged rollout was seen, because the revision was already running on every replica at once.\n\nI'm checking the symptom wording against the alert, which covers io-shop as a whole, so I'm marking the account-page framing as an assumption rather than a measured fact. I'm also avoiding any percentile figure in the step text and describing the rise as a sharp climb in the slowest responses.\n\nI'm settling the account-page wording for the symptom, and I'm marking the assumption that the slow requests were account-page requests, since the alert itself covers the whole service.\n\n",
+      "type": "thinking"
+    },
+    {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01LQ9qJBLP9381qJ7mS4Ndhv",
+      "id": "toolu_01JDHrAgGmKqHkXFoKNNJmay",
       "input": {
-        "answer": false,
-        "explanation": "The quadratic loop is entirely inside average_spend_per_item in src/io_shop/spend_summary.py, and render_spend_summary calls it directly for the flag-off account-page figure. Once this repository is deployed, each render reads each purchase price once. No caller or service outside the repository has to change, and the function's signature and result stay the same."
+        "action_items": [
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a CI test that runs the account-page spend calculations (lifetime, monthly and typical) against an account with a long purchase history, and fails when the work grows faster than linearly with the number of purchases. It should run on every change to src/io_shop.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Roll io-shop deployments out to a subset of replicas first, and hold the rest of the rollout until a latency check on that subset passes.",
+            "type": "prevent"
+          },
+          {
+            "answers": [],
+            "item": "Link the HighLatency alert on io-shop to an on-call rotation so that a person is paged when it fires.",
+            "type": "process"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T6"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' account pages loaded slowly. The response time of io-shop's slowest requests rose far above its usual level from the onset, while failed requests stayed within their normal variation."
+          },
+          {
+            "cites": [
+              "P2",
+              "T11"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T5",
+                  "T6",
+                  "T22",
+                  "T23"
+                ],
+                "what": "The earlier deploy of revision 70dbcfde2b549d110a3817d92d60b6dd9786e78b. The metrics read back cover the hours from that deploy to the onset and show the service at its normal latency until the onset minute. The service was also measured back to normal once that revision was running again."
+              },
+              {
+                "cites": [
+                  "T17",
+                  "T8"
+                ],
+                "what": "A feature-flag change. The flag provider's history showed no flag changes by anyone but Argus in the hour before the investigation, and the change-event query returned no flags."
+              }
+            ],
+            "step": "The slow requests started when io-shop began serving revision 5e07d73148d0a704b8fefe5f379bc652bb773655. It was deployed during the onset minute, and every replica was running it as of the deployment-status read."
+          },
+          {
+            "cites": [
+              "D1",
+              "S1"
+            ],
+            "ruled_out": [],
+            "step": "That revision rewrote average_spend_per_item, which render_spend_summary uses for the account page whenever neither rollout flag is set. It now works out the lifetime total from the shopper's purchase list instead of dividing the total the account already carries."
+          },
+          {
+            "cites": [
+              "S1",
+              "D1"
+            ],
+            "ruled_out": [],
+            "step": "The new loop re-sums the whole purchase list up to each position on every pass, so each account-page request does work that grows with the square of the shopper's purchase count."
+          }
+        ],
+        "cause_in_plain_words": "A code change to how the shop works out a shopper's average spend made it add up the shopper's purchases again and again instead of once, so the work grew steeply with the number of things a shopper had bought.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "No test was seen that checks how the cost of the account-page spend calculation grows with a long purchase history. The test the change added checks only the result, on an account with a short purchase list.",
+            "had_it_been_otherwise": "A test running the calculation on a long purchase history would have shown the quadratic work before the revision was deployed, and the slow pages would never have reached shoppers.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No staged rollout was seen. The revision was running on every io-shop replica as of the deployment-status read, and no step was seen that served it to a slice of traffic and checked latency before the rest.",
+            "had_it_been_otherwise": "A canary with a latency check would have caught the slowdown on a small share of requests and stopped the rollout before every shopper's account page was affected.",
+            "label": "CF-2"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            {
+              "item": "The Investigator Agent read what the deployment of 5e07d73 changed, which pointed straight at the rewritten spend calculation.",
+              "timed_by": "T14"
+            },
+            {
+              "item": "Argus read the flag provider's history and found no flag changes by anyone else, which ruled out a flag change.",
+              "timed_by": "T17"
+            },
+            {
+              "item": "The Mitigation Agent rolled back the io-shop deployment, in a way that can be undone.",
+              "timed_by": "T20"
+            },
+            {
+              "item": "The Mitigation Agent watched the service and judged the rollback confirmed only after seeing it back below the incident's level.",
+              "timed_by": "T23"
+            },
+            {
+              "item": "The Code-Fix Agent proposed a fix as draft pull request #565 for a person to review.",
+              "timed_by": "T25"
+            }
+          ],
+          "went_wrong": [
+            "Nobody was paged: the alert was not linked to any on-call incident, so no person on call was brought in while the incident ran."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "Revision 5e07d73 rewrote average_spend_per_item, the lifetime-average calculation the account page uses whenever neither rollout flag is set, so that it works out the total from the purchase list instead of reading the total the account already carries. It does this by looping over the purchases and, on every pass, copying and re-summing the whole list up to that point. The work per request therefore grows with the square of the shopper's purchase count, even though only the last pass's sum is used.",
+        "still_at_risk": "Account pages could slow down again if revision 5e07d73, or any later revision that still has its spend calculation, is deployed to io-shop.",
+        "symptom": "Account pages on the shop loaded slowly"
       },
-      "name": "answer_question",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgWxa7jLejZt8vHnG2RWA",
+  "id": "msg_011Cgx6gJf7GcxELrZY7zAbH",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -25,15 +148,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3460
+      "ephemeral_5m_input_tokens": 13316
     },
-    "cache_creation_input_tokens": 3460,
-    "cache_read_input_tokens": 7691,
+    "cache_creation_input_tokens": 13316,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 181,
+    "input_tokens": 4,
+    "output_tokens": 5965,
     "output_tokens_details": {
-      "thinking_tokens": 0
+      "thinking_tokens": 3986
     },
     "service_tier": "standard",
     "speed": "standard"

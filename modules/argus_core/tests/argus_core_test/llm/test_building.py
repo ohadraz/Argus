@@ -38,10 +38,23 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import Mock
 
 import pytest
+from anthropic.types import Message, TextBlock, Usage
+from argus_core import LLMSettings
 from argus_core.llm import build_llm_client
+from argus_core.llm.adapters.anthropic_adapter import (
+    ASSISTANT_ROLE,
+    END_TURN_STOP_REASON,
+    MESSAGE_TYPE,
+    TEXT_TYPE,
+)
 from argus_core.llm.recorded_client import RecordedLLMClient
 from argus_core.models import ModelPolicy
 from argus_core.models.tool_definition import ToolDefinition
@@ -54,6 +67,7 @@ from argus_core_test.framework.llm import an_api_that_answers
 from argus_core_test.framework.replay import a_recorder_that_keeps_what_it_is_given
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
+SOME_KEY = "some-key"
 
 # What Code-Fix is configured to get, stated rather than read: the subject here
 # is whether a policy survives the wiring, not what today's deployment sets.
@@ -137,6 +151,26 @@ def test_a_recorded_agent_asks_the_vendor_for_the_room_its_policy_gave_it() -> N
 
 
 @pytest.mark.component
+def test_a_client_handed_settings_of_its_own_reaches_the_model_where_they_say() -> None:
+    # The grounding judge is reached at an address of its own, so a replay can
+    # serve it from a stand-in of its own. A client that read the process's
+    # settings whatever it was handed would ask the writer's stand-in, and be
+    # served the writer's recordings out of turn.
+    with _an_api_listening() as an_api:
+        Scenario() \
+            .given(
+                a_judge := build_llm_client(settings=LLMSettings(
+                    anthropic_api_key=SOME_KEY, anthropic_base_url=an_api.address))
+            ) \
+            .when(
+                lambda: a_judge.converse([Ask(text="dont care what was asked")], [_a_tool()])
+            ) \
+            .then(
+                _it_was_asked(an_api)
+            )
+
+
+@pytest.mark.component
 def test_naming_the_front_door_does_not_import_a_vendor() -> None:
     # The separation this module's docstring claims, asked rather than
     # asserted in prose. It was claimed and untrue for as long as the adapter
@@ -157,6 +191,62 @@ def test_naming_the_front_door_does_not_import_a_vendor() -> None:
         .then(
             _nothing_imported("anthropic")
         )
+
+
+class _AnApiListening:
+    """A stand-in for the Messages API at an address of its own, answering
+    every request with one finished turn and keeping the path of each."""
+
+    def __init__(self, address: str) -> None:
+        self.address = address
+        self.asked: list[str] = []
+
+
+@contextmanager
+def _an_api_listening() -> Iterator[_AnApiListening]:
+    """The stand-in, listening on a port of its own on this machine for as
+    long as the block runs."""
+    answered = Message(id="dont_care_id", model="dont_care_model", role=ASSISTANT_ROLE,
+                       type=MESSAGE_TYPE, stop_reason=END_TURN_STOP_REASON, stop_sequence=None,
+                       content=[TextBlock(type=TEXT_TYPE, text="dont care what it said")],
+                       usage=Usage(input_tokens=1, output_tokens=1)).model_dump_json().encode()
+    asked: list[str] = []
+
+    class Answering(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            asked.append(self.path)
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(answered)))
+            self.end_headers()
+            self.wfile.write(answered)
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Answering)
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    listening = _AnApiListening(f"http://127.0.0.1:{server.server_address[1]}")
+    listening.asked = asked
+    try:
+        yield listening
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _it_was_asked(api: _AnApiListening) -> Assertion[Turn]:
+    def assertion(_: Turn) -> bool:
+        if len(api.asked) != 1:
+            raise AssertionError(
+                f"Expected the model asked once at [{api.address}], and it was asked "
+                f"there {len(api.asked)} times: {api.asked}.")
+
+        return True
+
+    return assertion
 
 
 def _keeps_a_receipt() -> Assertion[object]:

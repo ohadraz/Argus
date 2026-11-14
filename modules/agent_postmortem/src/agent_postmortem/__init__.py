@@ -33,6 +33,7 @@ from agent_postmortem.evidence import (
     RefusalRecord,
     ResolutionRecord,
 )
+from agent_postmortem.grounding import judge_policy
 from agent_postmortem.response_cost_basis import (
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
@@ -94,6 +95,7 @@ __all__ = [
     "RefusalRecord",
     "ResolutionRecord",
     "Sources",
+    "judge_policy",
     "postmortem_policy",
     "said_off_the_page",
     "synopsis_policy",

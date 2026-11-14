@@ -5,7 +5,7 @@
   "max_tokens": 16000,
   "messages": [
     {
-      "content": "## Alert\nservice: io-shop\nname: HighErrorRate\nseverity: critical\nfired at: 2026-10-31T15:38:14Z\nsummary: Error rate above threshold for 5m\n\n## Onset\nNothing dates this incident. The service's metrics were read and came back with no minute in them. So nothing here says how the service is doing, or has done, at all - not that it is well and not that it is broken. Whatever raised this did not say when it began either - so 2026-10-31T15:38:00Z is the minute the alarm fired in and is where to look from, not when anything started. Do not treat it as the onset and do not reach for a change at it: a change in that minute is a change that happened as the alarm went off.\n\n## Per-minute metrics\nNone.\n\n## Where the replicas run\nThe platform reported no pods for the service.",
+      "content": "## Alert\nservice: io-shop\nname: HighErrorRate\nseverity: critical\nfired at: 2026-11-12T12:52:57Z\nsummary: Error rate above threshold for 5m\n\n## Onset\nNothing dates this incident. The service's metrics were read and came back with no minute in them. So nothing here says how the service is doing, or has done, at all - not that it is well and not that it is broken. Whatever raised this did not say when it began either - so 2026-11-12T12:52:00Z is the minute the alarm fired in and is where to look from, not when anything started. Do not treat it as the onset and do not reach for a change at it: a change in that minute is a change that happened as the alarm went off.\n\n## Per-minute metrics\nNone.\n\n## Where the replicas run\nThe platform reported no pods for the service.",
       "role": "user"
     }
   ],
@@ -59,7 +59,7 @@
       "strict": true
     },
     {
-      "description": "What changed on the service over one window - deploys and other recorded changes. Sparse where the logs are dense, so the window can be far wider. Defaults to a long lookback ending at the onset, because a change made after the incident began did not begin it - or at the alert where no reading covers the incident's minutes, since what ended the readings lies at or after the last one.",
+      "description": "What changed on the service over one window - deploys and other recorded changes. Sparse where the logs are dense, so the window can be far wider. Defaults to a long lookback ending with the onset, because a change made after the incident began did not begin it - or at the alert where no reading covers the incident's minutes, since what ended the readings lies at or after the last one.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {

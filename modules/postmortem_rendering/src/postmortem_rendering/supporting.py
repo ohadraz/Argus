@@ -24,6 +24,7 @@ from argus_core.models import (
     changes_not_listed,
     no_logs_listed,
 )
+from argus_narration import the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run
@@ -302,16 +303,6 @@ def _the_addresses_of(change: ChangeEvent) -> dict[str, str]:
     return addresses
 
 
-def the_short_forms(changes: list[CitedChange]) -> dict[str, str]:
-    """Each revision a change that can be opened names whole, and its short
-    form - the one the prose writes.
-
-    Public because the timeline and the hypotheses say a revision short too,
-    and by the same forms."""
-    return {cited.change.reference: cited.short_reference
-            for cited in changes if cited.change.revision_source is not None}
-
-
 def _shortened(runs: tuple[Run, ...], shorts: dict[str, str]) -> tuple[Run, ...]:
     """The runs with every revision linked whole said by its short form, as
     the prose and the timeline say it - the link still to the whole.
@@ -392,7 +383,8 @@ def the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:
     """Each revision a change that can be opened names, short and whole, and
     where it opens.
 
-    Public for the same reason as `the_short_forms`."""
+    Public because the timeline and the hypotheses lead a revision to its
+    commit too, and by the same addresses."""
     return {reference: cited.change.revision_source.revision_address
             for cited in changes if cited.change.revision_source is not None
             for reference in (cited.short_reference, cited.change.reference)}

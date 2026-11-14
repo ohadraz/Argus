@@ -17,7 +17,7 @@ from typing import Any, Final
 from argus_core import said_short
 from argus_core.events import IncidentEvent
 from argus_core.models import Alert, Postmortem
-from argus_narration import as_shown
+from argus_narration import as_shown, the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.action_items import ActionItemsSection, the_action_items
@@ -39,11 +39,7 @@ from postmortem_rendering.lessons import LessonList, the_lessons
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import the_escalation, the_reported_resolution
 from postmortem_rendering.review import ReviewSection, the_review
-from postmortem_rendering.supporting import (
-    SupportingSection,
-    the_short_forms,
-    the_supporting_information,
-)
+from postmortem_rendering.supporting import SupportingSection, the_supporting_information
 from postmortem_rendering.timeline import TimelineRow, TimelineSection, the_timeline
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 

@@ -59,7 +59,7 @@ WHAT_THE_ALERT_SAYS = "Share of purchases held for review above 10% for 5m"
 
 @pytest.mark.e2e
 def test_a_replica_rescheduled_onto_a_card_that_rounds_is_pinned_back() -> None:
-    some_severity = "warning"
+    some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_FRAUD_HOLDS_ALERT,
                                             severity=some_severity,

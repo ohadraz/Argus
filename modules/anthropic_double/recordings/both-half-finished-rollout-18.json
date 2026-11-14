@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS0wYKEAgTGAI4AUIIdGhpbmtpbmcSDJevfU5TedCVGfiZZRoMPkmrdMzjMQQssvADIjCOkbWGoBypQzFm62Nx7O1HVbV4naXbjJIILz1/YhFYSvtZwMyrT0SXIxxJewiksDEq8AXf+GYBogETLHQ99KHHcywyA9S3dTSkJHybvF+XTRizwCS6oL36eToniY3HqdS0YqdcWsOSfl5/Su00Ki+eOApjn7ZOet8bKR2CYfI8Y3A6h3PrWF5e4bv9wdXea958ZMo9PcCi41Vj9eLLcNh6Oato/dwmkUyP6aH0kT6/WrXwCif5UUxWlcObrCPfYKIQd/3Nmly16Hgd9UOzI8tnSOZV9Pa4B7VAhDTFwPPEkv4o6PH4O+MrAhZGY2Cc/vJOXGoeNDY1NiY8zwT2Hm7KDx2W5tckalkwAU7tgOrdXFUa9zpBLC4ElgpaYfO6BP6kQuvH0NmxjuniLkeaWbQAp1FMcgLD0oBVEfm5atzFwdutr8XN/Q6a49mjsJHVbqjVIWPmwoKbfODySG54C+uDfzGe4/q/g3NpRa9cbkFFSh0uULuk/Ql+BcstO6Ogz+PYJEmlg43JDEts7WOL7EtMpgY4Ku82ygdJwxNl2f+YP4F5lP2nq7kkej4ktVqoHOcXqeV3PfaRkMTtDTnCSeHV/nG5pZCA6tQ/6v4uyNpVyAkB8LvFOIh133xHDOtUgV0n1BVXykvI0Z22AlnV1LUOhgApj3Ysi0LnW3vtaJ/3w97Lya1ijMorsLaCf/h9+8ZiiwIqwEcD5ZngJBNFL5xGKmOt9S7L1Y+wUKcooJHeSlY1I0t+Zn+VfuPm9VvsTumLFA5OITXt0C5EZVimmsjdEFUWl4XxZ0iot/Ks60+xJnnah6GL25g1+RVPefK7cjrtu2Iv28KcJruAT9HqFUj9eyk/IQa64EbZ+91mdx/t2VEeUufVkGmBOVL09nMwi+AL2nCZNcTcQ333JmrWJ8sLFBst3Yy0GiB2El0GJ5mr884vLazdCiK2RDxu3ITFjhH3VuICoV4NaXi8LPErTSbwi4N6iwxQi0NpcU3JORSmxWJEuqR1Mb+p7WVMHlqqiwXfTmPuegHVqEElAmY+ytjGePwvcO7M4pNy0zwOXrRokoJ/0BgB",
+      "thinking": "I'm dropping the out-of-hours claim, since the record only says no engineer time was spent. I'll say nobody was paged, which the error message supports, and leave the rest out.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01GyrfR7qmnmhBkziXi5ajWW",
+      "input": {
+        "overview": "For {duration}, some shoppers on io-shop could not load their account pages, and at the worst minute {peak_error_rate} of requests failed. A software update changed the format of a saved summary of each shopper's spending. The update stopped partway, so the older version kept running beside the new one. The older version could not read the new format, and account pages it served failed. Argus estimates the lost takings at {customer_loss}. Nobody was paged, and no on-call incident was linked to this one. Argus ended the incident by rolling back the io-shop deployment and confirmed that it worked. The rollback is still in place, and automatic sync has been left off."
+      },
+      "name": "submit_executive_overview",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011Cgy35aNM3DjBgvdcorE8Z",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 388
+    },
+    "cache_creation_input_tokens": 388,
+    "cache_read_input_tokens": 1017,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 337,
+    "output_tokens_details": {
+      "thinking_tokens": 85
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

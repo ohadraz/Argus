@@ -2,24 +2,153 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSwRAKEAgTGAI4AUIIdGhpbmtpbmcSDJMBERF2IPrN6uuYjBoMgyMZ3vxfXFSuwKgjIjBOgjrEX/ootLbg/OtDyWR11GV/OM/78XpDVSPg8ybAcXICTo9cG7iljU3nNSX/kX8q3g88I6HRV5tlNSMWEe7tR6olhqh6/3jQW1luirLt4NmORVOA1FQcp52yus1JA4fE74syuYkJP46MYqZrqBbLEaWIqvmOsXGzLJzvUsY4Jaokx7K5JPJvv0q9dtxkW7E/Z+bYt8l/1WWfLHg+1nDSKhI1zo+U22Kj0QzHKr468KEH0rBgfuAaYGH65VPZVxWktsA8GWfP9pgpaGvFtrPE4kkO6cslswp931n2Ru9X3glAYkHZcwzIHEPpPSnzzyYEPaxBIqEY4bvdRkQ8/mRI4MFAIY8FbXXP9HbGTqB/OpENxlUGKvie/VOpWafaE+oigmTQqYkBXYSYFgz9XkOOgsCGWO5VorwIpj8nBRF2zwBYDYhrW49Xx9isMtztdcEWia33oo67OaMCZ7vgx4hFqOjHDbcbYAEEWf0Ys9oYlnHw4T7Lrx60ZiyQ2k/C/VELF1tGrw+t8lg2DBJfhIOSBkAw7FxTMyQ+l+bAX0SU8csEhe9DqlyI7zoWXiGulH9ZMe4TPjd6CoOG1zEyZgENt/Ox7r3g86RgQXtTlcd9R4HQJQigCM1gO8aIxdgc4nzeGD6Jk2WHrjBYfVIKglSR6HWt6/r3td24Z7J5EzRGTT0T7dxi+QKXbolZg1ySLPTR7eRK8sZyltNLbZnTv1NedXlWxw34GQi5L9Hb9KRc/geU1TIYbKlKzOSBPFdFR0sljI7gQNVB2FtivRB9td5qB5ArmixI+5yBLShEBdJuFnVDpf9b36CHNSX6Gt4Mr3N9wraNeAnWft4qdeTvFsrJE2mnmmXUUc75xkXpN+Bw82pABdljn8Axm4TVHDwkwyYu3w25pvYcjeuwz62cQpG6ila6uQrkB9WAJXWKnjYo2tUfrOc4ukAMV6boi5YMyov8NQpCI/u1vnde0VF6I8A2UDQ4yefCwZ9dKhnWZpKNH93ThtSeM6i7QiJNyh7zrv5aIKU21wDme1DEA2SfqB7bIWRNTr4MmYqrqT14WgHOiW+EjFklIGJv/PgV43XBa14ZzSD6uTpP7Z5Wp2NoQHN4leiDwrXM8TE/awLukkt3qK9Hi2+lp1rJGWr80JU4FNJ8HYlkUxHu2QlSBxqOBTcQfgc569uQmTDj/ORL/PrbL01D00GKLYEOMQW8sKIXynGZK8uWjlWisKV5oimnMIE2828xy+xxLSOM7m7JbFQSMaWtTYbiEeABzmq0xhZpmMsSPIm+Rj3LlGceeYi3ilYTrMMbuusOWtpqTz39RxBx66n4ckgTyitSb5eM3/ZhVzXl2H6LkpzHCIQLr9cXhTlhuY9Jew8Izu7tD/4XXNn4rlZqq2Cg+DNDCMpGxuDHq1rY4xIYByYDx2M6rcRzNRc/PkPZ2MUUKPcJeG7ZqkxdRNuwUqkTSusuTrU+eq1DQkyl+lHSvT/hDNht8F94omqqy6uuITgObuCYxoS0batTvEETaPLtbUWv5JEFNBh0bKoap1zODBbCNY2Z9xs+Kl9tv02cE95IvZqKJ7dsh/BWS2Z4Dv4ftr3GoAQ523yt214lh1tikwZQ0ITh05nBlaBOWOY/GwFvLtXwkRrmfM1Ix9twkWwAyKO24e1132LhWwc2kOrzRO1ipnToEgBoCZ2JNZ7SZg+pIcFpCKGZdzbcISDz4LDNWP6p3c49aNviF0JU4jVw5pxmPfTCzIGG61VDpO3vlsHo//78P/M4bhgbzksNDI6gutnhvCyaE77/6AoWutidm5P7WcnVDqFPQXFjw4A2qwWW1jKhJ+51d8rBQu79lQvAzMv9bQW4BKnXKoCluVOdgWi3TFRtRIdX2xWONSLXfk6zebxsCLox94dQvL+ERHtfsXChI15ewE+a1GmmDZ0mF9181oGIEeNWryNg6//lEhH52lturjmC3N1W08sw9z6kcoF6I4rZN5W1/yKaZAK+QeJdCQMZmPQ5fssIf36k7Sn/nIAEmqTkJ2W7Q/WxfnKYvNj4ohxeC5SZlUOlkW5KSNjJqXyQqKSX2PtaexHh0M5MQybAF/ZVsEkGRrqaWk4pKUKQvlxvwYyqcazVL3wwaXHQPfi1f2/aaJZ0y6HBpBeHhUFiilPlQq0lv0nsrYAteTXtQg8MoLAelNylqXj/fztizgbdFJc4N4bDqh+41YNjWKGdMpkgVBtxCY57GgfSEO7kJ3Fhr96PrLibQt0Rw+QHxjGa1uGQc5W2oEpYY+WB2KwOWSQJB7QjAKuvZtwRhIPn8lzf7Gd+FYbjl7IIgEC19UoQUbNZjGCjGzWBlmtnNy6Rq7zonhqBb1n7ydVd1aPPkN3rACA+I7SWbxx9IEIgs8D8ku82ymhlU4ulxfo4mdtFUhC6bcYkxAO5E0Cv/VrG78rnncY/XsYKxftMJ2iPMOhijaet0m5NAvG5M5zcT9wQRNufNuoGNi8kSGYTnE3FKYbzdzFhzUwuJ+hBNUSMEU+h6x0IEpuUU19k1yLn19QNPlyXKFQAM51F3/j6ETLFZELukU6T3/YCjRejkKdwtgrDmEPvqrdjajaxcr3wxk/LMOp8w0amfmxztHlyJiPaS9gg4lmvvXndQqkhKQfcOAePeiih0I011k6QhqstzLvzVpL49xywXcb5gSRWlQrydY2cODYXOqiv8UmrB5AQh8/pSVApTvATIu/QNevcdgmWlgxbE8b+ylLYau1yfQqwaAWRtkRBQ0qKGAE=",
-      "thinking": "I'm checking whether the placeholder should carry the \"at least\" wording, since the figure reads \"at least 15s\" and I don't want to drop that qualifier.\n\nI'm weighing whether the placeholder already carries \"at least,\" since the figure reads \"at least 15s,\" and I'm leaning toward keeping the qualifier in the wording. On the cost side there's no on-call incident linked and no business figure given, so I'll only say shoppers saw wrong totals rather than inventing a revenue loss. The affected group is \"some shoppers,\" meaning those whose recent purchases were missing from their saved totals. Argus discarded the out-of-date saved totals for io-shop, which is confirmed, while the fix is only a draft PR (#463) and not yet applied, so I won't claim it prevents recurrence.\n\n",
+      "signature": "CAQSrAYKEAgTGAI4AUIIdGhpbmtpbmcSDPjUw3haLKU5vC1dchoMjbKxOaoxZDDBn6diIjCilI9deLEKJee1SjyVsCq2VtgVBsu14SX3oKKuNkfkyBtm7zrPo3HPQUew+2sinVgqyQUNeEp89OXIEseYK/j9/zDJto1RZFdvMd+XPERNRawbIrdGeL0tmWMOusWjU7PONjg+QC9JSnp+Yr7OIqm/8idt66t1qpZaD5mYdiO7REYGEIc+aX4GW5VJU7qC3qZtDQKsD2YfJG8pXxPdmqRk78FhzCMGeRaHH4GzxYbvk0mH5LnYGCOBEh/9KNYThQ8DEPde3l74CmOCA+UoGs7slan1afUJT0s3idziN6Ork/Y+vSeESIiRckILNW9l6hygMLXjdRqJq3MvZuG0xh0rVSrRfGVY5pymmYBDPGI2sYOnkTBBWLfvsG4yZMFrK4YbPr/tOQwfvSTJXdlqb21gQC/8E7PXKYOrzXvTt96/HUa890TaMNqEdZ5wRPBCsQ0t205nx2kK0U6BUqlzkaVoFqfo0InwA/9LL1exoI0c71BKGJQP+eXmSPdgzbNZLzJFTg0dG1LS7z3/GSh7ove+eURRLZa8onDfNpdN8wfUebtBkIS7lG2O+YdYbxEDHs8Ip7hjGKjmnSek9woFN/axLvZ8Z6+arV/R24Urve/vsIDd/l83aFttbDNXFhzbyJnC84Hnp7MQDLBC7FYNIQShg3rG3+zrdF4SQ3KjcVdq4zq91RfQ5kH3wNNw9CXcmVu+RgniTFxleWtHHoBZC9WfUZXqJKWu3jrtyPIosMeX4hYtDfgPLbuiSpK6mBQjBhl9sTGcxKFQ6iPBgFHiUPgGISXoFMVj2f1/oaUnhLEovAAqRm2I0vjYWOOdQhrYTl7O98M+BbBgjQ/iLlcGVxE8eIsBNiA+LibNCdyl8xTQxDe37V4zKdQp5LeacR3DyUf2aXIeK0ZweA+0XbpWpztKFV5eOD0gW66yNTuH7xtxS38ktdigfoWY2c+n+OsdlUN+hou0P4cHuxtS2tWtpPzluilWLMJkktQ/RnaEEcEBLIZtmg0bPBeqx2VBBxgB",
+      "thinking": "I'm fixing the went_well item that mentions 541 by dropping the number. The labels like \"CF-1\" and \"AL1\" are only in fields, so they can stay, and \"io-shop\" is fine. Next I'll resubmit with \"draft pull request\" and no number.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_019AhBhiT4qksU6sN537Fvb1",
+      "id": "toolu_012kWpzu4k2J7jwSFrDPcp4c",
       "input": {
-        "overview": "For at least {duration}, account pages on io-shop showed some shoppers spending totals that left out their latest purchases. The record of what shoppers bought stayed correct throughout. The problem was in the saved copies of their spending totals, which stopped being brought up to date. The account pages likely showed those saved copies without checking whether they were still current. The record does not show why the updating stopped. The cost to the business was that some shoppers saw wrong totals on their accounts. No on-call incident was linked to this one, so nobody was paged. Argus, the system that responded, discarded the out-of-date saved totals for io-shop, and that step was confirmed. Argus also proposed a fix, PR #463. It is still a draft and has not been put into use."
+        "action_items": [
+          {
+            "answers": [],
+            "item": "Find out why io-summary-cache stopped being updated from {A5}, and get its updates running again.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add an alert that fires when io-summary-cache falls behind the purchase ledger, for example when it leaves out purchases older than a set limit.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Link the CachedSpendTotalsAreStale alert to an on-call rotation so that a person is paged when it fires.",
+            "type": "process"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Make io-shop's per-minute metrics readable for incident investigation.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Make io-shop's log lines readable for incident investigation.",
+            "type": "detect"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' account pages showed spend totals that left out purchases they had made, while the purchase ledger behind them stayed correct."
+          },
+          {
+            "cites": [
+              "AL1",
+              "M1",
+              "T22"
+            ],
+            "ruled_out": [],
+            "step": "The pages took these totals from cached copies in io-summary-cache, and those copies were behind the purchase ledger."
+          },
+          {
+            "cites": [
+              "AL1"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T9",
+                  "T14"
+                ],
+                "what": "A deploy, release or flag change on io-shop: none came back for the window read before the alert, which reaches back past {A5}, or for the earlier window read before that."
+              },
+              {
+                "cites": [
+                  "T17"
+                ],
+                "what": "A flag change by anyone other than Argus in the short window the flag provider's history was read for."
+              }
+            ],
+            "step": "The cached copies stopped keeping up with the ledger from {A5}, the time of the oldest purchase they leave out. The record does not show why. No change to the service came back that could have set it off, so no change is tied to the start and no earlier change needed ruling out."
+          },
+          {
+            "cites": [
+              "F1"
+            ],
+            "ruled_out": [],
+            "step": "Nothing on the account page's read side checked a cached figure against the shopper's purchases before showing it."
+          }
+        ],
+        "cause_in_plain_words": "The saved copies of shoppers' spending totals stopped being updated, for a reason the record does not show, and the account page likely showed whatever copy it found without checking that it still counted every purchase.",
+        "cause_rests_on_an_unrun_reading": true,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "No alert or check was seen on whatever keeps io-summary-cache up to date. The stopped updates were found only by the staleness check on the cached figures, {alert_raised - A5} after the oldest purchase the copies leave out.",
+            "had_it_been_otherwise": "An alert on the cache falling behind the ledger would have caught the stopped updates sooner, before many figures had gone stale.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The CachedSpendTotalsAreStale alert was not linked to an on-call incident, so nobody was paged.",
+            "had_it_been_otherwise": "A person would have been brought in to find out why the cache stopped updating and to restore it, rather than the copies being left to go stale again.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No per-minute metrics and no log lines for io-shop could be read for the incident.",
+            "had_it_been_otherwise": "The investigation would have had the service's own record to date when the harm began and to look for why the cache stopped updating, so the fault could have been found and fixed sooner.",
+            "label": "CF-3"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            {
+              "item": "The Mitigation Agent discarded the stale cached figures of io-shop, which sent those pages back to the purchase ledger.",
+              "timed_by": "T20"
+            },
+            {
+              "item": "The Mitigation Agent judged the action confirmed: the store reported what it had removed, which was the whole of what was wrong.",
+              "timed_by": "T21"
+            },
+            {
+              "item": "The Code-Fix Agent proposed a fix as a draft pull request for a person to review.",
+              "timed_by": "T23"
+            },
+            {
+              "item": "The Investigator Agent checked deploys, releases and flag changes over a window reaching back past when the copies stopped keeping up, which ruled them out as the trigger."
+            }
+          ],
+          "went_wrong": [
+            "Argus read the flag provider's history only for a short window before it read it, which does not reach back to when the cached copies stopped keeping up."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "In the files Code-Fix read, the account page's `_the_figure_for` returned `found.amount_cents` for any entry the summary cache gave back, without comparing the entry's `items_counted` with the purchases in the `Account` it already held. So once io-summary-cache stopped being updated from {A5}, the page served the frozen figures as current, and each new purchase left them further behind.",
+        "still_at_risk": "With the cached copies still not being kept up to date, any shopper who buys again can have their saved spend total fall behind and be shown on their account page.",
+        "symptom": "Shoppers' account pages showed spend totals that left out recent purchases"
       },
-      "name": "submit_executive_overview",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cgt1L5d8bnME88yZ2Tb3k",
+  "id": "msg_011CgvPkHL5RhS1BCUNEE382",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -29,15 +158,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 984
+      "ephemeral_5m_input_tokens": 2051
     },
-    "cache_creation_input_tokens": 984,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 2051,
+    "cache_read_input_tokens": 8986,
     "inference_geo": "global",
-    "input_tokens": 4,
-    "output_tokens": 843,
+    "input_tokens": 2,
+    "output_tokens": 2006,
     "output_tokens_details": {
-      "thinking_tokens": 557
+      "thinking_tokens": 84
     },
     "service_tier": "standard",
     "speed": "standard"

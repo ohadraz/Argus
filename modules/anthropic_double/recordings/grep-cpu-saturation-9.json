@@ -1,0 +1,160 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01QWXbDzjXpT6rWmCJjonDfY",
+      "input": {
+        "action_items": [
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Configure io-shop to add replicas automatically as CPU use nears its limit, with enough room for at least the peak request rate seen in this incident ({R1.3}).",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Add an alert on io-shop's CPU use as a share of its CPU limit, so the service is flagged when it nears saturation and before latency climbs.",
+            "type": "detect"
+          },
+          {
+            "answers": [],
+            "item": "Make the HighLatency alert on io-shop page the on-call engineer.",
+            "type": "process"
+          },
+          {
+            "answers": [],
+            "item": "Find where the rise in requests to io-shop came from, and whether it can happen again at this size or larger.",
+            "type": "process"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1"
+            ],
+            "ruled_out": [],
+            "step": "Responses from io-shop slowed sharply. The time within which nearly all requests are answered rose far above its usual level, so shoppers waited much longer for pages."
+          },
+          {
+            "cites": [
+              "R2"
+            ],
+            "ruled_out": [],
+            "step": "Requests were waiting for CPU: the service was using all of the CPU its limit allowed."
+          },
+          {
+            "cites": [
+              "R1",
+              "R2"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T9"
+                ],
+                "what": "A deploy, release or flag change on io-shop in the day before the onset: none came back."
+              },
+              {
+                "cites": [
+                  "T13"
+                ],
+                "what": "A flag change by anyone but Argus in the hour before the investigation read the provider: none came back."
+              },
+              {
+                "cites": [
+                  "T10"
+                ],
+                "what": "A rollout still in progress: when the deployment was read, all replicas ran one revision."
+              }
+            ],
+            "step": "CPU use reached that limit because requests rose to several times their level before the onset and CPU use rose in step with them. That was more load than the replicas' CPU could handle."
+          }
+        ],
+        "cause_in_plain_words": "The shop got far more requests than usual, more than its servers had the computing power to handle at once, so requests had to wait their turn.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "No replicas were seen being added automatically as CPU use reached its limit. The service stayed at {T20.2} replicas until Argus scaled it out.",
+            "had_it_been_otherwise": "Capacity would have grown as the load did. That would have kept requests from queuing for CPU, or cut the queuing short.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "Each request likely cost more CPU than it needed to. Code-Fix read the files behind the account page's spending figures: the default figure, and the one behind typical-purchase-feature, both do work that grows with the square of a shopper's purchase history. Nothing has run this reading.",
+            "had_it_been_otherwise": "Cheaper requests would have let the same CPU handle more of them before they queued, so the slowdown would have been later and milder, or would not have happened.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No alert was seen when CPU use neared its limit. The slowdown was found only by the latency alert, which waits {rule_waits} with its condition holding before it fires.",
+            "had_it_been_otherwise": "An alert on CPU nearing its limit could have fired before latency rose this far, so capacity could have been added sooner.",
+            "label": "CF-3"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            {
+              "item": "The Investigator Agent checked for production changes and found no deploys, releases or flag changes in the window, which pointed the investigation at the load rather than at a change.",
+              "timed_by": "T9"
+            },
+            {
+              "item": "The Mitigation Agent scaled out the deployment of io-shop, and the service came back to normal.",
+              "timed_by": "T16"
+            },
+            {
+              "item": "The Mitigation Agent checked that the service was no longer at the incident's level before it judged the action confirmed.",
+              "timed_by": "T19"
+            },
+            {
+              "item": "The Code-Fix Agent opened draft pull request #529 for a person to review.",
+              "timed_by": "T21"
+            }
+          ],
+          "went_wrong": [
+            "Nobody was paged: the alert did not open an on-call incident."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "Requests to io-shop climbed from {R1.1} to as high as {R1.3}, and CPU use climbed with them until it reached the service's CPU limit ({R2.3} at its highest). From then on the replicas had more work than CPU to do it, so requests waited for CPU and responses slowed.",
+        "still_at_risk": "If requests rise beyond what the scaled-out replicas' CPU can handle, io-shop could run out of CPU again and slow down the same way.",
+        "symptom": "Shop pages slowed sharply for shoppers"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgvL3zhVEVLCqeJ7bV65F",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1918
+    },
+    "cache_creation_input_tokens": 1918,
+    "cache_read_input_tokens": 9572,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 1785,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

@@ -195,6 +195,36 @@ def test_what_a_step_ruled_out_is_said_under_it_with_what_ruled_it_out() -> None
 
 
 @pytest.mark.unit
+def test_a_rule_out_the_record_says_cites_its_rows_by_label_alone() -> None:
+    # Its claim is the rows' own lines already; said whole beside it, they
+    # would be read twice. Neither the words it was briefed in nor its row's
+    # are shown.
+    some_claim = "A rollout still under way: the Investigator Agent read how far it rolled out."
+    some_label = "T5"
+    dont_care_step = "dont care"
+    dont_care_briefed_as = "dont care how it was briefed"
+    dont_care_row_says = "dont care what the row says"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(causal_chain=[
+                ChainStep(text=dont_care_step, cites=[],
+                          ruled_out=[RuledOut(text=some_claim,
+                                              cites=[CitedEvidence(label=some_label,
+                                                                   text=dont_care_briefed_as)],
+                                              said_by_the_record=True)])]),
+            some_rows := {some_label: Line(runs=(Run(text=dont_care_row_says),))}
+        ) \
+        .when(
+            lambda: the_cause(some_postmortem, some_rows).chain[0].ruled_out
+        ) \
+        .then(
+            the_answer_was((
+                RuledOutLine(claim=Line(runs=(Run(text=some_claim, role=Role.PROSE),)),
+                             evidence=(_by_its_label(some_label),)),)))
+
+
+@pytest.mark.unit
 def test_a_step_that_ruled_nothing_out_says_nothing_of_it() -> None:
     Scenario() \
         .given(

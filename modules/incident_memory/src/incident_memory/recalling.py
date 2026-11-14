@@ -19,12 +19,14 @@ worker opens it when it starts and closes it when it stops, beside its pool.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Final
 
 from argus_core.embedding import Embedder
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from incident_memory.records import RememberedIncident
@@ -44,6 +46,10 @@ RECORD_FIELD: Final = "record"
 type MemoryStore = QdrantClient
 
 type Recaller = Callable[[str, str], list[RememberedIncident]]
+
+# Where a status says the store failed for itself rather than refused the
+# question: from here up, the same search asked again can be answered.
+_THE_STORE_FAILED: Final = 500
 
 
 @contextmanager
@@ -67,7 +73,10 @@ def recalled(client: QdrantClient,
              *,
              service: str,
              limit: int,
-             floor: float) -> list[RememberedIncident]:
+             floor: float,
+             attempts: int = 1,
+             retry_seconds: float = 0.0,
+             sleep: Callable[[float], None] = time.sleep) -> list[RememberedIncident]:
     """The incidents most like this one, nearest first, at most `limit` of them.
 
     Narrowed to one service before anything is compared. Whether two incidents
@@ -81,20 +90,35 @@ def recalled(client: QdrantClient,
 
     A store with no collection yet finds nothing, which is an answer rather than
     a failure - it is the ordinary state before the first incident ends.
+
+    A search the store failed for itself (a 5xx) is asked again, up to
+    `attempts` in all, `retry_seconds` apart: Qdrant answered one with "Expected
+    at least one response for one query" while the record searched for was
+    there. A refusal of the question (a 4xx) is raised at once, since the same
+    question gets the same answer; and the last failure is raised, since the
+    caller is the one who knows what to do without memory.
     """
     if not client.collection_exists(collection):
         return []
 
-    found = client.query_points(
-        collection_name=collection,
-        query=vector,
-        query_filter=Filter(
-            must=[FieldCondition(key=SERVICE_FIELD, match=MatchValue(value=service))]
-        ),
-        limit=limit,
-        score_threshold=floor,
-        with_payload=True
-    )
+    for attempt in range(1, attempts + 1):
+        try:
+            found = client.query_points(
+                collection_name=collection,
+                query=vector,
+                query_filter=Filter(
+                    must=[FieldCondition(key=SERVICE_FIELD, match=MatchValue(value=service))]
+                ),
+                limit=limit,
+                score_threshold=floor,
+                with_payload=True
+            )
+            break
+        except UnexpectedResponse as failure:
+            failed_for_itself = (failure.status_code or 0) >= _THE_STORE_FAILED
+            if not failed_for_itself or attempt == attempts:
+                raise
+            sleep(retry_seconds)
 
     return [
         RememberedIncident.model_validate((point.payload or {})[RECORD_FIELD])
@@ -107,7 +131,9 @@ def recalling_from(client: QdrantClient,
                    embed: Embedder,
                    *,
                    limit: int,
-                   floor: float) -> Recaller:
+                   floor: float,
+                   attempts: int = 1,
+                   retry_seconds: float = 0.0) -> Recaller:
     """Recalling records: embed the question with the same model, then search.
 
     The same model, necessarily. Two vectors from two models are two coordinate
@@ -116,7 +142,8 @@ def recalling_from(client: QdrantClient,
 
     `limit` and `floor` are bound here too. They are a deployment's policy and
     they do not vary per call, so a caller passing them each time would be a
-    caller with an opinion about relevance it has no way to hold.
+    caller with an opinion about relevance it has no way to hold. So are
+    `attempts` and `retry_seconds`, for the same reason.
     """
 
     def recall(described_as: str, service: str) -> list[RememberedIncident]:
@@ -126,7 +153,9 @@ def recalling_from(client: QdrantClient,
             embed([described_as])[0],
             service=service,
             limit=limit,
-            floor=floor
+            floor=floor,
+            attempts=attempts,
+            retry_seconds=retry_seconds
         )
 
     return recall

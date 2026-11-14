@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSpgUKEAgTGAI4AUIIdGhpbmtpbmcSDGSZGPppH1GfhvLCvRoM0cLnedFeiYS1TRyJIjD8o9KXC4Jp6bqWnYAD9JFQ5iX/sEicn0U2qXIhZ/IxirFO9MtN0QYrYbgSljV6BygqwwR+44qQ8zTCIRBfZYQz5Llm0Am5gT7kMjl+9ePlF7qCqHpEnmmYmmlHURB0rrfU6x/s6GabpfYiGurRYrYwx7ZhHvAcV1Y31+OV6y1gmyT9ZLc8kyBsCAkyCCB5LqmrGZw3XMVk1Sfxc7JKajZK7tP8BlqKdGJOuGrSfIMm4i5yqP3VbLzXqt+AifM7dgdVF3z3j9nQh8fyGkow5j4HbJIFVbksKsyRMYR2lkWifrWlJxjG+E05zvpI8M8W6FGE/z4dgZrlmHhTZI2PwjlTt+CEKAddfJ4w1Sz727QJpaYIpEZ84xQwkpikiqIL9LlI1bTFUBFFRrVq/o7RvYPc7cfa1rC8/F8r0Wl/hqnR6zrv8oXfWby/fUkkN3YKVjI3r1o/Da2Ys0QmWzIeWOjRj+IlmF8HnYFFPOl24AI1NRNv4/DeSDYEupIHc6pLc/LDalui2DhyAc/aV9Tb5kILGBpdtxiJkYPD6ek2uTBDx0sK2leKKrb5+Oais5XtwYetBOof7CsdLrsdvDqdkidLGiRjf7PMA5AVPBmo5jK9qbWfxFn+O9qRULPJpI2vXFBcF8Qm5p6mJqHAAtQBsPIvnBiN3OcPlbpnZMGPIcA0/2NpKAIuFXLfe2WYwgm7lt0yw2BXT9umrItyTKm5ayO0fVbsgH9LcoSAOCWULdtzl+90EUPQ7/DC070Oc6ig1LDEuWw9hjU88pMlvJF+uHIUcvbB5IBVaWmjmlUMJjHHU0ScuKoeEyKV+goVLu4p3VkyND8m4joYAQ==",
+      "thinking": "I'm checking the order I've settled on: the symptom first, then the unusable cache, then the refused lookups, and finally the deploy. The first two steps are already in sequence, so the plan holds as it stands.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01WMFnZtk6ScFev5oeaoheVK",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgvT9HYDBcZCTwkRJBtk8",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 436
+    },
+    "cache_creation_input_tokens": 436,
+    "cache_read_input_tokens": 854,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 109,
+    "output_tokens_details": {
+      "thinking_tokens": 51
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

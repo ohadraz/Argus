@@ -1,0 +1,97 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_013wi3LYmjUnTLtTEd4KNoKy",
+      "input": {
+        "flags": [],
+        "supported": [
+          {
+            "quote": "For {duration}, the monitoring system stopped collecting io-shop's figures.",
+            "rows": [
+              "How long it lasted: 6m 32s {duration}",
+              "AL1",
+              "T4"
+            ]
+          },
+          {
+            "quote": "Nobody using the shop saw anything wrong.",
+            "rows": [
+              "What a reader saw: Nobody using the shop saw anything wrong"
+            ]
+          },
+          {
+            "quote": "A configuration change renamed the label the monitoring system uses to find the shop's figures, but the monitoring was not changed to use the new label, so it stopped collecting them.",
+            "rows": [
+              "Why, in plain words",
+              "D1",
+              "F1"
+            ]
+          },
+          {
+            "quote": "Argus estimates the cost to the shop in takings at {customer_loss}.",
+            "rows": [
+              "What it cost the shop in takings (estimated by Argus): none {customer_loss}"
+            ]
+          },
+          {
+            "quote": "Nobody was paged, because no on-call incident was linked to this one.",
+            "rows": [
+              "Nobody was paged: no on-call incident was linked to this one."
+            ]
+          },
+          {
+            "quote": "Argus ended the incident by rolling back the shop's deployment.",
+            "rows": [
+              "Ended by: Argus: rolled back the deployment of io-shop",
+              "M1"
+            ]
+          },
+          {
+            "quote": "The rollback is confirmed and still in place, and automatic sync has been left off.",
+            "rows": [
+              "M1",
+              "Argus: rolled back the deployment of io-shop - confirmed, still in place - automatic sync left off"
+            ]
+          },
+          {
+            "quote": "Argus has also proposed a fix, but it is only a draft and has not been applied.",
+            "rows": [
+              "Argus: proposed a fix, PR #537 - opened as a draft",
+              "T21"
+            ]
+          }
+        ]
+      },
+      "name": "judge_claims",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgvNYmUnzcfUk29KFNhcS",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 6905
+    },
+    "cache_creation_input_tokens": 6905,
+    "cache_read_input_tokens": 1599,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 592,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

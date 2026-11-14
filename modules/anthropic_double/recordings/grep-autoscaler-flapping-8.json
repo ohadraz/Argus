@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSxAYKEAgTGAI4AUIIdGhpbmtpbmcSDCPgixasmZdfp3qEaRoMVXGJuKyAhXKhcaLlIjAjUco9kcISrZ4ckDT8Hejk381FwrxHHKT5Ol2C3QmfgS5kzrbGAYvEsJ/uJH73Rjsq4QW+gHW2AISCV/VQ+2vNha87INQa6KkAUAU86Sa8h3Hqet0dO0EvUP2VLKDo0LevamAOv2rWmax7HRpR1GqbHgx7Ji69uiM6NydLy+jL7MJ/BJvtyyQulAPAOtYMYe2BDyhO6bAJAZvqnrbOR31r37XX49DFa/YTYr3/9lA3TupTNdxxqJmu8XAuWOx1Qd+TcaJnUAZnmWA0vnuH+nYTVsBHlCeFjloFHEiY1uFI5OjBNQCGkRk6oh4hTpT5W1abMtOca89asl5xLmdSPiniaq+diT6i01b/wPis9fYZO4Tg45DYgb4mzbcJA1+SSqtpXJKzzWgEaw72U8ZnJ/0ZpPexUFl7zZzWyn1u11skIJ2omV7lZMIcvO3EFK9g/qty9R96wAHgqln+uJnHJ6ENpH/5gVzr3tHB/s0HnknOYtvVqiJ3l+bZ10nZzdo4kXkBI046GNbnZxAoJaCBw4yH+SZ93WuGE3pwAtMNjdo15e3gWhD69Es9H2p9dFOQrH2Jp1ljsP/GHEwAAJmW+Ondt4OSpp9y6mn3QhJelp78/ECgJVcGbRx9vLjOsKrJiHDXpZg6+gXmi2MF3cvtsmdYhxgNEDIMGY0jI+EbcaeQOhbea6uCleaV4+mSAR6cI8aobkj7LKwbje9VGgfsQENnTKvmLqJHdyzHvDeDCpjH/LxeBFek4Bnr/VR3j9yYM+htUO+Qv8dCOs/w5834fPwRpGz3XFYYBeBG/EsP2doTCCrCtpArqIu53CjKWy4MFzyIh3Etw6Zv1HoD8haoW3Cn313FHECYhPd+ms/lowv+STI3iahJJAQhP3kUdMekO1sewSoIYz6cT+nNaeKLr1xrfUq/JKxN24X+120ynny0DkR3Ld3zmISnmGf+02trau3qUQfJjvoWEJ+nesVwRa9WBLwdizc7LWLa5AebQx9yyhLhLmL7dxVaQqSIr8TnwkWyJbQssAy+nPOhWp2YgW1QIKhpvBgB",
+      "thinking": "I think the config value scaleDownStabilizationSeconds: 0 is the problem, since no code reads it. I'm going to check whether any test reads the deploy YAML, so I'll search the deploy/ directory.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Dt3TLSHLMUKpqChPmL1Cet",
+      "input": {
+        "query": "deploy/"
+      },
+      "name": "search_repository",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgtkQvPQTDyorxPrVuFf6",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 729
+    },
+    "cache_creation_input_tokens": 729,
+    "cache_read_input_tokens": 4879,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 127,
+    "output_tokens_details": {
+      "thinking_tokens": 75
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

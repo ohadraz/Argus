@@ -23,7 +23,6 @@ from argus_core.models import (
     ActionItemStatus,
     ActionItemType,
     ChainStep,
-    ChangeKind,
     ChannelReading,
     CitedEvidence,
     ContributingFactor,
@@ -40,11 +39,9 @@ from argus_core.models import (
     ReportChannel,
     ResolutionStep,
     ReviewCriterion,
-    RuledOut,
     RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
-    Trigger,
     WhyNoTrigger,
 )
 from argus_testkit import Assertion, Scenario, all_of
@@ -62,9 +59,11 @@ from postmortem_rendering_test.framework.builders import (
     a_marker,
     a_person_resolved_it,
     a_postmortem,
+    a_postmortem_with_every_section_filled,
     an_alert,
     the_page_of,
 )
+from postmortem_rendering_test.framework.reading import everything_held
 
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
@@ -95,36 +94,20 @@ def test_the_title_comes_first_then_every_section_in_the_page_s_order() -> None:
 
 @pytest.mark.unit
 def test_every_section_says_what_the_document_holds() -> None:
+    # Everything the document was rendered to hold, in the order it was
+    # rendered - less what paper sets apart from that order
+    # (`_set_apart_on_paper`).
     Scenario() \
         .given(
-            some_rendered := render(_every_section_filled(), an_alert(), [], the_page_of)
+            some_rendered := render(a_postmortem_with_every_section_filled(), an_alert(), [],
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
         ) \
         .then(
-            _it_reads_in_order("The divisor was never guarded.",
-                               "Requests failed on the account page.", "Evidence:",
-                               "The flag went on.",
-                               "Ruled out:", "The earlier deploy was healthy.",
-                               "Nothing reviewed the divisor.",
-                               "monthly-spend flag went from OFF to ON",
-                               "Turned the flag off",
-                               "HighErrorRate fired at",
-                               "Guard the divisor.",
-                               "The alert fired at once.", "Nobody reviewed it.",
-                               "It was a quiet hour.",
-                               "The flag went on.",
-                               "42 min", "12,345",
-                               "Changes to production read", "A deploy switched the model.",
-                               "Log messages read (UTC)", "The divisor was zero.",
-                               "The flag was the only change.",
-                               "✓", "Key incident data collected",
-                               "○", "Document reviewed and shared",
-                               "○", "Root-cause analysis complete",
-                               "the cause rests on F1, a reading of the source nothing ran; "
-                               "running the proposed fix's tests against the current code "
-                               "would confirm it (AI-2)"))
+            _it_reads_in_order(*(said for said in everything_held(some_rendered)
+                                 if said not in _set_apart_on_paper(some_rendered))))
 
 
 @pytest.mark.unit
@@ -899,7 +882,8 @@ def test_no_cell_is_painted_over_the_words_written_into_it() -> None:
     # reads empty while the file still holds every word of it.
     Scenario() \
         .given(
-            some_rendered := render(_every_section_filled(), an_alert(), [], the_page_of)
+            some_rendered := render(a_postmortem_with_every_section_filled(), an_alert(), [],
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -915,7 +899,8 @@ def test_no_text_is_set_over_other_text_or_past_the_margins() -> None:
     # word of it, so only where it is set can show it.
     Scenario() \
         .given(
-            some_rendered := render(_every_section_filled(), an_alert(), [], the_page_of)
+            some_rendered := render(a_postmortem_with_every_section_filled(), an_alert(), [],
+                                    the_page_of)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
@@ -1676,46 +1661,6 @@ def _eighty_items() -> list[ActionItem]:
             for number in range(1, 81)]
 
 
-def _every_section_filled() -> Postmortem:
-    """A postmortem with something in every section, each worded so it can be
-    found in the file and nowhere else in it."""
-    return a_postmortem(
-        root_cause="The divisor was never guarded.",
-        causal_chain=[ChainStep(text="Requests failed on the account page.",
-                                cites=[CitedEvidence(label="T1", text="errors rose")],
-                                ruled_out=[RuledOut(text="The earlier deploy was healthy.",
-                                                    cites=[CitedEvidence(label="T2",
-                                                                         text="read")])])],
-        contributing_factors=[ContributingFactor(text="Nothing reviewed the divisor.",
-                                                 addressed_by=["AI-1"])],
-        trigger=Trigger(subject="monthly-spend", from_state="off", to_state="on",
-                        changed_at=SOME_ONSET, kind=ChangeKind.FLAG_TOGGLE, actor="dana"),
-        resolution=[ResolutionStep(at=SOME_ONSET + timedelta(minutes=5),
-                                   action="Turned the flag off", by="Argus", has_a_way_back=True,
-                                   outcome="recovered", label="M1")],
-        detection=Detection(alerted_at=SOME_ONSET + timedelta(minutes=1), rule="HighErrorRate",
-                            onset_at=SOME_ONSET, gap=timedelta(minutes=1)),
-        action_items=[ActionItem(number="AI-1", text="Guard the divisor.",
-                                 type=ActionItemType.PREVENT, owner=None, tracking=None,
-                                 status=ActionItemStatus.OPEN)],
-        lessons=Lessons(went_well=["The alert fired at once."],
-                        went_wrong=["Nobody reviewed it."],
-                        got_lucky=["It was a quiet hour."]),
-        timeline=[TimelineEntry(at=SOME_ONSET, who="Argus", text="The flag went on.",
-                                label="T1")],
-        changes_read=[a_change_read("P1", summary="A deploy switched the model.")],
-        log_messages_read=[CitedEvidence(label="G3fa2", text="The divisor was zero.")],
-        engineer_minutes=42,
-        tokens_spent=12345,
-        assumptions=["The flag was the only change."],
-        review=[ReviewCriterion(criterion="Key incident data collected", met=True),
-                ReviewCriterion(criterion="Document reviewed and shared", met=None),
-                ReviewCriterion(criterion="Root-cause analysis complete", met=None,
-                                because="the cause rests on F1, a reading of the source "
-                                        "nothing ran; running the proposed fix's tests "
-                                        "against the current code would confirm it (AI-2)")])
-
-
 def _a_table_under_every_heading(root_cause_words: int) -> Postmortem:
     """A postmortem whose four sections that open with a table each open on a
     row taller than the room a heading is kept with, its first word found in
@@ -1758,6 +1703,17 @@ def _every_subsection_filled(root_cause_words: int, item_words: int) -> Postmort
         lessons=Lessons(went_well=[f"Zwell{item} {some_words}" for item in range(12)],
                         went_wrong=[f"Zwrong{item} {some_words}" for item in range(12)],
                         got_lucky=[f"Zlucky{item} {some_words}" for item in range(12)]))
+
+
+def _set_apart_on_paper(rendered: RenderedPostmortem) -> set[str]:
+    """What the file says outside the order the page reads in: the head's
+    written-by row, set round the masthead; a lead's words, beside the label
+    that marks it; a link, as a reference's label and its value; and what a
+    check's mark means, at the right margin beside its criterion."""
+    return {rendered.head.written_by.said,
+            *(lead.said.said for lead in rendered.leads),
+            *(line.said for line in rendered.supporting.links),
+            *(check.meaning for check in rendered.review.rows)}
 
 
 def _pages(pdf: bytes) -> list[str]:

@@ -62,6 +62,7 @@ from argus_core.models import (
     DeploymentChanges,
     EstablishedOnset,
     Evidence,
+    FailureMode,
     HowTheMinuteIsKnown,
     Meaning,
     MetricBucket,
@@ -2700,9 +2701,10 @@ def test_an_answer_whose_subject_is_more_than_one_name_is_refused() -> None:
     # on: "metrics port name" named no key a deploy could be matched to. Every
     # subject a recorded walk got wrong had a space in it and none it got right
     # did - a key, a flag, a revision, a service or a path is one name.
+    loosely_worded = "metrics port name"
     some_key = "metrics.portName"
     investigation = an_investigation(a_model_that_says(
-        a_turn_answering(an_explanation(subject="metrics port name")),
+        a_turn_answering(an_explanation(subject=loosely_worded)),
         a_turn_answering(an_explanation(subject=some_key))
     ))
 
@@ -2712,7 +2714,7 @@ def test_an_answer_whose_subject_is_more_than_one_name_is_refused() -> None:
         .then(all_of(
             _the_model_was_asked(investigation.model, times=2),
             _what_the_model_saw_on_turn(investigation.model, turn=1,
-                                        mentions="metrics port name"),
+                                        mentions=loosely_worded),
             _the_subject_is(some_key)
         ))
 
@@ -2738,6 +2740,81 @@ def test_a_subject_of_more_than_one_name_on_the_last_turn_does_not_cost_the_answ
         .then(all_of(
             _the_model_was_asked(investigation.model, times=2),
             _the_subject_is(some_description)
+        ))
+
+
+@pytest.mark.unit
+def test_an_upstream_failure_naming_no_dependency_is_sent_back() -> None:
+    # udf's both walk: the cause was a dependency outside the service, and the
+    # answer named none. Whatever acts on it - an escalation, the owner it is
+    # handed to - has nobody to act on, so it goes back while a turn remains,
+    # asking for the dependency as the service register lists it.
+    upstream = FailureMode.UPSTREAM_DEPENDENCY_FAILURE.value
+    some_dependency = "io-pay"
+    pointed_at_the_register = "as the service register lists it"
+    investigation = an_investigation(a_model_that_says(
+        a_turn_answering(an_explanation(failure_mode=upstream, subject=None)),
+        a_turn_answering(an_explanation(failure_mode=upstream, subject=some_dependency))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=pointed_at_the_register),
+            _the_subject_is(some_dependency)
+        ))
+
+
+@pytest.mark.unit
+def test_two_upstream_failures_naming_no_dependency_are_each_sent_back() -> None:
+    # Each told apart: one verb for both reads as one candidate, and the model
+    # may name a dependency for only one of them.
+    upstream = FailureMode.UPSTREAM_DEPENDENCY_FAILURE.value
+    names_none = "blames an upstream dependency and names none"
+    some_dependency, another_dependency = "io-pay", "io-pricing"
+    investigation = an_investigation(a_model_that_says(
+        a_turn_answering(an_explanation(failure_mode=upstream, subject=None),
+                         an_explanation(failure_mode=upstream, subject=None)),
+        a_turn_answering(an_explanation(failure_mode=upstream, subject=some_dependency),
+                         an_explanation(failure_mode=upstream, subject=another_dependency))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=f"explanation 1 {names_none}"),
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=f"explanation 2 {names_none}")
+        ))
+
+
+@pytest.mark.unit
+def test_an_upstream_failure_naming_none_on_the_last_turn_does_not_cost_the_answer() -> None:
+    # Sent back there, an investigation that read plenty ends with nothing for
+    # a dependency it did not name. Taken as it stands, as a loosely worded
+    # subject is.
+    upstream = FailureMode.UPSTREAM_DEPENDENCY_FAILURE.value
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+            a_turn_answering(an_explanation(failure_mode=upstream, subject=None))
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _the_subject_is(None)
         ))
 
 

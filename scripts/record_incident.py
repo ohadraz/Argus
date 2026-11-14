@@ -50,6 +50,13 @@ import httpx2
 import psycopg
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_postmortem import WRITE_UP_TOOLS
+from agent_postmortem.grounding import (
+    FLAGS_FIELD,
+    JUDGE_TOOL_NAME,
+    QUOTE_FIELD,
+    ROWS_FIELD,
+    WHY_FIELD,
+)
 from agent_postmortem.prompting import LESSONS_FIELD, SUBMIT_TOOL_NAME, WENT_WELL_FIELD
 from agent_postmortem.synopsis_prompting import OVERVIEW_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
@@ -66,7 +73,7 @@ from argus_core.events import (
     VerdictReached,
 )
 from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
-from argus_incidents.repository import runs
+from argus_incidents.repository import runs, synopses
 from argus_incidents.repository.runs import RunState
 from incident_memory.filing import get_undelivered
 from pydantic import BaseModel
@@ -74,6 +81,7 @@ from qdrant_client import QdrantClient
 
 from scripts.hold_the_stack import wait_until_told_to_stop
 from tests.e2e.framework.argus import (
+    JUDGE_ANTHROPIC_DOUBLE_BASE_URL,
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_ABSENCE_OF_EVIDENCE,
     RECORDED_ACCELERATOR_HETEROGENEITY,
@@ -112,6 +120,7 @@ from tests.e2e.framework.argus import (
     THE_RECORDINGS_THAT_MUST_CARRY_A_FIX,
     THE_SERVICE_NAME,
     TOOL_USE_TYPE,
+    judged_as,
     stored_as,
     the_anchor_file_for,
     the_held_call_arrived,
@@ -137,8 +146,6 @@ from tests.e2e.framework.flags import (
     THE_UNRELATED_FLAG,
     another_flag_was_toggled_on,
     flags_evaluating_true,
-    only_the_boot_flags_were_left_in_the_provider,
-    the_boot_flags_were_put_back,
     the_flag_provider_forgot_every_change,
 )
 from tests.e2e.framework.memory import that_flag_was_tried_before_and_did_not_help
@@ -152,8 +159,8 @@ from tests.e2e.framework.world import (
     A_SEED_SECONDS,
     the_incidents_events,
     the_recorded_anchor_was_staged,
-    the_shops_stand_in_was_put_back,
     the_shops_window,
+    the_target_environment_was_put_back,
 )
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
@@ -1230,10 +1237,30 @@ def _arm_the_double(name: str) -> None:
 
     The reset is not optional: a seeded answer is served ahead of record mode,
     so a double still holding a seed would replay it and store nothing.
+
+    Keeping arrivals, because this is a whole capture: its run is the one the
+    set's anchor is taken in, so the instants its questions arrived at are in
+    the frame a replay rebases from.
     """
     with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
         control.post("/double-control/reset").raise_for_status()
-        control.post("/double-control/record", json={"name": name}).raise_for_status()
+        control.post("/double-control/record",
+                     json={"name": name, "keeps_arrivals": True}).raise_for_status()
+
+
+def _arm_the_judge(stored: str) -> None:
+    """The judge's double cleared and set to record what the grounding judge
+    answers for the set `stored`, under the name beside it (`judged_as`).
+
+    Armed on every capture that is not a plain replay: whatever is written
+    afresh is judged afresh, and a judge served the answers it gave an earlier
+    write-up would quote words the new one never said. After the walk is
+    seeded, since seeding resets the judge's double too.
+    """
+    with httpx2.Client(base_url=JUDGE_ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        control.post("/double-control/reset").raise_for_status()
+        control.post("/double-control/record",
+                     json={"name": judged_as(stored)}).raise_for_status()
 
 
 class _AWalkIsStillLive(Exception):
@@ -1264,8 +1291,9 @@ def _no_walk_is_live() -> None:
     nothing until the watch ends.
     """
     the_worker_resumes()
-    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
-        control.post("/double-control/reset").raise_for_status()
+    for double in (ANTHROPIC_DOUBLE_BASE_URL, JUDGE_ANTHROPIC_DOUBLE_BASE_URL):
+        with httpx2.Client(base_url=double, timeout=10.0) as control:
+            control.post("/double-control/reset").raise_for_status()
 
     deadline = time.monotonic() + _A_WALK_JUDGED_BY_THE_SUSTAINED_RULE_SECONDS
 
@@ -1288,15 +1316,14 @@ def _no_walk_is_live() -> None:
 def _a_world_this_recording_can_be_captured_in() -> None:
     """Puts the Target Environment back before each incident is driven.
 
-    The e2e suite's own teardown, step for step and in its order: the worker
-    resumed, in case the last recording paused it and failed before letting
-    it go, the service's scenario reset, the shop's stand-in made to forget any
-    anchor staged and never seeded from, both boot flags put back where the
-    stack starts them, every
-    flag the environment did not boot with deleted, the provider's record of
-    what changed erased, and what Argus remembers of earlier incidents dropped.
-    Reused rather than restated, because a recording captured in a world the
-    replaying case never arranges is a recording of a different incident.
+    The e2e suite's own teardown: the worker resumed, in case the last
+    recording paused it and failed before letting it go, the Target
+    Environment put back by the very function the suite calls, and what Argus
+    remembers of earlier incidents dropped. Called rather than restated,
+    because a recording captured in a world the replaying case never arranges
+    is a recording of a different incident - and a restated copy here once
+    missed the on-call double, so a page staged for one recording linked
+    itself to the next.
 
     This is what one shared stack costs. Running the session per recording got
     a virgin world from `compose down -v`; here the previous recording's
@@ -1314,11 +1341,7 @@ def _a_world_this_recording_can_be_captured_in() -> None:
     recording mentions.
     """
     the_worker_resumes()
-    httpx2.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=30.0)
-    the_shops_stand_in_was_put_back()
-    the_boot_flags_were_put_back()
-    only_the_boot_flags_were_left_in_the_provider()
-    the_flag_provider_forgot_every_change()
+    the_target_environment_was_put_back()
     _long_term_memory_was_forgotten()
 
 
@@ -1978,7 +2001,8 @@ def _capture(recording: _Recording,
              replaying: bool,
              postmortem_only: bool = False,
              synopsis_only: bool = False,
-             over_a_moved_write_up: bool = False) -> None:
+             over_a_moved_write_up: bool = False,
+             judge_only: bool = False) -> None:
     """Drives the one incident this recording is of, and says what came of it.
 
     The name asked for on the command line is the *case*; the name on disk is
@@ -1996,8 +2020,15 @@ def _capture(recording: _Recording,
     `synopsis_only` records the synopsis alone, over the walk and its write-up
     replayed - and refuses, before anything is spent, a run whose write-up was
     asked anything its recording was not.
+
+    `judge_only` records the grounding judge alone: the whole walk replays,
+    write-up and synopsis included, and only the judge's reading of them goes
+    to the real model. Every capture but a plain replay records the judge too,
+    since whatever is written afresh is judged afresh.
     """
     stored = stored_as(recording.name)
+    # Whether the walk's own answers come from its stored set.
+    walk_replays = replaying or judge_only
     print(f"=== {stored} ===")
 
     # First, before the double is armed: arming resets it and enters record
@@ -2014,7 +2045,7 @@ def _capture(recording: _Recording,
               else 0)
     afresh_only = postmortem_only or synopsis_only
 
-    if not replaying and not afresh_only:
+    if not walk_replays and not afresh_only:
         _arm_the_double(stored)
 
     # Read before anything is written, and from the clock the files are stamped
@@ -2027,7 +2058,7 @@ def _capture(recording: _Recording,
     # A walk that replays is answered about the world it was recorded in, so
     # the shop is told that world's anchor before it seeds. Not on a fresh
     # capture: its world is the one this run writes the anchor of.
-    if replaying or afresh_only:
+    if walk_replays or afresh_only:
         the_recorded_anchor_was_staged(recording.name)
 
     staged = (
@@ -2035,7 +2066,7 @@ def _capture(recording: _Recording,
         else _Staged(seeded_at=None, rule_uid=None)
     )
 
-    if not replaying and not afresh_only:
+    if not walk_replays and not afresh_only:
         _write_the_anchor(stored, staged.seeded_at)
 
     # After staging, because the rebasing reads when this world was seeded;
@@ -2044,10 +2075,13 @@ def _capture(recording: _Recording,
     # as they were stored name instants from the day they were recorded, and
     # the walk replaying them is in a world staged today.
     # The synopsis-only seeding is the whole set, its synopsis already set aside.
-    if replaying or synopsis_only:
+    if walk_replays or synopsis_only:
         the_model_answers_from(recording.name)()
     elif postmortem_only:
         the_model_answers_from(recording.name, less_postmortem=True)()
+
+    if not replaying:
+        _arm_the_judge(stored)
 
     # After the seeding, never before it: seeding resets the double first, and a
     # reset ends whatever hold a case had already armed - which left a walk
@@ -2109,6 +2143,15 @@ def _capture(recording: _Recording,
             asked_for_the_synopsis = True
 
         _the_walk_came_to_a_stop(incident_id, recording.may_take_seconds)
+
+        # Once the walk has stopped, and only then: a walk that never got as
+        # far as the write-up asked the judge nothing, and the set it had
+        # before is still the last one taken.
+        if not replaying:
+            _the_judge_s_set_is_this_run_s(stored, started_at)
+
+        if judge_only:
+            _the_replay_held_under_the_judge(stored, incident_id)
     finally:
         if postmortem_only and asked_for_the_write_up:
             print(f"recorded: {', '.join(_put_the_write_up_in_place(stored, begins))}")
@@ -2121,7 +2164,7 @@ def _capture(recording: _Recording,
             _the_old_synopsis_is_put_back(stored)
             print("recorded: nothing - the synopsis was never asked for, and the old "
                   "one is put back")
-        elif not replaying:
+        elif not walk_replays:
             discarded = _discard_what_was_not_answered_again(stored, started_at)
             written = [path.stem for path in _the_set_named(stored)]
             print(f"recorded: {', '.join(written) or 'nothing'}")
@@ -2141,8 +2184,88 @@ def _capture(recording: _Recording,
         recording, incident_id, the_incidents_events(incident_id)
     )
 
-    if not replaying:
+    if not walk_replays:
         _what_went_well_came_as_items(stored, started_at)
+
+
+def _the_replay_held_under_the_judge(stored: str, incident_id: str) -> None:
+    """Says every flag the judge raised on the replayed set - none, said as
+    such - and refuses the set where the judge moved the walk off its
+    recording.
+
+    The judge reads a replayed write-up live, and a flag it keeps on a first
+    attempt sends that attempt back. The walk's double, seeded and not
+    recording, then serves its next recorded answer to a question that answer
+    never met - which the double reports as a divergence - or, where nothing
+    was recorded after it, runs dry, and the overview is given up. Either is
+    what every replay of the set would do, so the set is one to re-record. A
+    raw flag is not: one the judge got wrong is dropped, and one kept on a
+    last attempt is only logged, and the replay holds either way. So the
+    flags are printed, and the refusal rests on what the walk did. The judge
+    answers are kept for the re-record to replace.
+
+    A divergence is the judge's only where it raised a flag. A judge moves a
+    walk by sending something back, and it has nothing to send without one -
+    so a divergence beside no flag at all was there before the judge read
+    anything: every replay of a set whose write-up is asked the number of the
+    pull request it opens is asked a number its recording never saw. It is
+    said, and the set holds. Counted on the raw flags rather than the kept
+    ones, which only the agent works out: a flag it dropped refuses a set
+    that would have held, which costs a re-record, where the other way round
+    would keep a set every replay walks differently.
+    """
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        state = control.get("/double-control/state")
+        state.raise_for_status()
+        diverged = state.json()["diverged"]
+
+    flagged = False
+    for answer in _the_set_named(judged_as(stored)):
+        flags = _the_flags_in(answer)
+        flagged = flagged or bool(flags)
+        if not flags:
+            print(f"{answer.stem}: no flags")
+        for flag in flags:
+            print(f"{answer.stem}: flagged [{flag.get(QUOTE_FIELD)}] against "
+                  f"{flag.get(ROWS_FIELD)} - {flag.get(WHY_FIELD)}")
+
+    if diverged and not flagged:
+        print(f"[{stored}] was asked something its recording was not, in {diverged}, "
+              f"with no flag raised - there before the judge, and held")
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        synopsis = synopses.get_by_incident(connection, incident_id)
+
+    reasons = [*([f"the judge flagged a claim and the walk was asked something its "
+                  f"recording was not, in {diverged}"]
+                 if diverged and flagged else []),
+               *([f"its overview was given up: {synopsis.withheld_because}"]
+                 if synopsis is not None and synopsis.overview is None else [])]
+    if reasons:
+        raise RuntimeError(f"REJECTED: [{stored}] needs a re-record - {'; '.join(reasons)}")
+
+
+def _the_flags_in(answer: Path) -> list[dict[str, Any]]:
+    """Each flag one of the judge's recorded answers raised, as it came."""
+    return [flag for block in load(answer.stem).get("content", [])
+            if block.get("type") == TOOL_USE_TYPE and block.get("name") == JUDGE_TOOL_NAME
+            and isinstance(flags := block.get("input", {}).get(FLAGS_FIELD), list)
+            for flag in flags if isinstance(flag, dict)]
+
+
+def _the_judge_s_set_is_this_run_s(stored: str, started_at: float) -> None:
+    """Leaves the judge's answers for `stored` as this run recorded them, and
+    says what they are - the earlier set's that this run did not answer
+    again discarded, for `_discard_what_was_not_answered_again`'s reason: a
+    judge served an answer to a reading it never made quotes words the
+    write-up does not say."""
+    judged = judged_as(stored)
+    discarded = _discard_what_was_not_answered_again(judged, started_at)
+    written = [path.stem for path in _the_set_named(judged)]
+    print(f"judged: {', '.join(written) or 'nothing'}")
+    if discarded:
+        print(f"discarded: {', '.join(path.stem for path in discarded)} - the judge's "
+              f"answers to an earlier write-up")
 
 
 def _what_went_well_came_as_items(stored: str, started_at: float) -> None:
@@ -2284,6 +2407,12 @@ def main() -> int:
              "this change - saying so rather than refusing",
     )
     parser.add_argument(
+        "--judge-only",
+        action="store_true",
+        help="replay each walk, its write-up and its synopsis, and record only what the "
+             "grounding judge answers of them",
+    )
+    parser.add_argument(
         "--hold",
         action="store_true",
         help="keep the stack up once every capture is done, until Enter - so what "
@@ -2291,8 +2420,10 @@ def main() -> int:
     )
     arguments = parser.parse_args()
 
-    if sum((arguments.replay, arguments.postmortem_only, arguments.synopsis_only)) > 1:
-        parser.error("--replay, --postmortem-only and --synopsis-only are one each")
+    if sum((arguments.replay, arguments.postmortem_only, arguments.synopsis_only,
+            arguments.judge_only)) > 1:
+        parser.error("--replay, --postmortem-only, --synopsis-only and --judge-only are one "
+                     "each")
 
     _the_two_declarations_of_a_fix_agree()
 
@@ -2310,7 +2441,8 @@ def main() -> int:
             _capture(recording, arguments.service, arguments.replay,
                      postmortem_only=arguments.postmortem_only,
                      synopsis_only=arguments.synopsis_only,
-                     over_a_moved_write_up=arguments.over_a_moved_write_up)
+                     over_a_moved_write_up=arguments.over_a_moved_write_up,
+                     judge_only=arguments.judge_only)
         except _AWalkIsStillLive as error:
             print(f"STOPPED at {recording.name}: {error}")
             failed.extend(left.name for left in asked_for[position:])

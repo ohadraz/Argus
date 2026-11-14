@@ -2,50 +2,48 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSgAUKEAgTGAI4AUIIdGhpbmtpbmcSDEtzE650oCcOa6iCkRoMUNnqitBeYCNLus4IIjDbvivJ+Ex7EugvHg7i6HOhFFnj0U0fiZoxXAy3z8dAun9gQKiMKg5ui8STN4YmGBcqnQRAuIqXfAYLa9XU+z/Hj+XAXGXVpZ70HxWftNg0UHyjnDJ5C854UkHUh1df3GNdSlwcBaGDDJW/RJ28FtxQha3aWg8A6bbHBdhut1HjejWgvVPmnc6Gu2Hel54RevtVyF5N+akbm4j85zLMtxp/Vjd70whjEkk4k6pFQsqSheMcWc9i3eOw19JFQNznkvYhIbYEDOeDNYqe17DHAyqhG2Qg23Q2kEwBnn0cA5AjbBIJp2P7y0y9z3U6hH1rPLX6+nYj59RlPyau02iCLOt+V0EvSRAGKMEK8dtTztFkJVekXlCdeu5HN5Qp0VDZujb6S1HYeFyFPkbQ+NihKl2eaKuKToz1QNL9y/0cQY36kMA2tCV6xIwP7fzmyoBerYB3rRTHINWxvdaSdz7bUNO4CDEc8nNZfGGthj3xTl5mAtFDapJRDF+el0p3UOtNGw4b/gJeLuFx6Ez5gP2VxTklmW07CrcJA1/ZAj2iMG1HCRa1yl9Mk1rxS1W619uPHmfgimqVR0TOlIWDFGQWAXMjGrx0oNlhX8J3SzyeavM2NHSAqLzFCWEzzf7IIpebGzA3uRjVJ03Z+B41V+9FKHDL2sN+H+F3UR5PQKJiwWk3nrOEPeiYMJjKfaryzId2ZQrp1Mxqc2sRr9NVcL2xvOopovpcP9wV8mzwXp7OrXKdptnuQg7LmxC4Uy2ZWCTd1FbfQHp8+jUxi2HGtsVbLgnwGAE=",
-      "thinking": "I should strip revision names like 5470c1a out of the root_cause field and rewrite it accordingly.\n\n",
+      "signature": "CAQSpAUKEAgTGAI4AUIIdGhpbmtpbmcSDMLjVYwb4SDWW/x65xoMf3GGeEwssENZieAoIjCssYHdfBY23+Rxe/Aht6OoFntHjwGtoGcFzxCECMC7dbIG3mtZnr3bO8/9TGWOv0MqwQRFYfngN3NyHA3zJGP3JlItEpsyIquyVDc8gDZ+3G4rfWmZE96bFguDw1pT8FazU/xxTLV6Cax15E/U7VOACzrqrsgrtySq/dIxWbAFxzJoEm2fY9x3SGb/lg9wN1tj1PVrDeOfYwK6Z+F0tWwFJtC+zrnZPH6Pz+5z3zfc1cDPe+5YnGAVQCsqjQGydshlu22rCtJpkE5UR8cZ7Okb45y8ElD1BQKxT2TRtLmXULou3hf3ambA3LtAISxt02bqv8AwD8/Finl0QqcaBLc8W9lZe4g+k02mQaxAb0LIP3eqpSgxbn83F+YAEemFKwEMf6i3mXMajPl1/JqeAkFsFF5l9PrAR0rTLDTxX2tgStr7HrDrM6rcLWCw37eiK2jbNJXnQ4XVinafRjJiXOCeGA5JJ1pVgtNvooqE5CtQj+ftnagbqxKhnLIQUqCv/Uchqbt4wECtuPHYh6tFQ8e9sh/NUW3u9lc5HflLDIuPz4S0HkBMbC0s9ljsiqjD2DfbYZB+Zxu1I1nU8tmDE5JIugTegUlvDFP2ZN/qhM/A2SFiwvmuCPixj3mLM2B1N3/GShddGS5oIzokxB2ljReoT8al0SJ8PGVAeTlIfKLY9558T0SZbaqpLeUAxvNoFJynV0HyrPkyeX2mDLm2AlRsex/cIlvKc9jQz+kwtn7N3wmzboRqu2sQExPvJ+fDtqNbIVQzENEJZgu+6vo0LWFn2FugULyPJQ4CiV0m6dZjz2VlF2h1Bkxq0HBnhAkkS0AUfoVZGAE=",
+      "thinking": "I'm going to strip the revision names out of root_cause, and I'm also checking whether the commit hash 5470c1a shows up there too.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01KCWuF8o61kwGx9qMWYLZct",
+      "id": "toolu_01C8NTzAk236YFCW7ZydBYGz",
       "input": {
         "action_items": [
           {
             "answers": [
               "CF-1"
             ],
-            "item": "Add a CI test that runs the previous revision's summary cache reader against entries the new revision writes, and the reverse, for any change to a shared cache entry format.",
+            "item": "Add a pre-deploy check, for every change to the format of a cached or stored entry, that runs the serving revision's reader against entries written in the candidate revision's format.",
             "type": "prevent"
           },
           {
             "answers": [
               "CF-2"
             ],
-            "item": "Configure io-shop rollouts to halt and roll back automatically when the error rate rises above its baseline during the rollout.",
+            "item": "Add automated rollout analysis to io-shop's rolling updates that halts and reverts the rollout when the error rate rises while revisions are mixed.",
             "type": "prevent"
           },
           {
-            "answers": [],
-            "item": "Route the HighErrorRate alert on io-shop so that it pages the on-call engineer.",
-            "type": "process"
-          },
-          {
-            "answers": [],
-            "item": "Find out why the rolling update of 696c33a stopped half-way and stayed paused.",
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Route the HighErrorRate alert on io-shop to an on-call page.",
             "type": "process"
           }
         ],
         "causal_chain": [
           {
             "cites": [
-              "G3714",
-              "Gbac1"
+              "AL1",
+              "Gbac1",
+              "G3714"
             ],
             "ruled_out": [],
-            "step": "Shoppers' account page requests failed."
+            "step": "Shoppers' account page requests failed, and the service's share of failed requests rose well above its usual level."
           },
           {
             "cites": [
@@ -53,107 +51,111 @@
               "Gc956"
             ],
             "ruled_out": [],
-            "step": "Account page requests failed because reading the shopper's cached spend summary raised a ValueError: the cache entry '{G3714.1}' was not a figure in cents."
+            "step": "The failing account page requests raised ValueError when they read a summary cache entry, '{G3714.1}', that was not a figure in cents, in src/io_shop/summary_cache.py."
+          },
+          {
+            "cites": [
+              "D1",
+              "Gc956",
+              "G3714"
+            ],
+            "ruled_out": [],
+            "step": "The cache held entries in the new 'amount/items' text format that revision 696c33a introduced, and the replicas reading them expected a bare cents figure. The new revision's own reader returns no error on text it cannot read, so the error comes from the reader in the earlier revision."
           },
           {
             "cites": [
               "P2",
+              "T10",
               "D1"
             ],
             "ruled_out": [
               {
                 "cites": [
                   "T5",
-                  "Gad41"
+                  "Gad41",
+                  "M1",
+                  "T21",
+                  "T22"
                 ],
-                "what": "The earlier deploy of revision 5470c1a: the metrics read between it and the onset show the service at its usual error rate of {errors_before}, and account pages rendered normally until just before the onset."
+                "what": "The earlier deploy P1 of revision 5470c1a: the service was measured healthy with it in place. The metrics read before the onset showed the usual error rate, account pages rendered normally before the onset, and the service returned to normal after the confirmed rollback left 5470c1a running."
               },
               {
                 "cites": [
                   "T16"
                 ],
-                "what": "A feature flag change: the flag provider's history shows no flag changes by anyone but Argus in the hour before {T16.4}."
-              },
-              {
-                "cites": [
-                  "G46bc"
-                ],
-                "what": "Shoppers closing the connection: those account page failures stopped before the onset."
+                "what": "A feature flag change: the flag provider's history showed no flag changes by anyone but Argus in the window read."
               }
             ],
-            "step": "Entries in that two-field form were in the cache because revision 696c33a, deployed at {P2.1}, changed a summary cache entry from a bare cents figure to text holding the figure and the purchase count, written as 'amount/items', under the same shopper."
+            "step": "Deploy P2 at {P2.1} rolled out revision 696c33a, which brought in the new entry format. As of {T10.1}, its rolling update was paused partway, with replicas on 696c33a and on 5470c1a both serving against the same cache."
           },
           {
             "cites": [
-              "T10"
-            ],
-            "ruled_out": [],
-            "step": "A reader that expected a bare cents figure still read those entries because the rollout had stopped half-way. As of {T10.1}, {T10.2} of {T10.3} replicas ran 696c33a and {T10.5} still ran the old revision 5470c1a, with the rolling update paused and both revisions sharing the cache."
-          },
-          {
-            "cites": [
-              "Gc956",
+              "D1",
               "G3714",
-              "D1"
+              "Gc956"
             ],
             "ruled_out": [],
-            "step": "The old revision's reader raises an error on any entry that is not a bare cents figure, and that error fails the page."
+            "step": "The new revision changed the format of cache entries that the still-serving older replicas also read, and the older revision's reader raised an error on the new format instead of treating it as a miss."
           }
         ],
-        "cause_in_plain_words": "A new version of the shop changed how it stores each shopper's saved spending summary, and while the update was stuck half-way, the older version still running beside it could not read the new kind of entry and failed the shopper's account page.",
+        "cause_in_plain_words": "A software update changed the format of a saved summary of each shopper's spending, and the older version, still running beside the new one because the update stopped partway, could not read the new format and failed the account page.",
         "cause_rests_on_an_unrun_reading": false,
         "contributing_factors": [
           {
             "addressed_by": [],
-            "factor": "No check was seen that tested whether the revision being replaced could read the new summary cache entry format before the change went out.",
-            "had_it_been_otherwise": "The mismatch between the new entry format and the old revision's reader would have been caught before deploy, and the change would have been held back or made readable by both revisions.",
+            "factor": "No check was seen, before the change went out, that the revision already serving could read cache entries in the new revision's format.",
+            "had_it_been_otherwise": "The format mismatch would have been caught before deploy P2, and the account pages would not have failed.",
             "label": "CF-1"
           },
           {
             "addressed_by": [],
-            "factor": "No rollout safeguard was seen that halts or rolls back a rollout when the service's error rate rises while revisions are mixed.",
-            "had_it_been_otherwise": "The rollout of the new revision would have been rolled back as soon as errors rose, without waiting for the alert and a manual rollback.",
+            "factor": "No automatic rollout analysis was seen that halted or reverted io-shop's rolling update when its error rate rose. The rollout stayed partway, with both revisions serving.",
+            "had_it_been_otherwise": "The mixed-revision state would have been reverted soon after the error rate rose, which would have shortened the failure.",
             "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The HighErrorRate alert on io-shop was not linked to any on-call incident, so nobody was paged.",
+            "had_it_been_otherwise": "A person would have been brought in as soon as the alert fired, instead of the response depending on automation alone.",
+            "label": "CF-3"
           }
         ],
         "lessons": {
           "got_lucky": [],
           "went_well": [
             {
-              "item": "The Investigator Agent found that the rollout of 696c33a was paused with the old and new revisions serving side by side.",
+              "item": "The Investigator Agent found that the rollout of 696c33a was paused partway with both revisions serving, which tied the onset to deploy P2.",
               "timed_by": "T10"
             },
             {
-              "item": "Argus read the flag provider's history, which ruled out a flag change.",
+              "item": "Argus read the flag provider's history and found no flag changes by anyone but Argus, ruling flags out.",
               "timed_by": "T16"
             },
             {
-              "item": "The Mitigation Agent rolled back the deployment of io-shop off revision 696c33a.",
+              "item": "The Mitigation Agent rolled back io-shop's deployment off revision 696c33a.",
               "timed_by": "T19"
             },
             {
-              "item": "The Mitigation Agent checked the service and confirmed that the rollback had worked.",
+              "item": "The Mitigation Agent confirmed the rollback had brought the service back from the incident's level.",
               "timed_by": "T22"
             },
             {
-              "item": "Code-Fix saw that its fix would not help on its own and kept none of it, so no partial fix was merged."
+              "item": "Code-Fix wrote a fix and said plainly that it helps only together with a change outside the repository, so no partial fix was kept."
             }
           ],
-          "went_wrong": [
-            "Nobody was paged: no on-call incident was linked to the alert."
-          ]
+          "went_wrong": []
         },
         "reaches_a_cause": true,
-        "root_cause": "The new revision changed what a summary cache entry holds, from a bare cents figure to one piece of text carrying the figure and the purchase count ('amount/items'), and wrote it where the previous revision, still serving alongside it, reads. The previous revision's reader raises a ValueError on any entry that is not a figure in cents, and that error failed the account page instead of the page working the figure out again.",
-        "still_at_risk": "Deploying the new revision again while any replica still runs the old one could make account pages fail in the same way.",
-        "symptom": "Shoppers' account pages failed"
+        "root_cause": "The new revision changed what a summary cache entry holds. It used to be a bare cents figure and is now 'amount/items' text (`_ENTRY_FORMAT`). The replicas still running the earlier revision read those same entries and raised ValueError on the new text in src/io_shop/summary_cache.py instead of treating it as a miss, so the account page request failed.",
+        "still_at_risk": "Account pages could fail again if revision 696c33a goes out again while the earlier revision is still serving, or if cache entries in its new format are left where the earlier revision reads.",
+        "symptom": "Shoppers' account pages failed to load"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cgg73DseDG52gcK5aLKmR",
+  "id": "msg_011Cgy2zmRUMtfSfPASpKjQV",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -163,15 +165,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2015
+      "ephemeral_5m_input_tokens": 2126
     },
-    "cache_creation_input_tokens": 2015,
-    "cache_read_input_tokens": 13751,
+    "cache_creation_input_tokens": 2126,
+    "cache_read_input_tokens": 13779,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 1945,
+    "output_tokens": 2060,
     "output_tokens_details": {
-      "thinking_tokens": 31
+      "thinking_tokens": 34
     },
     "service_tier": "standard",
     "speed": "standard"

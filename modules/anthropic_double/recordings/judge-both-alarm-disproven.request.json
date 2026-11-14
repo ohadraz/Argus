@@ -1,0 +1,99 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The record:\nWrite the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-11-10T22:51:12Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-10T22:51:38Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires. Its condition looks back over 1 minute {rule_looks_back}.\nNot broken: the alarm was disproven - no minute of the window Argus read departed from the service's baseline, so there is no onset, duration or impact to report.\nArgus held the incident for 19 seconds {held}, until 2026-11-10T22:51:52Z {argus_stopped}. That is not how long Argus went on working - leave it out of your answer.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-10T22:51:33Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-11-10T22:51:36Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-10T22:51:36Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-10T22:51:47Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 22:51:12 {T4.2}\n  - [T5] 2026-11-10T22:51:51Z {T5.1} Investigator Agent: Read back 360 {T5.2} minutes of metrics\n  - [T6] 2026-11-10T22:51:52Z {T6.1} Argus: Nothing in the window matched the alarm's own claim - Error rate above threshold for 5m {T6.2} - in errors, p50, p95, p99, memory or the alert rule's series, over 360 {T6.3} minutes read between 16:52 {T6.4} and 22:51 {T6.5}. The rule fired rather than the service failing\n  - [T7] 2026-11-10T22:51:52Z {T7.1} Argus: Moved the incident to DISPROVEN - the alarm's own claim was not in the window\n\nChanges to production it read:\n  - Deploys not read; flags not read.\n\nLog lines it read, one per message:\n  - Not read.\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - none\n\nActions it took:\n  - none\n\nAction items the record already holds:\n  - none\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.\n\nThe document, by field:\nroot_cause: The evidence does not show why the HighErrorRate rule fired: no minute of the window read, including the rule's own series, departed from the service's baseline. So the record shows no failure mechanism behind the alarm.\ncause_in_plain_words: An error alarm for the shop service went off even though the service's own measurements showed nothing wrong, and the record does not show why the alarm went off.\nstill_at_risk: The same alarm could fire again while the service is working normally.\nsymptom: Nobody using the shop saw anything wrong; an error-rate alarm fired with no matching errors\ncausal_chain 1: Nobody using io-shop was seen to have any problem. What was seen instead was the HighErrorRate alarm saying the error rate was above its threshold, while the metrics read showed no such errors. (cites AL1; T6, under \"What Argus did, in order\")\ncausal_chain 2: The rule fired but the service did not fail: across errors, p50, p95, p99, memory and the alert rule's own series, no minute of the window read departed from baseline. The record does not show why the rule fired. Deploys and flags were not read, so no change was tied to the alarm and none was ruled out. (cites T5, under \"What Argus did, in order\"; T6, under \"What Argus did, in order\")\naction_items 1: Look into the HighErrorRate rule for io-shop and find out why it fired when its own series, as read, showed no departure from baseline.\naction_items 2: Decide whether HighErrorRate on io-shop should page on-call. If it should, link the rule to an on-call paging route.\nwent_wrong 1: The alert was not linked to an on-call incident, so nobody was paged by it.\n\nNot to be judged:\n  - Names in braces, such as {T5.1} or {duration}, are figures code writes in from the row they name. They are not judged.\n  - Action items propose what to do; they make no claim about the record.\n  - Whether something went well, went wrong or was lucky is a judgement. Only a fact it states is judged.\n\nJudge every claim in the document, and answer by calling judge_claims.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "medium"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You check a document about a software incident against the record it was written from. Another model wrote the document from that record. Your one job is to find each claim in the document that the record does not support. Style, wording, tone, emphasis, length, and what the document leaves out are not yours to judge.\n\nA wrong flag costs as much as a missed one: every flag sends the document back to be rewritten, and a correct sentence rewritten can come back wrong.\n\nThe record is what the writer was given, whole. Some of its facts carry a label, in brackets or bare - [T4], T4 |, AL1:, C1, G7e5d - and some stand as plain lines, such as the alert, its times and the list of figures. All of them are your evidence. Name a line by its label, or, where it has none, by a few of its own words. The record also holds instructions to the writer on what to say and how. They are not facts about the incident, but a sentence that does what an instruction asked for is not a fault for doing it.\n\nGo through the document claim by claim. A claim is a statement of fact about this incident: what happened, when, how much, who or what did it, what was read, what was found, what caused what. For each one, find the record's lines that support it and list it as supported, naming them - or, where you cannot, flag it.\n\nA claim is supported when:\n- a line of the record says it, in any words; a number matches the record's, rounded as the document rounds it;\n- it follows from lines of the record taken together - a duration from two times, which came first from their times, a difference or a sum of two numbers - and the working is right; name every line it rests on;\n- it says no such thing was seen - no other check, no blocking test - and the record holds none of it;\n- it says something was not found or not changed in a place that was read - the logs, the changes, the flag history - and the record shows that place read over that time with nothing of the kind;\n- it is said as a reading - suspected, likely, suggests, consistent with, may have, appears - and the record holds it as possible, as it does a candidate cause;\n- it is said to be someone's - Code-Fix reads the code as, the investigation suspected, a C or F row - and they said it; whether what they said is true is not the question;\n- it is a judgement that rests on facts - detection was slow, the rollback was quick - and the record holds the facts it rests on.\n\nJudge a claim with the whole of the sentence and the field it is in: a hedge, or a source named, anywhere in them covers it. A sentence saying what would have happened had something been otherwise is judged only for what it states did happen, never for the what-if.\n\nEvery other claim is flagged: a fact no line says, a number the record does not give, something possible said as certain, a count or an all the record contradicts, and anything else the record does not hold.\n\nNot judged, and listed neither way: recommendations and action items, which propose rather than claim; general knowledge of how software works; and whatever the ask says is not judged. In a lesson, an opinion, or a verdict that something went well, went wrong or was lucky, only the verdict is not judged: every fact it states is judged like any other.\n\nAnswer by calling judge_claims once, with every claim you judged.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit every claim in the document, each either as supported or as flagged. Supported: the document's own words, quoted exactly, and the record's rows that support it. Flagged: the document's own words, quoted exactly, why, and the record's rows that contradict it (none where no row speaks to it at all). Empty lists say the document makes no claim to judge.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "flags": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "why": {
+                  "description": "One sentence: what the record holds instead. Never empty.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "quote",
+                "why",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "supported": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "quote",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "supported",
+          "flags"
+        ],
+        "type": "object"
+      },
+      "name": "judge_claims",
+      "strict": true
+    }
+  ]
+}

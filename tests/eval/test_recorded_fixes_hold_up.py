@@ -67,10 +67,10 @@ RECORDINGS_DIR = ARGUS_REPO_ROOT / "modules" / "anthropic_double" / "recordings"
 # shop, and neither Argus nor the model had a hand in them.
 THE_SHOP = ARGUS_REPO_ROOT.parent / "Argus-Demo-Target-App"
 
-# The mode whose corpus is graded. `both` is what a deployment runs and what CI
-# replays; the other two are the benchmark's arrangement and their recordings
-# predate this.
-THE_MODE = "both"
+# The modes whose corpora are graded. `both` is what a deployment runs and what CI
+# replays, and `grep` is recorded against the same prompts; `meaning`'s recordings
+# predate this, and it is not recorded.
+THE_MODES = ("both", "grep")
 
 SUBMIT_TOOL_NAME = "submit_fix"
 TOOL_USE_TYPE = "tool_use"
@@ -140,7 +140,8 @@ def _every_corpus() -> dict[str, list[Path]]:
     """
     corpora: dict[str, list[Path]] = {}
 
-    for recording in RECORDINGS_DIR.glob(f"{THE_MODE}-*.json"):
+    for recording in (path for mode in THE_MODES
+                      for path in RECORDINGS_DIR.glob(f"{mode}-*.json")):
         corpora.setdefault(re.sub(r"-\d+$", "", recording.stem), []).append(recording)
 
     return {
@@ -328,7 +329,8 @@ def test_a_recorded_fix_is_demonstrated_by_its_own_test_and_breaks_nothing(
 
 
 @pytest.mark.eval
-def test_every_walk_that_should_have_proposed_a_fix_did() -> None:
+@pytest.mark.parametrize("mode", THE_MODES)
+def test_every_walk_that_should_have_proposed_a_fix_did(mode: str) -> None:
     # The gap the case above cannot see. It grades the patches that exist, so a
     # scenario that stopped proposing one simply stops being collected - the run
     # gets shorter, stays green, and nobody is told that the agent went quiet on
@@ -338,12 +340,16 @@ def test_every_walk_that_should_have_proposed_a_fix_did() -> None:
     # rather than two drifting apart. A scenario absent from it proposes no fix
     # by design - a misconfigured cache is rolled back, not patched - and is not
     # a failure here.
+    #
+    # Each mode on its own: a walk that answered in one says nothing about the other.
     if not RECORDINGS_DIR.is_dir():
         pytest.skip(f"no recordings to grade at {RECORDINGS_DIR}")
 
-    proposed = {scenario.removeprefix(f"{THE_MODE}-")
-                for scenario in the_scenarios_that_proposed_a_fix()}
-    recorded = {scenario.removeprefix(f"{THE_MODE}-") for scenario in _every_corpus()}
+    proposed = {scenario.removeprefix(f"{mode}-")
+                for scenario in the_scenarios_that_proposed_a_fix()
+                if scenario.startswith(f"{mode}-")}
+    recorded = {scenario.removeprefix(f"{mode}-") for scenario in _every_corpus()
+                if scenario.startswith(f"{mode}-")}
 
     Scenario() \
         .given(recorded) \

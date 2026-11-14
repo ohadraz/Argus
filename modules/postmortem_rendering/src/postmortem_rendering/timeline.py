@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
 
-from argus_core import said_as_a_time, said_short
+from argus_core import said_as_a_time
 from argus_core.models import PostmortemDocument
-from argus_narration import as_shown
+from argus_narration import said_as_the_document_shows, the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import on_the_day
 from postmortem_rendering.lines import Line, Role, Run
-from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
+from postmortem_rendering.supporting import the_revision_addresses
 
 
 class TimelineRow(BaseModel):
@@ -91,8 +91,7 @@ def the_timeline(postmortem: PostmortemDocument,
         else:
             other = ({entry.names_incident: address_of(entry.names_incident)}
                      if entry.names_incident else {})
-            said = _said(as_shown(said_short(_by_name(entry.text, named), shorts),
-                                  bare=frozenset(shorts.values())),
+            said = _said(said_as_the_document_shows(entry.text, shorts, named),
                          candidates, addresses | other)
         rows.append(TimelineRow(label=entry.label,
                                 at=at,
@@ -103,14 +102,6 @@ def the_timeline(postmortem: PostmortemDocument,
     return TimelineSection(zone="(UTC)",
                            rows=tuple(rows),
                            absent=None if rows else "No timeline was recorded.")
-
-
-def _by_name(text: str, named: Mapping[str, str]) -> str:
-    """`text` with each address in `named` said by its name."""
-    for address, name in named.items():
-        text = text.replace(address, name)
-
-    return text
 
 
 def _said(text: str, candidates: Collection[str],

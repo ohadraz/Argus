@@ -29,6 +29,8 @@ from decimal import Decimal
 import psycopg
 import pytest
 from agent_postmortem import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
+from agent_postmortem.grounding import FLAGS_FIELD
+from agent_postmortem.synopsis_prompting import OVERVIEW_FIELD
 from argus_core import connect_from_env, new_id, parse_iso, utc_now
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
@@ -73,6 +75,7 @@ from argus_core.models import (
     ActionType,
     Actor,
     Alert,
+    Ask,
     ChangeEvent,
     ChangeKind,
     ChannelReading,
@@ -91,6 +94,7 @@ from argus_core.models import (
     Meaning,
     ModelPolicy,
     OpenedPullRequest,
+    Ownership,
     PostmortemDocument,
     RecalledIncident,
     Reference,
@@ -98,6 +102,7 @@ from argus_core.models import (
     Report,
     ReportChannel,
     RetrievalChannel,
+    ServiceDependency,
     Standing,
     ThreadMessage,
     ToolCall,
@@ -120,6 +125,7 @@ from argus_incidents.repository import (
     events,
     hypotheses,
     incidents,
+    postmortems,
     references,
     replay,
     taken_actions,
@@ -128,13 +134,19 @@ from argus_narration import what_to_do
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
-from orchestrator.gathering import gather_evidence, write_postmortem_for
+from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 
 # How many hours a year the bands are divided by. Any number does: nothing here
 # publishes a cost, and the arithmetic that would use it is the agent's own
 # suite's business.
 DONT_CARE_WORKING_YEAR = 1800.0
+
+# A window a read covered, and what a read that found no change of any kind
+# rules out - mirroring narration's lead for it - or nothing at all.
+SOME_WINDOW_START, SOME_WINDOW_END = "2026-09-02T11:30:00Z", "2026-09-02T12:30:00Z"
+NO_CHANGE_OF_ANY_KIND = "A deploy, release or flag change on the service"
+RULES_OUT_NOTHING = ""
 
 # Where the detector draws its lines. Unread by these cases - the metrics
 # source answers with nothing - but `Sources` has no default for them, and
@@ -159,6 +171,9 @@ SOME_MESSAGE = Reference(source="some-chat", kind="some-kind", value="some-messa
 # The flag the actions here act on. Any name does.
 SOME_FLAG = "monthly-spend-feature"
 SOME_OTHER_FLAG = "legacy-checkout-fallback"
+
+# What the page says where a postmortem holds no summary, in its words.
+NO_SUMMARY_WRITTEN = "No summary was written."
 
 
 @pytest.mark.component
@@ -1728,6 +1743,33 @@ def test_an_action_left_for_a_person_is_said_as_an_instruction(a_clean_database:
 
 
 @pytest.mark.component
+def test_a_refusal_naming_the_service_that_failed_names_it_to_the_document(
+        a_clean_database: None) -> None:
+    # The register's entry the gate found is the document's to name whom to
+    # ask - read off the refusal, as everything here is read off the account.
+    some_provider = ServiceDependency(name="kuki-pay", purpose="dont care",
+                                      host="api.kuki-pay.example", owner="Kuki Payments Ltd",
+                                      ownership=Ownership.THIRD_PARTY)
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                the_refusal := ActionRefused(incident_id=incident_id,
+                                             hypothesis_id=None,
+                                             refusal=Refusal.SOMEBODY_ELSES_SERVICE,
+                                             dependency=some_provider)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, the_refusal)
+            ) \
+            .then(
+                _names_whose_service_failed(some_provider)
+            )
+
+
+@pytest.mark.component
 def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_database: None) -> None:
     # After a resolution nothing is unwound, so a flag Argus turned off is off
     # when the document is written - and a responder reading it needs to know
@@ -2793,7 +2835,8 @@ def test_a_postmortem_is_written_from_the_sources_it_was_handed(
                 incident_id,
                 connections=connect_from_env,
                 sources=_sources_recording_into(windows_asked_about),
-                client_for=_a_model_submitting(some_root_cause, clients_asked_for)
+                client_for=_a_model_submitting(some_root_cause, clients_asked_for),
+                judge_for=_a_judge_reading_into([])
             )
         ) \
         .then(all_of(
@@ -2826,11 +2869,46 @@ def test_a_postmortem_counts_the_tokens_its_own_writing_spent(
                 connections=connect_from_env,
                 sources=_sources_recording_into([]),
                 client_for=_a_model_spending(some_tokens_a_call),
+                judge_for=_a_judge_reading_into([]),
                 recorder=calls_into(connect_from_env)
             )
         ) \
         .then(
             _it_reports_every_token_the_replay_log_holds(incident_id)
+        )
+
+
+@pytest.mark.component
+def test_an_overview_is_judged_against_the_stored_postmortem_as_its_reader_reads_it(
+    a_clean_database: None
+) -> None:
+    # As the page says it, not as the row holds it: the judge holds the
+    # overview to the document a reader of both would read, sentences the
+    # page writes for an empty field among it.
+    some_root_cause = "The divisor was never guarded."
+    the_judge_read: list[Transcript] = []
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        postmortems.record(conn, incident_id, _a_postmortem_saying(some_root_cause),
+                           at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: write_synopsis_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into([]),
+                client_for=_a_model_overviewing(),
+                judge_for=_a_judge_reading_into(the_judge_read),
+                address_of=_the_page_of
+            )
+        ) \
+        .then(
+            _the_judge_read(the_judge_read, [some_root_cause, NO_SUMMARY_WRITTEN])
         )
 
 
@@ -3360,6 +3438,18 @@ def _recommends(expected: str) -> Assertion[IncidentEvidence]:
             raise AssertionError(
                 f"Expected the evidence to recommend [{expected}], got "
                 f"[{evidence.recommended_action}].")
+
+        return True
+
+    return assertion
+
+
+def _names_whose_service_failed(expected: ServiceDependency) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.whose_service_failed != expected:
+            raise AssertionError(
+                f"Expected the evidence to name [{expected}] as the service that failed, "
+                f"got [{evidence.whose_service_failed}].")
 
         return True
 
@@ -4019,6 +4109,184 @@ def _timeline_ends_with(expected: str) -> Assertion[IncidentEvidence]:
         if not said or expected not in said[-1]:
             raise AssertionError(
                 f"Expected the timeline to close on [{expected}], got {said}.")
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.component
+def test_a_request_s_kind_and_channel_reach_the_timeline(a_clean_database: None) -> None:
+    # The write-up pairs a read with the request it answered, and says what the
+    # pair ruled out in the record's words - which it can only do knowing what
+    # each line is, without matching on its words.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_request := RetrievalRequested(incident_id=incident_id,
+                                                   channel=RetrievalChannel.CHANGES,
+                                                   window_start=SOME_WINDOW_START,
+                                                   window_end=SOME_WINDOW_END)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, some_request)
+            ) \
+            .then(
+                _the_timeline_closes_on_a_line(kind=some_request.kind,
+                                               channel=some_request.channel,
+                                               rules_out=RULES_OUT_NOTHING)
+            )
+
+
+@pytest.mark.component
+def test_what_a_read_rules_out_reaches_the_timeline(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_read := ChangesRetrieved(incident_id=incident_id,
+                                              window_start=SOME_WINDOW_START,
+                                              window_end=SOME_WINDOW_END,
+                                              changes=[])
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, some_read)
+            ) \
+            .then(
+                _the_timeline_closes_on_a_line(kind=some_read.kind, channel=None,
+                                               rules_out=NO_CHANGE_OF_ANY_KIND)
+            )
+
+
+@pytest.mark.component
+def test_what_a_refuted_action_s_undo_did_reaches_the_timeline(a_clean_database: None) -> None:
+    # The write-up credits the put-back alone where an item is timed by the
+    # verdict's line - which it can only do holding the undo's words apart.
+    some_flag = "monthly-spend-feature"
+    some_put_back = "was put back ON"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_verdict := VerdictReached(incident_id=incident_id, hypothesis_id=new_id(),
+                                               outcome=Verdict.REFUTED,
+                                               action_type=REVERT_FEATURE_FLAG,
+                                               subject=some_flag, undone=Undone.RESTORED,
+                                               undone_detail=some_put_back)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, some_verdict)
+            ) \
+            .then(
+                _the_timeline_closes_on_a_put_back(f"{some_flag} {some_put_back}")
+            )
+
+
+def _the_timeline_closes_on_a_put_back(expected: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        last = evidence.timeline[-1] if evidence.timeline else None
+        carried = last.put_back if last is not None else None
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the timeline to close on a line whose undo did [{expected}]; "
+                f"got {carried!r}.")
+
+        return True
+
+    return assertion
+
+
+def _the_timeline_closes_on_a_line(*, kind: str, channel: RetrievalChannel | None,
+                                   rules_out: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        last = evidence.timeline[-1] if evidence.timeline else None
+        carried = (last.kind, last.channel, last.rules_out) if last is not None else None
+
+        if carried != (kind, channel, rules_out):
+            raise AssertionError(
+                f"Expected the timeline to close on a line of kind [{kind}], channel "
+                f"[{channel}], ruling out [{rules_out}]; got {carried}.")
+
+        return True
+
+    return assertion
+
+
+class _AJudgeReading:
+    """A grounding judge that flags nothing, keeping each transcript it was
+    asked to read.
+
+    The parameter names are the `LLMClient` protocol's own, for the reason
+    `_AModelSubmitting` gives.
+    """
+
+    def __init__(self, read: list[Transcript]) -> None:
+        self._read = read
+
+    def converse(self,
+                 transcript: Transcript,
+                 tools: list[ToolDefinition],
+                 max_tokens: int | None = None) -> Turn:
+        self._read.append(transcript)
+
+        return Turn(text="",
+                    tool_calls=[ToolCall(id=new_id(), name=tools[0].name,
+                                         arguments={FLAGS_FIELD: []})],
+                    input_tokens=0,
+                    output_tokens=0)
+
+
+def _a_judge_reading_into(read: list[Transcript]) -> ClientFor:
+    """The factory the grounding judge is asked for by, handing back one that
+    flags nothing and keeps what it read in `read`."""
+    def judge_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+        return _AJudgeReading(read)
+
+    return judge_for
+
+
+def _a_model_overviewing() -> ClientFor:
+    """The factory the overview's writer is asked for by, handing back one
+    that writes an overview naming no figure - the postmortem it is of has
+    none to name."""
+    def client_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+        return _AModelSubmitting({OVERVIEW_FIELD: "Checkout failed, and Argus turned the "
+                                                  "flag off."})
+
+    return client_for
+
+
+def _a_postmortem_saying(root_cause: str) -> PostmortemDocument:
+    """A written postmortem saying `root_cause`, and nothing else a section is
+    written from."""
+    return PostmortemDocument(root_cause=root_cause, executive_summary=None,
+                              customer_loss_estimate=None, estimate_currency=None,
+                              engineer_minutes=None, responders=None, tokens_spent=None,
+                              assumptions=[])
+
+
+def _the_page_of(incident_id: str) -> str:
+    return f"http://argus.example/incidents/{incident_id}"
+
+
+def _the_judge_read(read: list[Transcript], expected: list[str]) -> Assertion[object]:
+    """That the judge read the overview once, against a document saying each
+    of these."""
+    def assertion(_: object) -> bool:
+        said = ["\n".join(exchange.text for exchange in transcript if isinstance(exchange, Ask))
+                for transcript in read]
+        missing = [text for text in expected if not said or text not in said[0]]
+
+        if len(said) != 1 or missing:
+            raise AssertionError(
+                f"Expected the judge to read once, against a document saying each of "
+                f"{expected}; it read {len(said)} times, and {missing} were not in {said}.")
 
         return True
 

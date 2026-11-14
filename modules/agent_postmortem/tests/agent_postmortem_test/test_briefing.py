@@ -109,6 +109,20 @@ def test_the_brief_says_a_step_cites_the_record_and_never_a_candidate() -> None:
         )
 
 
+@pytest.mark.unit
+def test_the_brief_says_two_things_are_the_same_only_where_the_record_s_figures_are() -> None:
+    # A write-up said the errors were logged over "the same stretch" the flag
+    # was on for every request, though they began a minute before it. Each
+    # figure was right; the sameness was not.
+    Scenario() \
+        .when(
+            lambda: STANDING_BRIEF
+        ) \
+        .then(
+            _the_brief_mentions("only where the record's figures for them are the same")
+        )
+
+
 def _the_brief_mentions(*expected: str) -> Assertion[str]:
     def assertion(brief: str) -> bool:
         missing = [mention for mention in expected if mention not in brief]

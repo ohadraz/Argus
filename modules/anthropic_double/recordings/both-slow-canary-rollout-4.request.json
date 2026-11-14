@@ -5,30 +5,7 @@
   "max_tokens": 128000,
   "messages": [
     {
-      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: The feature flag typical-purchase-feature was switched from off to on at 2026-11-03T18:21:00Z. From that minute p99 latency jumped from about 200ms to 1100-1900ms. The error rate, p50 and p95 stayed flat, and no deploy was recorded.\n\nWhat that rests on:\n  - feature flag typical-purchase-feature was switched on (actor: admin)\n  - typical-purchase-feature=off 16 / on 184 - 200 evaluations\n  - p99_ms 1333 (previous minute 201); p50 and p95 flat, error_rate 0.01\n  - p99_ms 1901 while typical-purchase-feature=on; cpu_limit_cores 3.0 throughout, volume steady at 1200\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
-      "role": "user"
-    },
-    {
-      "content": [
-        {
-          "id": "toolu_01V9rZH15drC7gfFs3g4r1x8",
-          "input": {
-            "query": "typical-purchase-feature"
-          },
-          "name": "search_repository",
-          "type": "tool_use"
-        }
-      ],
-      "role": "assistant"
-    },
-    {
-      "content": [
-        {
-          "content": "src/io_shop/typical_spend.py:8: `typical-purchase-feature` decides whether a request gets this figure, and a",
-          "tool_use_id": "toolu_01V9rZH15drC7gfFs3g4r1x8",
-          "type": "tool_result"
-        }
-      ],
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: Feature flag typical-purchase-feature was switched on at 2026-11-12T14:15:47Z. p99 latency jumped from about 200ms to 1000-2000ms from 2026-11-12T14:16:00Z, while p50, p95, error rate, memory and CPU stayed at baseline. No deploy occurred, the rollout and pods were unchanged, and the dependencies show no failure.\n\nWhat that rests on:\n  - feature flag typical-purchase-feature was switched on (actor: admin)\n  - typical-purchase-feature=off 163 / on 37 - 200 evaluations\n  - p99_ms 1339 (previously ~200), p50 28, p95 201, error_rate and resource columns at baseline\n  - typical-purchase-feature=on - 200 evaluations\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
       "role": "user"
     }
   ],

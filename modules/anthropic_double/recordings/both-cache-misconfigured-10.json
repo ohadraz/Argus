@@ -2,25 +2,164 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSnAYKEAgTGAI4AUIIdGhpbmtpbmcSDF5MrzNBvta+aRD8TRoMfNRJLnVZ93I1QOKXIjBqg5zSN4DE1ecI5n0ZaPFZpDaQk0A9Xh6EIk3q+cDfuJMlPbcBUtRaA8qGDEcul24quQUwfIMedKgSKieGyuL0IKR2oARyJw0R+osqk08v72Wtfc/fuI7Z7WYm6psRyhp5YSmqaBBF2DKVAS8k4S8zH2b05vfj/PppiWVsi97GumI5ROW65SLwIdhZr0QNImbcXEBk4OVWFmrrC8nY9fPje5iCoP8876+0CMlBLSOjwEZC9XGCegyCwrF+2CtbLl3MbfrICo5sxcleUCXINiSzou6nNMSUrujY9hR6OCPOICCxxFo8Z2kDrCkIK+Yy11WgnQRqw/fMklFlsWL61dHNqH8reKP7PNb2WNaPaQPeorPiz0JiFK0bSV4AFfYYb6gojCneQIyq2O+Q+oobfXfRDk8kivQL9YYZkZYd1aGZCsz4Q5HnlP8G0LlshBVcewPe4CJao33jklAITf9D8L17wc7bf5B3Fe9JVXfxak4TjgPi76HH9L9Huv8YTZmS2IkN7CloHX2uyhpy/k7txYEiD6QQFWxAIwLJ3CA6wBchMUJEQ2oud/j3oCDNcqJMJEP5LsIZyq728+jYGfLeyOHfmCqGE2LjlWXodDYFOh65c8PKj7apBzzdjYlGkSDeayXxV5MfgkzClW+eb/waQXpde5pi1sUhB/cOJmHAp4EzSawycb7v4ANOjl6ydd38E9+0jRF4GLMFYjQMHRcqm8WYXzueSz8fNZkt7h12pAp8Zm4t9TV8qHXySBdeMSnEaZFrumHDxIgdJp4/HXYOuBwByCDP5mojNGyxktY4QlOJbbCPm4ekeLFmiBk5lZ/+Pdr3KmEP3FyNIFpn87/XDo2Ot6WVtR3hUuMD4HoXMYH9InDhD1HpCL+9fguR9my7LjLl0ijvlSpKPlhtSiu9F9ZJGL9tLF7ip3uvWf403Pp/3HF6VALS/Awq15XmhYwL0lq7wVkpzUmOoU6cNRRMad57UrVExpVwNtUMSvPRGAE=",
-      "thinking": "This is just a config revert that the platform syncs automatically, so no external code changes are needed \u2014 the deploy pipeline doing its normal sync isn't something unusual. The answer is false.\n\n",
+      "signature": "CAQSrgUKEAgTGAI4AUIIdGhpbmtpbmcSDLIaTGi92WruBa00ZRoM1uMnm92/HZLDAYbYIjDB1uoLo/URWfVj09RDRd3ONYzx49kRSJiSxCgBa/LgUlVo6HXV+A59uho1DL0pVNUqywS3xjAMmfapBduWOm3t5a38MJg5V8cTxcQjjy5gVfmH8En9EflbXT8HWE0MVJY/bXwOOUVQwhDNQu4jiyqkTEJZieomU4QP7Y61txHsDOCwErxU/SxdSubdXwSzgBwaccSYkfPgyewhnfxkkcrVuCdXGTNsBrYv03joiPU+WhQKS9l8VulyV+zpJtFoSfU3OeIYYI+zwcr5g1GWUQRta9eY/fCcXXzGS2o7rAy4pT9HvwLmtcg1oVrD6sQOieyotwamfJUrpSO3yrwBGMjXpNyM/Vpac1fSj0AwYZkzBi36H9wOxu7zWNDknVBlcT6qj3JlH8U+3OY4iWQUZ46pHEHKDTQEOlmQVxJpzyowfT2rsj3TCbyfuzEMvykoKX90oQbzP1XSrgy6XzKFVoIK9DmtE/HYnqCQxX+pVeRd5DmiTxK+vM0j1eCcbXveNIvcmzKsoRWRzeT1ft8PmGspvusp17Ll5qO3QzR0eSCCM5c0xNVxZazctUDAMbGikxjW9vuQ22gahNVNrSx/PEyHvyS30PY7WeOvLapYk2HdOpApHy4lwGE8q+80WU+fcZB09eqWJZuBaOjrNegLR76QVLMmxiTOq7yGLRdhoQSnzkVIASQvbMLbnsECjDLcoOegDfhBvORsxZ8vM7r830YdIUmsaWRwl3QABHXEYNkz3RasCTZrZd8M2hicZ34PhpiiodD2h3/YOSjYTP4iX10fgjhVB10ligTahdg/GmKQqqg1TtHTV4JHkgd7NqusDcDWHLYSx1AKzlcpp8nQ7hgB",
+      "thinking": "I'm dropping the revision name from the root_cause field, and then I'll confirm that the chain step about the change breaking things is fine.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01Ta9LaRrh8wXpyLDg9VsSMg",
+      "id": "toolu_017rWjVpcGx9wxaLDYv28kS8",
       "input": {
-        "answer": false,
-        "explanation": "No. The fix is entirely in this repository: deploy/values-production.yaml goes back to cache port 6379. The investigation says the cache is healthy and that this port change was the only change in the diff. Once the platform syncs the file through its normal deploy path, the shop will be dialling the cache's address again, and no code outside this repository has to change for that."
+        "action_items": [
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a pre-deploy check that the summary cache host and port in deploy/values-production.yaml accept connections in the production cluster, and block the deploy if they do not.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Make io-shop's rollout stop when new replicas cannot connect to the summary cache at startup, leaving the previous revision serving.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Add an alert on io-shop's summary cache lookup failures (refused connections) and cache hit ratio.",
+            "type": "detect"
+          },
+          {
+            "answers": [],
+            "item": "Link the HighLatency alert on io-shop to an on-call rotation so that a person is paged when it fires.",
+            "type": "process"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T6"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' account pages loaded slowly. The typical (median) time io-shop took to answer a request rose well above its usual level and stayed there, while no more requests failed than usual."
+          },
+          {
+            "cites": [
+              "Gd3f7",
+              "S1"
+            ],
+            "ruled_out": [],
+            "step": "Account pages could not use the rendered-summary cache. Every lookup to it was refused, so the page fell back to working each shopper's spend figure out again on each request, which is the slow path."
+          },
+          {
+            "cites": [
+              "P2",
+              "D1",
+              "T11",
+              "S1"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T5",
+                  "T6",
+                  "M1",
+                  "T23"
+                ],
+                "what": "The earlier deploy P1 of revision 544cef3: metrics read back over the hours before the onset show the service healthy with it in place until the onset, and rolling back to it put the service back to normal."
+              },
+              {
+                "cites": [
+                  "T17"
+                ],
+                "what": "A feature flag change: the flag provider's history showed no flag changes by anyone but Argus in the hour before."
+              },
+              {
+                "cites": [
+                  "D1"
+                ],
+                "what": "A change to io-shop's source code: the deploy's diff changes only deploy/values-production.yaml."
+              }
+            ],
+            "step": "The lookups went to a new cache port. Deploy P2 at {P2.1} changed the cache port in deploy/values-production.yaml from {D1.1} to {D1.2} and changed nothing else. As of {T11.1}, all {T11.2} replicas were running that revision."
+          },
+          {
+            "cites": [
+              "Gd3f7",
+              "Gad41",
+              "D1"
+            ],
+            "ruled_out": [],
+            "step": "The change broke the service because nothing accepted connections on the new port, while the old port had served account pages normally."
+          }
+        ],
+        "cause_in_plain_words": "A configuration change pointed the shop's account pages at an address where their cache could not be reached, so every page had to work its figures out from scratch, which kept the pages correct but made them slow.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "No check was seen, in review or before the deploy, that the cache address in the deployment configuration accepts connections in production.",
+            "had_it_been_otherwise": "The port change would have been caught before it reached production, and account pages would not have slowed.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No check was seen during the rollout that new replicas could reach the summary cache, so all replicas moved to the revision that could not reach it.",
+            "had_it_been_otherwise": "The rollout would have stopped with the previous revision still serving, and the slowdown would have been held back or cut short.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No alert on refused summary cache lookups was seen. The fault was found only by the latency alert, whose rule waits with its condition holding before it fires.",
+            "had_it_been_otherwise": "The refused lookups, logged from the minute of the deploy, could have raised an alert sooner, and the rollback would have come sooner.",
+            "label": "CF-3"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            {
+              "item": "The Investigator Agent read the diff of the deploy running on every replica and found the cache port change.",
+              "timed_by": "T12"
+            },
+            {
+              "item": "Argus checked the flag provider's history and found no flag changes by anyone but itself.",
+              "timed_by": "T17"
+            },
+            {
+              "item": "The Mitigation Agent rolled io-shop back off revision 0d8e826.",
+              "timed_by": "T20"
+            },
+            {
+              "item": "The Mitigation Agent saw that the service was no longer at the incident's level and judged the rollback confirmed.",
+              "timed_by": "T23"
+            },
+            {
+              "item": "The Code-Fix Agent proposed a fix to the deployment configuration as draft pull request #566.",
+              "timed_by": "T25"
+            }
+          ],
+          "went_wrong": [
+            "Nobody was paged: the alert was linked to no on-call incident, so no person was brought in while production was slow."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "The deployment configuration's summary cache port was changed from {D1.1} to {D1.2}. Nothing on the cache host accepted connections on the new port, so every cache lookup was refused. The account page handles an unreachable cache by working each shopper's spend figure out again from scratch, so pages stayed correct but became slow.",
+        "still_at_risk": "The repository still sets the cache port that refused every lookup, so syncing the repository back into production before a fix is merged could slow account pages again.",
+        "symptom": "Shoppers' account pages loaded slowly"
       },
-      "name": "answer_question",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgRGdn84meMxKjkvmaK1q",
+  "id": "msg_011CgxC1dFADD13AEpyEJr8N",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -30,15 +169,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2042
+      "ephemeral_5m_input_tokens": 2104
     },
-    "cache_creation_input_tokens": 2042,
-    "cache_read_input_tokens": 14932,
+    "cache_creation_input_tokens": 2104,
+    "cache_read_input_tokens": 10667,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 232,
+    "output_tokens": 2033,
     "output_tokens_details": {
-      "thinking_tokens": 50
+      "thinking_tokens": 30
     },
     "service_tier": "standard",
     "speed": "standard"

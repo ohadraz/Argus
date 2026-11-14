@@ -2,10 +2,129 @@
   "cache_control": {
     "type": "ephemeral"
   },
-  "max_tokens": 16000,
+  "max_tokens": 128000,
   "messages": [
     {
-      "content": "Write the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-11-01T15:29:04Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-01T15:29:26Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires: that wait is part of the time from the onset to the alert - count it before calling detection slow. The alert came 1 minute 4 seconds {after_the_wait} after that wait ended. Its condition looks back over 1 minute {rule_looks_back}: up to that much of the time from the onset to the alert is that window filling - count it before calling detection slow.\nBroken from 2026-11-01T15:23:00Z {began} (the onset) to 2026-11-01T15:30:03Z {back_to_normal}, when the metrics show it back to normal.\nThat is 7 minutes 3 seconds {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 2 minutes 48 seconds {held}, until 2026-11-01T15:32:13Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nThe service's error rate over all its requests, before it began: 1.0% {errors_before}.\nThe same rate while it was broken: 26.4% {errors_while_broken}, peaking at 36.0% {errors_at_worst}.\nRise above baseline: 25.4% {errors_rise} of traffic failed that otherwise would not have.\nThe series behind the alert, `sum(rate(http_requests_total{code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))` - its alert said \"Error rate above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 1.025% {series_before} before it began, 26.375% {series_while_broken} on average while it was broken, and 36% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nCustomer loss: 4,714.52 USD {customer_loss} - how far the shop's takings over the incident fell short of the same hours whole weeks earlier, beyond how much those hours vary on their own.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-01T15:29:25Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-11-01T15:29:32Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-01T15:29:32Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-01T15:29:38Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 15:29:04 {T4.2}\n  - [T5] 2026-11-01T15:29:43Z {T5.1} Investigator Agent: Read back 360 {T5.2} minutes of metrics\n  - [T6] 2026-11-01T15:29:44Z {T6.1} Investigator Agent: Placed the start of the incident at 15:23 {T6.2}\n  - [T7] 2026-11-01T15:29:44Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-11-01T15:29:45Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 1 {T8.2} day before Nov 01 15:23 {T8.3}\n  - [T9] 2026-11-01T15:29:46Z {T9.1} Investigator Agent: Read back 1 {T9.2} production change\n  - [T10] 2026-11-01T15:29:47Z {T10.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T10.2} replicas run one revision, which the history does not name\n  - [T11] 2026-11-01T15:29:47Z {T11.1} Investigator Agent: Asked for the service's log lines, the 36 {T11.2} minutes 4 {T11.3} seconds before 15:29:04 {T11.4}\n  - [T12] 2026-11-01T15:29:47Z {T12.1} Investigator Agent: Read back 128 {T12.2} log lines\n  - [T13] 2026-11-01T15:29:49Z {T13.1} Investigator Agent: Formed 1 {T13.2} candidate cause, best first: C1\n  - [T14] 2026-11-01T15:29:49Z {T14.1} Investigator Agent: Read every channel available\n  - [T15] 2026-11-01T15:29:49Z {T15.1} Argus: Read the flag provider's history - 2 {T15.2} flag changes by anyone but Argus, the 1 {T15.3} hour before 15:29:49 {T15.4}\n  - [T16] 2026-11-01T15:29:53Z {T16.1} Argus: Moved the incident to MITIGATING to act on a candidate\n  - [T17] 2026-11-01T15:29:54Z {T17.1} Argus: Called in the Mitigation Agent\n  - [T18] 2026-11-01T15:30:03Z {T18.1} Mitigation Agent: Reverted the feature flag monthly-spend-feature for C1, moved from ON to OFF\n  - [T19] 2026-11-01T15:30:26Z {T19.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 15:31 {T19.2} - up to 120s {T19.3}\n  - [T20] 2026-11-01T15:32:13Z {T20.1} Mitigation Agent: Looked at the service - no longer at the incident's level since 15:30 {T20.2}\n  - [T21] 2026-11-01T15:32:13Z {T21.1} Mitigation Agent: Judged the action CONFIRMED\n  - [T22] 2026-11-01T15:32:13Z {T22.1} Argus: Moved the incident to MITIGATED - set flag [monthly-spend-feature] OFF and the rule that fired stopped firing\n  - [T23] 2026-11-01T15:33:33Z {T23.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/403\n\nChanges to production it read:\n  - [P1] 2026-11-01T15:23:00Z {P1.1} flag-toggle monthly-spend-feature by admin: feature flag monthly-spend-feature was switched on\n  - [P2] 2026-11-01T15:28:35Z {P2.1} flag-toggle an-unrelated-feature by admin: feature flag an-unrelated-feature was switched on - found only by Argus's read of the flag provider's history: it came after 2026-11-01T15:23:00Z {P2.2}, where the investigation's reads of the changes ended\n  - Deploys read, none came back.\n\nLog lines it read, one per message:\n  - [G7e5d] INFO io-shop: monthly-spend-feature=off - 200 {G7e5d.1} evaluations - 30 {G7e5d.2} occurrences in 30 {G7e5d.3} minutes, 14:53\u201315:22 {G7e5d.4}\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 40 {G46bc.1} occurrences in 30 {G46bc.2} minutes, 14:53\u201315:22 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 30 {Gbac1.1} occurrences in 37 {Gbac1.2} minutes, 14:53\u201315:29 {Gbac1.3}; # was 0.50% {Gbac1.4} to 36.00% {Gbac1.5}, typically 1.50% {Gbac1.6}, highest at 15:26 {Gbac1.7}\n  - [Gad41] INFO io-shop: account pages rendered normally - 7 {Gad41.1} occurrences in 21 {Gad41.2} minutes, 15:01\u201315:21 {Gad41.3}\n  - [G971b] INFO io-shop: monthly-spend-feature=off 66 {G971b.1} / on 134 {G971b.2} - 200 {G971b.3} evaluations - 1 {G971b.4} occurrence in 1 {G971b.5} minute, 15:23 {G971b.6}\n  - [G5309] ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47 - 14 {G5309.1} occurrences in 7 {G5309.2} minutes, 15:23\u201315:29 {G5309.3}\n  - [Gce95] INFO io-shop: monthly-spend-feature=on - 200 {Gce95.1} evaluations - 6 {Gce95.2} occurrences in 6 {Gce95.3} minutes, 15:24\u201315:29 {Gce95.4}\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1] The feature flag monthly-spend-feature was switched on at 2026-11-01T15:23:00Z {C1.1}. That enabled a code path that raises ZeroDivisionError at src/io_shop/spend_summary.py:47, and the account page error rate rose from about 1% {C1.2} to about 33% {C1.3}. No deployment landed, the rollout is converged, and latency and resources are flat. [feature-flag-toggle, confidence 0.93 {C1.4}, confirmed]\n\nActions it took:\n  - [M1] Reverted the feature flag monthly-spend-feature for [C1] (can be put back) - confirmed, still in place\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] The fault: in src/io_shop/spend_summary.py, `average_spend_per_item_this_month` computes `account.total_this_month_cents // len(bought_this_month)`. `bought_this_month` keeps only the purchases with `in_current_month` set. For a shopper who has bought before but not this month, that list is empty, so the line raises ZeroDivisionError. That is line 47 {F1.1}, the line the investigation's error points to. `render_spend_summary` only calls this function when `use_monthly_summary` is true, which is why the errors started when monthly-spend-feature was switched on. Every page view by a shopper with no purchases this month then fails.\n      \n      The fix: when there are no purchases this month, the function returns 0 {F1.2}. That shopper has spent nothing this month, so the average per item this month is 0 {F1.3}. Otherwise the calculation is unchanged. I left the lifetime average and its behaviour for accounts with no history alone. The existing test `test_the_page_lets_a_failure_reach_its_caller` asserts that case still raises, and the docstring in spend_summary.py says failures are meant to reach the request boundary. This change doesn't catch any exception. It removes a division whose divisor is empty in a normal case.\n      \n      The tests: two new cases in tests/io_shop/test_spend_summary.py. The first calls `average_spend_per_item_this_month` on an account with past purchases but none this month and asserts 0 {F1.4}. The second calls `render_spend_summary` with `use_monthly_summary=True` on the same kind of account and asserts 0 {F1.5}. Against the current code, both are written to raise ZeroDivisionError.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'.\n\nAction items the record already holds:\n  - AI-1 (mitigate, done): Reverted the feature flag monthly-spend-feature\n  - AI-2 (prevent, open): Review and merge the proposed fix\nPR #403 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\nThe document already states what set it off, in a section of its own: the change [P1].\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: The feature flag monthly-spend-feature was switched from off to on at 2026-11-12T10:10:31Z. The newly enabled spend-summary path then raised ZeroDivisionError at src/io_shop/spend_summary.py:47 on account page requests, and the error rate rose from about 1% to 20-40%.\n\nWhat that rests on:\n  - feature flag monthly-spend-feature was switched on\n  - monthly-spend-feature=off 101 / on 99 - 200 evaluations\n  - account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47\n  - error_rate 0.205, up from 0.02 the minute before; latency and resources flat; rollout converged with no deployment in history\n\nFiles named in the evidence:\n  src/io_shop/spend_summary.py\nThese are what the evidence names, which is not always where the fault lives.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01RPb4L8TAv3CFgqZysAm8BV",
+          "input": {
+            "path": "src/io_shop/spend_summary.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01V9gunmFBogT3KYqhs1hUK9",
+          "input": {
+            "path": "tests/io_shop/test_spend_summary.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01WQa6E6c5JjMx8zkeKVZfnG",
+          "input": {
+            "query": "spend_summary"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"What a shopper has spent, and what that averages to.\n\nThree figures about one history. The lifetime average has been on the account\npage for years; the monthly one narrows it to the current month; the typical\npurchase abandons the average altogether for the middle of the history. The\nlast two are the ones still behind a rollout, and which of them a request gets\nis decided before it reaches here.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\ndef average_spend_per_item(account: Account) -> int:\n    \"\"\"Average spend per item across everything this account has ever bought.\n\n    Live for years. Its divisor is empty only for an account that has never\n    bought anything at all, which no real shopper is.\n\n    Derives the total from the purchases rather than reading the one the account\n    carries, taking each purchase in and recomputing what has been spent by\n    then, so that the figure agrees with the list the shopper is looking at even\n    where the totals the query returned have drifted from it.\n    \"\"\"\n    spent_by_then = 0\n\n    for index, _ in enumerate(account.purchases):\n        spent_by_then = sum(\n            earlier.price_cents for earlier in account.purchases[:index + 1]\n        )\n\n    return spent_by_then // len(account.purchases)\n\n\ndef average_spend_per_item_this_month(account: Account) -> int:\n    \"\"\"Average spend per item this month.\n\n    Narrows the lifetime figure to the current month, so the account page can\n    show what a shopper is spending now rather than what they averaged over\n    three years.\n    \"\"\"\n    bought_this_month = [\n        purchase for purchase in account.purchases if purchase.in_current_month\n    ]\n    return account.total_this_month_cents // len(bought_this_month)\n\n\ndef render_spend_summary(account: Account,\n                         use_monthly_summary: bool,\n                         use_typical_spend: bool = False) -> int:\n    \"\"\"The figure Io's account page shows, through whichever version the rollout\n    selects.\n\n    Raises whatever the selected version raises. Catching belongs at the request\n    boundary - see `io_shop.account_page` - where there is a response to turn a\n    failure into and a log to record it in. A page that swallowed its own errors\n    would render a wrong number instead of an error, which is a worse incident\n    than the one it hid.\n\n    Two rollouts, so two flags to be told about, and the newer one wins where a\n    request is inside both. That is the ordinary arrangement: each is a slice of\n    traffic, the slices overlap, and the page has to render one figure.\n    \"\"\"\n    if use_typical_spend:\n        return typical_spend_per_item(account)\n\n    if use_monthly_summary:\n        return average_spend_per_item_this_month(account)\n\n    return average_spend_per_item(account)\n",
+          "tool_use_id": "toolu_01RPb4L8TAv3CFgqZysAm8BV",
+          "type": "tool_result"
+        },
+        {
+          "content": "from __future__ import annotations\n\nimport pytest\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.spend_summary import (\n    average_spend_per_item,\n    average_spend_per_item_this_month,\n    render_spend_summary,\n)\n\n\"\"\"Io's account-page arithmetic - the lifetime figure and the monthly one.\n\nThe monthly figure is newer and ships behind a rollout flag, so the cases below\ncover the shape the page has had for years plus the one the flag adds.\n\"\"\"\n\n\ndef an_account_with_no_purchases_this_month(*prices: int) -> Account:\n    \"\"\"The ordinary case: a shopper who has bought before, but not this month.\"\"\"\n    return Account(\n        shopper_id=\"shopper-idle-this-month\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef test_the_lifetime_average_spreads_the_total_over_every_purchase() -> None:\n    account = an_account_with_no_purchases_this_month(1000, 2000, 3000)\n\n    assert average_spend_per_item(account) == 2000\n\n\ndef test_the_lifetime_average_follows_the_purchases_not_the_carried_total() -> None:\n    # The figure is derived from the list the shopper is looking at, so a total\n    # that has drifted from its own purchases does not reach the page.\n    an_account_whose_total_drifted = Account(\n        shopper_id=\"shopper-with-a-stale-total\",\n        purchases=(\n            Purchase(price_cents=1000, in_current_month=False),\n            Purchase(price_cents=3000, in_current_month=False),\n        ),\n        total_cents=99_999,\n        total_this_month_cents=0,\n    )\n\n    assert average_spend_per_item(an_account_whose_total_drifted) == 2000\n\n\ndef test_the_monthly_average_is_correct_for_a_shopper_who_did_buy() -> None:\n    # The ordinary case for the monthly figure: a shopper who has bought\n    # something this month, averaged over what they bought this month.\n    an_active_shopper = Account(\n        shopper_id=\"shopper-who-bought-this-month\",\n        purchases=(\n            Purchase(price_cents=4000, in_current_month=True),\n            Purchase(price_cents=2000, in_current_month=True),\n            Purchase(price_cents=9000, in_current_month=False),\n        ),\n        total_cents=15000,\n        total_this_month_cents=6000,\n    )\n\n    assert average_spend_per_item_this_month(an_active_shopper) == 3000\n\n\ndef test_the_page_takes_the_stable_summary_when_the_rollout_is_off() -> None:\n    account = an_account_with_no_purchases_this_month(1000, 3000)\n\n    assert render_spend_summary(account, use_monthly_summary=False) == 2000\n\n\ndef test_the_page_lets_a_failure_reach_its_caller() -> None:\n    # Swallowing it here would render a wrong number instead of an error, and\n    # there would be no error rate for anyone to alert on.\n    a_shopper_who_never_bought_anything = Account(\n        shopper_id=\"shopper-with-no-history\", purchases=(), total_cents=0,\n        total_this_month_cents=0\n    )\n\n    with pytest.raises(ZeroDivisionError):\n        render_spend_summary(\n            a_shopper_who_never_bought_anything, use_monthly_summary=False\n        )\n",
+          "tool_use_id": "toolu_01V9gunmFBogT3KYqhs1hUK9",
+          "type": "tool_result"
+        },
+        {
+          "content": "src/io_shop/account_page.py:31: from io_shop.spend_summary import render_spend_summary\nsrc/io_shop/account_page.py:228: return render_spend_summary(\nsrc/io_shop/account_page.py:244: return render_spend_summary(\nsrc/io_shop/purchase_ledger.py:18: as the choice of figure does on the read side - see `io_shop.spend_summary`.\nsrc/io_shop/purchase_ledger.py:63: `io_shop.spend_summary.average_spend_per_item`). Keeping a second copy of a\nsrc/io_shop/spend_summary.py:50: def render_spend_summary(account: Account,\ntests/io_shop/test_account_page.py:5: from io_shop import payment_provider, spend_summary\ntests/io_shop/test_account_page.py:128: assert \"at src/io_shop/spend_summary.py:\" in page.failure\ntests/io_shop/test_account_page.py:135: Path(spend_summary.__file__).read_text(encoding=\"utf-8\").splitlines()\ntests/io_shop/test_spend_summary.py:6: from io_shop.spend_summary import (\ntests/io_shop/test_spend_summary.py:9: render_spend_summary,\ntests/io_shop/test_spend_summary.py:73: assert render_spend_summary(account, use_monthly_summary=False) == 2000\ntests/io_shop/test_spend_summary.py:85: render_spend_summary(",
+          "tool_use_id": "toolu_01WQa6E6c5JjMx8zkeKVZfnG",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_011XYitsYQu4mpJddVCYkcff",
+          "input": {
+            "path": "src/io_shop/account_page.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01SWzHRSfHUszJ3fvLq8XrXW",
+          "input": {
+            "path": "tests/io_shop/test_account_page.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"Serving one account page - the shop's request boundary.\n\nThis is the line at which an exception stops being a bug and becomes an\nincident: everything below it raises, and here it is caught, recorded in the\nshop's own words, and turned into a failed response. It is the only place in the\nshop that catches broadly, and it does so on purpose - a request handler that let\nan unexpected error escape would take the worker with it instead of reporting a\nrate somebody can alert on.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport traceback\nfrom dataclasses import dataclass\nfrom pathlib import PurePath\nfrom typing import Final\n\nfrom io_shop.accounts import Account\nfrom io_shop.monthly_statement import (\n    MonthlyStatement,\n    StatementPeriod,\n    render_monthly_statement,\n)\nfrom io_shop.payment_provider import AskTheProvider, card_on_file\nfrom io_shop.pricing_service import (\n    AskThePricingService,\n    PricedBasket,\n    PricingServiceFailed,\n    basket_total,\n)\nfrom io_shop.spend_summary import render_spend_summary\nfrom io_shop.summary_cache import (\n    CacheEndpoint,\n    CacheUnreachable,\n    LookUpSummary,\n    cached_summary,\n)\nfrom io_shop.visits import record_visit\n\n\n@dataclass(frozen=True)\nclass RenderedPage:\n    \"\"\"How serving one account page went.\n\n    Either the page rendered, in which case the figure and the card are here -\n    and the basket total too, unless pricing could not give one, because the\n    page is worth showing without it - or it failed, in which case none of them is\n    and `failure` carries the error's own words and the line they were raised\n    on - because those are what reach the log and what a reader diagnoses from.\n    A generic \"request failed\" would describe every incident equally, and the\n    error's words alone name a fault without naming where it lives.\n\n    `statement` is the monthly statement panel, on the pages the newest rollout\n    reached and absent everywhere else. It sits beside the figure rather than\n    replacing it: the statement is a second thing the page shows, so a request\n    outside the rollout renders the page it always rendered rather than a\n    shorter one.\n\n    `served_from_cache` says whether the figure was read rather than worked out.\n    It is reported on a page that rendered perfectly well, because it is the\n    difference between the two ways of rendering perfectly well - and the share\n    of requests taking each is what says whether the shop's fast path is there.\n\n    `cache_failure` carries the words of a cache that could not be reached. It\n    sits beside `failure` rather than in it, and the distinction is the whole\n    scenario: this is a page that *succeeded* while something underneath it was\n    broken, so a reader sees it in the logs without seeing it in the error rate.\n\n    `pricing_delay` is the same shape of thing for the same reason: the words of\n    a pricing call that took longer than the shop thinks worth passing over. The\n    page was correct and the shopper was charged the right amount; what a reader\n    gets from this line is where the request's time went, which is the one thing\n    no amount of the shop's own telemetry can say.\n\n    `pricing_unavailable` is what the shopper is told in the basket total's\n    place when the pricing service gave no price, and `pricing_failure` is the\n    error's own words, for the log - a page that rendered without its basket\n    total, like one that rendered without its cache.\n    \"\"\"\n\n    figure_cents: int | None\n    card_last_four: str | None\n    failure: str | None\n    served_from_cache: bool = False\n    cache_failure: str | None = None\n    statement: MonthlyStatement | None = None\n    basket_total_cents: int | None = None\n    pricing_delay: str | None = None\n    pricing_unavailable: str | None = None\n    pricing_failure: str | None = None\n\n\n# What the page says in the basket total's place when pricing gave no price.\nPRICING_UNAVAILABLE: Final = \"Pricing is not available right now. Please check again later.\"\n\n\ndef serve_account_page(account: Account,\n                       use_monthly_summary: bool,\n                       ask_the_provider: AskTheProvider,\n                       ask_the_pricing_service: AskThePricingService,\n                       look_up_summary: LookUpSummary | None = None,\n                       cache_endpoint: CacheEndpoint | None = None,\n                       use_typical_spend: bool = False,\n                       use_monthly_statement: bool = False,\n                       statement_period: StatementPeriod | None = None\n                       ) -> RenderedPage:\n    \"\"\"Renders the account page, reporting a failure rather than raising one.\n\n    Three things are shown, and two of them are needed: what the shopper\n    averages per item, which Io works out for itself, and the card it would\n    charge, which only the payment provider knows. The third, what their basket\n    comes to, which the pricing service works out, is a convenience - the page\n    is still worth showing without it. The basket and the card are calls to\n    other services from inside a page render, which is ordinary and is why a\n    slowdown or an outage over there arrives here as Io's own latency and Io's\n    own error rate.\n\n    The two are not the same kind of neighbour, and nothing in this function\n    tells them apart: one is another team's service and one is another company's,\n    and which is which is published in the service catalogue rather than\n    inferred from a host name.\n\n    `use_monthly_summary` and `use_typical_spend` are the rollout decisions\n    already made - whether this request is one of the ones each new figure is\n    live for. The page does not make those decisions itself; it is told, the way\n    a handler is told by the flag SDK that evaluated for this user. Two of them\n    because there are two rollouts running, and a page carrying one boolean for\n    both would be a page that cannot say which feature a request got.\n\n    `look_up_summary` and `cache_endpoint` are how the figure is looked for\n    before it is worked out. Both optional and both absent together, because a\n    deployment that configured no cache has none - and a page that insisted on\n    one would make an optimisation into a requirement, which is the very thing\n    this shop's cache is not.\n\n    `use_monthly_statement` is the third rollout decision, and it arrives here\n    already made like the other two. `statement_period` is which month the\n    request is asking about, which the page is told rather than deriving: the\n    shop's purchase records carry a month flag and no date, so the only thing\n    here that knows the calendar is whoever handled the request.\n    \"\"\"\n    try:\n        figure_cents, from_cache, cache_failure = _the_figure_for(\n            account, use_monthly_summary, look_up_summary, cache_endpoint,\n            use_typical_spend\n        )\n        statement = _the_statement_for(\n            account, use_monthly_statement, statement_period\n        )\n        basket, pricing_failure = _the_basket_for(\n            account.shopper_id, ask_the_pricing_service\n        )\n        card = card_on_file(account.shopper_id, ask_the_provider)\n    except Exception as error:  # noqa: BLE001 - the boundary records anything\n        failure = f\"{type(error).__name__}: {error} at {_where_it_was_raised(error)}\"\n        record_visit(account.shopper_id, failure)\n\n        return RenderedPage(figure_cents=None, card_last_four=None, failure=failure)\n\n    record_visit(account.shopper_id, str(figure_cents))\n\n    return RenderedPage(figure_cents=figure_cents,\n                        card_last_four=card.last_four,\n                        failure=None,\n                        served_from_cache=from_cache,\n                        cache_failure=cache_failure,\n                        statement=statement,\n                        basket_total_cents=basket.total_cents if basket else None,\n                        pricing_delay=basket.slow_call if basket else None,\n                        pricing_unavailable=None if basket else PRICING_UNAVAILABLE,\n                        pricing_failure=pricing_failure)\n\n\ndef _the_basket_for(shopper_id: str,\n                    ask_the_pricing_service: AskThePricingService\n                    ) -> tuple[PricedBasket | None, str | None]:\n    \"\"\"The basket total, or nothing and the reason where pricing gave no price.\n\n    Caught here rather than at the boundary, because the page is worth showing\n    without its basket total, where it is not without the card.\n    \"\"\"\n    try:\n        return basket_total(shopper_id, ask_the_pricing_service), None\n    except PricingServiceFailed as error:\n        return None, f\"{type(error).__name__}: {error}\"\n\n\ndef _the_statement_for(account: Account,\n                       use_monthly_statement: bool,\n                       period: StatementPeriod | None) -> MonthlyStatement | None:\n    \"\"\"The monthly statement panel, where this request is one the rollout\n    reached, and nothing where it is not.\n\n    Nothing also where the request arrived without a period. That is a\n    misconfigured caller rather than a shopper's month, and rendering a\n    statement titled with a month nobody named would put a wrong heading over\n    correct figures - see `io_shop.monthly_statement.StatementPeriod`, which is\n    where that argument is made at length. A missing panel is visible to\n    whoever configured the rollout; a wrongly titled one is visible only to the\n    shopper.\n    \"\"\"\n    if not use_monthly_statement or period is None:\n        return None\n\n    return render_monthly_statement(account, period)\n\n\ndef _the_figure_for(\n    account: Account,\n    use_monthly_summary: bool,\n    look_up_summary: LookUpSummary | None,\n    cache_endpoint: CacheEndpoint | None,\n    use_typical_spend: bool\n) -> tuple[int, bool, str | None]:\n    \"\"\"The figure to show, whether it came from the cache, and what the cache\n    said if it could not be reached.\n\n    The cache is asked first and is allowed to fail. Whatever it does - answers\n    with a figure, answers with nothing, or cannot be reached at all - this\n    returns a figure, because the shop can always work one out. That is the\n    fallback the whole scenario rests on: the page is correct either way, and\n    the only thing the cache decides is how long getting here took.\n\n    A cache failure is returned rather than raised onward, because it is not\n    this request's failure. The request succeeded.\n    \"\"\"\n    if look_up_summary is None or cache_endpoint is None:\n        return render_spend_summary(\n            account,\n            use_monthly_summary=use_monthly_summary,\n            use_typical_spend=use_typical_spend\n        ), False, None\n\n    cache_failure: str | None = None\n\n    try:\n        found = cached_summary(account.shopper_id, look_up_summary, cache_endpoint)\n    except CacheUnreachable as unreachable:\n        found, cache_failure = None, str(unreachable)\n\n    if found is not None:\n        return found.amount_cents, True, cache_failure\n\n    return render_spend_summary(\n        account,\n        use_monthly_summary=use_monthly_summary,\n        use_typical_spend=use_typical_spend\n    ), False, cache_failure\n\n\ndef _where_it_was_raised(error: BaseException) -> str:\n    \"\"\"The innermost frame, as `path/to/file.py:line`.\n\n    The innermost rather than the boundary's own, because the boundary is where\n    every failure is caught and is therefore the same answer for all of them.\n    What a reader wants is the line that actually divided by zero.\n\n    Said as a repository path rather than the absolute one the interpreter\n    reports, so that the log names a file somebody can open. The frame's path is\n    wherever this happens to be installed - a container's site-packages, an\n    editable checkout - and none of those spellings exist in the repository.\n    \"\"\"\n    frames = traceback.extract_tb(error.__traceback__)\n\n    if not frames:\n        return \"an unknown line\"\n\n    innermost = frames[-1]\n\n    return f\"{_as_a_repository_path(innermost.filename)}:{innermost.lineno}\"\n\n\ndef _as_a_repository_path(filename: str) -> str:\n    \"\"\"The file as the repository spells it, if it can be recognised.\n\n    Cut at the package directory and put back under `src/`, which is where this\n    shop keeps its source. Anything unrecognisable is reported whole rather than\n    guessed at - a wrong path in a log is worse than a long one, because it\n    sends a reader to a file that does not exist and looks authoritative doing\n    it.\n    \"\"\"\n    parts = PurePath(filename).parts\n\n    if _PACKAGE not in parts:\n        return filename\n\n    return \"/\".join((\"src\", *parts[parts.index(_PACKAGE):]))\n\n\n_PACKAGE = \"io_shop\"\n",
+          "tool_use_id": "toolu_011XYitsYQu4mpJddVCYkcff",
+          "type": "tool_result"
+        },
+        {
+          "content": "from __future__ import annotations\n\nfrom pathlib import Path\n\nfrom io_shop import payment_provider, spend_summary\nfrom io_shop.account_page import PRICING_UNAVAILABLE, serve_account_page\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.payment_provider import AskTheProvider, ProviderAnswer, StoredCard\nfrom io_shop.pricing_service import AskThePricingService, PricingAnswer\nfrom io_shop.summary_cache import (\n    CacheAnswer,\n    CacheEndpoint,\n    LookUpSummary,\n    SummaryEntry,\n)\n\n\"\"\"The shop's request boundary: what a caller sees when the page fails.\n\nThree things worth pinning: a failure is reported rather than raised - a handler\nthat let it escape would take the worker down - the report keeps the error's own\nwords, which are what a reader diagnoses from, and a payment provider that will\nnot answer fails the page in words that name the provider rather than the shop.\n\"\"\"\n\n\ndef a_provider_holding_a_card() -> AskTheProvider:\n    return lambda dont_care_shopper: ProviderAnswer(\n        status=200, card=StoredCard(brand=\"visa\", last_four=\"4242\")\n    )\n\n\ndef a_provider_that_is_down() -> AskTheProvider:\n    return lambda dont_care_shopper: ProviderAnswer(status=503)\n\n\ndef a_prompt_pricing_service() -> AskThePricingService:\n    \"\"\"A pricing service behaving itself, which is what every test here wants\n    from it except the two that are about it.\n\n    Well under the threshold the shop remarks on, so a page served through this\n    reports no delay at all.\n    \"\"\"\n    return lambda dont_care_shopper: PricingAnswer(total_cents=8400, took_ms=12)\n\n\ndef a_slow_pricing_service(took_ms: int = 1500) -> AskThePricingService:\n    return lambda dont_care_shopper: PricingAnswer(\n        total_cents=8400, took_ms=took_ms\n    )\n\n\ndef a_pricing_service_with_no_price() -> AskThePricingService:\n    return lambda dont_care_shopper: PricingAnswer(total_cents=None, took_ms=8)\n\n\ndef an_account_idle_this_month(*prices: int) -> Account:\n    return Account(\n        shopper_id=\"shopper-idle-this-month\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef an_account_that_never_bought_anything() -> Account:\n    \"\"\"A shopper with no purchase history at all - the lifetime figure's own\n    empty divisor, and the failure this file is built on.\n    \"\"\"\n    return Account(\n        shopper_id=\"shopper-with-no-history\", purchases=(), total_cents=0,\n        total_this_month_cents=0\n    )\n\n\ndef test_a_page_that_renders_carries_the_figure_and_no_failure() -> None:\n    account = an_account_idle_this_month(1000, 3000)\n\n    page = serve_account_page(account,\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_prompt_pricing_service())\n\n    assert page.figure_cents == 2000\n    assert page.card_last_four == \"4242\"\n    assert page.failure is None\n\n\ndef test_a_page_that_breaks_is_reported_rather_than_raised() -> None:\n    page = serve_account_page(\n        an_account_that_never_bought_anything(),\n        use_monthly_summary=False,\n        ask_the_provider=a_provider_holding_a_card(),\n        ask_the_pricing_service=a_prompt_pricing_service()\n    )\n\n    assert page.figure_cents is None\n    assert page.failure is not None\n\n\ndef test_a_failure_keeps_the_errors_own_words() -> None:\n    # \"request failed\" describes every incident equally. The type and message\n    # are what put `ZeroDivisionError` in the logs an investigation reads.\n    page = serve_account_page(\n        an_account_that_never_bought_anything(),\n        use_monthly_summary=False,\n        ask_the_provider=a_provider_holding_a_card(),\n        ask_the_pricing_service=a_prompt_pricing_service()\n    )\n\n    assert page.failure is not None\n    assert page.failure.startswith(\"ZeroDivisionError: division by zero\")\n\n\ndef test_a_failure_names_the_line_it_was_raised_on() -> None:\n    # The innermost frame, not the boundary's own: every failure in the shop is\n    # caught in the same place, so the boundary's line describes all of them and\n    # locates none. This is the one that divided by zero.\n    page = serve_account_page(\n        an_account_that_never_bought_anything(),\n        use_monthly_summary=False,\n        ask_the_provider=a_provider_holding_a_card(),\n        ask_the_pricing_service=a_prompt_pricing_service()\n    )\n\n    assert page.failure is not None\n    assert \"at src/io_shop/spend_summary.py:\" in page.failure\n\n\ndef test_the_line_a_failure_names_is_the_one_that_raised_it() -> None:\n    # The number, not just the file. A frame reported off by a few lines sends a\n    # reader to code that is fine and reads as authoritatively as a right one.\n    source = (\n        Path(spend_summary.__file__).read_text(encoding=\"utf-8\").splitlines()\n    )\n    page = serve_account_page(\n        an_account_that_never_bought_anything(),\n        use_monthly_summary=False,\n        ask_the_provider=a_provider_holding_a_card(),\n        ask_the_pricing_service=a_prompt_pricing_service()\n    )\n\n    assert page.failure is not None\n    named = int(page.failure.rsplit(\":\", 1)[1])\n\n    assert \"//\" in source[named - 1]\n\n\ndef test_a_provider_that_will_not_answer_fails_the_page() -> None:\n    # Nothing is retried and nothing is rendered without the card: when the\n    # provider is down there is nothing the shop can do about it, and code that\n    # softened this would turn somebody else's outage into a question about Io's\n    # resilience.\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_that_is_down(),\n                              ask_the_pricing_service=a_prompt_pricing_service())\n\n    assert page.figure_cents is None\n    assert page.card_last_four is None\n    assert page.failure is not None\n\n\ndef test_a_provider_failure_names_the_provider_and_the_status() -> None:\n    # The host and the status, because those are what tell a reader at three in\n    # the morning that the fault is not in this repository.\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_that_is_down(),\n                              ask_the_pricing_service=a_prompt_pricing_service())\n\n    assert page.failure is not None\n    assert page.failure.startswith(\"PaymentProviderFailed: \")\n    assert payment_provider.PROVIDER_HOST in page.failure\n    assert \"503\" in page.failure\n\n\ndef a_cache_holding(summary_cents: int) -> LookUpSummary:\n    written = str(SummaryEntry(amount_cents=summary_cents, items_counted=8))\n\n    return lambda dont_care_shopper: CacheAnswer(reached=True, entry=written)\n\n\ndef a_cache_holding_nothing() -> LookUpSummary:\n    return lambda dont_care_shopper: CacheAnswer(reached=True)\n\n\ndef a_cache_that_cannot_be_reached() -> LookUpSummary:\n    return lambda dont_care_shopper: CacheAnswer(reached=False)\n\n\nSOME_CACHE_ENDPOINT = CacheEndpoint(host=\"cache.io-shop.svc.cluster.local\", port=6379)\n\n\ndef test_a_page_whose_figure_was_cached_says_so() -> None:\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_prompt_pricing_service(),\n                              look_up_summary=a_cache_holding(999),\n                              cache_endpoint=SOME_CACHE_ENDPOINT)\n\n    assert page.figure_cents == 999\n    assert page.served_from_cache\n\n\ndef test_a_miss_is_computed_and_the_page_is_still_correct() -> None:\n    account = an_account_idle_this_month(1000, 3000)\n\n    computed = serve_account_page(account,\n                                  use_monthly_summary=False,\n                                  ask_the_provider=a_provider_holding_a_card(),\n                                  ask_the_pricing_service=a_prompt_pricing_service(),\n                                  look_up_summary=a_cache_holding_nothing(),\n                                  cache_endpoint=SOME_CACHE_ENDPOINT)\n    without_a_cache_at_all = serve_account_page(\n        account,\n        use_monthly_summary=False,\n        ask_the_provider=a_provider_holding_a_card(),\n        ask_the_pricing_service=a_prompt_pricing_service()\n    )\n\n    assert computed.figure_cents == without_a_cache_at_all.figure_cents\n    assert not computed.served_from_cache\n\n\ndef test_a_cache_nobody_can_reach_does_not_fail_the_page() -> None:\n    # The whole scenario rests on this. The fallback is the designed behaviour,\n    # so losing the cache is a slowdown and not an outage - which is exactly\n    # why nobody notices it in the error rate.\n    account = an_account_idle_this_month(1000, 3000)\n\n    page = serve_account_page(account,\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_prompt_pricing_service(),\n                              look_up_summary=a_cache_that_cannot_be_reached(),\n                              cache_endpoint=SOME_CACHE_ENDPOINT)\n\n    assert page.failure is None\n    assert page.figure_cents is not None\n    assert not page.served_from_cache\n\n\ndef test_an_unreachable_cache_is_reported_beside_the_failure_not_in_it() -> None:\n    # A page that succeeded while something underneath it was broken. The\n    # distinction is the incident: a reader sees this in the logs without\n    # seeing it in the error rate.\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_prompt_pricing_service(),\n                              look_up_summary=a_cache_that_cannot_be_reached(),\n                              cache_endpoint=SOME_CACHE_ENDPOINT)\n\n    assert page.failure is None\n    assert page.cache_failure is not None\n    assert \"6379\" in page.cache_failure\n\n\ndef test_a_page_carries_what_the_basket_comes_to() -> None:\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_prompt_pricing_service())\n\n    assert page.basket_total_cents == 8400\n    assert page.pricing_delay is None\n\n\ndef test_a_slow_pricing_service_delays_the_page_without_failing_it() -> None:\n    # The whole scenario rests on this, exactly as the cache's rests on the\n    # fallback: the page is correct, the shopper is charged the right amount,\n    # and the only trace is a line nobody is paged for.\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_slow_pricing_service())\n\n    assert page.failure is None\n    assert page.figure_cents == 2000\n    assert page.basket_total_cents == 8400\n    assert page.pricing_delay is not None\n    assert payment_provider.PROVIDER_HOST not in page.pricing_delay\n\n\ndef test_a_pricing_service_with_no_price_renders_the_page_without_the_basket() -> None:\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_pricing_service_with_no_price())\n\n    assert page.failure is None\n    assert page.figure_cents == 2000\n    assert page.card_last_four == \"4242\"\n    assert page.basket_total_cents is None\n    assert page.pricing_unavailable == PRICING_UNAVAILABLE\n    assert page.pricing_failure is not None\n    assert \"pricing.io-internal.svc\" in page.pricing_failure\n\n\ndef test_a_priced_basket_says_nothing_is_unavailable() -> None:\n    page = serve_account_page(an_account_idle_this_month(1000, 3000),\n                              use_monthly_summary=False,\n                              ask_the_provider=a_provider_holding_a_card(),\n                              ask_the_pricing_service=a_slow_pricing_service())\n\n    assert page.basket_total_cents == 8400\n    assert page.pricing_unavailable is None\n    assert page.pricing_failure is None\n",
+          "tool_use_id": "toolu_01SWzHRSfHUszJ3fvLq8XrXW",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01PQATd3azdi7amJKSdTEJ7f",
+          "input": {
+            "explanation": "The fault: `average_spend_per_item_this_month` in src/io_shop/spend_summary.py returns `account.total_this_month_cents // len(bought_this_month)`, where `bought_this_month` is the purchases flagged `in_current_month`. A shopper who has bought before but not this month has an empty list there, so the line raises ZeroDivisionError. That is not an edge case. tests/io_shop/test_spend_summary.py calls it \"the ordinary case\". With monthly-spend-feature off, `render_spend_summary` never reached this function. With it on, every such shopper's request reached it, and the boundary in src/io_shop/account_page.py turned each error into a failed page.\n\nThe change: if there are no purchases this month, the function returns 0. Nothing was spent per item this month, and `total_this_month_cents` is itself 0 for such an account in the fixtures. Otherwise the division is unchanged. With the flag off, nothing changes. `average_spend_per_item` and the lifetime path are untouched. They still raise for an account that has never bought anything, which the existing tests in tests/io_shop/test_account_page.py and tests/io_shop/test_spend_summary.py rely on. `render_spend_summary` and `serve_account_page` still get an int, so their return types and callers are unchanged.\n\nThe tests: three new cases in tests/io_shop/test_spend_summary.py. Two call the monthly figure directly and through `render_spend_summary(..., use_monthly_summary=True)` for a shopper with no purchases this month, and expect 0. One expects 0 for a shopper with no history at all when the monthly flag is on. Each of these would raise ZeroDivisionError against the current code. The test that expects a failure to reach the caller on the lifetime path stays as it is.",
+            "files": [
+              {
+                "content": "\"\"\"What a shopper has spent, and what that averages to.\n\nThree figures about one history. The lifetime average has been on the account\npage for years; the monthly one narrows it to the current month; the typical\npurchase abandons the average altogether for the middle of the history. The\nlast two are the ones still behind a rollout, and which of them a request gets\nis decided before it reaches here.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\ndef average_spend_per_item(account: Account) -> int:\n    \"\"\"Average spend per item across everything this account has ever bought.\n\n    Live for years. Its divisor is empty only for an account that has never\n    bought anything at all, which no real shopper is.\n\n    Derives the total from the purchases rather than reading the one the account\n    carries, taking each purchase in and recomputing what has been spent by\n    then, so that the figure agrees with the list the shopper is looking at even\n    where the totals the query returned have drifted from it.\n    \"\"\"\n    spent_by_then = 0\n\n    for index, _ in enumerate(account.purchases):\n        spent_by_then = sum(\n            earlier.price_cents for earlier in account.purchases[:index + 1]\n        )\n\n    return spent_by_then // len(account.purchases)\n\n\ndef average_spend_per_item_this_month(account: Account) -> int:\n    \"\"\"Average spend per item this month.\n\n    Narrows the lifetime figure to the current month, so the account page can\n    show what a shopper is spending now rather than what they averaged over\n    three years.\n\n    A shopper who has bought nothing yet this month - the ordinary case early\n    in any month, and for anyone who shops less than monthly - has spent\n    nothing per item this month, so the figure is 0 rather than a division by\n    an empty month.\n    \"\"\"\n    bought_this_month = [\n        purchase for purchase in account.purchases if purchase.in_current_month\n    ]\n\n    if not bought_this_month:\n        return 0\n\n    return account.total_this_month_cents // len(bought_this_month)\n\n\ndef render_spend_summary(account: Account,\n                         use_monthly_summary: bool,\n                         use_typical_spend: bool = False) -> int:\n    \"\"\"The figure Io's account page shows, through whichever version the rollout\n    selects.\n\n    Raises whatever the selected version raises. Catching belongs at the request\n    boundary - see `io_shop.account_page` - where there is a response to turn a\n    failure into and a log to record it in. A page that swallowed its own errors\n    would render a wrong number instead of an error, which is a worse incident\n    than the one it hid.\n\n    Two rollouts, so two flags to be told about, and the newer one wins where a\n    request is inside both. That is the ordinary arrangement: each is a slice of\n    traffic, the slices overlap, and the page has to render one figure.\n    \"\"\"\n    if use_typical_spend:\n        return typical_spend_per_item(account)\n\n    if use_monthly_summary:\n        return average_spend_per_item_this_month(account)\n\n    return average_spend_per_item(account)\n",
+                "path": "src/io_shop/spend_summary.py"
+              },
+              {
+                "content": "from __future__ import annotations\n\nimport pytest\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.spend_summary import (\n    average_spend_per_item,\n    average_spend_per_item_this_month,\n    render_spend_summary,\n)\n\n\"\"\"Io's account-page arithmetic - the lifetime figure and the monthly one.\n\nThe monthly figure is newer and ships behind a rollout flag, so the cases below\ncover the shape the page has had for years plus the one the flag adds.\n\"\"\"\n\n\ndef an_account_with_no_purchases_this_month(*prices: int) -> Account:\n    \"\"\"The ordinary case: a shopper who has bought before, but not this month.\"\"\"\n    return Account(\n        shopper_id=\"shopper-idle-this-month\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef test_the_lifetime_average_spreads_the_total_over_every_purchase() -> None:\n    account = an_account_with_no_purchases_this_month(1000, 2000, 3000)\n\n    assert average_spend_per_item(account) == 2000\n\n\ndef test_the_lifetime_average_follows_the_purchases_not_the_carried_total() -> None:\n    # The figure is derived from the list the shopper is looking at, so a total\n    # that has drifted from its own purchases does not reach the page.\n    an_account_whose_total_drifted = Account(\n        shopper_id=\"shopper-with-a-stale-total\",\n        purchases=(\n            Purchase(price_cents=1000, in_current_month=False),\n            Purchase(price_cents=3000, in_current_month=False),\n        ),\n        total_cents=99_999,\n        total_this_month_cents=0,\n    )\n\n    assert average_spend_per_item(an_account_whose_total_drifted) == 2000\n\n\ndef test_the_monthly_average_is_correct_for_a_shopper_who_did_buy() -> None:\n    # The ordinary case for the monthly figure: a shopper who has bought\n    # something this month, averaged over what they bought this month.\n    an_active_shopper = Account(\n        shopper_id=\"shopper-who-bought-this-month\",\n        purchases=(\n            Purchase(price_cents=4000, in_current_month=True),\n            Purchase(price_cents=2000, in_current_month=True),\n            Purchase(price_cents=9000, in_current_month=False),\n        ),\n        total_cents=15000,\n        total_this_month_cents=6000,\n    )\n\n    assert average_spend_per_item_this_month(an_active_shopper) == 3000\n\n\ndef test_the_monthly_average_is_zero_for_a_shopper_idle_this_month() -> None:\n    # The case the monthly-spend-feature rollout met on its first evaluations:\n    # a shopper with a history but nothing bought this month. Nothing spent\n    # this month is nothing per item, not a division by an empty month.\n    account = an_account_with_no_purchases_this_month(1000, 3000)\n\n    assert average_spend_per_item_this_month(account) == 0\n\n\ndef test_the_page_renders_the_monthly_summary_for_a_shopper_idle_this_month() -> None:\n    account = an_account_with_no_purchases_this_month(1000, 3000)\n\n    assert render_spend_summary(account, use_monthly_summary=True) == 0\n\n\ndef test_the_monthly_summary_is_zero_for_a_shopper_with_no_history() -> None:\n    a_shopper_who_never_bought_anything = Account(\n        shopper_id=\"shopper-with-no-history\", purchases=(), total_cents=0,\n        total_this_month_cents=0\n    )\n\n    assert render_spend_summary(\n        a_shopper_who_never_bought_anything, use_monthly_summary=True\n    ) == 0\n\n\ndef test_the_page_takes_the_stable_summary_when_the_rollout_is_off() -> None:\n    account = an_account_with_no_purchases_this_month(1000, 3000)\n\n    assert render_spend_summary(account, use_monthly_summary=False) == 2000\n\n\ndef test_the_page_lets_a_failure_reach_its_caller() -> None:\n    # Swallowing it here would render a wrong number instead of an error, and\n    # there would be no error rate for anyone to alert on.\n    a_shopper_who_never_bought_anything = Account(\n        shopper_id=\"shopper-with-no-history\", purchases=(), total_cents=0,\n        total_this_month_cents=0\n    )\n\n    with pytest.raises(ZeroDivisionError):\n        render_spend_summary(\n            a_shopper_who_never_bought_anything, use_monthly_summary=False\n        )\n",
+                "path": "tests/io_shop/test_spend_summary.py"
+              }
+            ],
+            "summary": "Monthly spend summary: show 0 instead of dividing by zero for shoppers with no purchases this month"
+          },
+          "name": "submit_fix",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your patch has arrived. One question before it is opened: does this change help this incident's users only once code outside this repository changes as well? If yes, it is not opened - say in the explanation what would have to change there. Answer with answer_question.",
+          "tool_use_id": "toolu_01PQATd3azdi7amJKSdTEJ7f",
+          "type": "tool_result"
+        }
+      ],
       "role": "user"
     }
   ],
@@ -13,12 +132,13 @@
   "output_config": {
     "effort": "high"
   },
+  "stream": true,
   "system": [
     {
       "cache_control": {
         "type": "ephemeral"
       },
-      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
       "type": "text"
     }
   ],
@@ -26,213 +146,158 @@
     "display": "summarized",
     "type": "adaptive"
   },
-  "tool_choice": {
-    "disable_parallel_tool_use": true,
-    "type": "auto"
-  },
   "tools": [
     {
-      "description": "Submit the postmortem for this incident. Every field is required. Write no figure yourself anywhere in your answer - no time, duration, percentage, count or amount, not in digits and not spelled out in words. Every figure you are shown is followed by its name in braces, like {A3} or {duration}: where your prose states one, write its name, braces and all, and the document writes the figure in. A figure you were not shown but could work out from two you were - the span between two instants, how far one share is above another, how many times one is the other - is written as that working, braces and all: {back_to_normal - began}, {T3.1 - alert_raised}, {errors_at_worst / errors_before}. The document works it out from the figures as you were shown them. Say any other size with no number in it, not even in a word - \"most requests\", \"for several minutes\", never \"twenty minutes\", \"a third\" or \"tripled\". A number is a figure even with a unit or a clock's marks on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a name - a label (T2, G3fa2, C1, AI-1), a version (v2), a revision, a pod - and is written as given. State only what the evidence you are shown says: where the record does not show something - a check that was or was not run, how many replicas - leave it out or say it was not seen.",
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {
-          "action_items": {
-            "description": "What should be done that the record does not already hold, each one thing a person could take on: two things to do are two items. Empty where the record's own items answer every factor. Propose nothing to confirm a cause the record already confirmed - a mitigation that worked, a hypothesis marked confirmed - and no check of what the evidence you are shown already shows: a diff states what changed. Where an F row says to check something a D row shows, say what the D row shows, and the item is what follows from it.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "answers": {
-                  "description": "The labels of the contributing factors it answers: CF-1. Empty where it answers none.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "item": {
-                  "type": "string"
-                },
-                "type": {
-                  "enum": [
-                    "mitigate",
-                    "prevent",
-                    "detect",
-                    "process"
-                  ],
-                  "type": "string"
-                }
-              },
-              "required": [
-                "item",
-                "type",
-                "answers"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "assumptions": {
-            "description": "Anything else the reader should know was assumed rather than measured. Empty is a valid answer.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "causal_chain": {
-            "description": "The cause as the five whys, from the symptom down: the first step is what users saw - or, where nobody using the service saw anything wrong, that and what was seen instead - and each step after it answers why the step directly before it happened. The first why says why the symptom happened, not the symptom again in more detail. Where the incident needed two things at once - something going wrong, and nothing in place to contain it - follow the one that leads to what set it off; the other is one of the contributing_factors, not named in the chain. A safeguard that did not stop it is never a step of its own: it is one of the contributing_factors. Every step cites at least one piece of evidence by its label. Date a change by its own row's instant - the T or P row that records it - never by an effect it had. A state a row read - how many replicas run a revision, which way a flag is set - is known as of the row that read it, by that row's instant, which is its first figure, as T3.1 is T3's - not from when the change was made. What else the record ruled out - an earlier change, a flag the provider showed unchanged, a candidate refuted - goes in the ruled_out of the step that ties the incident to the change that set it off, citing what ruled it out, and never as a step. An earlier change is ruled out only by the service measured healthy with it in place - in metrics read between it and the onset, in an alert that dates the first harm itself at or after a later change (at, where the two instants are the same), or after a confirmed action that left it there - never by how long before the onset it came. Where the record shows none of these, it was not ruled out: say so in that step itself. Stop where the evidence stops.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "cites": {
-                  "description": "The labels of the evidence that shows this step: T3, G3fa2. Not rows that merely happened at the same time.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "ruled_out": {
-                  "description": "What else the record ruled out at this step, each what it was and why. Empty on every step but the one that ties the incident to the change that set it off.",
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "cites": {
-                        "description": "The labels of what ruled it out.",
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
-                      },
-                      "what": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "what",
-                      "cites"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
-                },
-                "step": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "step",
-                "cites",
-                "ruled_out"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "cause_in_plain_words": {
-            "description": "What caused the incident, in one sentence for a reader who does not work on the service: no component names unless they are unavoidable. When it began, for how long, how bad it got, what customers lost and what was done the document says itself - say none of them. Say only what the record says - of a change, of the service, of the people - and nothing it does not. Where part of it rests only on a reading nothing ran, say that part as likely, in plain words, without mentioning the reading.",
-            "type": "string"
-          },
-          "cause_rests_on_an_unrun_reading": {
-            "description": "Whether the mechanism in root_cause rests on an F row - a reading of the code nothing ran - with no S or D row showing what it rests on. Where you answer true, the document says itself, beside the root cause, that the cause is unverified, and leaves its root-cause review box for a person: say neither in root_cause.",
-            "type": "boolean"
-          },
-          "contributing_factors": {
-            "description": "Conditions that had to hold for the incident to happen and did not cause it alone - a safeguard that did not stop it, a gap in detection or review. A factor held before the incident began: what the response did, declined or left behind - an action taken or not, automatic sync left off - is not one; where it went wrong, say it under went_wrong. Not the root cause again in other words: a factor is something that, had it been otherwise, would have stopped or shortened the incident even with what root_cause says still true. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. An alert finds what its rule watches, not the cause behind it: say a fault was found only by what the record shows found it. Each is answered by at least one action item: one of the record's, named in its addressed_by, or one you propose, whose answers name it.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "addressed_by": {
-                  "description": "The record's own action items that answer it, by the numbers the record gives them: AI-1. Empty where none of them does. Never an item you propose: that item names, in its own answers, the factors it answers. The record's item that merges this incident's fix answers the fault its own tests cover, never a check missing before the change went out: answer that with an item that puts the check in place for every change like it.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "factor": {
-                  "type": "string"
-                },
-                "had_it_been_otherwise": {
-                  "description": "What would have gone differently had this been otherwise - stopped, shortened or caught sooner - with what root_cause says still true. A factor that only says the root cause again cannot answer this: leave it out of the list.",
-                  "type": "string"
-                },
-                "label": {
-                  "description": "CF-1 for the first factor, CF-2 for the next, and so on in the order you give them. Written here and in an item's answers, never in your prose: the reader never sees it.",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "label",
-                "factor",
-                "had_it_been_otherwise",
-                "addressed_by"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "lessons": {
-            "additionalProperties": false,
-            "description": "What went well, what went wrong, and where the incident got lucky - a risk that went unnoticed this time. Any list may be empty. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. How soon the alert came is weighed by the document already, from what was measured: say nothing of it here.",
-            "properties": {
-              "got_lucky": {
-                "description": "Something the record shows went the fortunate way by chance, and how it kept the harm down - never what would have happened otherwise. Empty where the record shows none. Not what kind of fault it was, which the impact already says, nor a limit of what the record shows, which is said in assumptions as what was assumed. Not how the service did over a stretch its metrics did not cover, nor what a failure there would have done - the document says how it did.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "went_well": {
-                "description": "Where one says how quickly Argus did something, write the span as a working of two instants - a T or P row's instant is its first figure, as T3.1 is T3's: {T3.1 - alert_raised}, not in words (\"within seconds\"). Set the span beside what it times - the thing its later instant dates - not after something else in the same sentence: \"Argus confirmed, {T20.1 - alert_raised} after the alert was raised, that the rollback had brought the service back\", not \"Argus confirmed the rollback had brought the service back from the incident's level {T20.1 - alert_raised} after the alert was raised\". Set a purpose or a reason beside the action it belongs to, and say it once. Name what Code-Fix proposed without saying what it does: the action items and Code-Fix's own reading say that, with its conditions. Where the cause the walk acted on was found soon, say who formed it and how soon, as a working of two instants.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "went_wrong": {
-                "description": "A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "went_well",
-              "went_wrong",
-              "got_lucky"
-            ],
-            "type": "object"
-          },
-          "reaches_a_cause": {
-            "description": "Whether the chain says why the change that set the incident off broke the service, rather than stopping at that change. A step resting on F rows - a reading of the code nothing ran - counts: whether that leaves the cause unverified is cause_rests_on_an_unrun_reading's to say. That a new version does worse is what the change did, not why it broke the service: answer false where the chain says the evidence does not show why.",
-            "type": "boolean"
-          },
-          "root_cause": {
-            "description": "What caused the incident, in one or two sentences, written for an engineer who was not on the call: the mechanism - why the change that set it off broke the service, as far as the evidence goes, a missing protection or not. Not the trigger, how it was confirmed, what resolved it or what was ruled out - the document states each of those itself. Not one of the contributing_factors: a safeguard that would have stopped it with this mechanism unchanged is said there, not here. What the service did over the stretch the metrics did not watch is not the mechanism: the document says it itself. Whether it was verified the document says itself, from your answer to cause_rests_on_an_unrun_reading - do not say it.",
-            "type": "string"
-          },
-          "still_at_risk": {
-            "description": "What was still at risk at the end of the time Argus held the incident, in one sentence for the same reader - what the fault still in place then could yet do, or the same thing able to happen again. Empty where nothing was. Not whether the service or its metrics were back, nor why - the summary says both. Not what Argus left to a person - a draft fix, automatic sync left off, a recommended action - which the document says itself. Say only what the record says: nothing of the service after that was read.",
-            "type": "string"
-          },
-          "symptom": {
-            "description": "What went wrong as somebody using the service saw it, as short as it can be: it is the document's title. One sentence with no number in it, never over 16 words - the thing that went wrong and what happened to it, with an active verb: 'Account pages failed'. Not the metric the alert fired on, not the cause - the document adds the change it began with itself, after your sentence and a 'while', so end on what went wrong, with no clause after it - and not how it was found, which the document's Detection says. Where nobody using the service saw anything wrong, say that and what was seen instead, in that one sentence.",
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
             "type": "string"
           }
         },
         "required": [
-          "root_cause",
-          "cause_in_plain_words",
-          "still_at_risk",
-          "symptom",
-          "causal_chain",
-          "contributing_factors",
-          "action_items",
-          "lessons",
-          "reaches_a_cause",
-          "cause_rests_on_an_unrun_reading"
+          "query"
         ],
         "type": "object"
       },
-      "name": "submit_postmortem",
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
       "strict": true
     }
   ]

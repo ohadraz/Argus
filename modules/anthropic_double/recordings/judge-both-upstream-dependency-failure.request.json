@@ -1,0 +1,99 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The record:\nWrite the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-11-12T19:19:04Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-12T19:19:28Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires. The alert came within the 7 minutes 30 seconds {accounted_for} accounted for by its rule waiting 5 minutes {rule_waits} with its condition holding, its evaluation at intervals of 1 minute {rule_evaluated_every}, an unmeasured allowance of 30 seconds {scraping_allowance} for scraping and storing its samples and the whole minute the onset is measured to.\nBroken from 2026-11-12T19:13:00Z {began} (the onset). The service was not back to normal by 2026-11-12T19:19:53Z {argus_stopped}, so it was broken for at least 6 minutes 53 seconds {duration} - a lower bound, not a measurement, and every impact figure below is bounded the same way.\nArgus held the incident for 27 seconds {held}, until 2026-11-12T19:19:53Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nThe service's error rate over all its requests, before it began: 0.9% {errors_before}.\nThe same rate while it was broken: 97.4% {errors_while_broken}, peaking at 100.0% {errors_at_worst}.\nRise above baseline: 96.4% {errors_rise} of traffic failed that otherwise would not have.\nThe series behind the alert, `sum(rate(http_requests_total{code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))` - its alert said \"Error rate above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 0.9250000000000001% {series_before} before it began, 97.35714285714285% {series_while_broken} on average while it was broken, and 100% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nCustomer loss: at least 14,635.76 USD {customer_loss} - how far the shop's takings over the incident fell short of the same hours whole weeks earlier, beyond how much those hours vary on their own; a lower bound, counted with the service not seen back to normal.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-12T19:19:25Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-11-12T19:19:30Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-12T19:19:30Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-12T19:19:38Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 19:19:04 {T4.2}\n  - [T5] 2026-11-12T19:19:42Z {T5.1} Investigator Agent: Read back 360 {T5.2} minutes of metrics\n  - [T6] 2026-11-12T19:19:44Z {T6.1} Investigator Agent: Placed the start of the incident at 19:13 {T6.2}\n  - [T7] 2026-11-12T19:19:44Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-11-12T19:19:45Z {T8.1} Investigator Agent: Asked for production change events - deploys and releases, and flag changes from the flag provider's history, the 1 {T8.2} day 1 {T8.3} minute before Nov 12 19:14 {T8.4}\n  - [T9] 2026-11-12T19:19:46Z {T9.1} Investigator Agent: Read back 0 {T9.2} production changes\n  - [T10] 2026-11-12T19:19:46Z {T10.1} Investigator Agent: Read the service register - the service calls io-pricing (internal, owned by checkout-platform), io-summary-cache (internal, owned by checkout-platform), io-pay (third-party, owned by IO Payments Ltd)\n  - [T11] 2026-11-12T19:19:46Z {T11.1} Investigator Agent: Asked for the service's log lines, the 36 {T11.2} minutes 4 {T11.3} seconds before 19:19:04 {T11.4}\n  - [T12] 2026-11-12T19:19:46Z {T12.1} Investigator Agent: Read back 94 {T12.2} log lines\n  - [T13] 2026-11-12T19:19:48Z {T13.1} Investigator Agent: Formed 1 {T13.2} candidate cause, best first: C1\n  - [T14] 2026-11-12T19:19:48Z {T14.1} Investigator Agent: Read every channel available\n  - [T15] 2026-11-12T19:19:48Z {T15.1} Argus: Read the flag provider's history - 0 {T15.2} flag changes by anyone but Argus, the 1 {T15.3} hour before 19:19:48 {T15.4}\n  - [T16] 2026-11-12T19:19:52Z {T16.1} Argus: Moved the incident to MITIGATING to act on a candidate\n  - [T17] 2026-11-12T19:19:52Z {T17.1} Argus: Refused to act on C1 - the failure is in a service another company runs, and nothing Argus can do reaches it - ask IO Payments Ltd to restore io-pay, and no code fix is looked for\n  - [T18] 2026-11-12T19:19:52Z {T18.1} Argus: Moved the incident to FIXING - no mitigation taken\n  - [T19] 2026-11-12T19:19:53Z {T19.1} Argus: Moved the incident to ESCALATED - no code fix looked for\n\nChanges to production it read:\n  - Deploys read, none came back; flags read, none came back.\n\nLog lines it read, one per message:\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 43 {G46bc.1} occurrences in 29 {G46bc.2} minutes, 18:43\u201319:11 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 31 {Gbac1.1} occurrences in 37 {Gbac1.2} minutes, 18:43\u201319:19 {Gbac1.3}; # was 0.50% {Gbac1.4} to 100.00% {Gbac1.5}, typically 1.50% {Gbac1.6}, highest at 19:14 {Gbac1.7}\n  - [Gad41] INFO io-shop: account pages rendered normally - 6 {Gad41.1} occurrences in 29 {Gad41.2} minutes, 18:44\u201319:12 {Gad41.3}\n  - [Gbf7d] ERROR io-shop: account page request failed - PaymentProviderFailed: api.io-pay.example returned 503 {Gbf7d.1} for /v1/shoppers/shopper-#-#-#/card at src/io_shop/payment_provider.py:95 - 14 {Gbf7d.2} occurrences in 7 {Gbf7d.3} minutes, 19:13\u201319:19 {Gbf7d.4}; /v1/shoppers/shopper-#-#-#/card took 14 {Gbf7d.5} different values\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1] From 2026-11-12T19:13:00Z {C1.1} the third-party payment provider io-pay (api.io-pay.example, owned by IO Payments Ltd) began returning 503s {C1.2} on the card lookup. Every account page render calls it, so the error rate went to 100% {C1.3} and latency rose to about 2s {C1.4}. No deploy, flag or rollout change on io-shop, and cpu and memory were flat. [upstream-dependency-failure, confidence 0.93 {C1.5}, never tried: the failure is in a service another company runs, and nothing Argus can do reaches it]\n\nActions it took:\n  - none\n\nAction items the record already holds:\n  - AI-1 (mitigate, open): Ask IO Payments Ltd to restore io-pay (api.io-pay.example) and to say why it failed\nIO Payments Ltd runs io-pay, so no code fix was looked for: AI-1 asks them to restore it - propose no item of your own for it.\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.\n\nThe document, by field:\nroot_cause: Account page requests in io-shop call the card lookup of io-pay, a payment provider run by IO Payments Ltd. From the onset io-pay answered that lookup with {Gbf7d.1}, and io-shop raised this as PaymentProviderFailed and failed the whole account page request.\ncause_in_plain_words: The outside payment company that the shop asks for a shopper's saved card started rejecting those requests, and the shop's account pages failed every time that request failed.\nstill_at_risk: Account pages could keep failing for as long as io-pay keeps rejecting the card lookup, and could fail the same way the next time io-pay has trouble.\nsymptom: Shoppers' account pages failed to load\ncausal_chain 1: Shoppers' account pages failed to load. io-shop's own log reported that the account page error rate was at its worst, and from the onset account page requests failed. (cites Gbac1, under \"Log lines it read, one per message\"; Gbf7d, under \"Log lines it read, one per message\"; T6, under \"What Argus did, in order\")\ncausal_chain 2: Account page requests failed because the card lookup that io-shop makes to the third-party payment provider io-pay returned {Gbf7d.1}. io-shop raised this as PaymentProviderFailed at src/io_shop/payment_provider.py:95 and failed the request. (cites Gbf7d, under \"Log lines it read, one per message\"; T10, under \"What Argus did, in order\")\ncausal_chain 3: io-pay, which IO Payments Ltd runs, began returning {Gbf7d.1} on the card lookup at the onset. The record does not show why: io-pay's own state was not read, only io-shop's logs of its replies. (cites Gbf7d, under \"Log lines it read, one per message\"; T10, under \"What Argus did, in order\")\ncontributing_factors 1: When io-pay's card lookup failed, io-shop failed the whole account page request. No fallback was seen, such as rendering the page without the card details or using a cached copy.\ncontributing_factors 1 had_it_been_otherwise: Account pages would have loaded without card details while io-pay was failing, so most shoppers would have seen a page that still worked instead of an error.\ncontributing_factors 2: The HighErrorRate alert on io-shop was not linked to any on-call incident, so nobody was paged when it fired.\ncontributing_factors 2 had_it_been_otherwise: A person would have been engaged when the alert fired and could have asked IO Payments Ltd to restore io-pay sooner, which would have shortened the outage.\naction_items 1: Make the io-shop account page render without card details, instead of failing the request, when io-pay's card lookup returns an error.\naction_items 2: Add a test that the account page still renders when io-pay's card lookup returns {Gbf7d.1}.\naction_items 3: Route the HighErrorRate alert on io-shop to the on-call paging rotation so that a person is paged when it fires.\n\nNot to be judged:\n  - Names in braces, such as {T5.1} or {duration}, are figures code writes in from the row they name. They are not judged.\n  - Action items propose what to do; they make no claim about the record.\n  - Whether something went well, went wrong or was lucky is a judgement. Only a fact it states is judged, and whether a went_wrong item is one its field excludes.\n\nJudge every claim in the document, and answer by calling judge_claims.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "medium"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You check a document about a software incident against the record it was written from. Another model wrote the document from that record. Your job is to find each claim in the document that the record does not support, and each went_wrong item that its field excludes. Style, wording, tone, emphasis, length, and what the document leaves out are not yours to judge.\n\nA wrong flag costs as much as a missed one: every flag sends the document back to be rewritten, and a correct sentence rewritten can come back wrong.\n\nThe record is what the writer was given, whole. Some of its facts carry a label, in brackets or bare - [T4], T4 |, AL1:, C1, G7e5d - and some stand as plain lines, such as the alert, its times and the list of figures. All of them are your evidence. Name a line by its label, or, where it has none, by a few of its own words. The record also holds instructions to the writer on what to say and how. They are not facts about the incident, but a sentence that does what an instruction asked for is not a fault for doing it.\n\nGo through the document claim by claim. A claim is a statement of fact about this incident: what happened, when, how much, who or what did it, what was read, what was found, what caused what. For each one, find the record's lines that support it and list it as supported, naming them - or, where you cannot, flag it.\n\nA claim is supported when:\n- a line of the record says it, in any words; a number matches the record's, rounded as the document rounds it;\n- it follows from lines of the record taken together - a duration from two times, which came first from their times, a difference or a sum of two numbers - and the working is right; name every line it rests on;\n- it says no such thing was seen - no other check, no blocking test - and the record holds none of it;\n- it says something was not found or not changed in a place that was read - the logs, the changes, the flag history - and the record shows that place read over that time with nothing of the kind;\n- it is said as a reading - suspected, likely, suggests, consistent with, may have, appears - and the record holds it as possible, as it does a candidate cause;\n- it is said to be someone's - Code-Fix reads the code as, the investigation suspected, a C or F row - and they said it; whether what they said is true is not the question;\n- it is a judgement that rests on facts - detection was slow, the rollback was quick - and the record holds the facts it rests on.\n\nJudge a claim with the whole of the sentence and the field it is in: a hedge, or a source named, anywhere in them covers it. A sentence saying what would have happened had something been otherwise is judged only for what it states did happen, never for the what-if.\n\nEvery other claim is flagged: a fact no line says, a number the record does not give, something possible said as certain, a count or an all the record contradicts, and anything else the record does not hold.\n\nNot judged, and listed neither way: recommendations and action items, which propose rather than claim; general knowledge of how software works; and whatever the ask says is not judged. In a lesson, an opinion, or a verdict that something went well, went wrong or was lucky, only the verdict is not judged: every fact it states is judged like any other.\n\nOne field is judged for where a sentence sits as well as for its facts: went_wrong. The writer was told what does not belong in it: \"A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge, a change Argus refused to undo, for a reason the record bears out, and left for a person - a refusal the record contradicts did go wrong, and belongs here. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already. Not that Code-Fix read another revision than the one that ran, or that nothing ran its reading: where the record holds them, the document says the first in its summary and the second beside the root cause.\" Flag a went_wrong item that says what this excludes, even where every fact in it is supported. Repeating is saying the same point again, not drawing a different lesson from the same facts. In why, say which part it breaks and where the document or the record already says it; in rows, name that line or field.\n\nAnswer by calling judge_claims once, with every claim you judged.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit every claim in the document, each either as supported or as flagged. Supported: the document's own words, quoted exactly, and the record's rows that support it. Flagged: the document's own words, quoted exactly, why, and the record's rows that contradict it (none where no row speaks to it at all). Empty lists say the document makes no claim to judge.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "flags": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "why": {
+                  "description": "One sentence: what the record holds instead. Never empty.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "quote",
+                "why",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "supported": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "quote": {
+                  "type": "string"
+                },
+                "rows": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "quote",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "supported",
+          "flags"
+        ],
+        "type": "object"
+      },
+      "name": "judge_claims",
+      "strict": true
+    }
+  ]
+}

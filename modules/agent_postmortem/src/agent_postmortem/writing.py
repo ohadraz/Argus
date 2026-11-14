@@ -61,7 +61,6 @@ from agent_postmortem.sections import (
     detection_of,
     hypotheses_of,
     impact_of,
-    is_a_code_reading,
     logs_in_the_gap_of,
     record_action_items_of,
     resolution_of,
@@ -87,7 +86,8 @@ class Ask(Protocol):
     def __call__(self,
                  llm: LLMClient,
                  evidence: IncidentEvidence,
-                 measured: Measurements
+                 measured: Measurements,
+                 judge: LLMClient | None = None
                  ) -> tuple[SubmittedPostmortem, list[str]]: ...
 
 
@@ -115,6 +115,7 @@ def write_postmortem(evidence: IncidentEvidence,
                      sources: Sources,
                      llm: LLMClient,
                      *,
+                     judge: LLMClient | None = None,
                      measure: Measure = measure,
                      ask: Ask = answer_worth_writing,
                      disclose: Disclose = assumptions_of,
@@ -126,9 +127,12 @@ def write_postmortem(evidence: IncidentEvidence,
     can go wrong here, and the one thing a test reading finished figures off
     the page cannot see. The sections code writes from the record are not: each
     is a value computed from the evidence, and placing it is all this does.
+
+    `judge` is the grounding judge the answer is read by (`grounding`), where
+    there is one.
     """
     measured = measure(evidence, sources)
-    answer, faults = ask(llm, evidence, measured)
+    answer, faults = ask(llm, evidence, measured, judge=judge)
     shown = the_evidence_labelled(evidence, measured)
 
     if faults:
@@ -144,7 +148,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # Absent rather than empty where the model never answered: a blank on a
         # page reads as a root cause somebody wrote and left empty, and this
         # document is one nobody can ask a follow-up question of.
-        root_cause=_the_root_cause(answer),
+        root_cause=answer.root_cause_as_written(),
         cause_in_plain_words=answer.cause_in_plain_words,
         # Written by code from the record, around the two sentences only the
         # model can give: the cause in plain words, and what is still at risk.
@@ -248,25 +252,6 @@ def write_postmortem(evidence: IncidentEvidence,
     })
 
 
-def _the_root_cause(answer: SubmittedPostmortem) -> str | None:
-    """The model's root cause, and - where it says the cause rests on a reading
-    of the source nothing ran - the document's own sentence saying it is
-    unverified, naming the readings the chain cites.
-
-    The document's rather than the model's, so the root cause and the review's
-    box are written from one answer: told to say it in prose, eight write-ups
-    called the cause unverified beside a box ticked complete.
-    """
-    if answer.root_cause is None or not answer.cause_rests_on_an_unrun_reading:
-        return answer.root_cause
-
-    readings = list(dict.fromkeys(cited for step in answer.causal_chain or []
-                                  for cited in step.cites if is_a_code_reading(cited)))
-    rests = f"It rests on {', '.join(readings)}, a" if readings else "It rests on a"
-
-    return f"{answer.root_cause} {rests} reading of the source nothing ran, so it is unverified."
-
-
 def _the_chain_as_cited(answer: SubmittedPostmortem,
                         shown: list[CitedEvidence]) -> list[ChainStep]:
     """Each step with the text of what it cites, since a label means nothing
@@ -283,7 +268,8 @@ def _the_chain_as_cited(answer: SubmittedPostmortem,
 
     return [ChainStep(text=step.step,
                       cites=as_cited(step.cites),
-                      ruled_out=[RuledOut(text=ruled.what, cites=as_cited(ruled.cites))
+                      ruled_out=[RuledOut(text=ruled.what, cites=as_cited(ruled.cites),
+                                          said_by_the_record=ruled.by_the_record)
                                  for ruled in step.ruled_out])
             for step in answer.causal_chain or []]
 

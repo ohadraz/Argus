@@ -1,0 +1,45 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSsAgKEAgTGAI4AUIIdGhpbmtpbmcSDPNWGu7LYb1A0jrr4xoM+QgFCn2TI+ZrZeodIjD7ZOyCtuY5hyuZsdVxnfaV4awoBcf3L8GT7uHWvH5xU8vQGdt9XVu0ajPgArkLZ+4qzQe4B3PYalF/T1xezKw76mlGi8i2o9rzDTzPBMbG5LEuZ4OJefLAtR6X35lYZwImauF/yGjRAxDgtIoM620rKX1FqYLOndXM4twJPidG04i3UR9sXnF2mlE6bq/QqbcU1SMu8kvKSMtdzkaTfVmyzdE2LlnZegLIW5pWEzTJG/CKcn8pnApwDwXLiUvZrII7pN8MPEYmZ1pQOX96aTsuLLU/wdDjdwnwddu4d4cLtbhh7YmqTgrFoA99bcgKk9vSbJMq4lUJYAu1YDBU6seOrulOJqWbJP5mvQbWE1V13CYsMl5OVLWiqDNE1i7+ppevstBWQCm0YgB/qMjyqsQ47gzMdqUeuIsiDFBjNBv2WGnig1E5NEeOg82o7r8YuQM9kI/R5RSL2AKGERn7PjaGPwjKC6KTGmQPRcPI3P8Ewa1yNcT7C45ySzisWR087nVAyD4C9cYqxbxQ7PDAZWgXnzssHrCD1ALmF/d9l2n/lSFMxnLzZi5nlNEGq4mmIZCIWx+LLjcMgu1xuuGlWKgkMIUIXqG6x2MbCDN0gFf2M7R5mjUsukHrwPMJ9m5xw4FCSqQjvpvdrv3HuYoz+dDZx18h0d/gUlq/O1RvdrdSsDEtFQRKTSONZlQH0AwSd/dQzp+146m9rf3it1D0ufiHNVqFtDjAu9fMju2gu92InXaQspv4bc5NKPMGEv00zTBqABwqfAfENTwywVrzIOaRWZ9zWaaJO8QoZl4HzT/bEY3/lPbUd5299N23UbXhd89xcbEsvFP5tPmG1TZOCi94ScN3kYKwR58vTcr8nbDgAz+5aqvxnyQmpdGczA6LfsciQjSfQ9LwQkayXaHAWDx6nn2h3pZGhoE5Eh7wT/l0kTeTS/IPjHboM0b5MEEEkk/SJOtpE1cKbVt0yu+002vB8bjTB8b3yOMtgCHrMbxxGPQf9lXGcHFHTIMoDJqSxJIO/DoqXotSRDzpriPmOrt++fAzT6azKe9JFBL8FweCjVj1rz53H7nS9VWBQoDYwsl9hJ+PAvpZ0ihr+4+XgV3tvmLxlqSigcs1SibzNcmzjHTfqooX8lyP/WWs/qOxg9gt+1HAy9p2yNW+3ck3z8oCiyTH+cGolE4I4WgysOKoJZKQMdOHps8f4q8rpNuV/1cyySCO2sZ5pH2oPvcIhi0o1uRf/DgbqHWV6j5HTTJbbZgsV6M2tlcUB8yUXzwCYIGu9HNgodTKoVzyYlHdBRx0d9o49wvlxFKbHmglF0DC36fDhJY/wta5+d1G+BpjuPHiJ+ld44BAvZrYHoPBLHHcGAE=",
+      "thinking": "I'm drafting the paragraph now. The affected group is some shoppers whose account pages hit old-version copies, and nobody was paged, so I'll leave out \"brief\" and \"likely\" and can add the peak error rate placeholder. The fix was a rollback that's confirmed in place, with automatic sync left off.\n\nI'm leaving out the version numbers in the paragraph and keeping \"once,\" but I'll steer clear of \"all.\"\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01FZmFtPcKy89eFvHyifKkM2",
+      "input": {
+        "overview": "For {duration}, some io-shop shoppers could not load their account pages. At the worst minute, {peak_error_rate} of requests failed. A software update changed the format the shop uses to save each shopper's spending summary. Copies of the shop still running the previous version expected the old format, could not read the new entries, and failed the account page. Argus estimates the shop lost {customer_loss} in takings. Nobody was paged, so no on-call responder was called in. Argus ended the incident by rolling back the io-shop deployment. The rollback is confirmed and still in place, and automatic sync has been left off."
+      },
+      "name": "submit_executive_overview",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgtsVJx8fyxK8zD68P5PH",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1019
+    },
+    "cache_creation_input_tokens": 1019,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 422,
+    "output_tokens_details": {
+      "thinking_tokens": 180
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

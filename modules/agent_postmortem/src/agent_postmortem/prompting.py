@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 from argus_core import (
     A_REVISION,
@@ -141,11 +141,13 @@ from agent_postmortem.sections import (
     a_hypothesis_of,
     causes_of,
     inside_a_sentence,
+    is_a_code_reading,
     label_of,
     labels_of_the_narration,
     record_action_items_of,
     said_of_a_line,
     the_alert_labelled,
+    the_owner_item,
     the_unproposed_fix_item,
     trigger_of,
     what_it_came_to,
@@ -269,10 +271,15 @@ NOTHING: Final = "none"
 
 class SubmittedRuledOut(BaseModel):
     """Something else the record ruled out, as the model wrote it, and the
-    labels of what ruled it out."""
+    labels of what ruled it out - or, where it rests on Argus's own reads
+    alone, as code said it from them (`ruling`)."""
 
     what: str
     cites: list[str]
+    # Whether code wrote `what` from the rows it cites. Never read from the
+    # model: `_what_was_ruled_out` builds this from the call's `what` and
+    # `cites` alone.
+    by_the_record: bool = False
 
 
 class SubmittedStep(BaseModel):
@@ -357,6 +364,12 @@ class SubmittedPostmortem(BaseModel):
     # Read off the same list the items are (`_the_rows_each_happened_on`); not
     # a wire name, so set from that.
     went_well_timed_by: list[str | None] | None = None
+    # The places, as `placed_sentences` names them, whose words code says
+    # instead or drops - an item of what went well said as its row (`timing`),
+    # a rule-out said by the record or resting on nothing (`ruling`). None of
+    # the model's words there reach a reader, so no rule is held to them. Set
+    # by `conversation` on the answer the checks read; never the model's to say.
+    said_by_code: frozenset[str] = frozenset()
     # Never `None`: an answer that did not say reads as a chain that stopped at
     # the change, which unticks one box of the review. So `checking`, which
     # names a required field that is `None`, never sends it back - a retry spent
@@ -377,6 +390,27 @@ class SubmittedPostmortem(BaseModel):
     # (`checking`).
     why_it_did_not_help: str | None = None
 
+    def root_cause_as_written(self) -> str | None:
+        """The root cause as the document writes it: the model's, and - where it
+        says the cause rests on a reading of the source nothing ran - the
+        document's own sentence saying it is unverified, naming the readings
+        the chain cites.
+
+        The document's rather than the model's, so the root cause and the
+        review's box are written from one answer: told to say it in prose,
+        eight write-ups called the cause unverified beside a box ticked
+        complete. Here rather than beside the document, because the grounding
+        judge reads the root cause as the page says it too.
+        """
+        if self.root_cause is None or not self.cause_rests_on_an_unrun_reading:
+            return self.root_cause
+
+        readings = list(dict.fromkeys(cited for step in self.causal_chain or []
+                                      for cited in step.cites if is_a_code_reading(cited)))
+        rests = f"It rests on {', '.join(readings)}, a" if readings else "It rests on a"
+
+        return f"{self.root_cause} {rests} reading of the source nothing ran, so it is unverified."
+
     def sentences(self) -> Iterator[str]:
         """Every sentence the answer would publish as written.
 
@@ -387,12 +421,17 @@ class SubmittedPostmortem(BaseModel):
         yield from (prose for _, prose in self.placed_sentences())
 
     def placed_sentences(self) -> Iterator[tuple[str, str]]:
-        """Every sentence the answer would publish, with the place it is in -
-        the field, and its position where the field is a list.
+        """Every sentence the answer would publish in the model's words, with
+        the place it is in - the field, and its position where the field is a
+        list. Not one at a place code says instead or drops (`said_by_code`).
 
         What a check that finds a fault in one item returns, so a fault moved
         into another item is one the model was never told of (`checking`).
         """
+        yield from ((place, prose) for place, prose in self._every_placed_sentence()
+                    if place not in self.said_by_code)
+
+    def _every_placed_sentence(self) -> Iterator[tuple[str, str]]:
         yield from ((field, prose)
                     for field, prose in ((ROOT_CAUSE_FIELD, self.root_cause),
                                          (CAUSE_IN_PLAIN_WORDS_FIELD, self.cause_in_plain_words),
@@ -442,11 +481,11 @@ class SubmittedPostmortem(BaseModel):
             LEAD_EFFECTS_FIELD: {lead: rewrite(effect)
                                  for lead, effect in self.lead_effects.items()},
             CAUSAL_CHAIN_FIELD: (None if self.causal_chain is None else
-                                 [SubmittedStep(step=rewrite(step.step), cites=step.cites,
-                                                ruled_out=[SubmittedRuledOut(
-                                                    what=rewrite(ruled.what),
-                                                    cites=ruled.cites)
-                                                    for ruled in step.ruled_out])
+                                 [step.model_copy(update={
+                                     STEP_FIELD: rewrite(step.step),
+                                     RULED_OUT_FIELD: [
+                                         ruled.model_copy(update={WHAT_FIELD: rewrite(ruled.what)})
+                                         for ruled in step.ruled_out]})
                                   for step in self.causal_chain]),
             CONTRIBUTING_FACTORS_FIELD: (None if self.contributing_factors is None else
                                          [factor.model_copy(update={
@@ -715,7 +754,19 @@ _THE_ONSET_WITH_A_CHANGE_INSIDE_ITS_MINUTE: Final = (
     "the onset, dated to its minute: a change came during that minute"
 )
 
-_WHAT_ARGUS_DID: Final = "What Argus did, in order:"
+_WHAT_ARGUS_DID: Final = "What Argus did, in order"
+
+
+class _Heading(NamedTuple):
+    """A heading of the record's evidence: what the rows beneath it are, and
+    what the writer is told of them after that, joined as the record says
+    them - kept apart because only what they are is said beside a citation."""
+
+    what: str
+    told: str = ""
+
+    def as_the_record_heads_it(self) -> str:
+        return f"{self.what}{self.told}:"
 
 # A volume's unit, joined to it as the candidates write theirs ("1200/min"), so
 # the two read as one figure.
@@ -745,10 +796,39 @@ _A_REPORT_IS_NO_HYPOTHESIS: Final = (
 # What a check the record does not show is written as, said in the two fields a
 # missing safeguard is written in. Said once in the tool's description, a
 # write-up still gave "nothing checked output quality before it reached
-# production" as a factor and as what went wrong.
+# production" as a factor and as what went wrong. And a check it does show is
+# not the only one: told only of the unseen kind, three write-ups of one
+# incident called the check that found it the only one - two of them "the only
+# check that compares stored spend totals with their purchases" - which no line
+# said.
 _A_SAFEGUARD_NOBODY_SAW: Final = (
     "A safeguard the record does not show is one not seen, never one absent: "
-    "write that no check was seen, not that none ran."
+    "write that no check was seen, not that none ran - and of a check the record "
+    "does show, say that no other check was seen, never that it is the only one, "
+    "unless a line of the record says so."
+)
+
+# What went_wrong is not, named once: the writer's field says it, and the
+# grounding judge is handed it word for word to hold an item to. Left off so a
+# rollback holds, automatic sync was listed here as well as in the resolution
+# and the record's own item - and called a failure when it went as designed. So
+# was a draft fix nothing ran, a refusal the record bore out ("no mitigation was
+# applied"), a factor said again (nobody paged), and a stretch the metrics did
+# not cover, which is a limit of the evidence rather than of the response. A
+# refusal the record contradicts is the one kind kept: told only that a refusal
+# went as designed, write-ups dropped the one that had not.
+WENT_WRONG_DESCRIPTION: Final = (
+    "A change the response left in place on purpose, which one of the record's own "
+    "action items undoes (automatic sync left off), went as designed and did not go "
+    "wrong; so did what the design leaves to a person - a draft fix to review and "
+    "merge, a change Argus refused to undo, for a reason the record bears out, and left "
+    "for a person - a refusal the record contradicts did go wrong, and belongs here. "
+    "Not a limit of what the record shows - logs nobody read, metrics that stop short "
+    "of the onset: the document says what was read, and anything assumed is said in "
+    f"{ASSUMPTIONS_FIELD}. Not the root cause or a contributing factor again - the "
+    "document says those already. Not that Code-Fix read another revision than the "
+    "one that ran, or that nothing ran its reading: where the record holds them, the "
+    "document says the first in its summary and the second beside the root cause."
 )
 
 # Beside a change only Argus's own read of the flag provider's history found.
@@ -1026,32 +1106,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                "without saying what it does: the action items and "
                                "Code-Fix's own reading say that, with its conditions."
                            ),
-                           # Left off so a rollback holds, automatic sync was
-                           # listed here as well as in the resolution and the
-                           # record's own item - and called a failure when it
-                           # went as designed. So was a draft fix nothing ran,
-                           # and a stretch the metrics did not cover, which is
-                           # a limit of the evidence rather than of the response.
                            WENT_WRONG_FIELD: {
                                **_SENTENCES,
-                               "description": (
-                                   "A change the response left in place on purpose, "
-                                   "which one of the record's own action items undoes "
-                                   "(automatic sync left off), went as designed and "
-                                   "did not go wrong; so did what the design leaves "
-                                   "to a person - a draft fix to review and merge. "
-                                   "Not a limit of what the record shows - logs "
-                                   "nobody read, metrics that stop short of the "
-                                   "onset: the document says what was read, and "
-                                   f"anything assumed is said in {ASSUMPTIONS_FIELD}. "
-                                   "Not the root cause or a contributing factor again "
-                                   "- the document says those already. Not that "
-                                   "Code-Fix read another revision than the one that "
-                                   "ran, or that nothing ran its reading: where the "
-                                   "record holds them, the document says the first "
-                                   "in its summary and the second beside the root "
-                                   "cause."
-                               )
+                               "description": WENT_WRONG_DESCRIPTION
                            },
                            # Told only that any list may be empty, write-ups
                            # filled this one with what kind of fault it was
@@ -1299,7 +1356,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         ]),
         *(line
           for heading, cited, beneath in _the_evidence_by_kind(evidence, measured)
-          for line in ["", heading,
+          for line in ["", heading.as_the_record_heads_it(),
                        *(f"  - [{_its_labels(each)}] {_under_its_label(the_evidence_named(each))}"
                          for each in cited),
                        *([] if beneath is None else [f"  - {beneath}"]),
@@ -1307,7 +1364,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
                        # says how every line above it was ordered, and is
                        # none of them.
                        *([_A_MESSAGE_NEVER_STOPS_A_STEP]
-                         if heading == _WHAT_ARGUS_DID and evidence.people_wrote else [])]),
+                         if heading.what == _WHAT_ARGUS_DID and evidence.people_wrote
+                         else [])]),
         "",
         "Action items the record already holds:",
         *(_the_record_items(evidence, measured) or [f"  - {NOTHING}"]),
@@ -1315,6 +1373,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *_what_the_record_holds_of_the_fix(evidence.pull_request),
         *_what_the_record_holds_of_a_fix_not_kept(evidence, measured),
         *_what_the_record_holds_of_a_fix_not_proposed(evidence, measured),
+        *_what_the_record_holds_of_whom_to_ask(evidence, measured),
         *_what_set_it_off(evidence),
         "",
         f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label. In a contributing "
@@ -1404,9 +1463,25 @@ def _the_evidence_listed(evidence: IncidentEvidence,
             for cited in cited_of_a_kind]
 
 
+def the_headings_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, str]:
+    """What the heading each piece of evidence is listed beneath says it is,
+    by its label - what kind of row it is, and whose words - without what the
+    writer is told of it there.
+
+    What the grounding judge reads beside a citation, as the page says a row
+    by what it is: shown a bare label, it took a step citing Code-Fix's
+    reading for a claim said flat. Not the writer's instruction: beside a
+    claim, "not what happened unless a row shows it" argues the very flag
+    the heading is there to answer.
+    """
+    return {cited.label: heading.what
+            for heading, cited_of_a_kind, _ in _the_evidence_by_kind(evidence, measured)
+            for cited in cited_of_a_kind}
+
+
 def _the_evidence_by_kind(evidence: IncidentEvidence,
                           measured: Measurements
-                          ) -> list[tuple[str, list[CitedEvidence], str | None]]:
+                          ) -> list[tuple[_Heading, list[CitedEvidence], str | None]]:
     """The evidence under the heading the model reads it beneath, in the order
     it is shown, with what is said beneath its rows - `None` where nothing is.
 
@@ -1457,8 +1532,8 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
     uses_outside = the_uses_outside_labelled(evidence)
 
     return [
-        (_WHAT_ARGUS_DID, narration, None if narration else NOTHING),
-        ("Changes to production it read:",
+        (_Heading(_WHAT_ARGUS_DID), narration, None if narration else NOTHING),
+        (_Heading("Changes to production it read"),
          [CitedEvidence(label=cited.label,
                         text=_a_change_as_a_line(cited.change)
                              + (_who_found_it(cited.change, evidence)
@@ -1466,37 +1541,41 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
           for cited in changes],
          changes_not_listed(evidence.deploys_reading, evidence.flags_reading,
                             {cited.change.kind for cited in changes})),
-        ("Log lines it read, one per message:", log_lines,
+        (_Heading("Log lines it read, one per message"), log_lines,
          None if log_lines else no_logs_listed(evidence.logs_reading)),
         # Named and never cited: "cite" is what the chain's steps do with evidence,
         # and the check refuses a step citing a candidate, so a header saying
         # "cite them" was a refusal asked for.
-        (f"Candidates it considered, in the Investigator's words - name them by their "
-         f"labels, but cite none; what they claim {_NOT_WHAT_HAPPENED}:", candidates,
+        (_Heading("Candidates it considered, in the Investigator's words",
+                  f" - name them by their labels, but cite none; what they claim "
+                  f"{_NOT_WHAT_HAPPENED}"), candidates,
          _NO_CAUSE_NAMED if named_no_cause(evidence) else None if candidates else NOTHING),
         # "none" only where it is true: above an action nobody can say was
         # taken it says nothing was done, which nobody knows either.
-        *([("Actions it took:", actions, None if actions else NOTHING)]
+        *([(_Heading("Actions it took"), actions, None if actions else NOTHING)]
           if actions or not unanswered else []),
-        *([("Actions it reached for and did not take:", not_taken, None)]
+        *([(_Heading("Actions it reached for and did not take"), not_taken, None)]
           if not_taken else []),
-        *([("Actions it reached for that nobody can say were taken:", unanswered, None)]
+        *([(_Heading("Actions it reached for that nobody can say were taken"), unanswered,
+            None)]
           if unanswered else []),
         # Beside what Argus did about the load, and before Code-Fix's reading,
         # whose weight the line beneath sets.
-        *([(f"What the metrics show of the confirmed cause [{load_confirmed}], measured by "
-            f"Argus:", cause_measured, _the_load_is_the_root_cause(load_confirmed))]
+        *([(_Heading(f"What the metrics show of the confirmed cause [{load_confirmed}], "
+                     f"measured by Argus"), cause_measured,
+            _the_load_is_the_root_cause(load_confirmed))]
           if cause_measured and load_confirmed is not None else []),
-        *([("What each deployment it looked into changed:", looked_into,
+        *([(_Heading("What each deployment it looked into changed"), looked_into,
             _what_each_whole_diff_leaves_as_it_was(evidence, looked_into))]
           if looked_into else []),
         # Headed by what came of it, as the page heads it: "proposed" and "its
         # test or its fix" were false where nothing was.
-        *([(f"What Code-Fix read in the source and proposed, in Code-Fix's words - nothing "
-            f"ran its test or its fix, and what it claims {_NOT_WHAT_HAPPENED}:"
-            if evidence.pull_request is not None
-            else f"What Code-Fix read in the source, in Code-Fix's words - nothing ran to "
-                 f"check it, and what it claims {_NOT_WHAT_HAPPENED}:",
+        *([(_Heading("What Code-Fix read in the source and proposed, in Code-Fix's words - "
+                     "nothing ran its test or its fix"
+                     if evidence.pull_request is not None
+                     else "What Code-Fix read in the source, in Code-Fix's words - nothing "
+                          "ran to check it",
+                     f", and what it claims {_NOT_WHAT_HAPPENED}"),
             read_in_the_source,
             " ".join(note for note in (_SAY_IT_NO_WIDER_THAN_IT_WAS_READ,
                                        _what_its_branch_did_not_hold(evidence),
@@ -1504,10 +1583,11 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                                        _the_diffs_of_what_it_names(evidence, looked_into))
                      if note) or None)]
           if read_in_the_source else []),
-        *([("What ran, read at the revision running when the alert fired:", as_it_ran, None)]
+        *([(_Heading("What ran, read at the revision running when the alert fired"), as_it_ran,
+            None)]
           if as_it_ran else []),
-        *([(f"How the code outside Code-Fix's patch uses what it changes, "
-            f"{_where_the_uses_were_read(evidence)} by Argus:", uses_outside,
+        *([(_Heading(f"How the code outside Code-Fix's patch uses what it changes, "
+                     f"{_where_the_uses_were_read(evidence)} by Argus"), uses_outside,
             " ".join(note for note in (
                 f"Where [{label_of(CODE_READING_PREFIX, 1)}] says otherwise of these lines, "
                 f"they stand.",
@@ -1564,20 +1644,28 @@ def _the_diffs_of_what_it_names(evidence: IncidentEvidence,
     beside the diff showing it: the reading and the diff were both in front of
     it, and nothing between them said they were about one revision. Only a
     deployment that was compared has a diff to say.
+
+    Once per diff, by the spelling the reading uses first: a reading that names
+    a revision whole and again by its short form is naming one revision, and a
+    sentence for each spelling told the model the same thing twice.
     """
     if evidence.fix_explanation is None:
         return None
 
     reading = label_of(CODE_READING_PREFIX, 1)
     named = A_REVISION.findall(evidence.fix_explanation)
-    tied = [f"[{reading}] names revision {short} and [{diff.label}] is that revision's own "
-            f"diff - say what it shows rather than ask for it to be checked."
-            for record, diff in zip(evidence.deployment_changes, looked_into, strict=True)
-            if record.comparison is DeploymentComparison.COMPARED
-            for short in named
-            if the_revision_named(short, frozenset({record.revision})) == record.revision]
+    tied: dict[str, str] = {}
+    for record, diff in zip(evidence.deployment_changes, looked_into, strict=True):
+        if record.comparison is not DeploymentComparison.COMPARED:
+            continue
+        for short in named:
+            if the_revision_named(short, frozenset({record.revision})) == record.revision:
+                tied.setdefault(diff.label, f"[{reading}] names revision {short} and "
+                                            f"[{diff.label}] is that revision's own diff - say "
+                                            f"what it shows rather than ask for it to be "
+                                            f"checked.")
 
-    return " ".join(dict.fromkeys(tied)) or None
+    return " ".join(tied.values()) or None
 
 
 def _rewriting_is_left_to_a_person(evidence: IncidentEvidence) -> str | None:
@@ -1932,6 +2020,28 @@ def _what_the_record_holds_of_a_fix_not_kept(evidence: IncidentEvidence,
     return [f"Code-Fix kept none of the fix it wrote: {numbered[WRITE_THE_FIX_AGAIN]} is "
             f"writing it again, both its change to the repository and the change outside "
             f"it - propose neither again."]
+
+
+def _what_the_record_holds_of_whom_to_ask(evidence: IncidentEvidence,
+                                          measured: Measurements) -> list[str]:
+    """That the failure is in a service another company runs, so no code fix
+    was looked for, and which of the record's items asks them to restore it -
+    or nothing, where no refusal named such a service.
+
+    Said beside the item for the reason a fix not kept is: no check refuses an
+    item repeating one the record holds, and a walk that asked Code-Fix
+    nothing leaves the write-up no fix to point at instead.
+    """
+    failed = evidence.whose_service_failed
+    if failed is None:
+        return []
+
+    numbered = {item.text: item.number
+                for item in record_action_items_of(evidence, measured.back_to_normal_at)}
+
+    return [f"{failed.owner} runs {failed.name}, so no code fix was "
+            f"looked for: {numbered[the_owner_item(failed)]} asks them to "
+            f"restore it - propose no item of your own for it."]
 
 
 def _what_the_record_holds_of_a_fix_not_proposed(evidence: IncidentEvidence,
@@ -2671,8 +2781,10 @@ def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None,
     did. Told only that nobody was paged, a write-up said no person was told at
     all, of an incident Argus had announced in its thread. Told to say nothing
     of who was told, the same write-up dropped that nobody was paged too - so
-    the one claim is refused by name and the finding kept open beside it. The
-    document says the post itself, which is why the answer leaves it out.
+    the one claim is refused by name and the finding kept open beside it.
+    Refused only "told", a write-up said no person was engaged, so taking part
+    is refused with it. The document says the post itself, which is why the
+    answer leaves it out.
     """
     if isinstance(engaged, NotPaged):
         paged = "Nobody was paged: no on-call incident was linked to this one."
@@ -2686,8 +2798,8 @@ def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None,
         told = (f" Argus first posted about the incident in "
                 f"{where_a_report_came_from(posted.channel)} at "
                 f"{_shown(FIRST_TOLD_FIGURE, figures)}, and the document says so already: "
-                f"leave that post out, and do not say that no person was told. That nobody "
-                f"was paged is a finding of its own.")
+                f"leave that post out, and do not say that no person was told or took "
+                f"part. That nobody was paged is a finding of its own.")
 
     return f"{paged} An alert rule fires; a person is paged.{told}"
 

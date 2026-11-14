@@ -28,18 +28,20 @@ from agent_postmortem.estimate import (
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.sections import (
     a_put_back_left_the_harm,
+    as_the_timeline_shows_it,
     detection_of,
     hypotheses_of,
     impact_of,
     logs_in_the_gap_of,
     record_action_items_of,
     resolution_of,
+    said_as_a_clause,
     timeline_of,
     trigger_of,
     why_no_trigger,
 )
 from argus_core import parse_iso, to_iso
-from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
+from argus_core.events import PATCH_LINE_INDENT, CandidateSelected, a_changed_file_line
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -61,17 +63,20 @@ from argus_core.models import (
     LogsInTheGap,
     NoTrigger,
     OpenedPullRequest,
+    Ownership,
     Refusal,
     ReportChannel,
     ResolutionStep,
     RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
+    ServiceDependency,
     TimelineEntry,
     TimelineMarker,
     Trigger,
     Verdict,
     WhyNoTrigger,
 )
+from argus_narration import A_PERSON
 from argus_testkit import Scenario, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
@@ -94,6 +99,20 @@ SOME_THIRD_REVISION = "9a41c07be3d2f8165c0e7a92d4b8f3e6a1c5d720"
 SOME_FILE = "deploy/values-production.yaml"
 SOME_OTHER_FILE = "src/io_shop/pricing_service.py"
 SOME_DEPENDENCY = "io-pricing"
+# The kind of line a move to another candidate is, as the events name it.
+CANDIDATE_SELECTED: str = CandidateSelected.model_fields["kind"].default
+
+# Who a line of the narration is said by, as the narration names them, and
+# the lines a clause goes on with.
+SOME_AGENT = "Investigator Agent"
+ARGUS = "Argus"
+SOME_PERSON_NAMED = "Some Person"
+SOME_LINE = "Read back 0 production changes"
+SOME_LINE_OPENING_WITH_AN_ACRONYM = "CPU rose past its line"
+
+
+def _lowered(line: str) -> str:
+    return line[:1].lower() + line[1:]
 
 
 @pytest.mark.unit
@@ -2270,6 +2289,34 @@ def test_the_record_implies_its_action_items_and_numbers_them_first() -> None:
 
 
 @pytest.mark.unit
+def test_a_failure_in_somebody_elses_service_is_an_item_to_ask_whoever_runs_it() -> None:
+    # Restoring the provider is what ends the incident, and nobody at the shop
+    # can: the item names whom the register says to ask, which service and where
+    # it lives, and asks why it failed too. Left to the model, a write-up whose
+    # walk asked Code-Fix nothing lost the item altogether.
+    some_provider = ServiceDependency(name="kuki-pay", purpose="dont care",
+                                      host="api.kuki-pay.example", owner="Kuki Payments Ltd",
+                                      ownership=Ownership.THIRD_PARTY)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"whose_service_failed": some_provider})
+        ) \
+        .when(
+            lambda: [(item.number, item.text, item.type, item.status)
+                     for item in record_action_items_of(evidence, None)]
+        ) \
+        .then(
+            the_answer_was([
+                ("AI-1", f"Ask {some_provider.owner} to restore {some_provider.name} "
+                         f"({some_provider.host}) and to say why it failed",
+                 ActionItemType.MITIGATE, ActionItemStatus.OPEN)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_written_and_not_kept_is_an_item_to_write_it_again_on_both_sides() -> None:
     # Code-Fix kept none of it, so there is nothing to review: what is left is
     # writing it again, the repository's half with the one outside. Left to the
@@ -3404,3 +3451,117 @@ def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesR
         a_changed_file_line("modified", SOME_FILE),
         *(f"{PATCH_LINE_INDENT}{line}" for line in changed)
     ])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("who", "said_as"), [
+    (SOME_AGENT, f"the {SOME_AGENT}"),
+    (ARGUS, ARGUS),
+    (SOME_PERSON_NAMED, SOME_PERSON_NAMED),
+    (A_PERSON, _lowered(A_PERSON))
+], ids=["an-agent", "argus", "a-person-named", "a-person-unnamed"])
+def test_a_line_said_as_a_clause_opens_with_whoever_said_it_as_a_sentence_goes_on(
+        who: str, said_as: str) -> None:
+    # Mid-sentence, after a span or what a read ruled out: an agent takes
+    # "the", a name stays as written, and the narration's unnamed person is
+    # "a person".
+    Scenario() \
+        .given(
+            a_line := a_timeline_entry(SOME_LINE, who=who)
+        ) \
+        .when(
+            lambda: said_as_a_clause(a_line)
+        ) \
+        .then(
+            the_answer_was(f"{said_as} {_lowered(SOME_LINE)}")
+        )
+
+
+@pytest.mark.unit
+def test_a_line_opening_with_an_acronym_keeps_it_as_written() -> None:
+    Scenario() \
+        .given(
+            a_line := a_timeline_entry(SOME_LINE_OPENING_WITH_AN_ACRONYM, who=ARGUS)
+        ) \
+        .when(
+            lambda: said_as_a_clause(a_line)
+        ) \
+        .then(
+            the_answer_was(f"{ARGUS} {SOME_LINE_OPENING_WITH_AN_ACRONYM}")
+        )
+
+
+@pytest.mark.unit
+def test_a_line_said_as_a_clause_leaves_its_full_stop_to_the_sentence() -> None:
+    Scenario() \
+        .given(
+            a_line := a_timeline_entry(f"{SOME_LINE}.", who=ARGUS)
+        ) \
+        .when(
+            lambda: said_as_a_clause(a_line)
+        ) \
+        .then(
+            the_answer_was(f"{ARGUS} {_lowered(SOME_LINE)}")
+        )
+
+
+@pytest.mark.unit
+def test_a_line_not_written_in_the_past_is_said_as_a_clause_in_the_narration_s_words() -> None:
+    # "Argus moving on to C2" is no sentence; the narration knows its own
+    # lines, and says what this one did.
+    some_candidate = "C2"
+
+    Scenario() \
+        .given(
+            a_line := a_timeline_entry(f"Moving on to {some_candidate}", who=ARGUS,
+                                       kind=CANDIDATE_SELECTED)
+        ) \
+        .when(
+            lambda: said_as_a_clause(a_line)
+        ) \
+        .then(
+            the_answer_was(f"{ARGUS} moved on to {some_candidate}")
+        )
+
+
+@pytest.mark.unit
+def test_a_line_of_the_walk_is_said_as_the_timeline_shows_it() -> None:
+    # What the document says beside the timeline in a row's words says the
+    # row as the timeline does: the revision short, the fix by its name, and a
+    # name in brackets as code.
+    some_short = SOME_REVISION[:7]
+    some_pull_request = OpenedPullRequest(number=1,
+                                          url="https://github.invalid/acme/shop/pull/1",
+                                          branch="argus/fix-abc")
+    some_service = "io-shop"
+
+    Scenario() \
+        .given(
+            a_line := a_timeline_entry(f"Rolled [{some_service}] back off {SOME_REVISION} - "
+                                       f"a draft is open at {some_pull_request.url}")
+        ) \
+        .when(
+            lambda: as_the_timeline_shows_it(a_line, {SOME_REVISION: some_short},
+                                             some_pull_request)
+        ) \
+        .then(
+            the_answer_was(a_line.model_copy(update={
+                "text": f"Rolled `{some_service}` back off {some_short} - a draft is open at "
+                        f"{some_pull_request.name}"}))
+        )
+
+
+@pytest.mark.unit
+def test_a_line_from_outside_the_walk_is_said_as_it_was_written() -> None:
+    # As the timeline shows it: a person's brackets and revisions are theirs.
+    Scenario() \
+        .given(
+            a_line := a_timeline_entry(f"Wrote in the incident's thread: [io-shop] went to "
+                                       f"{SOME_REVISION}", outside_the_walk=True)
+        ) \
+        .when(
+            lambda: as_the_timeline_shows_it(a_line, {SOME_REVISION: SOME_REVISION[:7]}, None)
+        ) \
+        .then(
+            the_answer_was(a_line)
+        )

@@ -66,6 +66,7 @@ from agent_postmortem.sections import (
 from agent_postmortem.sources import EngagedResponder, NotPaged
 from agent_postmortem.summary import the_executive_summary
 from argus_core import to_iso
+from argus_core.llm import LLMClient
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -119,6 +120,7 @@ from agent_postmortem_test.framework.builders import (
     a_candidate,
     a_lead,
     a_measured_incident,
+    a_model_answering_in_turn,
     a_submitted_answer,
     an_action,
     an_answer,
@@ -1097,6 +1099,48 @@ def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> No
 
 
 @pytest.mark.unit
+def test_a_rule_out_the_record_says_is_marked_so_in_the_document() -> None:
+    # Said by code in the rows' own words, the rule-out need not say those
+    # words again beside it: the page cites its rows by label alone.
+    its_row = grouped([SOME_LOG_LINE], None, ONSET.date())[0]
+    its_label = its_row.label
+    some_ruled_out = "a slow database, never logged"
+
+    Scenario() \
+        .given(
+            an_incident_s_evidence := an_evidence_bundle(log_lines=[SOME_LOG_LINE])
+        ) \
+        .when(
+            lambda: write_postmortem(an_incident_s_evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(
+                                         a_submitted_answer().model_copy(update={
+                                             "causal_chain": [SubmittedStep(
+                                                 step=SOME_STEP,
+                                                 cites=[its_label],
+                                                 ruled_out=[SubmittedRuledOut(
+                                                     what=some_ruled_out,
+                                                     cites=[its_label],
+                                                     by_the_record=True)])]
+                                         })),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the causal chain", lambda document: document.causal_chain, [
+                ChainStep(text=SOME_STEP,
+                          cites=[CitedEvidence(label=its_label, text=its_row.text)],
+                          ruled_out=[RuledOut(text=some_ruled_out,
+                                              cites=[CitedEvidence(label=its_label,
+                                                                   text=its_row.text)],
+                                              said_by_the_record=True)])
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_a_step_citing_a_log_split_where_the_metrics_stopped_carries_the_split_text() -> None:
     # The text a step carries is what the model was shown under the label it
     # cites, and the row on the page beside it is split - so the step is too.
@@ -1811,6 +1855,30 @@ def test_the_model_is_asked_about_the_incident_that_was_measured() -> None:
 
 
 @pytest.mark.unit
+def test_the_answer_is_read_by_the_judge_the_document_was_handed() -> None:
+    # Handed in rather than built here: which model judges, and where it is
+    # reached, is the deployment's to say.
+    an_asker = _asking_that_answers(a_submitted_answer())
+
+    Scenario() \
+        .given(
+            some_judge := a_model_answering_in_turn()
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     judge=some_judge,
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=an_asker,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _judged_by(an_asker, some_judge)
+        )
+
+
+@pytest.mark.unit
 def test_the_disclosures_are_written_from_what_was_measured_and_configured() -> None:
     # The disclosure module reads no source of its own, so everything it needs
     # has to arrive here: the incident as measured, and the working year the
@@ -2103,6 +2171,21 @@ def _was_asked_about(asking: MagicMock,
             raise AssertionError(
                 f"Expected the model to be given the incident as measured, got "
                 f"[{put_to_it}].")
+
+        return True
+
+    return assertion
+
+
+def _judged_by(asking: MagicMock, judge: LLMClient) -> Assertion[PostmortemDocument]:
+    """The answer was asked for with this judge to read it."""
+    def assertion(dont_care_document: PostmortemDocument) -> bool:
+        handed = asking.call_args.kwargs.get("judge")
+
+        if handed is not judge:
+            raise AssertionError(
+                f"Expected the answer read by the judge the document was handed, "
+                f"got [{handed}].")
 
         return True
 

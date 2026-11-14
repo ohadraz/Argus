@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS+wYKEAgTGAI4AUIIdGhpbmtpbmcSDDOn63/ih+isXxj4hRoMzQU3CmBFwRoKQrQ+IjD6bZRKvQu064wpzKXfhNmxSGYDx6hnX9RzuJH5E5dr9BWYiEx3IZmU81aY1rp7f2UqmAZ4VQcIr6vMgbOtX2fj3UEWYNz/BHZBpB2pptYNGTAsmuTrQvNPtVT+AoAAv7vTw5OF8TwUn1MGFIwkA7jF8XL/7t9vRmnujARhmRa/zK0aUYv4w32dkarA9S4RXOMQnXDKyPYNjthfe3i6iaiw6igmzWX5AvnVm5TWdrGkVoX9vTGHUtrLricqoNAfxgCX3k1/rxzd3Z25/2GTHm47pc3FZqg+49EKMnTN/A4JczxhMBPu9QJU6mfJk7Z6g39QgMVt0Y6j18M72DjGcdt2HnYyfzTyvY23M+XL4V+C4PTGIyJTebQU1lbLhUlglcMAPY/S2NhRYUTdi15npf57W6/4hyPFmLknrI7anB+74ESHQi+zjSz2ySEQxxeKqIqQoAQezifnGAnJOVEEV1M3UniBzKvU/HHrNgkpwniQr9Ikl3ihlBkXGX735wEWE1St6FAiMosZ3boag7AyVEEyXjcOdbY7XZO7o1MtbCUs8ISUXDnunagHcuFPE/KmG+vlc6TDsEIgFftqoRrgbjkhjH18zceBK168QP4YO2B+DjXpQGMJ15mo4k/znydm6FcrjlZH9My9aKK0NEaFIRL4/EDGgEgQffQ7RJtoID4xImTDEvL0kbKsJ9v/fkbH7x/g+cBKmVAmv+oi7VQ3YCl/RKl3E33AxMuTvt5W1wUN+ROvFu2mDXglfsJspW0SSZeiIvJKmLK1hLCg4lxeTGO8rgwCxzqNFjI1Pw8HjjrY6cRvvY7Eudw8kbQclPXCJk2jdOVBTsXew8pB08LE2uuPtOJj641PmFHosE3ptro+TSEfBuy8T6xKyJQDGwdJ2Cv0jpJnFSyEAfPjrfZQWFj7/yyff6OzObwkVZYnD7Nsbm8/P4c2u/PfPxjHHL6xMLhzAadNun/FW4g3SzIIO7PqeBjdLmmFfi1gmdvC0jpqp3QdXNch77SzknjB3VBGf0mdH2LdKVgHLwo1BQPdckKOEVR4BKKhpnYhO88LKugC5+GqiXkFMXnmQlBOqVdrvEEckxc++6Kx5gRb0eApPDcKhGd3kVcxPaHFzP8YAQ==",
+      "thinking": "I'm settling the order of the causal chain: the symptom comes first, then the deploy and the revision it introduced, then the function rewrite, and the quadratic work stays last as the root cause.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01HcQa1ce1MxH8WEHMxEStNu",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgvTi8QiQ97o8iswC1hzp",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 427
+    },
+    "cache_creation_input_tokens": 427,
+    "cache_read_input_tokens": 854,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 189,
+    "output_tokens_details": {
+      "thinking_tokens": 131
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

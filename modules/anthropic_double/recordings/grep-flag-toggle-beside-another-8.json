@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSrwYKEAgTGAI4AUIIdGhpbmtpbmcSDIbQknIqgf3JZZWvDhoMcxJghGBRNKX1WeMYIjB/ySShBishTdPkC7rXGQPZ3nfFoCyht1kDEpILh4K0cB06p4hDoMAuRpi7uxwIbV8qzAWAhi6lwjZIIKtJDkDKLkan7irXa6BVQvHoQOzlOpGUpU/Y4g5wfksWskVk5LSbWa1/+/eXo2oC+ImKesZd3UltgvLR1qlgYz0hTcuc1uF1gcjLbWoVav02F5cw1KlH2M5JqRQpoKDVLpEMG8LTuucwYs36gPrSFpTfWF1qCY1eAgkCrVGs5mB4YNkFaYHu4OFbPM+aE0pmDG3hLVvfsF23AQHpyjQxX+WuNx4wZv8nh49ltz3fDSvLPBZf87VaFjlkKKYNHV12E3er1Q34KjpdgHHRaXBzovMD9lr3yUExabHZwV92P+OoM+2OMbMhNOa92cSVrxGMb5xyrBX7YizShro6xYEsRjvHMdZTfLSjyG+9JbC3pAMmcF/ensjwixtXvSkcKJFp3hfBWUNv61H92YKb/ySZ4ETkZ4ES18QEaVubvale44Dg4D7Vxfiumeg25aRsuRWM44qI0vTvKGZuV0/rklPOsPIA3xPHNn9kuuiS9ByA60+QeJAkTd8c7E3FJiC+OyGnJq3F49zIdB3flhOmqnZvvbFcJQXCp91c5spBxprs7tpb4bcEI6UkgDFXFEsxJGPTx1af1MfBgYZqVj7Q9kTBKd2PV7LRnxZMW5uvkiv5mGpfrLAQsNV3kXKchDXvvaha9oO9ESebKOFeP+iPRfaVUwfqoudgUekmqJPgAIyw4ZZ8F39ZZIgVYqsXDjl30+1zHZr6QWmXNPmFo4AkpIIAqpOXXGGr0uyupyUBtzo4fyVvA44g+ia1lNLmhR4isvpzxJmKgijRaej63O8URUVDJ5P1237wRhz8JwjDD9WAXnBepJy+5PFJkqwUbvak+LGNnxZt9EuA14zQSkGqNZ1NOSmjiJ4gLDLDmVgSf3dhm9eCGzr9mdTx7HC8fM2b3lH3jShgSgmVpXgBqSNw449OpO/MzUrhBb6DPaf7w08M5NVsYBMfiRgB",
+      "thinking": "I'm putting the chain in order: first the symptom, then the error, then the ZeroDivisionError, and I'm tracing that back to the flag being switched on.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01TySgHxEhSxcJnBDXbkJ8ha",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgvLMiWA1jaPxfLkjizL2",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1220
+    },
+    "cache_creation_input_tokens": 1220,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 157,
+    "output_tokens_details": {
+      "thinking_tokens": 99
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

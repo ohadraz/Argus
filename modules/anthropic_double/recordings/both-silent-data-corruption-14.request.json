@@ -5,7 +5,7 @@
   "max_tokens": 16000,
   "messages": [
     {
-      "content": "The causal chain of a postmortem, its steps numbered as written:\n1. Shoppers' stored spend totals no longer matched the purchases behind them: 240 of 240 totals the spend-integrity check looked at did not reconcile, the widest short by 1,297.31. The oldest affected purchase was recorded at 08:54 UTC.\n2. Purchases recorded from the onset on were added to each shopper's purchase history but not to the stored month total, which the reconciliation compares with the sum of the month's purchases. So each total fell behind by the price of every such purchase. This rests on Code-Fix's reading of the code, which nothing ran.\n3. An admin switched the monthly-spend-feature flag on at 08:52 UTC, shortly before the oldest affected purchase at 08:54 UTC. According to Code-Fix's reading, with the feature on, `record_a_purchase` is called with `derive_the_month=True` and hands each purchase to `record_purchase_deriving_the_month` rather than to `record_purchase`.\n4. `record_purchase_deriving_the_month` moves `total_cents` but by design never writes `total_this_month_cents`: its docstring says the purchase is recorded \"without the month's total being moved\". The flag-off path, `record_purchase`, does add the price to the month total.\n\nPut the steps in the order in which each step answers why the step directly before it happened - the first and the last stay where they are. Call order_chain with the steps' numbers in that order.",
+      "content": "Write the overview of the executive synopsis for the incident on io-shop below: a short paragraph in plain words, for the people who lead the company rather than the engineers who responded - what happened, how long it lasted, what it cost the business and the people who responded, and how it was resolved.\n\nWhat a reader saw: Shoppers' stored spend totals fell short of the purchases behind them\nWhy, in plain words: After a feature setting was switched on, the shop likely began recording each purchase without adding it to the shopper's stored running total for the month, so those stored totals fell behind what shoppers had actually bought.\n\nFigures:\n- How long it lasted: at least 6d 23h 59m 56s {duration}\n- What it cost the shop in takings (estimated by Argus): none so far {customer_loss}\n- Nobody was paged: no on-call incident was linked to this one.\n\nWhat was done to end it:\n- Argus: refused to act on a suspected cause - nothing would say whether the action that would test the candidate worked inside the time Argus waits, so it is recommended rather than taken - recommends: revert monthly-spend-feature\n- Argus: proposed a fix, PR #572 - opened as a draft\n\nName {duration} and {customer_loss} in your overview.\nWrite no figure yourself - not in digits, not spelled out, and not as a word that sizes it (\"a brief outage\", \"a minor loss\", \"tripled\"). Where a figure goes, write its name, braces and all, and the synopsis writes the figure in.\nSay nothing about how the incident was resolved beyond what the list of what was done says: a draft fix has not run, and nothing it would do has happened.\nSpeak of Argus by name, never as \"we\", \"our\" or \"us\": Argus is the system that responded, and each line of what was done says who did it.\nWhere you say who was affected, say which ones, as the cause does, or that some were, where it does not say which - never how many, and never all of them, where the cause does not say all.\nKeep \"likely\" on what the cause says is likely, and only there.\n\nCall submit_executive_overview with your overview.",
       "role": "user"
     }
   ],
@@ -13,15 +13,6 @@
   "output_config": {
     "effort": "high"
   },
-  "system": [
-    {
-      "cache_control": {
-        "type": "ephemeral"
-      },
-      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
-      "type": "text"
-    }
-  ],
   "thinking": {
     "display": "summarized",
     "type": "adaptive"
@@ -32,24 +23,20 @@
   },
   "tools": [
     {
-      "description": "Give the order the causal chain's steps should be read in, as their numbers. Change nothing else.",
+      "description": "Submit the overview of the executive synopsis: one short paragraph in plain words, naming figures rather than writing them.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {
-          "order": {
-            "description": "Every step's number, each once, in the order that makes each step answer why the step directly before it happened. The first and the last stay where they are.",
-            "items": {
-              "type": "integer"
-            },
-            "type": "array"
+          "overview": {
+            "type": "string"
           }
         },
         "required": [
-          "order"
+          "overview"
         ],
         "type": "object"
       },
-      "name": "order_chain",
+      "name": "submit_executive_overview",
       "strict": true
     }
   ]

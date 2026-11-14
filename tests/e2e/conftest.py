@@ -1,42 +1,52 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Final
 
 import httpx2
 import pytest
+from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import connect_from_env, get_settings
 from argus_incidents.repository import incidents
 from argus_incidents.repository.runs import RunState
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_memory.filing import get_undelivered
-from pagerduty_double.server import DEFAULT_BASE_URL as PAGERDUTY_DOUBLE_BASE_URL
 from psycopg import sql
 from qdrant_client import QdrantClient
+from slack_double.server import DEFAULT_BASE_URL as SLACK_DOUBLE_BASE_URL
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
     INVESTIGATION_TIMEOUT_SECONDS,
+    JUDGE_ANTHROPIC_DOUBLE_BASE_URL,
     REQUEST_TIMEOUT_SECONDS,
-    TARGET_SERVICE_BASE_URL,
 )
-from tests.e2e.framework.flags import (
-    only_the_boot_flags_were_left_in_the_provider,
-    the_boot_flags_were_put_back,
-    the_flag_provider_forgot_every_change,
-)
+from tests.e2e.framework.chat import INTENT_ANTHROPIC_DOUBLE_BASE_URL
 from tests.e2e.framework.worker import the_worker_resumes
-from tests.e2e.framework.world import the_shops_stand_in_was_put_back
+from tests.e2e.framework.world import the_target_environment_was_put_back
 
 # The one table that is not the suite's to empty. The rates are fetched from
 # outside and cached here, and they do not change between cases - a teardown
 # that dropped them would send the next case back out to the source for the
 # same figures.
 _KEPT_TABLES = ("exchange_rate",)
+
+# Every double this suite stands up in place of somebody else's service, at its
+# own address. The on-call double and the shop's stand-in are not here: they
+# are the Target Environment's, and put back with it.
+_THE_DOUBLES: Final = (
+    ANTHROPIC_DOUBLE_BASE_URL,
+    JUDGE_ANTHROPIC_DOUBLE_BASE_URL,
+    INTENT_ANTHROPIC_DOUBLE_BASE_URL,
+    SLACK_DOUBLE_BASE_URL,
+    GITHUB_DOUBLE_BASE_URL
+)
 
 # How long a withdrawn walk may still take to stop.
 #
@@ -98,21 +108,17 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
 
     Then the Target Environment, which is a state a fresh stack boots into
     rather than a quiet one: the shop's feature flag off, the kill switch on,
-    and nothing recorded as having been switched. Four things are undone, and
-    the order is the point:
+    and nothing recorded as having been switched. Its steps are
+    `the_target_environment_was_put_back`'s, shared with the recorder so the
+    two cannot drift - the recorder's own copy once missed the on-call double,
+    and a page staged for one recording linked itself to the next. The order
+    is the point:
 
     - the Target Service's scenario is reset, which ends whatever condition it
       was staging and has the last word on the flags it owns;
     - where the shop is served through its stand-in, that stand-in forgets any
       anchor a case staged and never seeded from, so the next case's seed draws
       the world its own recording saw;
-    - the repository double is put back to one branch holding the fixture, with
-      nothing proposed and nothing staged. It is the one party here that is not
-      Argus and not the Target Environment, and it accumulates three kinds of
-      thing: the branches a fix wrote, the pull requests it opened, and the
-      commits a case staged to give a comparison two ends. A case reading "was
-      a fix proposed" would otherwise be answered by every earlier case's
-      proposals as well as its own;
     - the on-call double forgets every incident a case staged. Two cases
       paging for the same alert group stage the same key, and the one found
       first would answer for both;
@@ -128,6 +134,14 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
       one case is evidence in the next, whatever state the flag itself was left
       in. It goes last because every step above is itself a change the provider
       records.
+    - and then every double that is the suite's alone is emptied - the walk's
+      model, its judge's, the intent agent's, Slack and GitHub. They are the
+      parties here that are neither Argus nor the Target Environment, and each
+      keeps what a case left in it: answers seeded and never asked for, a call
+      held, record mode, messages posted, people staged, the branches a fix
+      wrote and the pull requests it opened. A case reading "was a fix
+      proposed" or "what did Slack hear" would otherwise be answered by every
+      earlier case as well as its own.
 
     Before any of it, the worker is resumed: a case may have paused it
     (`framework.worker`), and a suspended worker claims nothing - so a run it
@@ -142,6 +156,10 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     node is not missed, and raised only once the world is put back, so a failed
     walk costs its own case and never the next one.
 
+    And it fails if a synopsis any of them wrote gave its overview up. That
+    leaves a reason and lets the walk end like any other, so it too is said
+    nowhere a passing case looks.
+
     Teardown rather than setup, so a failing case leaves nothing behind for a
     human to clear before rerunning.
     """
@@ -151,6 +169,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     _every_live_incident_was_withdrawn()
     _every_run_came_to_a_stop()
     failed = _the_runs_that_failed()
+    given_up = _the_synopses_given_up()
     _every_reader_caught_up()
     _every_record_was_delivered()
     # Held here, where `--hold` asks: after every run has stopped and every
@@ -160,19 +179,18 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
         subprocess.run([sys.executable, str(_THE_HOLDER)], check=False)
     _every_table_was_emptied()
     _long_term_memory_was_forgotten()
-    _the_target_service_scenario_was_reset()
-    the_shops_stand_in_was_put_back()
-    _the_repository_double_was_put_back()
-    _the_on_call_double_was_put_back()
-
-    the_boot_flags_were_put_back()
-    only_the_boot_flags_were_left_in_the_provider()
-    the_flag_provider_forgot_every_change()
+    the_target_environment_was_put_back()
+    _every_double_was_emptied()
 
     if failed:
         raise AssertionError(
             f"Expected every walk this case started to end without failing, and "
             f"[{len(failed)}] failed: {failed}."
+        )
+    if given_up:
+        raise AssertionError(
+            f"Expected every executive synopsis this case's walks wrote to carry its "
+            f"overview, and [{len(given_up)}] were given up: {given_up}."
         )
 
 
@@ -253,6 +271,24 @@ def _the_runs_that_failed() -> list[str]:
         cursor.execute(
             "SELECT incident_id, failure_reason FROM incident_run WHERE state = %s",
             (RunState.FAILED,)
+        )
+
+        return [f"incident [{incident_id}]: {reason}"
+                for incident_id, reason in cursor.fetchall()]
+
+
+def _the_synopses_given_up() -> list[str]:
+    """Each executive synopsis written without its overview, as its incident
+    and the reason the overview was given up.
+
+    An overview given up leaves its reason and lets the walk end like any
+    other, so a replay whose overview no longer matches its recording passed
+    every case that did not read the synopsis itself.
+    """
+    with connect_from_env() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT incident_id, withheld_because FROM executive_synopsis "
+            "WHERE overview IS NULL"
         )
 
         return [f"incident [{incident_id}]: {reason}"
@@ -389,22 +425,24 @@ def _long_term_memory_was_forgotten() -> None:
         store.close()
 
 
-def _the_repository_double_was_put_back() -> None:
-    httpx2.post(
-        f"{GITHUB_DOUBLE_BASE_URL}/double-control/reset",
-        timeout=REQUEST_TIMEOUT_SECONDS
-    )
+def _every_double_was_emptied() -> None:
+    """Empties every double in `_THE_DOUBLES`, whether this case touched it or
+    not.
 
+    A double cleared only by the next case that seeds it is never cleared for
+    a case that does not - which is every case reading Slack, and every case
+    that leaves the judge or the intent agent alone.
 
-def _the_on_call_double_was_put_back() -> None:
-    httpx2.post(
-        f"{PAGERDUTY_DOUBLE_BASE_URL}/double-control/reset",
-        timeout=REQUEST_TIMEOUT_SECONDS,
-        verify=False
-    )
-
-
-def _the_target_service_scenario_was_reset() -> None:
-    httpx2.post(
-        f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=REQUEST_TIMEOUT_SECONDS
-    )
+    A double nothing is listening for is passed over: a run that reaches the
+    real model, Slack or GitHub never started that one, and a double that never
+    ran holds nothing to clear. Each at its own address rather than the one
+    Argus was given, so a run pointed at the real Slack is never sent a reset.
+    A double that answers and refuses fails the case, for the reason a stuck
+    run does.
+    """
+    for double in _THE_DOUBLES:
+        with contextlib.suppress(httpx2.ConnectError):
+            httpx2.post(
+                f"{double}/double-control/reset",
+                timeout=REQUEST_TIMEOUT_SECONDS
+            ).raise_for_status()

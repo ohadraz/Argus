@@ -7,7 +7,7 @@ case reads back can only have come from what it put in.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TypedDict, Unpack
 
@@ -15,6 +15,9 @@ from argus_core import new_id
 from argus_core.events import StatusChanged
 from argus_core.models import (
     ActionItem,
+    ActionItemStatus,
+    ActionItemType,
+    AlarmClaim,
     Alert,
     ChainStep,
     ChangeEvent,
@@ -27,8 +30,10 @@ from argus_core.models import (
     DetectionLesson,
     HypothesisConsidered,
     Impact,
+    ImpactExtent,
     IncidentStatus,
     Lessons,
+    LogsInTheGap,
     NoTrigger,
     OpenedPullRequest,
     Postmortem,
@@ -38,20 +43,36 @@ from argus_core.models import (
     ResolutionStep,
     ReviewCriterion,
     RevisionSource,
+    RuledOut,
+    Standing,
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    Weighing,
 )
 
 DONT_CARE_MOMENT = datetime(2026, 10, 11, 14, 30, tzinfo=UTC)
+# When the filled postmortem's incident began.
+_FILLED_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
+# The labels the filled postmortem's rows go by, each named once: each is a
+# row, and what another part of the document cites.
+_THE_FIRST_LINE = "T1"
+_THE_LOG_GROUP = "G3fa2"
+_THE_ITEM = "AI-1"
+_THE_CODE_READ = "F1"
 
 # A revision deployed from a repository on GitHub, and the repository's page.
 SOME_DEPLOYED_REVISION = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
 SOME_REPOSITORY_ADDRESS = "https://github.com/acme/shop"
 
 
-def an_alert(alert_name: str = "HighErrorRate", service: str = "io-shop") -> Alert:
-    return Alert(alert_name=alert_name, service=service)
+def an_alert(alert_name: str = "HighErrorRate",
+             service: str = "io-shop",
+             summary: str | None = None,
+             claim: AlarmClaim = AlarmClaim.A_SERIES_CONDITION) -> Alert:
+    """An alert on `service` - one watching a series, unless a case says it
+    reports a finding of its own (`summary`, `claim`)."""
+    return Alert(alert_name=alert_name, service=service, summary=summary, claim=claim)
 
 
 class _WhatAPostmortemHolds(TypedDict, total=False):
@@ -184,3 +205,70 @@ def a_person_resolved_it(by: str,
                          at=at,
                          to_status=IncidentStatus.RESOLVED,
                          reported=Report(by=by, channel=channel, note=note))
+
+
+def a_postmortem_with_every_section_filled() -> Postmortem:
+    """A postmortem with something in every section, and a row of every kind
+    a label names, each worded so it can be found in what is made of it and
+    nowhere else there."""
+    return a_postmortem(
+        executive_summary="The account page failed for most of an hour.",
+        impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
+                      peak_error_rate=None,
+                      logs_in_the_gap=LogsInTheGap(
+                          read=True, labels=[_THE_LOG_GROUP],
+                          reach_until=_FILLED_ONSET + timedelta(minutes=10),
+                          read_until=_FILLED_ONSET + timedelta(minutes=11),
+                          read_until_the_alert=True)),
+        recommended_action="Ask the owning team to guard the divisor.",
+        root_cause="The divisor was never guarded.",
+        causal_chain=[ChainStep(text="Requests failed on the account page.",
+                                cites=[CitedEvidence(label=_THE_FIRST_LINE, text="errors rose")],
+                                ruled_out=[RuledOut(text="The earlier deploy was healthy.",
+                                                    cites=[CitedEvidence(label="T2",
+                                                                         text="read")])])],
+        contributing_factors=[ContributingFactor(text="Nothing reviewed the divisor.",
+                                                 addressed_by=[_THE_ITEM])],
+        hypotheses=[HypothesisConsidered(summary="An empty month reached the statement.",
+                                         confidence=0.8, result="confirmed", label="C1")],
+        trigger=Trigger(subject="monthly-spend", from_state="off", to_state="on",
+                        changed_at=_FILLED_ONSET, kind=ChangeKind.FLAG_TOGGLE, actor="dana"),
+        resolution=[ResolutionStep(at=_FILLED_ONSET + timedelta(minutes=5),
+                                   action="Turned the flag off", by="Argus", has_a_way_back=True,
+                                   outcome="recovered", label="M1")],
+        detection=Detection(alerted_at=_FILLED_ONSET + timedelta(minutes=1), rule="HighErrorRate",
+                            onset_at=_FILLED_ONSET, gap=timedelta(minutes=1),
+                            said=CitedEvidence(label="AL1",
+                                               text="Checkout errors crossed the threshold.")),
+        action_items=[ActionItem(number=_THE_ITEM, text="Guard the divisor.",
+                                 type=ActionItemType.PREVENT, owner=None, tracking=None,
+                                 status=ActionItemStatus.OPEN)],
+        lessons=Lessons(went_well=["The alert fired at once."],
+                        went_wrong=["Nobody reviewed it."],
+                        got_lucky=["It was a quiet hour."]),
+        timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, _FILLED_ONSET),
+                  TimelineEntry(at=_FILLED_ONSET, who="Argus", text="The flag went on.",
+                                label=_THE_FIRST_LINE)],
+        leads=[PostmortemLead(label="L1", person_id="dont care", person_name="Dana",
+                              text="I turned the flag on at two.", written_at=_FILLED_ONSET,
+                              weighing=Weighing(standing=Standing.SUPPORTED,
+                                                reason="The flag history shows it."),
+                              effect="It pointed the walk at the flag.")],
+        changes_read=[a_change_read("P1", summary="A deploy switched the model.")],
+        log_messages_read=[CitedEvidence(label=_THE_LOG_GROUP, text="The divisor was zero.")],
+        deployment_changes_read=[CitedEvidence(label="D1", text="The deploy changed the pool.")],
+        code_read=[CitedEvidence(label=_THE_CODE_READ,
+                                 text="The statement divides by the month.")],
+        as_it_ran_read=[CitedEvidence(label="S1", text="The statement as it ran.")],
+        uses_outside_read=[CitedEvidence(label="U1", text="The export calls the statement.")],
+        cause_measured=[CitedEvidence(label="R1", text="Statements failed every minute.")],
+        engineer_minutes=42,
+        tokens_spent=12345,
+        assumptions=["The flag was the only change."],
+        review=[ReviewCriterion(criterion="Key incident data collected", met=True),
+                ReviewCriterion(criterion="Document reviewed and shared", met=None),
+                ReviewCriterion(criterion="Root-cause analysis complete", met=None,
+                                because=f"the cause rests on {_THE_CODE_READ}, a reading of "
+                                        f"the source nothing ran; running the proposed fix's "
+                                        f"tests against the current code would confirm it "
+                                        f"(AI-2)")])
