@@ -30,7 +30,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from agent_codefix.naming import files_named_in
+from codefix_agent.naming import files_named_in
 
 PYTHON_SUFFIX: Final = ".py"
 

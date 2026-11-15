@@ -29,7 +29,7 @@ See [`AGENTS.md`](AGENTS.md) for the full, tool-agnostic policy and its rational
 
 - **`argus_web`** - the only HTTP surface. Receives the alert webhook, normalizes it into Argus's own domain object (currently: a deterministic Grafana unified-alerting parser), and calls the Orchestrator in-process.
 - **`orchestrator`** - a LangGraph `StateGraph` implementing the incident state machine (`investigating -> mitigating -> resolved`, with `fixing`/`escalated` branches), Postgres-backed and checkpointed.
-- **`investigation_agent`, `mitigation`, `agent_codefix`, `communication`, `postmortem_writing`** - the five delegates, each its own workspace package; the Investigator and Code-Fix are the agents among them.
+- **`investigation_agent`, `mitigation`, `codefix_agent`, `communication`, `postmortem_writing`** - the five delegates, each its own workspace package; the Investigator and Code-Fix are the agents among them.
 - **`argus_core`** - shared domain models, Postgres schema, and configuration.
 
 Full component-by-component detail, the data model, the tool-integration strategy, and every locked-in design decision are in [`docs/spec-and-architecture.md`](docs/spec-and-architecture.md).
@@ -45,7 +45,7 @@ modules/
 ├── orchestrator/         # LangGraph StateGraph, incident FSM
 ├── investigation_agent/
 ├── mitigation/
-├── agent_codefix/
+├── codefix_agent/
 ├── communication/
 └── postmortem_writing/
 

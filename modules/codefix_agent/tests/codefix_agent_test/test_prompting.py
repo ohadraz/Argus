@@ -17,7 +17,9 @@ import json
 from typing import Any
 
 import pytest
-from agent_codefix.prompting import (
+from argus_testkit.assertions import Assertion, all_of
+from argus_testkit.scenario import Scenario
+from codefix_agent.prompting import (
     EXPLANATION_FIELD,
     FILES_FIELD,
     REPORT_NOTHING_TO_CHANGE,
@@ -25,8 +27,6 @@ from agent_codefix.prompting import (
     SUBMIT_FIX,
     SubmittedFix,
 )
-from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario
 
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_CONTENT = "def average_spend_per_item_this_month(account):\n    return 0\n"

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from functools import partial
 
-from agent_codefix import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
 from argus_core import parse_iso, was_lost
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
 from argus_core.models import (
@@ -17,6 +16,7 @@ from argus_core.models import (
     WhatArgusDid,
 )
 from argus_incidents import IsStillWanted
+from codefix_agent import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn

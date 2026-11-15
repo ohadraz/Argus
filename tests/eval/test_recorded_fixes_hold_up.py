@@ -51,9 +51,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from agent_codefix import SubmittedFix, changes_only_configuration
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
+from codefix_agent import SubmittedFix, changes_only_configuration
 from pydantic import ValidationError
 
 from tests.e2e.framework.argus import THE_RECORDINGS_THAT_MUST_CARRY_A_FIX

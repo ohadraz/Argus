@@ -1538,7 +1538,7 @@ argus/
 │   ├── argus_web/                   # HTTP surface: alert, push, on-call and chat webhooks, incident view, config API
 │   ├── investigation_agent/
 │   ├── mitigation/                  # what to do about a cause, doing it, and putting a recorded change back
-│   ├── agent_codefix/
+│   ├── codefix_agent/
 │   ├── communication/               # the relay over the event log, its delivery policy and destination adapters
 │   ├── message_intent/              # what people write in an incident's thread: one reading each, and the offer to resolve
 │   ├── postmortem_writing/

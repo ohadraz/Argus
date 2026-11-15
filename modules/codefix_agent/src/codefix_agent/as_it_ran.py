@@ -21,8 +21,8 @@ from typing import Final
 
 from argus_core.models import CodeUse, FileAsItRan
 
-from agent_codefix.naming import files_named_in
-from agent_codefix.retrieval import FileLister, FileReader
+from codefix_agent.naming import files_named_in
+from codefix_agent.retrieval import FileLister, FileReader
 
 logger = logging.getLogger(__name__)
 

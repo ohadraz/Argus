@@ -75,16 +75,16 @@ from read_mcp_client import (
 )
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
-from agent_codefix.as_it_ran import the_files_as_they_ran, the_uses_as_they_ran
-from agent_codefix.budget import FixSettings, a_budget_for
-from agent_codefix.grouping import the_group_outside
-from agent_codefix.opening import (
+from codefix_agent.as_it_ran import the_files_as_they_ran, the_uses_as_they_ran
+from codefix_agent.budget import FixSettings, a_budget_for
+from codefix_agent.grouping import the_group_outside
+from codefix_agent.opening import (
     the_opening_message,
     what_it_concluded,
     what_people_wrote_since,
     whether_it_holds_what_ran,
 )
-from agent_codefix.prompting import (
+from codefix_agent.prompting import (
     ANSWER_TOOL_NAME,
     EXPLANATION_FIELD,
     NOT_AN_ANSWER,
@@ -100,7 +100,7 @@ from agent_codefix.prompting import (
     changes_only_configuration,
     the_paths_whose_content_is_not_source,
 )
-from agent_codefix.retrieval import (
+from codefix_agent.retrieval import (
     BranchMembership,
     CodeOutsideReader,
     FileLister,
@@ -110,7 +110,7 @@ from agent_codefix.retrieval import (
     ReadTierTools,
     SourceSearcher,
 )
-from agent_codefix.tools import READ_TIER_HELD, the_answer_to, tools_for
+from codefix_agent.tools import READ_TIER_HELD, the_answer_to, tools_for
 
 logger = logging.getLogger(__name__)
 

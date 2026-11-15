@@ -16,7 +16,7 @@ dependencies = [
     "argus-incident_memory[store]",
     "argus-investigation_agent",
     "argus-mitigation",
-    "argus-agent_codefix",
+    "argus-codefix_agent",
     "argus-postmortem_writing",
     # The executive synopsis's figures and resolution, worded as the
     # postmortem's page words them.
@@ -62,7 +62,7 @@ argus-exchange_rate_source = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-investigation_agent = { workspace = true }
 argus-mitigation = { workspace = true }
-argus-agent_codefix = { workspace = true }
+argus-codefix_agent = { workspace = true }
 argus-postmortem_writing = { workspace = true }
 argus-postmortem_rendering = { workspace = true }
 

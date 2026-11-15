@@ -23,11 +23,11 @@ from argus_core import to_iso
 from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage, WhatArgusDid
 from argus_narration import what_was_done
 
-from agent_codefix.budget import FixSettings
-from agent_codefix.naming import files_named_in
-from agent_codefix.prompting import SUBMIT_TOOL_NAME
-from agent_codefix.retrieval import BranchMembership, FileLister, IndexNotice
-from agent_codefix.tools import SEARCH_BY_MEANING_TOOL, SEARCH_TOOL
+from codefix_agent.budget import FixSettings
+from codefix_agent.naming import files_named_in
+from codefix_agent.prompting import SUBMIT_TOOL_NAME
+from codefix_agent.retrieval import BranchMembership, FileLister, IndexNotice
+from codefix_agent.tools import SEARCH_BY_MEANING_TOOL, SEARCH_TOOL
 
 logger = logging.getLogger(__name__)
 

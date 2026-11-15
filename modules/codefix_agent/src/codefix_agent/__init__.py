@@ -21,9 +21,9 @@ grader holds recorded patches to it rather than to a copy.
 
 from __future__ import annotations
 
-from agent_codefix.budget import FixSettings
-from agent_codefix.prompting import SubmittedFix, changes_only_configuration
-from agent_codefix.proposing import (
+from codefix_agent.budget import FixSettings
+from codefix_agent.prompting import SubmittedFix, changes_only_configuration
+from codefix_agent.proposing import (
     FixDeclined,
     FixNotAnswered,
     FixNotProposed,

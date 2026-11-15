@@ -20,7 +20,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
 from argus_core import RunLost
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
@@ -53,6 +52,7 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
+from codefix_agent.proposing import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn

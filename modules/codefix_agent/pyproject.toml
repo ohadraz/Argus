@@ -1,5 +1,5 @@
 [project]
-name = "argus-agent_codefix"
+name = "argus-codefix_agent"
 version = "0.1.0"
 requires-python = ">=3.14"
 
@@ -35,4 +35,4 @@ build-backend = "hatchling.build"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_codefix"]
+packages = ["src/codefix_agent"]

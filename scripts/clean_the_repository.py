@@ -37,7 +37,7 @@ import httpx2
 from argus_core import get_settings
 
 # What Argus names a branch it cuts, and the only thing this deletes. Kept in
-# step with `agent_codefix` by being the prefix that module writes rather than a
+# step with `codefix_agent` by being the prefix that module writes rather than a
 # pattern that happens to match it today.
 ARGUS_BRANCH_PREFIX: Final = "argus/"
 

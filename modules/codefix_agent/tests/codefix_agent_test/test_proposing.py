@@ -20,27 +20,6 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from agent_codefix.budget import FixSettings
-from agent_codefix.proposing import (
-    BranchWriter,
-    FixDeclined,
-    FixNotAnswered,
-    FixNotProposed,
-    FixStopped,
-    PullRequestOpener,
-    propose_fix,
-)
-from agent_codefix.retrieval import (
-    BranchMembership,
-    CodeOutsideReader,
-    FileLister,
-    FileReader,
-    IndexNotice,
-    MeaningSearcher,
-    ReadTierTools,
-    SourceSearcher,
-)
-from agent_codefix.tools import READ_FILE_TOOL
 from argus_core import new_id
 from argus_core.budget import StillWanted
 from argus_core.llm import (
@@ -85,6 +64,27 @@ from argus_narration import what_was_done
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_error_mentioned
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
+from codefix_agent.budget import FixSettings
+from codefix_agent.proposing import (
+    BranchWriter,
+    FixDeclined,
+    FixNotAnswered,
+    FixNotProposed,
+    FixStopped,
+    PullRequestOpener,
+    propose_fix,
+)
+from codefix_agent.retrieval import (
+    BranchMembership,
+    CodeOutsideReader,
+    FileLister,
+    FileReader,
+    IndexNotice,
+    MeaningSearcher,
+    ReadTierTools,
+    SourceSearcher,
+)
+from codefix_agent.tools import READ_FILE_TOOL
 
 DONT_CARE_INCIDENT = "incident-41"
 
@@ -2341,7 +2341,7 @@ def test_a_fix_stopped_between_turns_is_logged(caplog: pytest.LogCaptureFixture)
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.proposing", logging.INFO,
+            one_record_was_logged(caplog, "codefix_agent.proposing", logging.INFO,
                                   "fix stopped, incident no longer wanted")
         )
 
@@ -2372,7 +2372,7 @@ def test_a_fix_withheld_before_it_was_written_is_logged(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.proposing", logging.INFO,
+            one_record_was_logged(caplog, "codefix_agent.proposing", logging.INFO,
                                   "fix not proposed, incident no longer wanted")
         )
 
@@ -4476,7 +4476,7 @@ def test_a_listing_that_could_not_be_fetched_is_logged_as_a_warning(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.opening", logging.WARNING,
+            one_record_was_logged(caplog, "codefix_agent.opening", logging.WARNING,
                                   "repository could not be listed",
                                   failure=ConnectionError)
         )
@@ -4508,7 +4508,7 @@ def test_a_tool_call_that_failed_is_logged_as_a_warning(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.tools", logging.WARNING,
+            one_record_was_logged(caplog, "codefix_agent.tools", logging.WARNING,
                                   "tool call failed",
                                   values={"tool": READ_FILE_TOOL},
                                   failure=FileNotFoundError)
@@ -4534,7 +4534,7 @@ def test_an_answer_cut_short_is_logged_as_a_warning(caplog: pytest.LogCaptureFix
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+            one_record_was_logged(caplog, "codefix_agent.proposing", logging.WARNING,
                                   "answer truncated")
         )
 
@@ -4562,7 +4562,7 @@ def test_a_patch_whose_content_is_not_source_is_logged_as_a_warning(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+            one_record_was_logged(caplog, "codefix_agent.proposing", logging.WARNING,
                                   "patch is not source", values={"paths": [SOME_PATH]})
         )
 
@@ -4590,7 +4590,7 @@ def test_a_patch_bringing_no_test_is_logged_as_a_warning(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+            one_record_was_logged(caplog, "codefix_agent.proposing", logging.WARNING,
                                   "patch brings no test")
         )
 
@@ -4618,7 +4618,7 @@ def test_code_outside_a_patch_that_could_not_be_read_is_logged_and_the_submissio
         ) \
         .then(
             all_of(
-                one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+                one_record_was_logged(caplog, "codefix_agent.proposing", logging.WARNING,
                                       "code outside the patch could not be read"),
                 _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
                                                     SOME_TEST_PATH: SOME_TEST_SOURCE})
@@ -4644,6 +4644,6 @@ def test_an_empty_patch_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture)
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+            one_record_was_logged(caplog, "codefix_agent.proposing", logging.WARNING,
                                   "patch was empty")
         )

@@ -21,9 +21,9 @@ from typing import Final
 
 from argus_core.models import CodeSearch, ToolCall, ToolDefinition, ToolResult
 
-from agent_codefix.budget import FixSettings
-from agent_codefix.prompting import ANSWER_QUESTION, REPORT_NOTHING_TO_CHANGE, SUBMIT_FIX
-from agent_codefix.retrieval import (
+from codefix_agent.budget import FixSettings
+from codefix_agent.prompting import ANSWER_QUESTION, REPORT_NOTHING_TO_CHANGE, SUBMIT_FIX
+from codefix_agent.retrieval import (
     FileLister,
     FileReader,
     MeaningSearcher,

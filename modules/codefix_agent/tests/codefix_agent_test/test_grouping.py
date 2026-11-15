@@ -14,8 +14,8 @@ deploy/values-production.yaml names `http-metrics`") and is never a group.
 from __future__ import annotations
 
 import pytest
-from agent_codefix.grouping import the_group_outside
 from argus_testkit import Scenario, the_answer_was
+from codefix_agent.grouping import the_group_outside
 
 LEDGER = "src/io_shop/purchase_ledger.py"
 SUMMARY = "src/io_shop/spend_summary.py"

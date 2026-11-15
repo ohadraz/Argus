@@ -41,7 +41,6 @@ from typing import Any, Final
 
 import httpx2
 import pytest
-from agent_codefix import FixSettings, SubmittedFix, propose_fix
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import (
@@ -62,6 +61,7 @@ from argus_core.models import (
 )
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
+from codefix_agent import FixSettings, SubmittedFix, propose_fix
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
 

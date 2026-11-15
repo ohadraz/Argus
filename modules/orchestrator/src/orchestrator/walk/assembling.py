@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING
 
-from agent_codefix import FixSettings, fixes_over
 from argus_core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
@@ -38,6 +37,7 @@ from argus_incidents import (
     still_held_via,
     waiting_for_people_via,
 )
+from codefix_agent import FixSettings, fixes_over
 from incident_memory.records import RememberedIncident
 from investigation_agent import (
     changes_over,

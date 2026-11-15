@@ -16,9 +16,9 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 
 import pytest
-from agent_codefix.tools import READ_TIER_HELD, tools_for
 from argus_core.models import CodeSearch, ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
+from codefix_agent.tools import READ_TIER_HELD, tools_for
 
 SOME_SERVED_TOOLS = [
     ToolDefinition(name="some_read",

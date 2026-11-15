@@ -13,8 +13,8 @@ about an attribute.
 from __future__ import annotations
 
 import pytest
-from agent_codefix.naming import FilesNamed, files_named_in
 from argus_testkit import Scenario, the_answer_was
+from codefix_agent.naming import FilesNamed, files_named_in
 
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_OTHER_PATH = "src/io_shop/purchase_ledger.py"

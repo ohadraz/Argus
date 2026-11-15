@@ -10,7 +10,7 @@ Two surfaces, the same arrangement `anthropic_double` and `slack_double` have:
   to read what was proposed.
 
 Selecting the double is one setting per tier (`GITHUB_API_URL`), which is the
-point: nothing in `read_mcp_server`, `write_mcp_server` or `agent_codefix` knows
+point: nothing in `read_mcp_server`, `write_mcp_server` or `codefix_agent` knows
 this file exists.
 
 The owner and repository in the path are accepted and ignored. A double that
