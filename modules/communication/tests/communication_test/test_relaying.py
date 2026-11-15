@@ -21,8 +21,6 @@ from __future__ import annotations
 import logging
 
 import pytest
-from agent_communicator.policy import Register
-from agent_communicator.relaying import relay_once
 from argus_core import new_id
 from argus_core.events import (
     IncidentEvent,
@@ -38,9 +36,11 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
+from communication.policy import Register
+from communication.relaying import relay_once
 
-from agent_communicator_test.framework.assertions import it_said, the_lines_said_were
-from agent_communicator_test.framework.builders import (
+from communication_test.framework.assertions import it_said, the_lines_said_were
+from communication_test.framework.builders import (
     ADestination,
     a_destination_that_cannot_say_more_now,
     a_destination_that_takes_everything,
@@ -276,7 +276,7 @@ def test_a_relay_held_where_it_is_is_logged_as_a_warning(
         ) \
         .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(
-            one_record_was_logged(caplog, "agent_communicator.relaying", logging.WARNING,
+            one_record_was_logged(caplog, "communication.relaying", logging.WARNING,
                                   "relay paused")
         )
 

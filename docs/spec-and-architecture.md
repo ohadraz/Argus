@@ -208,7 +208,7 @@ The index describes one commit, and that commit may be older than the one being 
 
 It is told the incident's leads (§7.2) with the standing the Investigator gave each, and a lead written after the investigation answered is labelled as never weighed. It gives no standing of its own: weighing a lead against evidence is the Investigator's job, and Code-Fix reads code rather than telemetry. A supported lead is evidence; a refuted or unweighed one is context to check against the code. Every standing was given before anything was tried, and a lower candidate can be the one an action confirms, so Code-Fix is told the finding outranks any weighing - and the postmortem, that the actions are the later word. Below the leads, Code-Fix is told what Argus did about the incident: each judged action in the order it was taken, with its verdict and whether its change still stands, in the words the postmortem uses for that action. A verdict alone would leave a refuted revert reading as a flag still off, when Mitigation put it back. A lead written while it reads rides on the next tool result, as in the investigation, or on a plain message after a turn that asked for nothing. A lead written after the investigation does not reopen it - it reaches Code-Fix and the postmortem, and the Investigator too if a refuted mitigation sends the walk back there.
 
-### 7.5 Communicator agent
+### 7.5 Communicator
 
 Nothing in the walk tells anybody anything. Every agent publishes what it does as it does it (§10, §11.1), and the Communicator follows that record: a relay reads the events in the order they were published, decides which of them a human hears, and says them where that human is. A step is reported because it happened rather than because whoever handled it remembered to report it, and an agent added later is heard from on the day it publishes its first event.
 
@@ -1539,7 +1539,7 @@ argus/
 │   ├── agent_investigator/
 │   ├── mitigation/                  # what to do about a cause, doing it, and putting a recorded change back
 │   ├── agent_codefix/
-│   ├── agent_communicator/          # the relay over the event log, its delivery policy and destination adapters
+│   ├── communication/               # the relay over the event log, its delivery policy and destination adapters
 │   ├── agent_intent/                # what people write in an incident's thread: one reading each, and the offer to resolve
 │   ├── agent_postmortem/
 │   ├── read_mcp_server/             # argus-read-mcp: log, metrics, flag-eval and code-search tools

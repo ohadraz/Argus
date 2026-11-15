@@ -135,7 +135,6 @@ markers = [
 [tool.importlinter]
 root_packages = [
     "agent_codefix",
-    "agent_communicator",
     "agent_intent",
     "agent_investigator",
     "agent_postmortem",
@@ -146,6 +145,7 @@ root_packages = [
     "argus_web",
     "chat_platform",
     "code_index",
+    "communication",
     "deployment_platform",
     "exchange_rate_source",
     "incident_memory",
@@ -202,7 +202,7 @@ unmatched_ignore_imports_alerting = "warn"
 [[tool.importlinter.contracts]]
 name = "the chat platform is known by its port, and only each process's wiring knows the vendor"
 type = "forbidden"
-source_modules = ["agent_communicator", "agent_intent", "argus_web"]
+source_modules = ["agent_intent", "argus_web", "communication"]
 forbidden_modules = [
     "chat_platform.slack",
     "chat_platform.slack_deliveries",
@@ -214,7 +214,7 @@ forbidden_modules = [
 # to be spelled once, in the adapter, rather than in two modules that each knew
 # Slack.
 ignore_imports = [
-    "agent_communicator.watching -> chat_platform.slack",
+    "communication.watching -> chat_platform.slack",
     "agent_intent.watching -> chat_platform.slack",
     "argus_web.app -> chat_platform.slack",
 ]
@@ -474,9 +474,9 @@ type = "independence"
 # per agent, which is a list saying "except for the one case this is about".
 modules = [
     "agent_codefix",
-    "agent_communicator",
     "agent_intent",
     "agent_investigator",
     "agent_postmortem",
+    "communication",
     "mitigation",
 ]

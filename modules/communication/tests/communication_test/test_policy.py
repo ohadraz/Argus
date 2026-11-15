@@ -20,7 +20,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from agent_communicator.policy import Register, how_it_is_said
 from argus_core import new_id, to_iso
 from argus_core.events import (
     ActionRecommended,
@@ -80,6 +79,7 @@ from argus_core.models import (
     a_chat_message,
 )
 from argus_testkit import Assertion, Scenario
+from communication.policy import Register, how_it_is_said
 
 AN_INCIDENT = new_id()
 

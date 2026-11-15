@@ -222,7 +222,7 @@ INVESTIGATOR_AGENT = "Investigator Agent"
 INTENT_AGENT = "Intent Agent"
 CODE_FIX_AGENT = "Code-Fix Agent"
 POSTMORTEM_AGENT = "Postmortem Agent"
-COMMUNICATOR_AGENT = "Communicator Agent"
+COMMUNICATOR = "Communicator"
 UNNAMED_PERSON = "A person"
 
 # What Code-Fix said of the code it read, where a fix is no pull request.
@@ -2305,7 +2305,7 @@ def test_a_line_that_never_reached_a_channel_says_which_one_and_why() -> None:
         .when(lambda: build_narration([a_post_slack_would_not_take])) \
         .then(all_of(_the_only_line_mentions(a_channel_that_is_not_there),
                      _the_only_line_marks(some_refusal),
-                     _the_lines_are_credited_to([COMMUNICATOR_AGENT])))
+                     _the_lines_are_credited_to([COMMUNICATOR])))
 
 
 @pytest.mark.unit

@@ -22,13 +22,6 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from agent_communicator.policy import Register
-from agent_communicator.relaying import Destination, Outcome
-from agent_communicator.saying import (
-    a_briefing,
-    a_chat_destination,
-    a_destination_per_register,
-)
 from argus_core import connect_from_env, new_id, to_iso, utc_now
 from argus_core.events import (
     ActionTaken,
@@ -85,9 +78,16 @@ from chat_platform.slack_posting import (
     ELEMENTS,
     TEXT_FIELD,
 )
+from communication.policy import Register
+from communication.relaying import Destination, Outcome
+from communication.saying import (
+    a_briefing,
+    a_chat_destination,
+    a_destination_per_register,
+)
 from slack_sdk import WebClient
 
-from agent_communicator_test.framework.slack import messages_posted_to
+from communication_test.framework.slack import messages_posted_to
 
 A_WAR_ROOM = "C-war-room"
 
@@ -155,7 +155,7 @@ SOME_CONSEQUENCE = "made every page slow"
 WROTE_THE_POSTMORTEM = "Wrote the postmortem"
 
 # The logger a line that could not be said, or changed, is logged by.
-LOGGED_BY = "agent_communicator.saying"
+LOGGED_BY = "communication.saying"
 
 # Nothing these tests assert reads any of these.
 DONT_CARE_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")

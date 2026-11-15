@@ -1,6 +1,6 @@
 """The Slack double, and nothing else.
 
-A component test runs `agent_communicator` entire - the adapter, the client it
+A component test runs `communication` entire - the adapter, the client it
 builds, the arguments the SDK encodes - and stands in for only what it cannot
 be: Slack. The double is what the suites everywhere else already point at, so
 what is exercised here is the same adapter the demo runs, reached the same way.

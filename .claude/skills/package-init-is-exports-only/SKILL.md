@@ -47,4 +47,4 @@ Three reasons, in the order they bite:
 Move the definitions into a new module, leave the imports and `__all__` behind,
 and change no callers: a package re-exporting the same names has the same public
 API, so `from agent_postmortem import write_postmortem` keeps working and
-`agent_communicator.post_update` still resolves for `create_autospec`.
+`communication.post_update` still resolves for `create_autospec`.

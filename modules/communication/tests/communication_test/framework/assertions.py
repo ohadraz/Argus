@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from argus_testkit import Assertion
 
-from agent_communicator_test.framework.builders import ADestination
+from communication_test.framework.builders import ADestination
 
 
 def it_said(expected: int) -> Assertion[int]:

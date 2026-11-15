@@ -27,8 +27,8 @@ from argus_incidents import Backlog, Place, events_since, place_for
 from argus_telemetry import start_telemetry
 from chat_platform.slack import ChatSettings, slack_from
 
-from agent_communicator.relaying import CHAT_RELAY, Destination, relay_once
-from agent_communicator.saying import (
+from communication.relaying import CHAT_RELAY, Destination, relay_once
+from communication.saying import (
     a_briefing,
     a_chat_destination,
     a_destination_per_register,

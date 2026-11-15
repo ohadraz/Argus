@@ -154,7 +154,7 @@ _OFFER_EXPIRED: Final[str] = OfferExpired.model_fields["kind"].default
 
 _MITIGATION = "Mitigator"
 _CODEFIX = "Code-Fix Agent"
-_COMMUNICATOR = "Communicator Agent"
+_COMMUNICATOR = "Communicator"
 _POSTMORTEM = "Postmortem Agent"
 _INTENT = "Intent Agent"
 # Argus's own parts, as a line names whoever said it - the names a clause gives

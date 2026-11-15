@@ -13,9 +13,9 @@ Slack today, is known. The log is followed through
 process that runs it.
 """
 
-from agent_communicator.policy import Register, how_it_is_said
-from agent_communicator.relaying import Destination, relay_once
-from agent_communicator.saying import a_chat_destination
+from communication.policy import Register, how_it_is_said
+from communication.relaying import Destination, relay_once
+from communication.saying import a_chat_destination
 
 __all__ = [
     "Destination",

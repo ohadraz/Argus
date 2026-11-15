@@ -45,8 +45,8 @@ from argus_narration import (
 )
 from chat_platform import ChatPlatformWrites, Line, Link, Offer
 
-from agent_communicator.policy import Register
-from agent_communicator.relaying import Destination, Outcome
+from communication.policy import Register
+from communication.relaying import Destination, Outcome
 
 # What the button on an offer says, by the ending its press brings about. The
 # question is the line above it, so the button is the answer, in the words of

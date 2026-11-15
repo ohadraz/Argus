@@ -3,12 +3,12 @@ destination that remembers being told."""
 
 from __future__ import annotations
 
-from agent_communicator.policy import Register
-from agent_communicator.relaying import Outcome
 from argus_core.events import ActionTaken, IncidentEvent, OnsetDetected, StatusChanged
 from argus_core.models import IncidentStatus
 from argus_narration import NarrationLine
 from chat_platform import Link
+from communication.policy import Register
+from communication.relaying import Outcome
 
 
 def three_steps_of(incident_id: str) -> list[IncidentEvent]:

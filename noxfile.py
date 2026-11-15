@@ -1427,7 +1427,7 @@ _MODULE_SUITE_PORT_BASE = 5546
 _INTEGRATION_ANTHROPIC_DOUBLE_PORT = "8093"
 _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_ANTHROPIC_DOUBLE_PORT}"
 # Where a module suite's own Slack double listens, for the reason its database
-# has a port of its own: `agent_communicator`'s component conftest runs the
+# has a port of its own: `communication`'s component conftest runs the
 # double in-process, and the e2e stack runs one on 8094. Two of those at once -
 # which is exactly what a sweep is - and the second dies on the bind, so a suite
 # that had nothing to do with Slack takes down the run that did.
@@ -1894,7 +1894,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # shows up in Slack, and a message arriving there is what a suite is
         # asserting in the first place.
         "relay",
-        ["-m", "agent_communicator.watching"],
+        ["-m", "communication.watching"],
         None
     ),
     (

@@ -16,7 +16,7 @@ incident is derived from the state it produced, which is what `_the_walk_goes_to
 does here and what the graph does in production.
 
 Nothing here tells anybody. A longer walk is a longer silence before a human
-hears anything, and what closes that gap is the relay in `agent_communicator`,
+hears anything, and what closes that gap is the relay in `communication`,
 which follows the events these decisions are published as - so the node
 decides, publishes, and knows nothing about who is listening.
 """

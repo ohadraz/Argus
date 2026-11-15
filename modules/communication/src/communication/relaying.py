@@ -30,7 +30,7 @@ from argus_incidents import Backlog, Place
 from argus_narration import NarrationLine, a_narration_line
 from chat_platform import Link
 
-from agent_communicator.policy import Register, how_it_is_said
+from communication.policy import Register, how_it_is_said
 
 # Which reader this is, in `event_cursor`. Named for the destination rather
 # than for the process, so a second relay to a second destination is a second
