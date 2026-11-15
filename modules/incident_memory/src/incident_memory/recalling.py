@@ -24,7 +24,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Final
 
-from argus_core.embedding import Embedder
+from core.embedding import Embedder
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import FieldCondition, Filter, MatchValue

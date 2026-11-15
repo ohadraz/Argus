@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from argus_core.models import FlagChange
+from core.models import FlagChange
 
 
 class Attributed(Protocol):

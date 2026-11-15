@@ -26,8 +26,8 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from argus_core.events import DeploymentChangesRead, Narrator
-from argus_core.models import ToolCall
+from core.events import DeploymentChangesRead, Narrator
+from core.models import ToolCall
 
 from investigation_agent.retrieval import DeploymentDiffFetcher
 from investigation_agent.tools.results import (

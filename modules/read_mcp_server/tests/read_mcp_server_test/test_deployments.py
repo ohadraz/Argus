@@ -34,9 +34,9 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.models import DeploymentChanges, DeploymentComparison
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.scenario import Scenario, attempting
+from core.models import DeploymentChanges, DeploymentComparison
 from deployment_platform import DeploymentPlatformReads, DeploymentRecord
 from read_mcp_server.deployments import (
     MOST_FILES_NAMED,

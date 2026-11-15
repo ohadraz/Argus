@@ -22,7 +22,6 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import PodPlacement, RolloutProgress
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -32,6 +31,7 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
+from core.models import PodPlacement, RolloutProgress
 from deployment_platform import (
     Autoscaler,
     AutoscalerBounds,

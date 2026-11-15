@@ -21,9 +21,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
-from argus_core import new_id
-from argus_core.models import ReportChannel, ThreadMessage, a_chat_message
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
+from core import new_id
+from core.models import ReportChannel, ThreadMessage, a_chat_message
 from message_intent.watching import watch_once
 
 SOME_INCIDENT = new_id()

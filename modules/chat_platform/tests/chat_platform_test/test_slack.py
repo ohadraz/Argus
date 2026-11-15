@@ -24,7 +24,6 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from argus_core.models import ReportChannel
 from argus_testkit import (
     Assertion,
     Kept,
@@ -52,6 +51,7 @@ from chat_platform.slack_deliveries import (
     TYPE,
     URL_VERIFICATION,
 )
+from core.models import ReportChannel
 from slack_sdk.errors import SlackApiError
 
 SOME_PERSON = "U-some-person"

@@ -3,7 +3,7 @@
 A worker paused past its lease wakes holding a claim its run has moved past,
 and its next change to the world would be a second walk acting on an incident
 somebody else is walking. The database refuses that worker's writes
-(`argus_core.fencing`); this refuses its changes. A call that changes anything
+(`core.fencing`); this refuses its changes. A call that changes anything
 says which claim it is made for, the run is asked whether that claim still holds
 it, and the run is kept so until the change is made - checked and let go, it
 could be taken back between the answer and the change.
@@ -25,14 +25,14 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from typing import Any, Final
 
-from argus_core import DatabaseSettings, Fence, open_pool
-from argus_core.mcp_transport import (
+from argus_incidents.repository import runs
+from core import DatabaseSettings, Fence, open_pool
+from core.mcp_transport import (
     FENCE_META_KEY,
     TracedFastMCP,
     a_lost_run,
     a_refusal_saying_what_it_left,
 )
-from argus_incidents.repository import runs
 from mcp.types import AnyFunction, ContentBlock
 
 logger = logging.getLogger(__name__)

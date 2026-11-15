@@ -35,16 +35,16 @@ from collections.abc import Callable
 from functools import partial
 from typing import Final, Protocol
 
-from argus_core import (
+from argus_telemetry import start_telemetry
+from core import (
     DatabaseSettings,
     SettingsSlice,
     TelemetrySettings,
     get_settings,
     open_pool,
 )
-from argus_core.models import CodeSearch
-from argus_core.schema import require_schema
-from argus_telemetry import start_telemetry
+from core.models import CodeSearch
+from core.schema import require_schema
 from qdrant_client import QdrantClient
 from repository_source import (
     RepositorySourceSettings,

@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 
-from argus_core import Connections
-from argus_core.events import Publisher, StatusChanged, publish
-from argus_core.models import IncidentStatus, Report
+from core import Connections
+from core.events import Publisher, StatusChanged, publish
+from core.models import IncidentStatus, Report
 
 from argus_incidents.repository import incidents
 

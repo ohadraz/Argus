@@ -25,11 +25,11 @@ from uuid import uuid4
 
 import httpx2
 import pytest
-from argus_core import get_settings
-from argus_core.models import ReportChannel, a_chat_message
 from argus_testkit import Assertion, Scenario, all_of
 from chat_platform import Line, Offer, Posted
 from chat_platform.slack import ChatSettings, Slack
+from core import get_settings
+from core.models import ReportChannel, a_chat_message
 from slack_double.server import DEFAULT_BASE_URL
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError

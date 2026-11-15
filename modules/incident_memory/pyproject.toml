@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    "argus-argus_core",
+    "argus-core",
     # The row a walk files its record in, which `filing` writes and reads.
     "psycopg[binary]>=3.1",
 ]
@@ -44,13 +44,13 @@ store = [
     # and two clients a minor apart against one server is a mismatch nobody
     # sees until a payload field is refused.
     "qdrant-client>=1.19,<1.20",
-    "argus-argus_core[vector_store]",
+    "argus-core[vector_store]",
     # The same local, free, keyless embedder the repository index uses, and
     # the same one: it is the kernel's, behind the kernel's door. Chosen for
     # costing nothing and waiting on nobody rather than for retrieval quality -
     # and behind a seam, so a benchmark that blames the model can pass a
     # different one.
-    "argus-argus_core[embedding]",
+    "argus-core[embedding]",
     # For the deliverer's `main`, which installs the SDK for its process and
     # sits on this side of the extra already: it writes the store.
     "argus-argus_telemetry",
@@ -62,7 +62,7 @@ dev = [
     # The schema, because the component tests file records in a database
     # started from an empty one rather than adopting whatever the container
     # came up with.
-    "argus-argus_core[migrations]",
+    "argus-core[migrations]",
     "argus-argus_testkit",
     # Its own store extra, for the reason `code_index` declares its: the
     # component tests write to a real Qdrant and embed with the real model,
@@ -72,7 +72,7 @@ dev = [
 
 
 [tool.uv.sources]
-argus-argus_core = { workspace = true }
+argus-core = { workspace = true }
 argus-argus_telemetry = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

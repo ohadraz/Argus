@@ -21,10 +21,10 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_core.models import CodeOutsideThePatch, CodeUse
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
+from core.models import CodeOutsideThePatch, CodeUse
 from read_mcp_server.outside_the_patch import code_outside_the_patch
 from read_mcp_server.repository import (
     RepositoryReadSettings,

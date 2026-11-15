@@ -9,8 +9,8 @@ the change it made trying to fix the incident.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import ChangeEvent, FlagChange
 from argus_testkit import Assertion, Scenario
+from core.models import ChangeEvent, FlagChange
 from mitigation.attribution import change_by_actor_to, changes_not_made_by
 
 from mitigation_test.framework.builders import a_deployment

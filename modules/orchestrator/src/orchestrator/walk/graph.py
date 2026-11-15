@@ -4,11 +4,12 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any, Final
 
+from argus_incidents import wanted_until_a_person_ends_it
+
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
 # holds both.
-from argus_core.models import Actor, IncidentStatus
-from argus_incidents import wanted_until_a_person_ends_it
+from core.models import Actor, IncidentStatus
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph

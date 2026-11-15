@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from argus_core import to_iso
+from core import to_iso
 
 # The words the shop's own monitoring pages with wherever its other rules do not
 # fire: its error-rate rule's summary (`_BY_DEFAULT` in the demo app's

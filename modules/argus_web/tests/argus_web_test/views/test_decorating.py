@@ -17,8 +17,11 @@ from pathlib import Path
 
 import argus_web
 import pytest
-from argus_core import new_id
-from argus_core.events import (
+from argus_narration import NarrationLine, a_narration_line, shown
+from argus_testkit import Assertion, Scenario, all_of
+from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
+from core import new_id
+from core.events import (
     ActionTaken,
     AnchoredOnTheAlarm,
     FixAttempted,
@@ -27,16 +30,13 @@ from argus_core.events import (
     StatusChanged,
     VerdictReached,
 )
-from argus_core.models import (
+from core.models import (
     FixOutcome,
     IncidentStatus,
     OpenedPullRequest,
     RecalledIncident,
     Verdict,
 )
-from argus_narration import NarrationLine, a_narration_line, shown
-from argus_testkit import Assertion, Scenario, all_of
-from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
 
 SOME_MINUTE = "2026-08-30T10:03:00Z"
 SOME_FLAG = "monthly-spend-feature"

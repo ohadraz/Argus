@@ -31,7 +31,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from argus_core import (
+from core import (
     A_DAY_SAID,
     MILLISECONDS_UNIT,
     level_given_in,
@@ -45,8 +45,8 @@ from argus_core import (
     the_day_said,
     to_iso,
 )
-from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
-from argus_core.models import (
+from core.events import HUNK_HEADER, PATCH_LINE_INDENT
+from core.models import (
     CitedEvidence,
     DetectionLesson,
     DetectionPart,

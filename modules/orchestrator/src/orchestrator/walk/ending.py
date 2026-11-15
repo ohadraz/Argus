@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from argus_core.models import IncidentStatus
+from core.models import IncidentStatus
 
 from orchestrator.walk.routes import RESOLVED_ROUTE, WITHDRAWN_ROUTE
 from orchestrator.walk.state import IncidentState

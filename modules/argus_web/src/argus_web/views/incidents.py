@@ -16,17 +16,6 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Final
 
-from argus_core import UuidStr, to_iso
-from argus_core.events import IncidentEvent
-from argus_core.models import (
-    Alert,
-    FailureMode,
-    Hypothesis,
-    Incident,
-    IncidentStatus,
-    TakenAction,
-    Undone,
-)
 from argus_incidents import when_it_was_taken
 from argus_narration import (
     Finding,
@@ -36,6 +25,17 @@ from argus_narration import (
     said_as_shown,
     said_plainly,
     the_links_in,
+)
+from core import UuidStr, to_iso
+from core.events import IncidentEvent
+from core.models import (
+    Alert,
+    FailureMode,
+    Hypothesis,
+    Incident,
+    IncidentStatus,
+    TakenAction,
+    Undone,
 )
 from pydantic import BaseModel, Field
 

@@ -30,8 +30,8 @@ from uuid import uuid4
 
 import httpx2
 import pytest
-from argus_core import get_settings
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core import get_settings
 from github_double.repository import DEFAULT_BASE_BRANCH, DEFAULT_FILES
 from github_double.server import DEFAULT_BASE_URL
 from repository_source import (

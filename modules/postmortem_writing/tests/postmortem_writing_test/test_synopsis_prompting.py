@@ -10,8 +10,8 @@ model needs only where the figure goes.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import Ask, Effort, ModelPolicy, Transcript
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core.models import Ask, Effort, ModelPolicy, Transcript
 from postmortem_writing.synopsis_prompting import (
     LIKELY_ONLY_WHERE_THE_CAUSE_SAYS,
     NO_SIZE_IN_WORDS,

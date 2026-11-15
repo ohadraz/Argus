@@ -19,8 +19,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from argus_core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
-from argus_core.models import Ask, ToolResult, ToolResults, Transcript, Turn
+from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from core.models import Ask, ToolResult, ToolResults, Transcript, Turn
 from pydantic import BaseModel
 
 from postmortem_writing.grounding import Flag, faults_of, flags_on

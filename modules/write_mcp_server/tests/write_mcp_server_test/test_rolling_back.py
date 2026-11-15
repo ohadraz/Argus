@@ -22,13 +22,6 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.mcp_transport import (
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
-    what_was_left_behind,
-)
-from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -38,6 +31,13 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
+from core.mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_MARKER,
+    UNREACHABLE_PLATFORM_MARKER,
+    what_was_left_behind,
+)
+from core.models import DeploymentRestored, DeploymentRollbackUndo
 from deployment_platform import (
     DeploymentPlatformWrites,
     DeploymentRecord,

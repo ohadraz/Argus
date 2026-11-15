@@ -19,13 +19,6 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING
 
-from argus_core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.embedding import an_embedder
-from argus_core.events import Publisher
-from argus_core.llm import build_llm_client
-from argus_core.mcp_transport import McpClient
-from argus_core.replay import Recorder
 from argus_incidents import (
     EndedByAPerson,
     StillHeld,
@@ -38,6 +31,13 @@ from argus_incidents import (
     waiting_for_people_via,
 )
 from codefix_agent import FixSettings, fixes_over
+from core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
+from core.anomaly import AnomalyThresholds
+from core.embedding import an_embedder
+from core.events import Publisher
+from core.llm import build_llm_client
+from core.mcp_transport import McpClient
+from core.replay import Recorder
 from incident_memory.records import RememberedIncident
 from investigation_agent import (
     changes_over,
@@ -277,7 +277,7 @@ def against(connections: Connections,
     register = dependencies_over(read)
     # Where the algorithm draws its lines, read from the deployment and
     # handed to both agents that measure against them. A domain value
-    # rather than a slice: `argus_core.anomaly` decides what counts as an
+    # rather than a slice: `core.anomaly` decides what counts as an
     # incident starting, and that rule has no business reading config.
     thresholds = AnomalyThresholds(
         deviations_from_baseline=settings.anomaly_deviations_from_baseline,

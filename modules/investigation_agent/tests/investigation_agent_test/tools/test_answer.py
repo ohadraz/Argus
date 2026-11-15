@@ -14,8 +14,8 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from argus_core.models import FailureMode, ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import FailureMode, ToolDefinition
 from investigation_agent.tools.answer import HYPOTHESES_ARG, answer_tool
 
 type _Part = Callable[[ToolDefinition], dict[str, Any]]

@@ -28,9 +28,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from argus_core import get_settings  # noqa: E402
 from code_index.embedding import an_embedder  # noqa: E402
 from code_index.indexing import Embedder  # noqa: E402
+from core import get_settings  # noqa: E402
 from qdrant_client import QdrantClient  # noqa: E402
 from read_mcp_server.meaning import (  # noqa: E402
     MOST_PASSAGES_WORTH_ANSWERING,

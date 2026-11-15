@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Final
 
-from argus_core import parse_iso
+from core import parse_iso
 
 # The instant a log line opens with, in the service's own wire format: to the
 # minute, the second or a fraction of one, in UTC or at an offset - as the read

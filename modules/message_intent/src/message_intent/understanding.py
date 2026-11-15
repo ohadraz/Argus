@@ -28,7 +28,7 @@ import logging
 from collections.abc import Callable
 from typing import Final, Protocol
 
-from argus_core.events import (
+from core.events import (
     MessageUnderstood,
     Offered,
     Publisher,
@@ -37,7 +37,7 @@ from argus_core.events import (
     WithdrawalOffered,
     publish,
 )
-from argus_core.models import IncidentStatus, Meaning, OfferedEnding, Reference, ThreadMessage
+from core.models import IncidentStatus, Meaning, OfferedEnding, Reference, ThreadMessage
 
 logger = logging.getLogger(__name__)
 

@@ -18,9 +18,11 @@ import logging
 from collections.abc import Callable
 from typing import Protocol
 
-from argus_core import Connections
-from argus_core.events import ChangeUndone
-from argus_core.models import (
+from argus_incidents import PublisherFor, events_into_connection, publish_beside
+from argus_incidents.repository import taken_actions
+from core import Connections
+from core.events import ChangeUndone
+from core.models import (
     ActionProgress,
     TakenAction,
     UndoDescriptor,
@@ -29,8 +31,6 @@ from argus_core.models import (
     leaves_something_to_put_back,
     the_identity_recorded,
 )
-from argus_incidents import PublisherFor, events_into_connection, publish_beside
-from argus_incidents.repository import taken_actions
 from mitigation import UndoAttempt
 
 logger = logging.getLogger(__name__)

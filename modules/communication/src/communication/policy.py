@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from argus_core.events import (
+from core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,

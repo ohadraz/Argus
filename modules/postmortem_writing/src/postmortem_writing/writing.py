@@ -20,8 +20,8 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
-from argus_core.llm import LLMClient
-from argus_core.models import (
+from core.llm import LLMClient
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,

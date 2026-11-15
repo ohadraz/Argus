@@ -33,22 +33,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
-from argus_core import new_id
-from argus_core.events import (
-    MessageUnderstood,
-    Offered,
-    QuestionAnswered,
-    ResolutionOffered,
-    WithdrawalOffered,
-)
-from argus_core.models import (
-    IncidentStatus,
-    Meaning,
-    Reference,
-    ReportChannel,
-    ThreadMessage,
-    a_chat_message,
-)
 from argus_testkit import (
     Assertion,
     Kept,
@@ -57,6 +41,22 @@ from argus_testkit import (
     all_of,
     nothing_was_collected,
     one_record_was_logged,
+)
+from core import new_id
+from core.events import (
+    MessageUnderstood,
+    Offered,
+    QuestionAnswered,
+    ResolutionOffered,
+    WithdrawalOffered,
+)
+from core.models import (
+    IncidentStatus,
+    Meaning,
+    Reference,
+    ReportChannel,
+    ThreadMessage,
+    a_chat_message,
 )
 from message_intent.understanding import COULD_NOT_ANSWER, understand
 

@@ -25,8 +25,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from argus_core.models import Verdict
 from argus_testkit import Scenario, all_of
+from core.models import Verdict
 from postmortem_writing import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
     EXCHANGE_RATE_ASSUMPTION_LABEL,

@@ -18,10 +18,10 @@ from collections.abc import Iterator
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
-from argus_core.schema import SchemaNotApplied, reset_schema
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from argus_web.app import app
+from core import connect_from_env
+from core.schema import SchemaNotApplied, reset_schema
 from fastapi.testclient import TestClient
 
 

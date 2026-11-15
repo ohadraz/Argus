@@ -32,9 +32,9 @@ from __future__ import annotations
 
 import httpx2
 import pytest
-from argus_core.events import ActionTaken, PlacementRecorded, VerdictReached
-from argus_core.models import PIN_TO_ACCELERATOR, FailureMode, IncidentStatus, Verdict
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core.events import ActionTaken, PlacementRecorded, VerdictReached
+from core.models import PIN_TO_ACCELERATOR, FailureMode, IncidentStatus, Verdict
 
 from tests.e2e.framework.argus import (
     RECORDED_ACCELERATOR_HETEROGENEITY,

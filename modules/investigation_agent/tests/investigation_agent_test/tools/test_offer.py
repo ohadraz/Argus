@@ -13,8 +13,8 @@ to a model is the server's to declare.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import ToolDefinition
 from investigation_agent.tools import (
     ANSWER_TOOL,
     CHANGES_TOOL,

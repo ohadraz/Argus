@@ -16,7 +16,7 @@ from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from typing import Final
 
-from argus_core.telemetry import ARGUS_INCIDENT_ID, ERROR_TYPE
+from core.telemetry import ARGUS_INCIDENT_ID, ERROR_TYPE
 from opentelemetry import baggage, context, propagate, trace
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
 

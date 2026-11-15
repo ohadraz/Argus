@@ -23,18 +23,6 @@ from typing import Any
 from unittest.mock import call, create_autospec
 
 import pytest
-from argus_core.models import (
-    CHAT_THREAD,
-    IncidentStatus,
-    Meaning,
-    Offer,
-    Reference,
-    Report,
-    ReportChannel,
-    ThreadMessage,
-    a_chat_message,
-    a_chat_thread,
-)
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -53,6 +41,18 @@ from chat_platform import (
     Irrelevant,
     Pressed,
     Written,
+)
+from core.models import (
+    CHAT_THREAD,
+    IncidentStatus,
+    Meaning,
+    Offer,
+    Reference,
+    Report,
+    ReportChannel,
+    ThreadMessage,
+    a_chat_message,
+    a_chat_thread,
 )
 
 SOME_ARGUS_INCIDENT = "4c1e2a50-0000-4000-8000-000000000001"

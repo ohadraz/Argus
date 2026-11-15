@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import logging
 
-from argus_core import was_lost
-from argus_core.events import IncidentRemembered, Publisher, RememberingFailed, nobody, publish
+from core import was_lost
+from core.events import IncidentRemembered, Publisher, RememberingFailed, nobody, publish
 from incident_memory.composing import a_memory_of
 from incident_memory.describing import what_it_looked_like
 

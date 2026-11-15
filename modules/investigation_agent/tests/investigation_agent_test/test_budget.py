@@ -16,9 +16,9 @@ configured a number badly.
 from __future__ import annotations
 
 import pytest
-from argus_core.budget import Budget
-from argus_core.models import ToolCall, Turn
 from argus_testkit import Assertion, Scenario
+from core.budget import Budget
+from core.models import ToolCall, Turn
 from investigation_agent.budget import Bound, a_budget_for
 
 from investigation_agent_test.framework.builders.configuration import (

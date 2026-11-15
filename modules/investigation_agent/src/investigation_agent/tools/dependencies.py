@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.events import Narrator, ServiceRegisterRead
-from argus_core.models import ServiceDependency, ToolCall
+from core.events import Narrator, ServiceRegisterRead
+from core.models import ServiceDependency, ToolCall
 
 from investigation_agent.retrieval import DependencyFetcher
 from investigation_agent.tools.results import Served, answered, could_not_be_read

@@ -540,7 +540,7 @@ def the_findings_over(migrations: Path, modules: Path) -> Findings:
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     migrations = (
-        repo_root / "modules" / "argus_core" / "src" / "argus_core"
+        repo_root / "modules" / "core" / "src" / "core"
         / "migrations" / "versions"
     )
 

@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from argus_core import parse_iso
-from argus_core.models import (
+from core import parse_iso
+from core.models import (
     Alert,
     Attempt,
     ChangeEvent,

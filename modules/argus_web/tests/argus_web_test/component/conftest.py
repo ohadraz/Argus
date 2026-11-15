@@ -14,8 +14,8 @@ import subprocess
 from collections.abc import Iterator
 
 import pytest
-from argus_core import connect_from_env
-from argus_core.schema import reset_schema
+from core import connect_from_env
+from core.schema import reset_schema
 
 
 @pytest.fixture(scope="session", autouse=True)

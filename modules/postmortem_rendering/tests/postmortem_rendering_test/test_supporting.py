@@ -11,8 +11,8 @@ from datetime import UTC, datetime
 from operator import attrgetter
 
 import pytest
-from argus_core.models import ChannelReading, CitedChange, CitedEvidence, OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
+from core.models import ChannelReading, CitedChange, CitedEvidence, OpenedPullRequest
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow, the_supporting_information
 

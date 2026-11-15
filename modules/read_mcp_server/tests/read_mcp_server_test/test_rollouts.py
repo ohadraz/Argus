@@ -27,8 +27,8 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.models import RolloutAccount, RolloutProgress
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from core.models import RolloutAccount, RolloutProgress
 from deployment_platform import (
     DeploymentPlatformError,
     DeploymentPlatformReads,

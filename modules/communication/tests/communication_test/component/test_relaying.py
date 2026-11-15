@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.events import IncidentEvent
-from argus_core.models import Alert
 from argus_incidents.following import events_since, place_for
 from argus_incidents.repository import events, incidents
 from argus_testkit import Scenario, all_of, calling
 from communication.relaying import CHAT_RELAY, relay_once
+from core import connect_from_env, utc_now
+from core.events import IncidentEvent
+from core.models import Alert
 
 from communication_test.framework.assertions import it_said, the_lines_said_were
 from communication_test.framework.builders import (

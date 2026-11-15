@@ -22,13 +22,13 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of
+from core.models import (
     RESTART_SERVICE,
     ActionIdentity,
     Verdict,
     WhatWouldBeTried,
 )
-from argus_testkit import Assertion, Scenario, all_of
 from incident_memory.ordering import Reordering, demoting_what_was_refuted
 from incident_memory.records import RememberedIncident
 

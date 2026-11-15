@@ -20,8 +20,8 @@ from enum import StrEnum
 from typing import Final
 
 import psycopg
-from argus_core import Fence, UuidStr
-from argus_core.models import IncidentStatus
+from core import Fence, UuidStr
+from core.models import IncidentStatus
 from psycopg.rows import class_row
 from pydantic import BaseModel
 

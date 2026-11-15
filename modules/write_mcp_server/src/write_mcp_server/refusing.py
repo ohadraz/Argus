@@ -20,12 +20,12 @@ the action's, which is why each says `asked_to_change` itself.
 
 from __future__ import annotations
 
-from argus_core.mcp_transport import (
+from core.mcp_transport import (
     a_refusal_saying_what_it_left,
     an_unreachable_platform,
     with_what_it_left,
 )
-from argus_core.models import DEPLOYMENT_PLATFORM, UndoDescriptor
+from core.models import DEPLOYMENT_PLATFORM, UndoDescriptor
 from deployment_platform import DeploymentPlatformError, PlatformUnreachable
 
 

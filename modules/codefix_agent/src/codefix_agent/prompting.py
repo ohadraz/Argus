@@ -44,8 +44,8 @@ import json
 from collections.abc import Iterable
 from typing import Any, Final
 
-from argus_core import is_a_test_file
-from argus_core.models import ToolDefinition
+from core import is_a_test_file
+from core.models import ToolDefinition
 from pydantic import BaseModel, field_validator, model_validator
 
 # The tool's name and its fields, named once. Both ends of the exchange read

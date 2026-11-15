@@ -20,9 +20,9 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from argus_core.mcp_transport import McpClient
-from argus_core.models import AcceleratorPinUndo, DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of
+from core.mcp_transport import McpClient
+from core.models import AcceleratorPinUndo, DeploymentRollbackUndo
 from mitigation import an_undo_over
 from mitigation.tools import MitigationSettings
 

@@ -14,8 +14,6 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from argus_core import Fence, Holding, RunLost, connect_from_env, utc_now
-from argus_core.models import Alert, IncidentStatus
 from argus_incidents.ending import (
     EndedByAPerson,
     StillHeld,
@@ -25,6 +23,8 @@ from argus_incidents.ending import (
 )
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting, calling
+from core import Fence, Holding, RunLost, connect_from_env, utc_now
+from core.models import Alert, IncidentStatus
 
 DONT_CARE_INCIDENT_ID = "buki-123"
 

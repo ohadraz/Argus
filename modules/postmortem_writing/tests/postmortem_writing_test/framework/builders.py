@@ -18,9 +18,10 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.llm import LLMClient
-from argus_core.models import (
+from argus_testkit import Kept
+from core.anomaly import AnomalyThresholds
+from core.llm import LLMClient
+from core.models import (
     ActionProgress,
     AlertRuleStanding,
     ChangeEvent,
@@ -42,7 +43,6 @@ from argus_core.models import (
     WorseWhen,
     a_chat_message,
 )
-from argus_testkit import Kept
 from postmortem_writing import (
     ActionRecord,
     CandidateRecord,

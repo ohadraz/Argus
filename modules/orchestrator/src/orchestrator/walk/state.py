@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from argus_core.models import (
+from core.models import (
     Action,
     Alert,
     Attempt,

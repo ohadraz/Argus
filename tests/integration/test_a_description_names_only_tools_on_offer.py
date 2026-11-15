@@ -18,10 +18,10 @@ import json
 import re
 
 import pytest
-from argus_core.models import CodeSearch, ToolDefinition
 from argus_testkit import Assertion, Scenario
 from codefix_agent.tools import READ_TIER_HELD as CODE_FIX_HELD
 from codefix_agent.tools import tools_for
+from core.models import CodeSearch, ToolDefinition
 from investigation_agent.tools import READ_TIER_HELD as INVESTIGATOR_HELD
 from investigation_agent.tools import investigator_tools
 from investigation_agent.tools.weighing import weigh_lead_tool

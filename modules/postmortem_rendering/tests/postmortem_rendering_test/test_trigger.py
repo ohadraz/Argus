@@ -9,8 +9,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core.models import ChangeKind, ChannelReading, NoTrigger, Trigger, WhyNoTrigger
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import ChangeKind, ChannelReading, NoTrigger, Trigger, WhyNoTrigger
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 

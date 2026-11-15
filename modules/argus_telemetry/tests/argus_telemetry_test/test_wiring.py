@@ -24,8 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from argus_core import TelemetrySettings
-from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_telemetry import Telemetry, telemetry_for
 from argus_testkit import (
     Assertion,
@@ -35,6 +33,8 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
+from core import TelemetrySettings
+from core.telemetry import ARGUS_INCIDENT_ID
 from opentelemetry import baggage, context
 
 SOME_SERVICE = "argus-worker"

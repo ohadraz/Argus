@@ -21,15 +21,6 @@ import logging
 from datetime import UTC, datetime
 
 import pytest
-from argus_core import RunLost
-from argus_core.events import IncidentEvent
-from argus_core.models import (
-    REVERT_FEATURE_FLAG,
-    Alert,
-    IncidentStatus,
-    TakenAction,
-    Verdict,
-)
 from argus_testkit import (
     Assertion,
     Kept,
@@ -39,6 +30,15 @@ from argus_testkit import (
     attempting,
     calling,
     one_record_was_logged,
+)
+from core import RunLost
+from core.events import IncidentEvent
+from core.models import (
+    REVERT_FEATURE_FLAG,
+    Alert,
+    IncidentStatus,
+    TakenAction,
+    Verdict,
 )
 from incident_memory.records import RememberedIncident
 from orchestrator.walk.ports import ActionsTaken, RememberIncident

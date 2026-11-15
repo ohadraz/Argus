@@ -37,8 +37,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from argus_core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
-from argus_core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript
+from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript
 from pydantic import BaseModel, ValidationError
 
 from postmortem_writing.prompting import WENT_WRONG_DESCRIPTION, WENT_WRONG_FIELD

@@ -12,8 +12,8 @@ import json
 from collections.abc import Sequence
 from typing import Final
 
-from argus_core.events import MetricsRetrieved, Narrator, RetrievalRequested
-from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
+from core.events import MetricsRetrieved, Narrator, RetrievalRequested
+from core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
 
 from investigation_agent.retrieval import MetricsFetcher
 from investigation_agent.tools.results import (

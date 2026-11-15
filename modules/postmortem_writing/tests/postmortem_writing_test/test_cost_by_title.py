@@ -13,8 +13,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from argus_core.models import TitleCost
 from argus_testkit import Assertion, Scenario
+from core.models import TitleCost
 from postmortem_writing.cost_by_title import cost_by_title
 from postmortem_writing.responder_cost import responder_cost
 from postmortem_writing.sources import EngagedResponder, PayBand

@@ -25,8 +25,8 @@ import json
 import logging
 from typing import Any, Final, Protocol
 
-from argus_core import SettingsSlice
-from argus_core.models import CodeSearch
+from core import SettingsSlice
+from core.models import CodeSearch
 
 logger = logging.getLogger(__name__)
 

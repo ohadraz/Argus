@@ -18,9 +18,9 @@ import asyncio
 from collections.abc import Collection, Mapping
 from unittest.mock import create_autospec
 
-from argus_core import Connections, ReadMcpEndpoint
-from argus_core.mcp_transport import McpClient
-from argus_core.models import CodeSearch, ToolDefinition
+from core import Connections, ReadMcpEndpoint
+from core.mcp_transport import McpClient
+from core.models import CodeSearch, ToolDefinition
 from deployment_platform import DeploymentPlatformReads
 from mcp.server.fastmcp import FastMCP
 from metrics_source import MetricsSettings

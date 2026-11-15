@@ -14,7 +14,7 @@ the reading.
 
 from __future__ import annotations
 
-from argus_core.models import PodPlacement
+from core.models import PodPlacement
 from deployment_platform import DeploymentPlatformError, DeploymentPlatformReads
 
 

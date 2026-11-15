@@ -14,8 +14,8 @@ two repositories apart and takes no knowledge of the host's pages.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import RevisionSource
 from argus_testkit import Scenario, the_answer_was
+from core.models import RevisionSource
 from repository_source import owner_and_name, where_to_read
 
 SOME_REVISION = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"

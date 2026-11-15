@@ -14,17 +14,17 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.events import (
+from argus_incidents.repository import events, incidents
+from argus_testkit import Assertion, Scenario, all_of, calling
+from core import connect_from_env, utc_now
+from core.events import (
     AgentInvoked,
     IncidentEvent,
     LogsRetrieved,
     OnsetDetected,
     RetrievalRequested,
 )
-from argus_core.models import Actor, Alert, RetrievalChannel
-from argus_incidents.repository import events, incidents
-from argus_testkit import Assertion, Scenario, all_of, calling
+from core.models import Actor, Alert, RetrievalChannel
 
 from argus_incidents_test.framework import no_column_is_empty
 

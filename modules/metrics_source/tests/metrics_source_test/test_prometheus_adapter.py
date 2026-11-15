@@ -15,7 +15,6 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import MetricBucket, RuleLine, RuleReading
 from argus_testkit import (
     Assertion,
     Kept,
@@ -27,6 +26,7 @@ from argus_testkit import (
     the_answer_was,
     the_error_mentioned,
 )
+from core.models import MetricBucket, RuleLine, RuleReading
 from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between, is_a_latency, is_the_error_rate
 

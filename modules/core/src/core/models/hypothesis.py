@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, Field, model_validator
+
+from core.ids import UuidStr, new_id
+from core.models.evidence import Evidence
+from core.models.failure_mode import FailureMode
+
+
+class Hypothesis(BaseModel):
+    """What the Investigator concluded, and what it concluded it from.
+
+    One model, not two. A row in the `hypothesis` table (spec §11.1) is a
+    hypothesis written down, not a separate concept - so the repository stores
+    and loads this, rather than declaring a parallel shape of its own. It
+    crosses agent boundaries as well: the Investigator forms it, Mitigation
+    answers it with confirmed/refuted (§7.3), Postmortem quotes it.
+
+    `id` is generated here rather than by the database, because an entity has
+    identity by definition - see `core.ids.new_id`. `created_at` is
+    deliberately absent: it is an audit fact the table records, and nothing in
+    the domain reads it.
+
+    `failure_mode` is `None` when the evidence did not identify a cause, and
+    `confidence` is `None` with it. The two travel together deliberately: see
+    the validator below.
+
+    `subject` is the specific thing the cause names - for a feature-flag
+    toggle, the flag. It is a field rather than a sentence in `summary` because
+    Mitigation acts on it: a conclusion that survives only as prose forces every
+    consumer to either parse English or investigate the incident again, and two
+    phases investigating separately can reach different answers, of which the
+    acting one is not the reasoning one.
+
+    A plain string, and named for no particular cause, because a `Hypothesis` is
+    shared by every cause type: a field called `flag` would be dead weight on a
+    bad deployment and a lie on whatever comes next. What the string means is
+    already fixed by `failure_mode` beside it.
+
+    `faulting_service` is the service the fault is *in*, and it exists because
+    that is not always the service the alert was about. It is deliberately not
+    `subject`: a subject is never an address and this is one, which is the
+    difference between something a reader parses or the record is compared
+    against and something a platform call is sent to.
+
+    `from_state` and `to_state` are what the subject moved between - `off` and
+    `on` for a flag, two versions for a deployment. Strings for the same reason
+    `subject` is one, and fields for the same reason it is a field: a reader
+    recovering the transition from `summary` has to decide which of the `on`s
+    and `off`s in the sentence were the states, and a sentence that merely uses
+    the word reads as a transition it never described.
+    """
+
+    id: UuidStr = Field(default_factory=new_id)
+    incident_id: UuidStr
+    summary: str
+    failure_mode: FailureMode | None
+    # A probability, so it lives on the scale probabilities live on. Declared
+    # here because it is the only place it can be: the answer tool's schema
+    # cannot carry `minimum` and `maximum` - a strict tool schema rejects
+    # bounds on a number - so a model writing 1.4 is refused on the way into
+    # the domain rather than on the way out of the API.
+    confidence: float | None = Field(ge=0.0, le=1.0)
+    supporting_evidence: list[Evidence]
+    subject: str | None = None
+    from_state: str | None = None
+    to_state: str | None = None
+    # Where this hypothesis came in the investigation's own ordering, best
+    # first. Data rather than list position, because rows come back from a
+    # table in no order at all, and an ordering that lived only in a list would
+    # not survive being written down. Defaults to 1: an investigation that named
+    # one explanation named the best one.
+    rank: int = 1
+    # Which candidate of the incident this is, counted across every round in
+    # the order the Investigator formed them: the earlier rounds' count, and
+    # then this round's rank. Given once, where it is formed, because the chat
+    # says it at that moment and nothing said there can be renumbered. The walk
+    # page reads it; the write-up's labels count the candidates in its order,
+    # which comes to the same number, and stay a count so that a label is
+    # unique for a citation however the numbers ran. Defaults to 1 for the
+    # reason `rank` does.
+    number: int = 1
+    # The service the fault is in, where that is not the service the alert
+    # named. An address rather than a description, and a field of its own for
+    # exactly that reason: `subject` is what the cause *names*, in the model's
+    # words, and a platform call sent to it asks about something nobody runs -
+    # "kuki heap (memory_used_bytes / heap of 2048MiB limit)" is a subject a
+    # model actually wrote. This is the name of a service, and a mitigation
+    # addresses it.
+    #
+    # `None` for every cause that is about the alerting service itself, which is
+    # all of them but one: a restart, a revert and a rollback all take their
+    # subject from the alert, because until a dependency could be blamed the
+    # service that was paged was always the service at fault.
+    faulting_service: str | None = None
+    tested: bool = False
+    result: str | None = None
+
+    @model_validator(mode="after")
+    def _a_cause_and_a_confidence_come_together(self) -> Hypothesis:
+        """Rejects a confident verdict that names nothing.
+
+        "I found no cause, and I am 90% sure" is a contradiction, and it is
+        the exact shape of the bug that `STUB_CONFIDENCE` used to produce: an
+        answer that read confident while identifying nothing, which a human
+        picking up the incident could not tell from a real diagnosis.
+
+        Enforced here rather than corrected at the point of construction,
+        because a correction is a rule every future code path has to remember,
+        and nothing makes it.
+        """
+        if (self.failure_mode is None) != (self.confidence is None):
+            raise ValueError(
+                "a hypothesis has both a cause and a confidence, or neither - "
+                f"got failure_mode={self.failure_mode!r}, confidence={self.confidence!r}"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def _a_subject_is_something_a_cause_names(self) -> Hypothesis:
+        """Rejects a subject with nothing to blame it for.
+
+        "I blame `monthly-spend-feature`, for nothing" is the same incoherence
+        the rule above refuses, one field over - and a worse one to let past,
+        because Mitigation reads the subject to decide what to change. An
+        undetermined verdict that still named something would arrive as a flag
+        to act on with no diagnosis behind it.
+
+        The reverse is legitimate and deliberately allowed: a cause can name no
+        subject, because not every cause has one this system can identify.
+        """
+        if self.subject is not None and self.failure_mode is None:
+            raise ValueError(
+                "a hypothesis names a subject only for a cause it identified - "
+                f"got subject={self.subject!r} with failure_mode=None"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def _a_service_at_fault_is_something_a_cause_names(self) -> Hypothesis:
+        """Rejects an address with nothing to blame it for.
+
+        The same incoherence `_a_subject_is_something_a_cause_names` refuses,
+        and the worst of the three to let past. A subject reaches Mitigation as
+        a value to revert; this reaches it as a process to bring down, and an
+        undetermined verdict that still named a service would have Argus restart
+        something on no diagnosis at all.
+
+        The reverse is legitimate and deliberately allowed, and it is allowed
+        more pointedly here than for a subject: a hypothesis determining an
+        internal dependency's failure and naming no service is a bad answer that
+        the record has to keep as it was given. Where that becomes a refusal is
+        the mitigation, which has the whole incident in view and can say that no
+        action could be identified - a validator rejecting it here would throw
+        away the evidence of how the investigation actually went.
+        """
+        if self.faulting_service is not None and self.failure_mode is None:
+            raise ValueError(
+                "a hypothesis names the service at fault only for a cause it "
+                f"identified - got faulting_service={self.faulting_service!r} "
+                f"with failure_mode=None"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def _a_transition_has_two_ends(self) -> Hypothesis:
+        """Rejects half a transition.
+
+        "It moved to ON", from nothing in particular, is the cause/confidence
+        incoherence a third time: a change is a pair of states, and one of them
+        alone describes a position rather than a move. The page draws the pair
+        struck-through and picked out, so a half-filled one renders a change out
+        of nowhere - which reads as a fact rather than as a missing field.
+        """
+        if (self.from_state is None) != (self.to_state is None):
+            raise ValueError(
+                "a transition names the state it left and the state it reached, or "
+                f"neither - got from_state={self.from_state!r}, to_state={self.to_state!r}"
+            )
+
+        if self.from_state is not None and self.subject is None:
+            raise ValueError(
+                "a transition is a change to the subject it names - got "
+                f"from_state={self.from_state!r} with subject=None"
+            )
+
+        return self
+
+    def is_actionable(self) -> bool:
+        """Whether there is anything here to act on at all.
+
+        The one gate a generic mitigation needs. Confidence is not the
+        question: an action that is taken one at a time, confirmed against the
+        service, and put back where there is anything to put back costs a couple
+        of minutes and nothing else, so what matters is whether a cause was
+        named - not how sure the model was that it was the right one. Being wrong about a
+        correlated change is the ordinary case, and the walk is what answers it.
+
+        Confidence still decides *order*, and still gates everything a human has
+        to approve or be woken for - see `is_confident_enough`.
+        """
+        return self.failure_mode is not None
+
+    def is_confident_enough(self, threshold: float) -> bool:
+        """Whether this hypothesis is confident enough to put in front of a
+        human - a pull request, a rollback, a page (spec §10, §13).
+
+        Not what admits a generic mitigation: that one asks only whether a
+        cause was named, and then whether the kind of action is in the declared
+        set (§13). This asks the question confidence is actually good for, which
+        is whether somebody's attention or approval is warranted.
+
+        An undetermined hypothesis never is. That is the honest answer - there
+        is no cause to act on - rather than a low score standing in for one.
+
+        The threshold is a parameter rather than read from `Settings`: a
+        hypothesis is a domain object and has no business knowing how Argus is
+        configured. Callers that need the configured value already hold it.
+        """
+        return self.confidence is not None and self.confidence >= threshold

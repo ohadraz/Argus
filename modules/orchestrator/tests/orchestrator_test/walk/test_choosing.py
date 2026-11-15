@@ -27,9 +27,10 @@ import logging
 from datetime import UTC, datetime
 
 import pytest
-from argus_core import to_iso
-from argus_core.events import CandidateSelected, IncidentEvent
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core import to_iso
+from core.events import CandidateSelected, IncidentEvent
+from core.models import (
     DEPLOYMENT_PLATFORM,
     Alert,
     Attempt,
@@ -47,7 +48,6 @@ from argus_core.models import (
     the_actions_through,
     the_identity_of,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.routes import (

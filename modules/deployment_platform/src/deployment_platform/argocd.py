@@ -21,9 +21,9 @@ from functools import partial
 from typing import Any, Final
 
 import httpx2
-from argus_core import SettingsSlice
-from argus_core.applying import known_not_applied
-from argus_core.models import PodPlacement, RolloutProgress
+from core import SettingsSlice
+from core.applying import known_not_applied
+from core.models import PodPlacement, RolloutProgress
 
 from deployment_platform.failures import PlatformRefused, PlatformUnreachable
 from deployment_platform.port import Autoscaler, AutoscalerBounds, DeploymentRecord

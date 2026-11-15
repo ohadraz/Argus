@@ -20,10 +20,10 @@ from collections.abc import Sequence
 from datetime import timedelta
 from typing import Final
 
-from argus_core import parse_iso, to_iso
-from argus_core.anomaly import the_end_of_the_onset
-from argus_core.events import ChangesRetrieved, Narrator, RetrievalRequested
-from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
+from core import parse_iso, to_iso
+from core.anomaly import the_end_of_the_onset
+from core.events import ChangesRetrieved, Narrator, RetrievalRequested
+from core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
 
 from investigation_agent.budget import InvestigationSettings
 from investigation_agent.retrieval import ChangeFetcher

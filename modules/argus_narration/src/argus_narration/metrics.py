@@ -2,14 +2,14 @@
 
 Nothing here judges the incident. `elevated` is the mark a reader's eye lands
 on and nothing more - the judgement of which minutes departed from the baseline
-was made by `argus_core.anomaly` while the investigation ran, and is already in
+was made by `core.anomaly` while the investigation ran, and is already in
 the narration as the onset.
 """
 
 from __future__ import annotations
 
-from argus_core import said_as_a_level
-from argus_core.models import MetricBucket
+from core import said_as_a_level
+from core.models import MetricBucket
 from pydantic import BaseModel
 
 from argus_narration.clock import a_minute
@@ -20,7 +20,7 @@ from argus_narration.clock import a_minute
 # marked a different set of minutes than the other would make a reader
 # translate between them. Presentation only - nothing decides anything on it,
 # and the judgement of which minutes departed from the baseline belongs to
-# `argus_core.anomaly`, which made it while the investigation ran.
+# `core.anomaly`, which made it while the investigation ran.
 _ELEVATED_ERROR_RATE = 0.05
 
 # Where a byte count stops being read in megabytes. A working set is quoted in
@@ -36,7 +36,7 @@ class BucketRow(BaseModel):
 
     `elevated` is presentation and nothing else: it is the mark the reader's
     eye lands on, not a judgement about the incident. The judgement was made by
-    `argus_core.anomaly` while the investigation ran, and is in the narration
+    `core.anomaly` while the investigation ran, and is in the narration
     already as the onset.
     """
 

@@ -17,7 +17,8 @@ from __future__ import annotations
 from typing import TypedDict, Unpack
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
+from core.models import (
     DEPLOYMENT_PLATFORM,
     Action,
     ActionIdentity,
@@ -32,7 +33,6 @@ from argus_core.models import (
     RevertFeatureFlag,
     Verdict,
 )
-from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from orchestrator.walk.state import IncidentState, status_after
 from pydantic import ValidationError
 

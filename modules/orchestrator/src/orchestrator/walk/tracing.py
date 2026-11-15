@@ -17,8 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from argus_core.models import Actor
-from argus_core.telemetry import (
+from core.models import Actor
+from core.telemetry import (
     ARGUS_AGENT,
     ARGUS_INCIDENT_ID,
     ARGUS_WALK_STEP,

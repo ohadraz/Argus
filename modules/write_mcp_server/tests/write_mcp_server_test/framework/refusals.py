@@ -8,13 +8,13 @@ caller would be told rather than the spelling of a marker.
 
 from __future__ import annotations
 
-from argus_core.mcp_transport import (
+from argus_testkit import Assertion
+from core.mcp_transport import (
     LEFT_BEHIND_KNOWN_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
 )
-from argus_core.models import UndoDescriptor
-from argus_testkit import Assertion
+from core.models import UndoDescriptor
 
 
 def it_was_refused_as(refusal: type[Exception]) -> Assertion[object]:

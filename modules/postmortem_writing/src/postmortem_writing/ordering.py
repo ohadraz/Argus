@@ -21,8 +21,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Final
 
-from argus_core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable
-from argus_core.models import Ask, ToolDefinition, Transcript, Turn
+from core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable
+from core.models import Ask, ToolDefinition, Transcript, Turn
 
 from postmortem_writing.prompting import SubmittedStep
 

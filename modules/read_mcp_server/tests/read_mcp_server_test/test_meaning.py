@@ -22,13 +22,13 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from argus_core.models import CodeSearch
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from code_index.chunking import Chunk
 from code_index.indexing import Embedder
 from code_index.store import Found
+from core.models import CodeSearch
 from qdrant_client import QdrantClient
 from read_mcp_server.meaning import (
     NEAR_ENOUGH_TO_ANSWER,

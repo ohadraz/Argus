@@ -22,8 +22,8 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Protocol, assert_never
 
-from argus_core.models import CHAT_THREAD, IncidentStatus, Reference, Report, ThreadMessage
 from chat_platform import ChatPlatformReads, Handshake, Irrelevant, Pressed, Written
+from core.models import CHAT_THREAD, IncidentStatus, Reference, Report, ThreadMessage
 
 logger = logging.getLogger(__name__)
 

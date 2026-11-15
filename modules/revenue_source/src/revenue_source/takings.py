@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from decimal import Decimal
 
-from argus_core import SettingsSlice
+from core import SettingsSlice
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)

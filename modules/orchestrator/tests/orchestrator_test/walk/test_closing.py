@@ -17,14 +17,14 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Kept, Scenario, all_of
+from core.models import (
     Alert,
     ExecutiveSynopsisDocument,
     IncidentStatus,
     PostmortemDocument,
     ReviewCriterion,
 )
-from argus_testkit import Assertion, Kept, Scenario, all_of
 from orchestrator.walk.closing import postmortem_node, synopsis_node
 from orchestrator.walk.ports import (
     RecordPostmortem,

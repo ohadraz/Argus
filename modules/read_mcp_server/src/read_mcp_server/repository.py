@@ -27,9 +27,9 @@ from collections.abc import Callable
 from typing import Any, Final, Protocol
 
 import httpx2
-from argus_core import SettingsSlice
-from argus_core.models import CodeOutsideThePatch
-from argus_core.source_scope import belongs_to_the_service
+from core import SettingsSlice
+from core.models import CodeOutsideThePatch
+from core.source_scope import belongs_to_the_service
 from repository_source import RepositorySourceSettings, the_source_at
 
 # Re-exported under its own name rather than merely imported. This module raises

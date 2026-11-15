@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import Ask, Meaning, ToolDefinition, Transcript
+from core.models import Ask, Meaning, ToolDefinition, Transcript
 
 # The tool's name and its one field, named once. Both ends of the exchange use
 # them - the definition offered to the model, and `classifying` taking the call

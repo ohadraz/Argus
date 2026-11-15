@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from argus_core import Connections
-from argus_core.events import RecordedEvent
+from core import Connections
+from core.events import RecordedEvent
 
 from argus_incidents.repository import cursors, events
 

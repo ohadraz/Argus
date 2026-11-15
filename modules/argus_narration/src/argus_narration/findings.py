@@ -13,8 +13,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from argus_core import parse_iso, said_as_a_day, said_as_a_time
-from argus_core.models import Evidence
+from core import parse_iso, said_as_a_day, said_as_a_time
+from core.models import Evidence
 from pydantic import BaseModel
 
 from argus_narration.prose import said_plainly

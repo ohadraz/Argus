@@ -17,10 +17,10 @@ from typing import Any, Final
 
 import httpx2
 import psycopg
-from argus_core import get_settings
-from argus_core.anomaly import has_recovered_since
-from argus_core.models import MetricBucket
 from argus_testkit import Assertion, eventually
+from core import get_settings
+from core.anomaly import has_recovered_since
+from core.models import MetricBucket
 
 from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS, TARGET_SERVICE_BASE_URL
 from tests.framework.investigating import the_configured_thresholds

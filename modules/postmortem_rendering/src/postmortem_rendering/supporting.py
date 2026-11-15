@@ -10,9 +10,10 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from argus_core import A_REVISION, parse_iso, said_short
-from argus_core.events import PATCH_LINE_INDENT
-from argus_core.models import (
+from argus_narration import the_short_forms
+from core import A_REVISION, parse_iso, said_short
+from core.events import PATCH_LINE_INDENT
+from core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ChangeEvent,
     ChangeKind,
@@ -24,7 +25,6 @@ from argus_core.models import (
     changes_not_listed,
     no_logs_listed,
 )
-from argus_narration import the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run

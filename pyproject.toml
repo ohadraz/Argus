@@ -119,7 +119,7 @@ markers = [
 # The fourth says how the kernel is addressed rather than who may depend on it.
 # An empty `__init__.py` declares no surface, so twenty modules reached in by
 # module path and nothing in the kernel marked what was stable. The front doors
-# are now stated, and everything else under `argus_core` is internal by default.
+# are now stated, and everything else under `core` is internal by default.
 #
 # `forbidden_modules = ["*"]` rather than a deny-list naming every other package.
 # A list would be a nineteenth module's free pass: absent from all three
@@ -134,7 +134,6 @@ markers = [
 # be broken by it.
 [tool.importlinter]
 root_packages = [
-    "argus_core",
     "argus_incidents",
     "argus_narration",
     "argus_telemetry",
@@ -143,6 +142,7 @@ root_packages = [
     "code_index",
     "codefix_agent",
     "communication",
+    "core",
     "deployment_platform",
     "exchange_rate_source",
     "incident_memory",
@@ -164,9 +164,9 @@ root_packages = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "argus_core is the kernel and depends on nothing in this workspace"
+name = "core is the kernel and depends on nothing in this workspace"
 type = "forbidden"
-source_modules = ["argus_core"]
+source_modules = ["core"]
 forbidden_modules = ["*"]
 
 [[tool.importlinter.contracts]]
@@ -175,8 +175,8 @@ type = "forbidden"
 source_modules = ["argus_incidents"]
 forbidden_modules = ["*"]
 ignore_imports = [
-    "argus_incidents.** -> argus_core",
-    "argus_incidents.** -> argus_core.**",
+    "argus_incidents.** -> core",
+    "argus_incidents.** -> core.**",
 ]
 # A layer that stops importing something it was allowed to import is not a
 # failure, and an allowance is written for a package rather than for whichever
@@ -194,8 +194,8 @@ forbidden_modules = ["*"]
 # record or an agent would be a port that decided something, where its job is
 # to say what the platform said.
 ignore_imports = [
-    "chat_platform.** -> argus_core",
-    "chat_platform.** -> argus_core.**",
+    "chat_platform.** -> core",
+    "chat_platform.** -> core.**",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -230,8 +230,8 @@ forbidden_modules = ["*"]
 # handed and the names telemetry is spelled in - the keys a log record is
 # stamped with are the ones the spans carry - and nothing else.
 ignore_imports = [
-    "argus_telemetry.** -> argus_core",
-    "argus_telemetry.** -> argus_core.telemetry",
+    "argus_telemetry.** -> core",
+    "argus_telemetry.** -> core.telemetry",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -239,14 +239,14 @@ unmatched_ignore_imports_alerting = "warn"
 name = "the kernel is reached through its front doors, not by module path"
 type = "forbidden"
 source_modules = ["*"]
-forbidden_modules = ["argus_core.**"]
+forbidden_modules = ["core.**"]
 # Direct imports only. Without this the contract would fail on every chain that
-# merely passes through the kernel - a caller reaching `argus_core.events`,
-# which reaches `argus_core.models.reading` - and would be a rule about what the
+# merely passes through the kernel - a caller reaching `core.events`,
+# which reaches `core.models.reading` - and would be a rule about what the
 # kernel does internally rather than about how it is addressed from outside.
 allow_indirect_imports = true
 # The front doors, and the whole of what may be named. Everything else under
-# `argus_core` is internal by default, so a module added to the kernel tomorrow
+# `core` is internal by default, so a module added to the kernel tomorrow
 # is unreachable by path on the day it exists, and making it public is a line
 # somebody had to write here.
 #
@@ -255,78 +255,78 @@ allow_indirect_imports = true
 # would import itself while still importing.
 #
 # Two of the doors are narrower than the rest, and that is the other half of
-# `argus_core`'s extras. `anthropic` and `mcp` are optional dependencies, taken
-# by the modules that go through `argus_core.llm` and `argus_core.mcp_transport`
+# `core`'s extras. `anthropic` and `mcp` are optional dependencies, taken
+# by the modules that go through `core.llm` and `core.mcp_transport`
 # and by nobody else. A module reaching one without declaring the extra would
 # work in the workspace venv and fail wherever that module is resolved on its
 # own - so the allowance names the modules, and reaching past it is a broken
 # contract here rather than an ImportError in a walk.
 ignore_imports = [
-    "argus_core.** -> argus_core.**",
-    "** -> argus_core.models",
-    "** -> argus_core.events",
-    "** -> argus_core.replay",
-    "** -> argus_core.schema",
-    "** -> argus_core.anomaly",
+    "core.** -> core.**",
+    "** -> core.models",
+    "** -> core.events",
+    "** -> core.replay",
+    "** -> core.schema",
+    "** -> core.anomaly",
     # The names telemetry is spelled in. A door for everyone, because every
     # process opens spans - the walk names the incident on its, the servers
     # the tool on theirs - and a name spelled twice is a name that drifts.
-    "** -> argus_core.telemetry",
+    "** -> core.telemetry",
     # What bounds an agent loop, reached by both agents that keep one. A
     # door rather than a shared module by accident: the bounds moved here
     # when Code-Fix came to need the same three, and an agent reaching
     # into the other for them is the import this whole contract exists to
     # refuse.
-    "** -> argus_core.budget",
-    "** -> argus_core.source_scope",
+    "** -> core.budget",
+    "** -> core.source_scope",
     # Narrower than the doors above it, and for the reason `llm` and
     # `mcp_transport` are narrow: `embedding` is an optional dependency, taken
     # by the two modules that hold a corpus and by nobody else. A module
     # reaching it without declaring the extra would work in the workspace venv
     # and fail wherever that module is resolved on its own.
-    "code_index.** -> argus_core.embedding",
-    "incident_memory.** -> argus_core.embedding",
+    "code_index.** -> core.embedding",
+    "incident_memory.** -> core.embedding",
     # The walk is the third, and reaches it for a different reason than the two
     # above: it holds no corpus of its own, it builds the model long-term memory
     # is written and searched with. It already declares the extra, through
     # `argus-incident_memory[store]`.
-    "orchestrator.** -> argus_core.embedding",
+    "orchestrator.** -> core.embedding",
     # The store beside the model, and narrow for the same reason: the two
     # modules that keep a corpus, and nobody else. The walk is not among
     # them - it builds the embedder, and the collection is made by whoever
     # writes into one.
-    "code_index.** -> argus_core.vector_store",
-    "incident_memory.** -> argus_core.vector_store",
-    "codefix_agent.** -> argus_core.llm",
-    "investigation_agent.** -> argus_core.llm",
-    "message_intent.** -> argus_core.llm",
-    "orchestrator.** -> argus_core.llm",
-    "postmortem_writing.** -> argus_core.llm",
-    "codefix_agent.** -> argus_core.mcp_transport",
-    "investigation_agent.** -> argus_core.mcp_transport",
-    "mitigation.** -> argus_core.mcp_transport",
-    "orchestrator.** -> argus_core.mcp_transport",
-    "read_mcp_client.** -> argus_core.mcp_transport",
-    "write_mcp_client.** -> argus_core.mcp_transport",
+    "code_index.** -> core.vector_store",
+    "incident_memory.** -> core.vector_store",
+    "codefix_agent.** -> core.llm",
+    "investigation_agent.** -> core.llm",
+    "message_intent.** -> core.llm",
+    "orchestrator.** -> core.llm",
+    "postmortem_writing.** -> core.llm",
+    "codefix_agent.** -> core.mcp_transport",
+    "investigation_agent.** -> core.mcp_transport",
+    "mitigation.** -> core.mcp_transport",
+    "orchestrator.** -> core.mcp_transport",
+    "read_mcp_client.** -> core.mcp_transport",
+    "write_mcp_client.** -> core.mcp_transport",
     # The one server among them, and it holds no client. What the write tier
     # takes from this door is the marker that makes a refusal recognisable as an
     # answer - the word one side writes and the other reads - and a door is the
     # only place a word like that can live without being spelled twice. It
     # declares `mcp` itself, so the narrowness this list exists to enforce is
     # satisfied: the module resolves on its own wherever it is installed.
-    "write_mcp_server.** -> argus_core.mcp_transport",
+    "write_mcp_server.** -> core.mcp_transport",
     # Both servers, for the other half of every call: `TracedFastMCP`, the server
     # that answers inside the caller's trace. The client injecting the context
     # and the server reading it back are one convention, kept in one module.
     # Each declares `mcp` itself, so each resolves on its own.
-    "read_mcp_server.** -> argus_core.mcp_transport",
+    "read_mcp_server.** -> core.mcp_transport",
     # Whether a failed request is known not to have been applied, read off the
     # HTTP client's error. Narrow for the reason `mcp_transport` is - `httpx2`
     # is an extra - and taken by the two write paths that ask over HTTP: the
     # deployment platform's adapter and the flag provider's write. Each
     # declares `httpx2` itself.
-    "deployment_platform.** -> argus_core.applying",
-    "write_mcp_server.** -> argus_core.applying",
+    "deployment_platform.** -> core.applying",
+    "write_mcp_server.** -> core.applying",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -344,13 +344,13 @@ forbidden_modules = ["*"]
 # table, written and read here.
 #
 # By module path, but for the deliverer. The walk's side reaches the kernel
-# through doors - `argus_core.models`, `argus_core.embedding` - and never names
+# through doors - `core.models`, `core.embedding` - and never names
 # it bare. The deliverer is a process, and a process's pool, settings and
 # telemetry come from the bare door; its `main` alone installs the telemetry
 # SDK, as every process's `main` does.
 ignore_imports = [
-    "incident_memory.** -> argus_core.**",
-    "incident_memory.delivering -> argus_core",
+    "incident_memory.** -> core.**",
+    "incident_memory.delivering -> core",
     "incident_memory.delivering -> argus_telemetry",
 ]
 unmatched_ignore_imports_alerting = "warn"
@@ -396,8 +396,8 @@ forbidden_modules = ["*"]
 # incident record here is a second module opening a connection to rows its
 # caller has already read.
 ignore_imports = [
-    "postmortem_rendering.** -> argus_core",
-    "postmortem_rendering.** -> argus_core.**",
+    "postmortem_rendering.** -> core",
+    "postmortem_rendering.** -> core.**",
     "postmortem_rendering.** -> argus_narration",
 ]
 unmatched_ignore_imports_alerting = "warn"
@@ -413,8 +413,8 @@ forbidden_modules = ["*"]
 # both spellings of every allowance would warn about the unused half on every
 # run - and a build that always prints warnings is a build nobody reads.
 ignore_imports = [
-    "argus_web.** -> argus_core",
-    "argus_web.** -> argus_core.**",
+    "argus_web.** -> core",
+    "argus_web.** -> core.**",
     "argus_web.** -> argus_incidents",
     "argus_web.** -> argus_incidents.**",
     "argus_web.** -> argus_narration",

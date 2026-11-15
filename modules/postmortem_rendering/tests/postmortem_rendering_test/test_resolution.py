@@ -11,10 +11,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core import new_id
-from argus_core.events import IncidentEvent, StatusChanged
-from argus_core.models import IncidentStatus, ReportChannel
 from argus_testkit import Scenario, the_answer_was
+from core import new_id
+from core.events import IncidentEvent, StatusChanged
+from core.models import IncidentStatus, ReportChannel
 from postmortem_rendering.resolution import (
     Escalation,
     ReportedResolution,

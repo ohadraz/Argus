@@ -22,44 +22,6 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from argus_core import connect_from_env, new_id, to_iso, utc_now
-from argus_core.events import (
-    ActionTaken,
-    ChangesRetrieved,
-    CommunicationFailed,
-    ExecutiveSynopsisWritten,
-    FixAttempted,
-    HypothesisFormed,
-    IncidentEvent,
-    OfferExpired,
-    OnsetDetected,
-    PostmortemWritten,
-    QuestionAnswered,
-    ResolutionOffered,
-    StatusChanged,
-    WithdrawalOffered,
-)
-from argus_core.models import (
-    CHAT_RESOLUTION_OFFER,
-    CHAT_THREAD,
-    REVERT_FEATURE_FLAG,
-    Alert,
-    ChangeEvent,
-    ChangeKind,
-    ExecutiveSynopsisDocument,
-    FixOutcome,
-    IncidentStatus,
-    OpenedPullRequest,
-    PostmortemDocument,
-    Reference,
-    Report,
-    ReportChannel,
-    RevisionSource,
-    a_chat_message,
-    a_chat_resolution_offer,
-    a_chat_withdrawal_offer,
-    the_place_of,
-)
 from argus_incidents.repository import events, incidents, postmortems, references, synopses
 from argus_narration import a_narration_line
 from argus_testkit import (
@@ -84,6 +46,44 @@ from communication.saying import (
     a_briefing,
     a_chat_destination,
     a_destination_per_register,
+)
+from core import connect_from_env, new_id, to_iso, utc_now
+from core.events import (
+    ActionTaken,
+    ChangesRetrieved,
+    CommunicationFailed,
+    ExecutiveSynopsisWritten,
+    FixAttempted,
+    HypothesisFormed,
+    IncidentEvent,
+    OfferExpired,
+    OnsetDetected,
+    PostmortemWritten,
+    QuestionAnswered,
+    ResolutionOffered,
+    StatusChanged,
+    WithdrawalOffered,
+)
+from core.models import (
+    CHAT_RESOLUTION_OFFER,
+    CHAT_THREAD,
+    REVERT_FEATURE_FLAG,
+    Alert,
+    ChangeEvent,
+    ChangeKind,
+    ExecutiveSynopsisDocument,
+    FixOutcome,
+    IncidentStatus,
+    OpenedPullRequest,
+    PostmortemDocument,
+    Reference,
+    Report,
+    ReportChannel,
+    RevisionSource,
+    a_chat_message,
+    a_chat_resolution_offer,
+    a_chat_withdrawal_offer,
+    the_place_of,
 )
 from slack_sdk import WebClient
 

@@ -13,9 +13,9 @@ from datetime import timedelta
 from unittest.mock import Mock, call, create_autospec
 
 import pytest
-from argus_core import get_settings, parse_iso, to_iso
-from argus_core.models import ToolResult
 from argus_testkit import Assertion, Scenario, all_of
+from core import get_settings, parse_iso, to_iso
+from core.models import ToolResult
 from investigation_agent.retrieval import LogFetcher
 from investigation_agent.tools import LOGS_TOOL
 

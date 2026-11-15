@@ -6,8 +6,10 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
-from argus_core.models import (
+from argus_incidents.repository import hypotheses, taken_actions
+from argus_testkit import Assertion, Scenario, all_of, calling
+from core import connect_from_env
+from core.models import (
     ActionProgress,
     Alert,
     FailureMode,
@@ -19,8 +21,6 @@ from argus_core.models import (
     UnreadVerdict,
     Verdict,
 )
-from argus_incidents.repository import hypotheses, taken_actions
-from argus_testkit import Assertion, Scenario, all_of, calling
 
 from argus_incidents_test.framework import no_column_is_empty
 from argus_incidents_test.framework.builders import an_incident_created_for

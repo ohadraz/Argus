@@ -17,8 +17,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Final
 
-from argus_core import said_as_a_span
-from argus_core.models import Alert, ImpactExtent, PostmortemDocument, said_as_money
+from core import said_as_a_span
+from core.models import Alert, ImpactExtent, PostmortemDocument, said_as_money
 
 from postmortem_rendering.impact import the_impact
 

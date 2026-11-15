@@ -31,7 +31,7 @@ import time
 from collections.abc import Callable
 from typing import Final
 
-from argus_core.models import RestartedService
+from core.models import RestartedService
 from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
 
 from write_mcp_server.refusing import a_platform_refusal

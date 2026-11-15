@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import pytest
-from argus_core.models import ChainStep, CitedEvidence, ContributingFactor, RuledOut
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import ChainStep, CitedEvidence, ContributingFactor, RuledOut
 from postmortem_rendering.cause import (
     CauseSection,
     ChainLink,

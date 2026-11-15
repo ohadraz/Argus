@@ -19,9 +19,9 @@ import logging
 from collections.abc import Sequence
 from typing import Final
 
-from argus_core import to_iso
-from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage, WhatArgusDid
 from argus_narration import what_was_done
+from core import to_iso
+from core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage, WhatArgusDid
 
 from codefix_agent.budget import FixSettings
 from codefix_agent.naming import files_named_in

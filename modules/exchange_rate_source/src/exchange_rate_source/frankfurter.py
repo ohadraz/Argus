@@ -23,8 +23,8 @@ from decimal import Decimal
 from typing import Any, Final
 
 import httpx2
-from argus_core import SettingsSlice
-from argus_core.models import PublishedRates, RatesUnavailable
+from core import SettingsSlice
+from core.models import PublishedRates, RatesUnavailable
 
 
 class ExchangeRateSettings(SettingsSlice):

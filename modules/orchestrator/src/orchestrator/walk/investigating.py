@@ -15,8 +15,10 @@ from datetime import datetime
 from functools import partial
 from typing import Final
 
-from argus_core import to_iso
-from argus_core.events import (
+from argus_incidents import IsStillWanted
+from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
+from core import to_iso
+from core.events import (
     AgentInvoked,
     AlarmDisproven,
     CandidatesReordered,
@@ -27,7 +29,7 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.models import (
+from core.models import (
     Actor,
     ChangeEvent,
     Disproof,
@@ -42,10 +44,8 @@ from argus_core.models import (
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
 # holds both.
-from argus_core.replay import Recorder
-from argus_core.replay import nobody as records_nothing
-from argus_incidents import IsStillWanted
-from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
+from core.replay import Recorder
+from core.replay import nobody as records_nothing
 from incident_memory.describing import what_it_looked_like
 from incident_memory.ordering import demoting_what_was_refuted
 

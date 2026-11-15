@@ -27,9 +27,10 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from argus_core import new_id
-from argus_core.events import ChangeUndone, IncidentEvent
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core import new_id
+from core.events import ChangeUndone, IncidentEvent
+from core.models import (
     ActionProgress,
     FlagUndo,
     TakenAction,
@@ -37,7 +38,6 @@ from argus_core.models import (
     Undone,
     Verdict,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from mitigation import UndoAttempt
 from orchestrator import unwinding
 from orchestrator.unwinding import unwind_incident

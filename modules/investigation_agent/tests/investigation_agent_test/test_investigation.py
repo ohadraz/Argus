@@ -15,9 +15,20 @@ from typing import Any
 from unittest.mock import Mock, call, create_autospec
 
 import pytest
-from argus_core import new_id, parse_iso, to_iso, to_iso_minute
-from argus_core.anomaly import THE_JUDGED_SIGNALS
-from argus_core.events import (
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+    raising,
+    returning,
+    the_answer_was,
+)
+from core import new_id, parse_iso, to_iso, to_iso_minute
+from core.anomaly import THE_JUDGED_SIGNALS
+from core.events import (
     AnchoredOnTheAlarm,
     ChannelsUnread,
     HypothesisFormed,
@@ -29,9 +40,9 @@ from argus_core.events import (
     RetrievalRequested,
     RetrievalUnanswered,
 )
-from argus_core.llm import ModelDidNotAnswer, a_conversation_recorded_for
-from argus_core.mcp_transport import McpToolError
-from argus_core.models import (
+from core.llm import ModelDidNotAnswer, a_conversation_recorded_for
+from core.mcp_transport import McpToolError
+from core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     PIN_TO_ACCELERATOR,
@@ -66,18 +77,7 @@ from argus_core.models import (
     WorseWhen,
     a_chat_message,
 )
-from argus_core.replay import CallType, ReplayEntry
-from argus_testkit import (
-    Assertion,
-    Kept,
-    Scenario,
-    all_of,
-    calling,
-    one_record_was_logged,
-    raising,
-    returning,
-    the_answer_was,
-)
+from core.replay import CallType, ReplayEntry
 from investigation_agent import Findings, Reading, investigate
 from investigation_agent.budget import Budget
 from investigation_agent.investigation import BRIEF

@@ -50,8 +50,8 @@ from functools import partial
 from itertools import pairwise
 from typing import Final
 
-from argus_core import A_REVISION, the_revision_named
-from argus_core.models import CodeUse, ThreadMessage, TimelineEntry, Turn, labelled
+from core import A_REVISION, the_revision_named
+from core.models import CodeUse, ThreadMessage, TimelineEntry, Turn, labelled
 from pydantic import BaseModel
 
 from postmortem_writing.figure_rules import (

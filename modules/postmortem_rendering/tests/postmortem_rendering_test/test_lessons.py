@@ -12,8 +12,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from argus_core.models import DetectionLesson, DetectionMeasuredFrom, Lessons
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import DetectionLesson, DetectionMeasuredFrom, Lessons
 from postmortem_rendering.lessons import LessonList, the_lessons
 from postmortem_rendering.lines import Line, Role, Run
 

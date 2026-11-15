@@ -3,15 +3,15 @@
 These live here rather than in `argus_testkit` because they know Argus's
 domain. The testkit is deliberately generic - `all_of`, `eventually`,
 `an_error_was_raised` would read the same in any project - and giving it an
-import of `argus_core` would make the test machinery depend on the thing under
+import of `core` would make the test machinery depend on the thing under
 test.
 """
 
 from __future__ import annotations
 
-from argus_core import UuidStr
-from argus_core.models import FailureMode, Hypothesis
 from argus_testkit.assertions import Assertion
+from core import UuidStr
+from core.models import FailureMode, Hypothesis
 
 
 def the_cause_was_identified_as(expected_cause: FailureMode) -> Assertion[Hypothesis]:

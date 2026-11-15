@@ -11,8 +11,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
-from argus_core.models import CandidateConsidered, HypothesisConsidered
 from argus_testkit import Scenario, the_answer_was
+from core.models import CandidateConsidered, HypothesisConsidered
 from postmortem_rendering.hypotheses import HypothesisRow, the_hypotheses
 from postmortem_rendering.lines import Line, Role, Run
 

@@ -13,7 +13,6 @@ back.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import CodeSearch, ToolDefinition
 from argus_testkit import Assertion, Scenario
 from codefix_agent.tools import (
     DESCRIPTION_ARGUMENT,
@@ -25,6 +24,7 @@ from codefix_agent.tools import (
     SEARCH_BY_MEANING_TOOL,
     SEARCH_TOOL,
 )
+from core.models import CodeSearch, ToolDefinition
 
 from tests.framework.read_tier import what_the_read_tier_offers
 

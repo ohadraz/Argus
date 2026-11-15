@@ -14,8 +14,8 @@ neither is an incident there is no point remembering.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import RESTART_SERVICE, ActionIdentity, Verdict
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import RESTART_SERVICE, ActionIdentity, Verdict
 from incident_memory.composing import a_memory_of
 from incident_memory.records import RememberedIncident
 

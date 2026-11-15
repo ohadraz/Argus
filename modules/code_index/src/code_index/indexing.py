@@ -27,8 +27,8 @@ from uuid import UUID
 # Named here as well as in the kernel, because this is where the index's own
 # callers have always reached for it and the seam did not move when its
 # definition did - it was lifted once a second corpus wanted the same model.
-from argus_core.embedding import Embedder
-from argus_core.source_scope import belongs_to_the_service
+from core.embedding import Embedder
+from core.source_scope import belongs_to_the_service
 
 from code_index.chunking import Chunk, chunks_of
 

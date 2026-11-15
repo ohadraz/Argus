@@ -19,7 +19,7 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Final
 
-from argus_core.models import DetectionLesson, DetectionMeasuredFrom
+from core.models import DetectionLesson, DetectionMeasuredFrom
 
 from postmortem_writing.evidence import IncidentEvidence
 from postmortem_writing.measuring import Measurements

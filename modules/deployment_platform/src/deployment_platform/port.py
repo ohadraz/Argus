@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from argus_core.models import PodPlacement, RolloutProgress
+from core.models import PodPlacement, RolloutProgress
 
 
 @dataclass(frozen=True)

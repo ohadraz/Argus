@@ -19,12 +19,12 @@ from collections.abc import Callable
 import httpx2
 import psycopg
 import pytest
-from argus_core import get_settings
-from argus_core.embedding import an_embedder
-from argus_core.events import SimilarIncidentsRecalled
-from argus_core.models import IncidentStatus, Verdict
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core import get_settings
+from core.embedding import an_embedder
+from core.events import SimilarIncidentsRecalled
+from core.models import IncidentStatus, Verdict
 from incident_memory.recalling import recalled
 from qdrant_client import QdrantClient
 

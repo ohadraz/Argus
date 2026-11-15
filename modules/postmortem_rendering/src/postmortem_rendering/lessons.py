@@ -3,7 +3,7 @@ the incident got lucky - each present, empty or not, so a reader weighs one
 against the others.
 
 And the lesson on detection, which code writes from what was measured: said
-here as the brief says it (`argus_core.models.the_detection_lesson_said`),
+here as the brief says it (`core.models.the_detection_lesson_said`),
 first in the list it belongs in - within what the rule spends before it can
 fire, it went well; beyond it, wrong by the rest.
 """
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import said_as_a_span
-from argus_core.models import (
+from core import said_as_a_span
+from core.models import (
     DetectionLesson,
     PostmortemDocument,
     the_detection_lesson_said,

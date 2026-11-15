@@ -13,8 +13,8 @@ from contextlib import contextmanager
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core import Fence, WriteMcpEndpoint
 from argus_testkit import Assertion, Scenario
+from core import Fence, WriteMcpEndpoint
 from deployment_platform import DeploymentPlatformWrites
 from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.fencing import FencedFastMCP

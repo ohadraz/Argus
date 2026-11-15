@@ -5,12 +5,12 @@ from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import pytest
-from argus_core import connect_from_env
-from argus_core.models import IncidentStatus
-from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents.repository import events, incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from argus_web.app import app
+from core import connect_from_env
+from core.models import IncidentStatus
+from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind

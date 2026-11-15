@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from argus_core.models import TimelineEntry
+from core.models import TimelineEntry
 
 from postmortem_writing.figures import Figure, a_span_from_the_alert, an_instant_of
 from postmortem_writing.prompting import SubmittedPostmortem

@@ -33,9 +33,10 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from argus_core import to_iso
-from argus_core.llm import LLMClient
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
+from core import to_iso
+from core.llm import LLMClient
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -59,7 +60,6 @@ from argus_core.models import (
     Verdict,
     Weighing,
 )
-from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from postmortem_writing import DeploymentChangesRecord, write_postmortem
 from postmortem_writing.assumptions import assumptions_of
 from postmortem_writing.conversation import answer_worth_writing

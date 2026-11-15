@@ -12,7 +12,7 @@ worse off believing an earlier one's answer about a different incident.
 
 from __future__ import annotations
 
-from argus_core.models import WhatWasTried
+from core.models import WhatWasTried
 from pydantic import BaseModel
 
 

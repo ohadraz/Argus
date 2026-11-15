@@ -8,10 +8,10 @@ from enum import StrEnum
 from functools import partial
 from typing import Protocol, assert_never
 
-from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
-from argus_core.anomaly import the_end_of_the_onset
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
+from core import SettingsSlice, parse_iso, to_iso, utc_now
+from core.anomaly import the_end_of_the_onset
+from core.mcp_transport import McpClient
+from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
     Action,

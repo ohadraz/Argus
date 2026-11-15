@@ -39,11 +39,11 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from argus_core import utc_now
-from argus_core.events import FixAttempted, StatusChanged
-from argus_core.models import IncidentStatus, Report, ReportChannel
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core import utc_now
+from core.events import FixAttempted, StatusChanged
+from core.models import IncidentStatus, Report, ReportChannel
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,

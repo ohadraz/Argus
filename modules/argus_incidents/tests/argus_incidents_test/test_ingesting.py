@@ -18,12 +18,12 @@ from unittest.mock import Mock, create_autospec
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.events import PersonWrote
-from argus_core.models import Alert, ReportChannel, ThreadMessage, a_chat_message
 from argus_incidents.ingesting import ingest_a_message
 from argus_incidents.repository import conversation, events, incidents
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling
+from core import connect_from_env, utc_now
+from core.events import PersonWrote
+from core.models import Alert, ReportChannel, ThreadMessage, a_chat_message
 
 SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
 SOME_PERSON = "U-some-person"

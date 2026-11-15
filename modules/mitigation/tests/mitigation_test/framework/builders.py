@@ -5,8 +5,8 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from unittest.mock import MagicMock, create_autospec
 
-from argus_core import to_iso_minute
-from argus_core.models import (
+from core import to_iso_minute
+from core.models import (
     CacheEntriesDiscarded,
     ChangeEvent,
     ChangeKind,

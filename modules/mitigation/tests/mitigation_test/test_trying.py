@@ -7,11 +7,21 @@ from typing import Any, cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from argus_core import RunLost, new_id
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.budget import StillWanted, wanted_throughout
-from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
-from argus_core.mcp_transport import (
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    dont_care_sleep,
+    one_record_was_logged,
+)
+from core import RunLost, new_id
+from core.anomaly import AnomalyThresholds
+from core.budget import StillWanted, wanted_throughout
+from core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
+from core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_KNOWN_MARKER,
     LEFT_BEHIND_MARKER,
@@ -24,7 +34,7 @@ from argus_core.mcp_transport import (
     an_unreachable_platform,
     with_what_it_left,
 )
-from argus_core.models import (
+from core.models import (
     DEPLOYMENT_PLATFORM,
     AcceleratorPinUndo,
     AlertRuleStanding,
@@ -39,16 +49,6 @@ from argus_core.models import (
     RollBackDeployment,
     ScaleOut,
     UndoDescriptor,
-)
-from argus_testkit import (
-    Assertion,
-    Scenario,
-    all_of,
-    an_error_was_raised,
-    attempting,
-    calling,
-    dont_care_sleep,
-    one_record_was_logged,
 )
 from mitigation import (
     Action,

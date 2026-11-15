@@ -42,7 +42,7 @@ KEPT_DELIBERATELY = {
     # row, a command. Everything in the workspace happens to want
     # `connect_from_env` instead, which is a fact about this deployment rather
     # than about the kernel's surface.
-    ("argus_core", "connect"),
+    ("core", "connect"),
     # A typed function per tool is what a client package *is*: the read tier
     # offers this one, so the client offers it, and a tool nobody has needed
     # yet is not a tool the client may quietly stop exposing.

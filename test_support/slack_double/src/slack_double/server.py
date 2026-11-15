@@ -32,7 +32,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, model_validator
 
-# Where the double listens. Not an `argus_core` setting, for the reason the
+# Where the double listens. Not an `core` setting, for the reason the
 # Anthropic double's port is not: the double is not part of Argus, and Argus's
 # own config should not grow a field describing a test fixture.
 DEFAULT_PORT: Final = int(os.environ.get("SLACK_DOUBLE_PORT", "8094"))

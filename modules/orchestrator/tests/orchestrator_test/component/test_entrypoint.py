@@ -7,20 +7,20 @@ from unittest.mock import create_autospec
 import psycopg
 import psycopg.sql
 import pytest
-from argus_core import connect_from_env, get_settings, utc_now
-from argus_core.events import StatusChanged
-from argus_core.models import Alert, IncidentStatus
-from argus_core.schema import reset_schema
-from argus_core.telemetry import (
+from argus_incidents.repository import events, incidents
+from argus_testkit import one_record_was_logged
+from argus_testkit.assertions import Assertion, all_of
+from argus_testkit.scenario import Scenario, attempting, calling
+from core import connect_from_env, get_settings, utc_now
+from core.events import StatusChanged
+from core.models import Alert, IncidentStatus
+from core.schema import reset_schema
+from core.telemetry import (
     ARGUS_INCIDENT_ID,
     ARGUS_INCIDENT_OUTCOME,
     ARGUS_INCIDENT_WALK_DURATION,
     ARGUS_INCIDENT_WALKS,
 )
-from argus_incidents.repository import events, incidents
-from argus_testkit import one_record_was_logged
-from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario, attempting, calling
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph

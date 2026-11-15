@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from argus_core.models import Outcome, Verdict
 from argus_testkit.assertions import Assertion
+from core.models import Outcome, Verdict
 from mitigation import Action
 
 

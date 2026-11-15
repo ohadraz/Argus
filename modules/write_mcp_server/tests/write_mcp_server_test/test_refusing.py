@@ -13,8 +13,8 @@ platform marked unreachable narrows the walk onto an estate that may have moved.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import DeploymentRollbackUndo
 from deployment_platform import DeploymentPlatformError, PlatformRefused, PlatformUnreachable
 from write_mcp_server.refusing import a_platform_refusal
 

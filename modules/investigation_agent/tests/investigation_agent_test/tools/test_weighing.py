@@ -11,8 +11,8 @@ would move them too, and they would not see it.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import Standing, ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import Standing, ToolDefinition
 from investigation_agent.tools.weighing import (
     LEAD_ARG,
     REASON_ARG,

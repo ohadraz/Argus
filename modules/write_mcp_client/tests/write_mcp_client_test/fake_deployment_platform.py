@@ -11,7 +11,7 @@ from threading import Thread
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from argus_core import get_settings
+from core import get_settings
 from deployment_platform.argocd import (
     ACCELERATOR_LABEL,
     APPLICATION_MERGE_PATCH,

@@ -12,9 +12,9 @@ cause, and both are said elsewhere in the document too.
 from __future__ import annotations
 
 import pytest
-from argus_core.llm import LLMClient, ModelRefused, ModelUnavailable
-from argus_core.models import ToolDefinition, Transcript, Turn
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.llm import LLMClient, ModelRefused, ModelUnavailable
+from core.models import ToolDefinition, Transcript, Turn
 from postmortem_writing.ordering import (
     ORDER_FIELD,
     ORDER_TOOL_NAME,

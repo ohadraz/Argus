@@ -14,14 +14,14 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from argus_core.llm import LLMClient
-from argus_core.models import (
+from argus_testkit import Assertion, Kept, Scenario, all_of
+from core.llm import LLMClient
+from core.models import (
     ExecutiveSynopsisDocument,
     OpenedPullRequest,
     PostmortemDocument,
     TitleCost,
 )
-from argus_testkit import Assertion, Kept, Scenario, all_of
 from postmortem_writing import SHARED_PAGE_ASSUMPTION_LABEL, EngagedResponder, NotPaged, PayBand
 from postmortem_writing.synopsis_conversation import Overview
 from postmortem_writing.synopsis_prompting import Paging

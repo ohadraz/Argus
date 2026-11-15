@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Protocol
 
-from argus_core.models import Lifespan, ReportChannel
+from core.models import Lifespan, ReportChannel
 from pydantic import BaseModel
 
 from oncall_source.engagement import ReportedIncident

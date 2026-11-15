@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core.models import Verdict
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core.models import Verdict
 from incident_memory.filing import Filed, file, get_undelivered, record_delivered
 from incident_memory.records import RememberedIncident
 

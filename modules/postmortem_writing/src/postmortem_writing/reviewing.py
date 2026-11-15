@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import (
+from core.models import (
     PostmortemDocument,
     Refusal,
     ReviewCriterion,

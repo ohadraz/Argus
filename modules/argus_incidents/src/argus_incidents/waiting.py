@@ -9,7 +9,7 @@ finishes, and a press ends the walk wherever it is, as it always has.
 Beside the ending rather than in the graph, for the ending's reason: what is
 asked is a question about the incident record, and the walk only asks it. Of
 the record, never of the event log: an account that could hold a walk would be
-a participant (`argus_core.events`). So an expiry is kept on the record first,
+a participant (`core.events`). So an expiry is kept on the record first,
 and told after.
 """
 
@@ -20,9 +20,9 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Final, Protocol
 
-from argus_core import Connections, sleep_on_the_clock, utc_now
-from argus_core.events import OfferExpired, Publisher, publish
-from argus_core.models import IncidentStatus, Reference, ThreadMessage
+from core import Connections, sleep_on_the_clock, utc_now
+from core.events import OfferExpired, Publisher, publish
+from core.models import IncidentStatus, Reference, ThreadMessage
 
 from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
 from argus_incidents.repository import conversation, incidents

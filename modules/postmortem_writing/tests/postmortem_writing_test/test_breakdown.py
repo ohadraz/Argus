@@ -12,8 +12,8 @@ from decimal import Decimal
 from typing import Any, NamedTuple
 
 import pytest
-from argus_core.models import PostmortemDocument, TitleCost
 from argus_testkit import Assertion, Scenario
+from core.models import PostmortemDocument, TitleCost
 from postmortem_writing.breakdown import agreeing_breakdown
 
 SOME_CURRENCY = "USD"

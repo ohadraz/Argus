@@ -39,8 +39,8 @@ from collections.abc import Mapping
 from typing import TypedDict, Unpack
 
 import pytest
-from argus_core.models import ActionItemType, CodeUse, Lessons, ToolCall, Turn
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import ActionItemType, CodeUse, Lessons, ToolCall, Turn
 from postmortem_writing.checking import Given, faults_in, faults_in_the_turn
 from postmortem_writing.estimate import ErrorRates
 from postmortem_writing.figures import Figure, figures_of

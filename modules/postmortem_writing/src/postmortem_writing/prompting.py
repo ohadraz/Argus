@@ -25,7 +25,8 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final, NamedTuple
 
-from argus_core import (
+from argus_narration import where_a_report_came_from
+from core import (
     A_REVISION,
     level_said_in,
     parse_iso,
@@ -34,8 +35,8 @@ from argus_core import (
     the_revision_named,
     to_iso,
 )
-from argus_core.anomaly import the_end_of_the_onset
-from argus_core.models import (
+from core.anomaly import the_end_of_the_onset
+from core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ActionItemType,
     ActionProgress,
@@ -67,7 +68,6 @@ from argus_core.models import (
     the_detection_lesson_said,
     whether_it_can_be_put_back,
 )
-from argus_narration import where_a_report_came_from
 from pydantic import BaseModel, field_validator, model_validator
 
 from postmortem_writing.detection_lesson import (

@@ -20,9 +20,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from argus_core import get_settings
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import (
+from core import get_settings
+from core.anomaly import AnomalyThresholds
+from core.models import (
     ChangeEvent,
     DeploymentChanges,
     MetricBucket,

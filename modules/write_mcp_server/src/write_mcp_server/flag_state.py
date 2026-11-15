@@ -29,10 +29,10 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Final, Protocol
 
 import httpx2
-from argus_core import SettingsSlice
-from argus_core.applying import known_not_applied
-from argus_core.mcp_transport import a_refusal_saying_what_it_left
-from argus_core.models import FlagUndo
+from core import SettingsSlice
+from core.applying import known_not_applied
+from core.mcp_transport import a_refusal_saying_what_it_left
+from core.models import FlagUndo
 
 logger = logging.getLogger(__name__)
 

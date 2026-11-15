@@ -22,8 +22,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import new_id
-from argus_core.events import (
+from argus_testkit import Assertion, Scenario, all_of
+from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
+from core import new_id
+from core.events import (
     ActionTaken,
     ChangesRetrieved,
     FixAttempted,
@@ -35,7 +37,7 @@ from argus_core.events import (
     PostmortemWritten,
     StatusChanged,
 )
-from argus_core.models import (
+from core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
@@ -47,8 +49,6 @@ from argus_core.models import (
     OpenedPullRequest,
     RevisionSource,
 )
-from argus_testkit import Assertion, Scenario, all_of
-from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
 from postmortem_rendering import Role, Run
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)

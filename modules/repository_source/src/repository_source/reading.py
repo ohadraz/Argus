@@ -12,7 +12,7 @@ works because the Target Service is small, which is the assumption the substring
 channel already rests on - and the one the index exists to lift.
 
 Extracted rather than shared through the kernel. A pure rule about which paths
-are the service's own is a line and belongs in `argus_core`; this is tarfile
+are the service's own is a line and belongs in `core`; this is tarfile
 handling, a vendor's API and a failure type of its own, which is a module.
 """
 
@@ -25,7 +25,7 @@ from collections.abc import Callable
 from typing import Final
 
 import httpx2
-from argus_core import SettingsSlice
+from core import SettingsSlice
 
 from repository_source.headers import headers_for
 

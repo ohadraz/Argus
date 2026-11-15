@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
-from argus_core.models import AlarmClaim, Alert, MetricBucket, RuleReading
+from core.models import AlarmClaim, Alert, MetricBucket, RuleReading
 
 # Long enough for the anomaly detector to have a baseline to depart from.
 CALM_MINUTES = 10

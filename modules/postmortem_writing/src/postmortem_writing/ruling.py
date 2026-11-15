@@ -30,7 +30,7 @@ import re
 from collections.abc import Mapping
 from typing import Final
 
-from argus_core.models import RetrievalChannel, TimelineEntry
+from core.models import RetrievalChannel, TimelineEntry
 
 from postmortem_writing.prompting import SubmittedPostmortem, SubmittedRuledOut
 from postmortem_writing.sections import said_as_a_clause

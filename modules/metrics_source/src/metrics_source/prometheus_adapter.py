@@ -15,8 +15,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 import httpx2
-from argus_core import to_iso
-from argus_core.models import RULE_READING_FIELD, MetricBucket, RuleReading
+from core import to_iso
+from core.models import RULE_READING_FIELD, MetricBucket, RuleReading
 
 from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
 

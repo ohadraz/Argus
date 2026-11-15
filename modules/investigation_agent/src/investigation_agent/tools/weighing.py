@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import Standing, ToolDefinition
+from core.models import Standing, ToolDefinition
 
 WEIGH_TOOL: Final = "weigh_lead"
 

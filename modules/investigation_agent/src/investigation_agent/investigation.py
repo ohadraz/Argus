@@ -21,16 +21,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any, Final, assert_never
 
-from argus_core import parse_iso, to_iso, to_iso_minute
-from argus_core.anomaly import (
+from core import parse_iso, to_iso, to_iso_minute
+from core.anomaly import (
     AnomalyThresholds,
     earliest_bucket_is_anomalous,
     find_onset,
     has_a_reading_since,
     signals_judged_in,
 )
-from argus_core.budget import StillWanted, wanted_throughout
-from argus_core.events import (
+from core.budget import StillWanted, wanted_throughout
+from core.events import (
     AnchoredOnTheAlarm,
     ChannelsUnread,
     HypothesisFormed,
@@ -43,7 +43,7 @@ from argus_core.events import (
     RetrievalUnanswered,
     nobody,
 )
-from argus_core.llm import (
+from core.llm import (
     AnswerTruncated,
     Conversation,
     Conversations,
@@ -51,7 +51,7 @@ from argus_core.llm import (
     a_conversation_recorded_for,
     on_one_line,
 )
-from argus_core.models import (
+from core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     PIN_TO_ACCELERATOR,
@@ -97,8 +97,8 @@ from argus_core.models import (
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
 # holds both, where one of the two names has to say which it is.
-from argus_core.replay import CallType, Recorder, Replay
-from argus_core.replay import nobody as records_nothing
+from core.replay import CallType, Recorder, Replay
+from core.replay import nobody as records_nothing
 from pydantic import ValidationError
 
 from investigation_agent.budget import (

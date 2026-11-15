@@ -26,7 +26,6 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from argus_core.models import Lifespan, ReportChannel
 from argus_testkit import (
     Assertion,
     Kept,
@@ -37,6 +36,7 @@ from argus_testkit import (
     nothing_was_collected,
     one_record_was_logged,
 )
+from core.models import Lifespan, ReportChannel
 from oncall_source import OnCallUnavailable
 from oncall_source.engagement import OnCallSettings
 from oncall_source.pagerduty_adapter import (

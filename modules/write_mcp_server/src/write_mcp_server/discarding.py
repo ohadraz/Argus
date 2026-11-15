@@ -34,13 +34,13 @@ import logging
 from collections.abc import Callable, Sequence
 from typing import Any, Final, Protocol
 
-from argus_core import SettingsSlice
-from argus_core.mcp_transport import (
+from core import SettingsSlice
+from core.mcp_transport import (
     a_refusal_saying_what_it_left,
     an_exhausted_action,
     an_unreachable_platform,
 )
-from argus_core.models import CACHE, CacheEntriesDiscarded
+from core.models import CACHE, CacheEntriesDiscarded
 
 logger = logging.getLogger(__name__)
 

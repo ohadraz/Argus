@@ -1,6 +1,6 @@
 """Where a call Argus made out of its own process is written down (spec §11.1).
 
-`argus_core.replay` says what an entry is and how it is handed over; this is
+`core.replay` says what an entry is and how it is handed over; this is
 the only thing that knows it ends up in Postgres. The same division as the
 event stream, and for the same reason: the shared library cannot depend on the
 module that owns the tables.
@@ -13,7 +13,7 @@ the one writer they had, `incident_event` has its own, and this has a third.
 from __future__ import annotations
 
 import psycopg
-from argus_core.replay import CallType, ReplayEntry
+from core.replay import CallType, ReplayEntry
 from psycopg.types.json import Jsonb
 
 
@@ -55,7 +55,7 @@ def get_tokens_spent(conn: psycopg.Connection, incident_id: str) -> int:
 
     Read out of the stored response rather than from a column, because there is
     no column: what a call cost is the model's own report, kept whole
-    (`argus_core.replay`). Tool calls are not counted at all - a retrieval is a
+    (`core.replay`). Tool calls are not counted at all - a retrieval is a
     call out of the process and costs no tokens.
 
     An incident that never reached a model reads as zero, and that is a

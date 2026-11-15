@@ -37,9 +37,9 @@ from enum import StrEnum
 from statistics import median, quantiles
 from typing import Final, NamedTuple
 
-from argus_core import parse_iso
-from argus_core.anomaly import is_within_its_own_noise
-from argus_core.models import MetricBucket, Quantile, WorseWhen
+from core import parse_iso
+from core.anomaly import is_within_its_own_noise
+from core.models import MetricBucket, Quantile, WorseWhen
 from pydantic import BaseModel
 
 from postmortem_writing.sources import RateTable

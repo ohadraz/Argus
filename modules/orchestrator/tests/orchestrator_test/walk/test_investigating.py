@@ -32,8 +32,17 @@ from unittest.mock import MagicMock, create_autospec
 
 import investigation_agent
 import pytest
-from argus_core import to_iso
-from argus_core.events import (
+from argus_incidents import IsStillWanted
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+)
+from core import to_iso
+from core.events import (
     AgentInvoked,
     AlarmDisproven,
     CandidatesReordered,
@@ -42,7 +51,7 @@ from argus_core.events import (
     RetrievalUnanswered,
     SimilarIncidentsRecalled,
 )
-from argus_core.models import (
+from core.models import (
     ActionIdentity,
     Actor,
     Alert,
@@ -66,15 +75,6 @@ from argus_core.models import (
     Verdict,
     Weighing,
     WhatWasTried,
-)
-from argus_incidents import IsStillWanted
-from argus_testkit import (
-    Assertion,
-    Kept,
-    Scenario,
-    all_of,
-    calling,
-    one_record_was_logged,
 )
 from incident_memory.records import RememberedIncident
 from orchestrator.walk import ports

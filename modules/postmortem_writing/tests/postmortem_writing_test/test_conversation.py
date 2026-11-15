@@ -28,9 +28,17 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from argus_core import parse_iso, said_as_a_span, short_form, to_iso
-from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
-from argus_core.models import (
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    one_record_was_logged,
+    the_answer_was,
+)
+from core import parse_iso, said_as_a_span, short_form, to_iso
+from core.events import PATCH_LINE_INDENT, a_changed_file_line
+from core.models import (
     Ask,
     ChangeEvent,
     ChangeKind,
@@ -43,14 +51,6 @@ from argus_core.models import (
     Transcript,
     Turn,
     Verdict,
-)
-from argus_testkit import (
-    Assertion,
-    Kept,
-    Scenario,
-    all_of,
-    one_record_was_logged,
-    the_answer_was,
 )
 from postmortem_writing import DeploymentChangesRecord
 from postmortem_writing.conversation import answer_worth_writing

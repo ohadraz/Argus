@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import UTC
 from typing import Final
 
-from argus_core import parse_iso, said_as_a_day, said_as_a_span, said_as_a_time
+from core import parse_iso, said_as_a_day, said_as_a_span, said_as_a_time
 
 # A minute bucket's time of day, which is the minute it is.
 _A_MINUTE: Final = "%H:%M"

@@ -24,8 +24,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Final, assert_never
 
-from argus_core import to_iso
-from argus_core.events import (
+from core import to_iso
+from core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
@@ -72,7 +72,7 @@ from argus_core.events import (
     VerdictReached,
     WithdrawalOffered,
 )
-from argus_core.models import (
+from core.models import (
     RULE_READING_FIELD,
     ActionType,
     Actor,

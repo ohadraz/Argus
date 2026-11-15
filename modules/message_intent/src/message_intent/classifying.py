@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.llm import LLMClient, ModelDidNotAnswer
-from argus_core.models import Meaning, Turn
+from core.llm import LLMClient, ModelDidNotAnswer
+from core.models import Meaning, Turn
 
 from message_intent.prompting import (
     MEANING_FIELD,

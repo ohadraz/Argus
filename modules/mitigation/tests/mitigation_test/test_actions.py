@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
-from argus_core.models import Circumstances, FailureMode, FlagChange
 from argus_testkit import Assertion, Scenario
+from core.models import Circumstances, FailureMode, FlagChange
 from mitigation import Action, RevertFeatureFlag, propose_action
 
 from mitigation_test.framework.assertions import nothing_was_proposed

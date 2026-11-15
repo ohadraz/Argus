@@ -27,8 +27,8 @@ from collections.abc import Callable
 from typing import Any, Final, Protocol
 
 import httpx2
-from argus_core import SettingsSlice
-from argus_core.models import ServiceDependency
+from core import SettingsSlice
+from core.models import ServiceDependency
 
 __all__ = [
     "FetchRegisteredService",

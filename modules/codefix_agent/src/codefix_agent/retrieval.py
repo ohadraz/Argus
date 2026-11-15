@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from argus_core.models import CodeOutsideThePatch, ToolDefinition
+from core.models import CodeOutsideThePatch, ToolDefinition
 
 # `Protocol` rather than a `Callable` alias throughout, for the reason the
 # investigator's retrieval channels are: a test stands each of these in with

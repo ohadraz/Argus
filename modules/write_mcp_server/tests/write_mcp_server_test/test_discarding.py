@@ -26,8 +26,6 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.mcp_transport import EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER
-from argus_core.models import CACHE, CacheEntriesDiscarded
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -38,6 +36,8 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
+from core.mcp_transport import EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER
+from core.models import CACHE, CacheEntriesDiscarded
 from write_mcp_server.discarding import (
     DiscardEntries,
     DiscardSettings,

@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from argus_core.events import ActionTaken, IncidentEvent, VerdictReached
-from argus_core.models import TakenAction
+from core.events import ActionTaken, IncidentEvent, VerdictReached
+from core.models import TakenAction
 
 
 def when_it_was_taken(taken_action: TakenAction, account: Sequence[IncidentEvent]) -> datetime:

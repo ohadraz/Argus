@@ -47,8 +47,9 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.events import ActionTaken, VerdictReached
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core.events import ActionTaken, VerdictReached
+from core.models import (
     PIN_AUTOSCALER,
     SCALE_OUT,
     ActionType,
@@ -56,7 +57,6 @@ from argus_core.models import (
     IncidentStatus,
     Verdict,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_AUTOSCALER_FLAPPING,

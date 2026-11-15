@@ -19,13 +19,13 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.events import AlertAcknowledged
-from argus_core.models import ALERT_FIRING, Alert, IncidentStatus, Reference
-from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import events_into_connection, start_incident
 from argus_incidents.repository import events, incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core import connect_from_env, utc_now
+from core.events import AlertAcknowledged
+from core.models import ALERT_FIRING, Alert, IncidentStatus, Reference
+from core.telemetry import ARGUS_INCIDENT_ID
 
 # Two carriers as a W3C propagator writes them: what the alert arrived in, and
 # what a later alert for the same incident arrived in.

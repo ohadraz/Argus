@@ -15,8 +15,8 @@ what it meant.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import ActionItemType, ChangeEvent, ChangeKind, Lessons
 from argus_testkit import Scenario, the_answer_was
+from core.models import ActionItemType, ChangeEvent, ChangeKind, Lessons
 from postmortem_writing.prompting import (
     SubmittedFactor,
     SubmittedItem,

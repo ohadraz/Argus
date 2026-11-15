@@ -19,9 +19,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from hashlib import sha256
 
-from argus_core import UuidStr, to_iso, utc_now
-from argus_core.events import ChangesRetrieved, IncidentEvent, StatusChanged
-from argus_core.models import Alert, ChangeEvent, FlagChange, Incident, IncidentStatus
 from argus_narration import (
     BucketRow,
     FlagToggleRow,
@@ -37,6 +34,9 @@ from argus_narration import (
     the_pull_requests,
     the_revisions,
 )
+from core import UuidStr, to_iso, utc_now
+from core.events import ChangesRetrieved, IncidentEvent, StatusChanged
+from core.models import Alert, ChangeEvent, FlagChange, Incident, IncidentStatus
 from postmortem_rendering import Run, a_reference, what_a_change_did
 from pydantic import BaseModel, Field
 

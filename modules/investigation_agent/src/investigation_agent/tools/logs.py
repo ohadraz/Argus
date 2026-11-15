@@ -13,9 +13,9 @@ from collections.abc import Sequence
 from datetime import timedelta
 from typing import Final
 
-from argus_core import parse_iso, to_iso
-from argus_core.events import LogsRetrieved, Narrator, RetrievalRequested
-from argus_core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
+from core import parse_iso, to_iso
+from core.events import LogsRetrieved, Narrator, RetrievalRequested
+from core.models import Reading, RetrievalChannel, ToolCall, ToolDefinition
 
 from investigation_agent.budget import InvestigationSettings
 from investigation_agent.retrieval import LogFetcher

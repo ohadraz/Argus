@@ -4,13 +4,13 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    "argus-argus_core",
+    "argus-core",
     "argus-repository_source",
 ]
 
 
 # The store and the model, for whoever reaches them. An extra rather than a
-# hard dependency, for the reason `argus_core` makes `anthropic` and `mcp`
+# hard dependency, for the reason `core` makes `anthropic` and `mcp`
 # extras: the watermark is Postgres and the passages are Qdrant, and the two
 # callers that only need to know which commit was indexed - the push webhook
 # in `argus_web`, and anything else asking whether the index is current -
@@ -25,7 +25,7 @@ store = [
     # two are released together, and a client a minor ahead of its store is a
     # mismatch nobody sees until a payload field is refused.
     "qdrant-client>=1.19,<1.20",
-    "argus-argus_core[vector_store]",
+    "argus-core[vector_store]",
     # The model runs in this process. Chosen for being local, free and
     # dependent on nothing external - not for retrieval quality, which a
     # code-trained hosted model would beat. What it buys instead is that
@@ -34,7 +34,7 @@ store = [
     #
     # Taken through the kernel's door rather than declared here, because the
     # model is the kernel's: long-term memory embeds with one too.
-    "argus-argus_core[embedding]",
+    "argus-core[embedding]",
     # For the catch-up loop's `main`, which installs the SDK for its process
     # and sits on this side of the extra already: it imports the store.
     "argus-argus_telemetry",
@@ -45,7 +45,7 @@ store = [
 dev = [
     # The schema, because the component tests start from an empty one rather
     # than adopting whatever the container came up with.
-    "argus-argus_core[migrations]",
+    "argus-core[migrations]",
     "argus-argus_testkit",
     # Its own store extra. The component tests open a real Qdrant and load the
     # real model - they are what the extra exists to be tested through - so the
@@ -57,7 +57,7 @@ dev = [
 
 
 [tool.uv.sources]
-argus-argus_core = { workspace = true }
+argus-core = { workspace = true }
 argus-argus_telemetry = { workspace = true }
 argus-repository_source = { workspace = true }
 argus-argus_testkit = { workspace = true }

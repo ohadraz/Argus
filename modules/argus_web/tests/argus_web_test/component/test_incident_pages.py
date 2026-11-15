@@ -18,8 +18,18 @@ from http import HTTPStatus as HttpStatus
 import httpx2
 import psycopg
 import pytest
-from argus_core import connect_from_env, new_id, to_iso, utc_now
-from argus_core.events import (
+from argus_incidents.repository import (
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    synopses,
+    taken_actions,
+)
+from argus_testkit import Assertion, Scenario, all_of
+from argus_web.app import app
+from core import connect_from_env, new_id, to_iso, utc_now
+from core.events import (
     ChangesRetrieved,
     HypothesisFormed,
     LogsRetrieved,
@@ -28,7 +38,7 @@ from argus_core.events import (
     QuestionAnswered,
     StatusChanged,
 )
-from argus_core.models import (
+from core.models import (
     REVERT_FEATURE_FLAG,
     ActionItem,
     ActionItemStatus,
@@ -78,16 +88,6 @@ from argus_core.models import (
     Weighing,
     WhyNoTrigger,
 )
-from argus_incidents.repository import (
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    synopses,
-    taken_actions,
-)
-from argus_testkit import Assertion, Scenario, all_of
-from argus_web.app import app
 from fastapi.testclient import TestClient
 
 from argus_web_test.framework.assertions import (

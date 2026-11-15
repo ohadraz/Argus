@@ -14,10 +14,10 @@ moment is not.
 from __future__ import annotations
 
 import pytest
-from argus_core import parse_iso
-from argus_core.models import Evidence
 from argus_narration.findings import Finding, a_finding, pointed_at
 from argus_testkit import Assertion, Scenario, all_of
+from core import parse_iso
+from core.models import Evidence
 
 
 @pytest.mark.unit

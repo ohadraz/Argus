@@ -23,8 +23,9 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings
-from argus_core.models import (
+from argus_telemetry import start_telemetry
+from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings
+from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
     AutoscalerUndo,
@@ -39,7 +40,6 @@ from argus_core.models import (
     ReplicaUndo,
     RestartedService,
 )
-from argus_telemetry import start_telemetry
 from deployment_platform import DeploymentPlatformWrites
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 

@@ -63,9 +63,9 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.events import ActionTaken, VerdictReached
-from argus_core.models import SCALE_OUT, FailureMode, IncidentStatus, Verdict
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core.events import ActionTaken, VerdictReached
+from core.models import SCALE_OUT, FailureMode, IncidentStatus, Verdict
 
 from tests.e2e.framework.argus import (
     RECORDED_CPU_SATURATION,

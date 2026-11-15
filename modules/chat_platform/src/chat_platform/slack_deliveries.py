@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 from urllib.parse import parse_qs
 
-from argus_core.models import ReportChannel, a_chat_message, a_chat_thread
+from core.models import ReportChannel, a_chat_message, a_chat_thread
 
 from chat_platform.platform import (
     ChatDeliveryUnverified,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-# What the read tier writes and reads. The same spelling `argus_core.timestamps`
+# What the read tier writes and reads. The same spelling `core.timestamps`
 # produces, restated here rather than imported so a test that builds a bound by
 # hand is not built out of the code it is checking.
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"

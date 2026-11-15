@@ -17,10 +17,10 @@ from collections.abc import Callable
 
 import psycopg
 import pytest
-from argus_core import Fence, connect_from_env, fence, was_lost
-from argus_core.embedding import Embedder
-from argus_core.models import Verdict
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling
+from core import Fence, connect_from_env, fence, was_lost
+from core.embedding import Embedder
+from core.models import Verdict
 from incident_memory.delivering import deliver_on, holding_the_delivery
 from incident_memory.filing import Filed, file, get_undelivered
 from incident_memory.keeping import Keeper, kept_in

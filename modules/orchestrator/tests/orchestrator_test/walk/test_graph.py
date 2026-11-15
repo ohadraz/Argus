@@ -20,9 +20,9 @@ from contextlib import contextmanager
 
 import psycopg
 import pytest
-from argus_core import Holding
-from argus_core.mcp_transport import McpClient
 from argus_testkit import Assertion, Scenario
+from core import Holding
+from core.mcp_transport import McpClient
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph

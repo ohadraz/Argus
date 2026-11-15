@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from argus_core.models import NOT_JUDGED, OpenedPullRequest, PostmortemDocument, ResolutionStep
+from core.models import NOT_JUDGED, OpenedPullRequest, PostmortemDocument, ResolutionStep
 
 from postmortem_rendering.action_items import the_action_items
 from postmortem_rendering.actions_taken import StepRow, the_actions_taken

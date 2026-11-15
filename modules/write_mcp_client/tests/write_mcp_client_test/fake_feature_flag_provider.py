@@ -15,7 +15,7 @@ from tempfile import mkdtemp
 from threading import Thread
 from typing import Any
 
-from argus_core import get_settings
+from core import get_settings
 
 FAKE_UNLEASH_PORT = 8181
 WRITE_MCP_TEST_PORT = 8192

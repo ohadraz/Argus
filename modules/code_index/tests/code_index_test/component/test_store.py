@@ -399,7 +399,7 @@ def _the_payload_field_indexed_is(field: str) -> Assertion[CollectionInfo]:
     Written here and again in `incident_memory`'s suite, on purpose. The
     obvious home for it is `argus_testkit` - and putting it there would give
     the shared test package a `qdrant-client` dependency, which every
-    module's dev environment installs. That is the extra `argus_core`
+    module's dev environment installs. That is the extra `core`
     declares narrowly for the two corpora, undone by a helper. Two short
     assertions are the cheaper of the two prices.
     """

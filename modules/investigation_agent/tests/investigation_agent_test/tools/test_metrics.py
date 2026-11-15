@@ -12,8 +12,8 @@ from __future__ import annotations
 from unittest.mock import Mock, call, create_autospec
 
 import pytest
-from argus_core.models import MetricBucket, ToolDefinition, ToolResult
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import MetricBucket, ToolDefinition, ToolResult
 from investigation_agent.retrieval import MetricsFetcher
 from investigation_agent.tools import METRICS_TOOL
 from investigation_agent.tools.metrics import metrics_tool

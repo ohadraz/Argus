@@ -31,13 +31,13 @@ import threading
 from collections.abc import Callable
 from typing import Final, Protocol
 
-from argus_core import Connections, SettingsSlice
-from argus_core.models import CodeSearch
-from argus_core.source_scope import belongs_to_the_service
 from code_index import records
 from code_index.freshness import Freshness
 from code_index.indexing import Embedder
 from code_index.store import Found, nearest
+from core import Connections, SettingsSlice
+from core.models import CodeSearch
+from core.source_scope import belongs_to_the_service
 from qdrant_client import QdrantClient
 
 from read_mcp_server.repository import RepositoryReadSettings

@@ -11,9 +11,9 @@ import logging
 from collections.abc import Mapping
 
 import pytest
-from argus_core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
-from argus_core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
 from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
+from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
 from postmortem_writing.grounding import FLAGS_FIELD, QUOTE_FIELD, ROWS_FIELD, WHY_FIELD
 from postmortem_writing.synopsis_conversation import Overview, the_overview
 from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD, Paging

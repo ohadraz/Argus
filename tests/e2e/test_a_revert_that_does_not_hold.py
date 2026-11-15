@@ -21,10 +21,10 @@ from __future__ import annotations
 import httpx2
 import psycopg
 import pytest
-from argus_core.events import ActionTaken, VerdictReached
-from argus_core.models import REVERT_FEATURE_FLAG, ActionType, IncidentStatus, Verdict
 from argus_incidents.repository import incidents
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core.events import ActionTaken, VerdictReached
+from core.models import REVERT_FEATURE_FLAG, ActionType, IncidentStatus, Verdict
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,

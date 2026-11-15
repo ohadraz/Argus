@@ -25,8 +25,8 @@ import time
 from typing import Any, Final
 
 import httpx2
-from argus_core import SettingsSlice
-from argus_core.models import OpenedPullRequest
+from core import SettingsSlice
+from core.models import OpenedPullRequest
 
 from write_mcp_server.github_writes import HttpGet, HttpPost, Sleep, said_of, with_retries
 

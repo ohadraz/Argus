@@ -14,9 +14,10 @@ from typing import NamedTuple, cast
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
-from argus_core import to_iso
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
+from core import to_iso
+from core.mcp_transport import McpClient
+from core.models import (
     AcceleratorPinUndo,
     Action,
     ChangeEvent,
@@ -30,7 +31,6 @@ from argus_core.models import (
     RolloutProgress,
     ScaleOut,
 )
-from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 from mitigation.tools import (
     Arrival,
     DeploymentsBetween,

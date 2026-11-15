@@ -6,7 +6,7 @@ responded to this incident and for how long*. Neither mentions a payment
 processor or an on-call tool, and nothing above these names one either.
 
 They are ports rather than clients because no adapter exists yet. Defining
-them here rather than in `argus_core` is deliberate: nothing else consumes
+them here rather than in `core` is deliberate: nothing else consumes
 them, and a shared abstraction with one consumer is a guess about the second.
 
 `None` from either is "could not be read", never "there was nothing". The
@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import AlertRuleStanding, MetricBucket
+from core.anomaly import AnomalyThresholds
+from core.models import AlertRuleStanding, MetricBucket
 from pydantic import BaseModel
 
 # What the service took between two instants, per currency, or `None` if

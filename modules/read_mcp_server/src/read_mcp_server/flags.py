@@ -21,7 +21,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 import httpx2
-from argus_core import SettingsSlice
+from core import SettingsSlice
 
 
 class FlagReadSettings(SettingsSlice):

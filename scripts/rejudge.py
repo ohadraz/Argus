@@ -48,9 +48,9 @@ from os.path import commonprefix
 from pathlib import Path
 from typing import Any, Final
 
-from argus_core import LLMSettings, Settings
-from argus_core.llm import LLMClient, build_llm_client
-from argus_core.models import ToolDefinition, Transcript, Turn
+from core import LLMSettings, Settings
+from core.llm import LLMClient, build_llm_client
+from core.models import ToolDefinition, Transcript, Turn
 from postmortem_writing.grounding import (
     DID_NOT_ANSWER,
     FLAGS_FIELD,

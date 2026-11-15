@@ -5,11 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import pytest
-from argus_core import get_settings
-from argus_core.llm import build_llm_client
-from argus_core.models import Meaning, ModelPolicy
 from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
+from core import get_settings
+from core.llm import build_llm_client
+from core.models import Meaning, ModelPolicy
 from message_intent.classifying import classify
 from message_intent.prompting import SUBMIT_MEANING, opening_ask
 

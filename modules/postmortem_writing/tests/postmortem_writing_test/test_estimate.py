@@ -16,8 +16,8 @@ from decimal import Decimal
 from math import isclose
 
 import pytest
-from argus_core.models import MetricBucket, RuleLine, RuleReading, WorseWhen
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import MetricBucket, RuleLine, RuleReading, WorseWhen
 from postmortem_writing.estimate import (
     DemandLevels,
     ErrorRates,

@@ -20,11 +20,11 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core import new_id
-from argus_core.events import IncidentEvent, Narrator, ServiceRegisterRead
-from argus_core.mcp_transport import McpToolError
-from argus_core.models import Ownership, ServiceDependency, ToolCall
 from argus_testkit import Assertion, Scenario, all_of
+from core import new_id
+from core.events import IncidentEvent, Narrator, ServiceRegisterRead
+from core.mcp_transport import McpToolError
+from core.models import Ownership, ServiceDependency, ToolCall
 from investigation_agent.retrieval import DependencyFetcher
 from investigation_agent.tools.dependencies import DEPENDENCIES_TOOL, read_dependencies
 

@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Final
 
 import psycopg
-from argus_core.models import ExecutiveSynopsis, ExecutiveSynopsisDocument
+from core.models import ExecutiveSynopsis, ExecutiveSynopsisDocument
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel

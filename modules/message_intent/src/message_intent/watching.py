@@ -8,7 +8,7 @@ relay and the walk do.
 It finds its work on the record rather than by following the event log: a
 message is the Intent Reader's to understand until the record says what it meant, and
 an account that could decide what is done would be a participant
-(`argus_core.events`).
+(`core.events`).
 
 A process of its own rather than a part of the worker or the web: the worker
 walks incidents for minutes at a time and a message is not a walk, and the web
@@ -23,15 +23,20 @@ from collections.abc import Callable
 from functools import partial
 from typing import Final
 
-from argus_core import (
+from argus_incidents import calls_into, events_into
+from argus_incidents.repository import conversation, events, incidents
+from argus_narration import build_narration
+from argus_telemetry import start_telemetry
+from chat_platform.slack import ChatSettings, slack_from
+from core import (
     Connections,
     DatabaseSettings,
     TelemetrySettings,
     get_settings,
     open_pool,
 )
-from argus_core.llm import build_llm_client
-from argus_core.models import (
+from core.llm import build_llm_client
+from core.models import (
     IncidentStatus,
     Meaning,
     ModelPolicy,
@@ -39,12 +44,7 @@ from argus_core.models import (
     Reference,
     ThreadMessage,
 )
-from argus_core.replay import Replay
-from argus_incidents import calls_into, events_into
-from argus_incidents.repository import conversation, events, incidents
-from argus_narration import build_narration
-from argus_telemetry import start_telemetry
-from chat_platform.slack import ChatSettings, slack_from
+from core.replay import Replay
 
 from message_intent.answering import answer
 from message_intent.classifying import classify

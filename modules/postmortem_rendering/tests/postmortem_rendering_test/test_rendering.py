@@ -11,9 +11,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import new_id
-from argus_core.events import StatusChanged
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core import new_id
+from core.events import StatusChanged
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -32,7 +33,6 @@ from argus_core.models import (
     TimelineEntry,
     TimelineMarker,
 )
-from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.rendering import RenderedPostmortem, render
 

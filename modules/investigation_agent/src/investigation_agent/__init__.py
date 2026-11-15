@@ -22,7 +22,7 @@ still the only way to run one.
 
 from __future__ import annotations
 
-from argus_core.models import Findings, Reading
+from core.models import Findings, Reading
 
 from investigation_agent.investigation import BRIEF, investigate
 from investigation_agent.retrieval import (

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Final
 
 import psycopg
-from argus_core.models import Postmortem, PostmortemDocument
+from core.models import Postmortem, PostmortemDocument
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel

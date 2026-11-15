@@ -11,8 +11,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Final
 
-from argus_core import said_as_a_time
-from argus_core.models import (
+from core import said_as_a_time
+from core.models import (
     PostmortemDocument,
     ResolutionStep,
     for_the_candidate,

@@ -24,8 +24,8 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from typing import Any, Final
 
-from argus_core import parse_iso
-from argus_core.models import Lifespan, ReportChannel
+from core import parse_iso
+from core.models import Lifespan, ReportChannel
 from pagerduty import Error as PagerDutyError
 from pagerduty import RestApiV2Client
 

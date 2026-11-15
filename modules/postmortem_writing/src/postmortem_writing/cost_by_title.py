@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 
-from argus_core.models import TitleCost
+from core.models import TitleCost
 
 from postmortem_writing.sources import EngagedResponder, PayBand
 

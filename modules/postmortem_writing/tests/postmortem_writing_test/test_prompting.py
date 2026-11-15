@@ -31,8 +31,9 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from argus_core import parse_iso, to_iso
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core import parse_iso, to_iso
+from core.models import (
     ActionItemType,
     ActionProgress,
     Ask,
@@ -61,7 +62,6 @@ from argus_core.models import (
     Verdict,
     Weighing,
 )
-from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_writing import (
     DeploymentChangesRecord,
     EngagementAnswer,

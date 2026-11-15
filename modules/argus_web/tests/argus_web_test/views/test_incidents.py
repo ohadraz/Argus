@@ -16,9 +16,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import new_id
-from argus_core.events import ActionTaken, IncidentEvent
-from argus_core.models import (
+from argus_narration import ShownRevision
+from argus_testkit import Assertion, Scenario, all_of
+from argus_web.views.incidents import (
+    Candidate,
+    IncidentDetail,
+    IncidentSummary,
+    build_incident_detail,
+    build_incident_summary,
+)
+from core import new_id
+from core.events import ActionTaken, IncidentEvent
+from core.models import (
     Alert,
     Evidence,
     FailureMode,
@@ -29,15 +38,6 @@ from argus_core.models import (
     TakenAction,
     Undone,
     Verdict,
-)
-from argus_narration import ShownRevision
-from argus_testkit import Assertion, Scenario, all_of
-from argus_web.views.incidents import (
-    Candidate,
-    IncidentDetail,
-    IncidentSummary,
-    build_incident_detail,
-    build_incident_summary,
 )
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)

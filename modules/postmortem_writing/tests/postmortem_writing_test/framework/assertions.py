@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from argus_core.models import PostmortemDocument
 from argus_testkit import Assertion
+from core.models import PostmortemDocument
 from postmortem_writing.reviewing import ANALYSIS_COMPLETE
 
 

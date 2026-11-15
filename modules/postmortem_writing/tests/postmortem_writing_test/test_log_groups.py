@@ -15,9 +15,9 @@ import re
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from argus_core import to_iso
-from argus_core.models import CitedEvidence
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core import to_iso
+from core.models import CitedEvidence
 from postmortem_writing.figures import the_log_group_figures
 from postmortem_writing.log_groups import (
     LOG_GROUP_PREFIX,

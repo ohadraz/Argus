@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from argus_core.models import CodeUse, FileAsItRan
+from core.models import CodeUse, FileAsItRan
 
 from codefix_agent.naming import files_named_in
 from codefix_agent.retrieval import FileLister, FileReader

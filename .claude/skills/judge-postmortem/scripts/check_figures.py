@@ -3,7 +3,7 @@ minutes and the stored events, and checked against what the document stored and
 what the page prints. Run it on every capture.
 
 usage: check_figures.py <capture dir>
-(run as `.venv/Scripts/python.exe -X utf8`: it imports argus_core's detector)
+(run as `.venv/Scripts/python.exe -X utf8`: it imports core's detector)
 
 The stretch is every minute from the onset up to the first minute that reads
 normal: onset <= minute start < first normal minute. The first normal minute is
@@ -22,7 +22,7 @@ progress at each read is provisional, so a check resting on either says so
 rather than passing.
 
 Times: each marker against the event it stands for; the onset against
-argus_core's own `find_onset` over the Investigator's first read; the end
+core's own `find_onset` over the Investigator's first read; the end
 against `find_back_to_normal` from the recovery minute Mitigation recorded,
 where the minutes reach past it; each marker's minute and its reading; the
 stored duration; and the page's summary and detection times.
@@ -53,9 +53,9 @@ from html import unescape
 from pathlib import Path
 from statistics import median, median_high, median_low
 
-from argus_core import Settings
-from argus_core.anomaly import AnomalyThresholds, find_back_to_normal, find_onset
-from argus_core.models import MetricBucket
+from core import Settings
+from core.anomaly import AnomalyThresholds, find_back_to_normal, find_onset
+from core.models import MetricBucket
 
 A_MINUTE = timedelta(minutes=1)
 AN_HOUR = timedelta(hours=1)

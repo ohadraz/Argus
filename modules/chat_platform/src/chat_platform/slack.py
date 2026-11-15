@@ -20,8 +20,8 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Final
 
-from argus_core import SettingsSlice, utc_now
-from argus_core.models import ReportChannel, the_place_of
+from core import SettingsSlice, utc_now
+from core.models import ReportChannel, the_place_of
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 

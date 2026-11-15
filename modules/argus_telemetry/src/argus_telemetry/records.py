@@ -18,7 +18,7 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from argus_core.telemetry import ARGUS_AGENT, ARGUS_INCIDENT_ID, ARGUS_RUN_ID
+from core.telemetry import ARGUS_AGENT, ARGUS_INCIDENT_ID, ARGUS_RUN_ID
 from opentelemetry import baggage
 
 # What a secret's value is written as, wherever it would have been written.

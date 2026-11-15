@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from typing import Protocol
 
 import psycopg
-from argus_core import SettingsSlice
+from core import SettingsSlice
 from qdrant_client import QdrantClient
 from repository_source import RepositorySourceSettings, the_source_at
 

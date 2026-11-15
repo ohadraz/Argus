@@ -17,8 +17,9 @@ from importlib.resources import files
 from typing import Any, NamedTuple
 
 import pytest
-from argus_core import said_as_a_day, said_as_a_time
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of
+from core import said_as_a_day, said_as_a_time
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -44,7 +45,6 @@ from argus_core.models import (
     TimelineMarker,
     WhyNoTrigger,
 )
-from argus_testkit import Assertion, Scenario, all_of
 from fpdf import FPDF
 from postmortem_rendering.pdf import as_pdf
 from postmortem_rendering.rendering import RenderedPostmortem, render

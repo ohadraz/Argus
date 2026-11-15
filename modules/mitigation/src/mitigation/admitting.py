@@ -38,7 +38,7 @@ from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
 from typing import Final
 
-from argus_core.models import (
+from core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     PIN_TO_ACCELERATOR,

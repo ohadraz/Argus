@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.events import (
+from argus_incidents.repository import events, incidents
+from argus_testkit import Assertion, Scenario, all_of
+from core import connect_from_env, utc_now
+from core.events import (
     AlertAcknowledged,
     FixAttempted,
     HypothesisFormed,
@@ -21,7 +23,7 @@ from argus_core.events import (
     MetricsRetrieved,
     OnsetDetected,
 )
-from argus_core.models import (
+from core.models import (
     Alert,
     FailureMode,
     FixOutcome,
@@ -29,8 +31,6 @@ from argus_core.models import (
     MetricBucket,
     RuleReading,
 )
-from argus_incidents.repository import events, incidents
-from argus_testkit import Assertion, Scenario, all_of
 
 from argus_web_test.framework.assertions import (
     the_page_keeps_asking,

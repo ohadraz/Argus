@@ -28,9 +28,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from argus_core import get_settings, new_id  # noqa: E402
-from argus_core.llm import build_llm_client  # noqa: E402
-from argus_core.models import (  # noqa: E402
+from core import get_settings, new_id  # noqa: E402
+from core.llm import build_llm_client  # noqa: E402
+from core.models import (  # noqa: E402
     ChangeEvent,
     Effort,
     MetricBucket,

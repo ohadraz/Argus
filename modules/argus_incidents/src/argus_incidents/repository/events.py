@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import psycopg
-from argus_core.events import IncidentEvent, RecordedEvent, parse_event
+from core.events import IncidentEvent, RecordedEvent, parse_event
 from psycopg.types.json import Jsonb
 
 # `RecordedEvent` is a kernel contract, named here as well because this is the

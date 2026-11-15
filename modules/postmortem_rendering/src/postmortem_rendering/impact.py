@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import MILLISECONDS_UNIT, level_said_in, said_as_a_share, said_as_a_time
-from argus_core.models import (
+from core import MILLISECONDS_UNIT, level_said_in, said_as_a_share, said_as_a_time
+from core.models import (
     AlarmClaim,
     Alert,
     Impact,

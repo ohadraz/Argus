@@ -10,7 +10,7 @@ case about the spelling.
 from __future__ import annotations
 
 import psycopg
-from argus_core import Fence, new_id
+from core import Fence, new_id
 from psycopg.types.json import Jsonb
 
 from incident_memory_test.framework.builders import DONT_CARE_MOMENT

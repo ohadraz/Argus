@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
-from argus_core.models import OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
+from core.models import OpenedPullRequest
 from postmortem_rendering.lines import Line, Role, Run
 
 

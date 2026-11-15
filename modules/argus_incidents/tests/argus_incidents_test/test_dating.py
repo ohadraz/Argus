@@ -11,11 +11,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import new_id
-from argus_core.events import ActionTaken, IncidentEvent, VerdictReached
-from argus_core.models import ActionProgress, FlagUndo, TakenAction, Verdict
 from argus_incidents import when_it_was_taken
 from argus_testkit import Scenario, the_answer_was
+from core import new_id
+from core.events import ActionTaken, IncidentEvent, VerdictReached
+from core.models import ActionProgress, FlagUndo, TakenAction, Verdict
 
 SOME_CLAIM = datetime(2026, 10, 26, 18, 4, 48, 597000, tzinfo=UTC)
 SOME_INCIDENT = new_id()

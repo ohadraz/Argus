@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import NamedTuple, Protocol
 
-from argus_core.models import Reference, ReportChannel
+from core.models import Reference, ReportChannel
 from pydantic import BaseModel, Field
 
 

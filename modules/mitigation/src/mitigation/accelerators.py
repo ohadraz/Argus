@@ -14,7 +14,7 @@ do with how a strategy is registered.
 
 from __future__ import annotations
 
-from argus_core.models import RecordedPlacement
+from core.models import RecordedPlacement
 
 
 def the_accelerator_to_pin_to(placement: RecordedPlacement | None) -> str | None:

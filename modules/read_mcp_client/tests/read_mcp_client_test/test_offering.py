@@ -15,10 +15,10 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.mcp_transport import McpClient
-from argus_core.models import ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from argus_testkit.assertions import the_error_mentioned
+from core.mcp_transport import McpClient
+from core.models import ToolDefinition
 from mcp.types import Tool
 from read_mcp_client import NotServed, offered
 

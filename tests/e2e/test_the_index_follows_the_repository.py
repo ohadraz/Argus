@@ -36,7 +36,6 @@ from typing import Any, Final
 import httpx2
 import psycopg
 import pytest
-from argus_core import get_settings
 from argus_testkit import Assertion, Scenario, all_of, eventually
 from argus_web.pushes import (
     AFTER_FIELD,
@@ -49,6 +48,7 @@ from argus_web.pushes import (
 )
 from code_index.records import RepositoryIndex
 from code_index.records import get as the_index_recorded_for
+from core import get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 
 from tests.e2e.framework.argus import (

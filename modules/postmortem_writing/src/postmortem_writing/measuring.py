@@ -43,9 +43,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import NamedTuple
 
-from argus_core import parse_iso, to_iso
-from argus_core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
-from argus_core.models import MetricBucket
+from core import parse_iso, to_iso
+from core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
+from core.models import MetricBucket
 from pydantic import BaseModel, Field
 
 from postmortem_writing.estimate import (

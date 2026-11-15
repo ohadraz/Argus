@@ -12,8 +12,8 @@ existed.
 
 from __future__ import annotations
 
-from argus_core import parse_iso
-from argus_core.models import ChangeEvent, ChangeKind
+from core import parse_iso
+from core.models import ChangeEvent, ChangeKind
 from deployment_platform import (
     DeploymentPlatformError,
     DeploymentPlatformReads,

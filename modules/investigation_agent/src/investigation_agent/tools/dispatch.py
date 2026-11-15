@@ -12,15 +12,15 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from argus_core.events import Narrator, RetrievalUnanswered, nobody
-from argus_core.models import (
+from core.events import Narrator, RetrievalUnanswered, nobody
+from core.models import (
     DeploymentChanges,
     Reading,
     RetrievalChannel,
     ToolCall,
     ToolResult,
 )
-from argus_core.replay import CallType, Replay
+from core.replay import CallType, Replay
 
 from investigation_agent.budget import InvestigationSettings
 from investigation_agent.retrieval import (

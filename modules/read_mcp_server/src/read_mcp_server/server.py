@@ -18,7 +18,9 @@ from datetime import datetime
 from functools import partial
 from typing import Annotated, Any, Final
 
-from argus_core import (
+from argus_telemetry import start_telemetry
+from code_index.embedding import an_embedder
+from core import (
     Connections,
     DatabaseSettings,
     ReadMcpEndpoint,
@@ -26,8 +28,8 @@ from argus_core import (
     get_settings,
     open_pool,
 )
-from argus_core.mcp_transport import TracedFastMCP
-from argus_core.models import (
+from core.mcp_transport import TracedFastMCP
+from core.models import (
     AlertRuleStanding,
     ChangeEvent,
     CodeOutsideThePatch,
@@ -38,8 +40,6 @@ from argus_core.models import (
     RolloutProgress,
     ServiceDependency,
 )
-from argus_telemetry import start_telemetry
-from code_index.embedding import an_embedder
 from deployment_platform import DeploymentPlatformReads
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from metrics_source import MetricsSettings, MetricsSource, RuleSeries

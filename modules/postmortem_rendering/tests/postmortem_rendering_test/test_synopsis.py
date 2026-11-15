@@ -15,8 +15,9 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from argus_core import new_id
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of
+from core import new_id
+from core.models import (
     ExecutiveSynopsis,
     Impact,
     ImpactExtent,
@@ -25,7 +26,6 @@ from argus_core.models import (
     TitleCost,
     said_as_money,
 )
-from argus_testkit import Assertion, Scenario, all_of
 from postmortem_rendering.head import a_head
 from postmortem_rendering.impact import the_impact
 from postmortem_rendering.resolution import ReportedResolution

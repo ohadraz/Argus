@@ -17,7 +17,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from functools import partial
 
-from argus_core import DatabaseSettings, Fence
+from core import DatabaseSettings, Fence
 from write_mcp_server.fencing import HoldForAChange
 from write_mcp_server.server import main
 

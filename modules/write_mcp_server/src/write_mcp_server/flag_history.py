@@ -23,8 +23,8 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx2
-from argus_core import parse_iso, to_iso
-from argus_core.models import FlagChange
+from core import parse_iso, to_iso
+from core.models import FlagChange
 
 from write_mcp_server.flag_state import FlagWriteSettings
 

@@ -18,15 +18,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from argus_core import Connections
-from argus_core.events import (
+from argus_incidents import PublisherFor, publish_beside
+from argus_incidents.repository import (
+    conversation,
+    hypotheses,
+    incidents,
+    postmortems,
+    synopses,
+    taken_actions,
+)
+from core import Connections
+from core.events import (
     ExecutiveSynopsisWithheld,
     ExecutiveSynopsisWritten,
     IncidentEvent,
     LeadWeighed,
     PostmortemWritten,
 )
-from argus_core.models import (
+from core.models import (
     ActionProgress,
     ActionType,
     ExecutiveSynopsisDocument,
@@ -40,15 +49,6 @@ from argus_core.models import (
     Verdict,
     WhatArgusDid,
     the_identity_recorded,
-)
-from argus_incidents import PublisherFor, publish_beside
-from argus_incidents.repository import (
-    conversation,
-    hypotheses,
-    incidents,
-    postmortems,
-    synopses,
-    taken_actions,
 )
 from incident_memory import filing
 from incident_memory.composing import VERDICTS_THAT_JUDGE_AN_ACTION

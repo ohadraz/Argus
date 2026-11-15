@@ -34,8 +34,8 @@ from collections.abc import Iterator
 import httpx2
 import psycopg
 import pytest
-from argus_core import connect_from_env
-from argus_core.schema import reset_schema
+from core import connect_from_env
+from core.schema import reset_schema
 from psycopg import sql
 from qdrant_client import QdrantClient
 

@@ -16,7 +16,8 @@ from decimal import Decimal
 from typing import TypedDict, Unpack
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -43,7 +44,6 @@ from argus_core.models import (
     Verdict,
     why_it_was_refused,
 )
-from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_writing.reviewing import (
     ANALYSIS_COMPLETE,
     IMPACT_ASSESSED,

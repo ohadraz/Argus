@@ -31,7 +31,7 @@ import re
 from datetime import UTC, date, datetime
 from typing import Final, NamedTuple
 
-from argus_core import parse_iso, to_iso
+from core import parse_iso, to_iso
 
 from argus_narration.clock import a_moment, is_a_moment
 

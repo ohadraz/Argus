@@ -21,12 +21,6 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_core import new_id
-from argus_core.events import (
-    IncidentEvent,
-    RetrievalRequested,
-)
-from argus_core.models import RetrievalChannel
 from argus_incidents.repository import events
 from argus_narration import a_narration_line
 from argus_testkit import (
@@ -38,6 +32,12 @@ from argus_testkit import (
 )
 from communication.policy import Register
 from communication.relaying import relay_once
+from core import new_id
+from core.events import (
+    IncidentEvent,
+    RetrievalRequested,
+)
+from core.models import RetrievalChannel
 
 from communication_test.framework.assertions import it_said, the_lines_said_were
 from communication_test.framework.builders import (

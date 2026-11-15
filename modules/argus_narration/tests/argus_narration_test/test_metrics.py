@@ -2,7 +2,7 @@
 
 Nothing here judges the incident. `elevated` is the mark a reader's eye lands
 on and nothing more - the judgement of which minutes departed from the baseline
-was made by `argus_core.anomaly` while the investigation ran, and is already in
+was made by `core.anomaly` while the investigation ran, and is already in
 the narration as the onset.
 
 The threshold is stated here rather than imported, deliberately. It is the same
@@ -21,9 +21,9 @@ so the row says both, in the units a dashboard says them in.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import MetricBucket, RuleReading
 from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import MetricBucket, RuleReading
 
 THE_RATE_A_MINUTE_IS_MARKED_AT = 0.05
 

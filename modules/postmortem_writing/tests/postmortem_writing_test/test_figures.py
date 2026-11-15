@@ -21,8 +21,9 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from argus_core import said_as_a_day, to_iso
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core import said_as_a_day, to_iso
+from core.models import (
     ActionItemType,
     CitedEvidence,
     FirstTold,
@@ -30,7 +31,6 @@ from argus_core.models import (
     ReportChannel,
     Verdict,
 )
-from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_writing import EngagementAnswer, NotPaged
 from postmortem_writing.estimate import ErrorRates, RuleSeriesLevels
 from postmortem_writing.figures import (

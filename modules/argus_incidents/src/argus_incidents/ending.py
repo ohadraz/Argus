@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
-from argus_core import Connections, Holding, RunLost
-from argus_core.models import IncidentStatus
+from core import Connections, Holding, RunLost
+from core.models import IncidentStatus
 
 from argus_incidents.repository import incidents, runs
 

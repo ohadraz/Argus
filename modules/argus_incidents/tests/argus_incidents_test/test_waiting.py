@@ -21,16 +21,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import connect_from_env, new_id, utc_now
-from argus_core.events import OfferExpired
-from argus_core.models import (
-    Alert,
-    IncidentStatus,
-    Meaning,
-    Offer,
-    Reference,
-    ThreadMessage,
-)
 from argus_incidents.ending import EndedByAPerson
 from argus_incidents.publishing import events_into
 from argus_incidents.repository import conversation, events, incidents
@@ -41,6 +31,16 @@ from argus_incidents.waiting import (
     waiting_for_people_via,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core import connect_from_env, new_id, utc_now
+from core.events import OfferExpired
+from core.models import (
+    Alert,
+    IncidentStatus,
+    Meaning,
+    Offer,
+    Reference,
+    ThreadMessage,
+)
 
 SOME_MOMENT = datetime(2026, 10, 10, 9, 0, tzinfo=UTC)
 SOME_MESSAGE = Reference(source="some-chat", kind="chat-message", value="C1/1.000001")

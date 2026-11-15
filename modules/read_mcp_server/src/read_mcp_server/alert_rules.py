@@ -39,8 +39,8 @@ from datetime import datetime
 from typing import Any, Final, Protocol
 
 import httpx2
-from argus_core import SettingsSlice
-from argus_core.models import AlertRuleStanding, RuleLine, WorseWhen
+from core import SettingsSlice
+from core.models import AlertRuleStanding, RuleLine, WorseWhen
 from metrics_source import RuleSeries, is_a_latency, is_the_error_rate
 
 from read_mcp_server.units import the_unit_its_name_carries

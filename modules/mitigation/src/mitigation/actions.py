@@ -16,14 +16,14 @@ called, where a gate inside the function that also performs the write would
 guard nothing.
 
 `Action`, `RevertFeatureFlag`, `Outcome` and `Verdict` themselves live in
-`argus_core.models.action` - they cross into the Orchestrator's graph state and
+`core.models.action` - they cross into the Orchestrator's graph state and
 into the `action` table, so they belong to no single part of Argus - and are re-exported
 here because this is where a caller reasoning about mitigation looks for them.
 """
 
 from __future__ import annotations
 
-from argus_core.models import (
+from core.models import (
     REVERT_FEATURE_FLAG,
     Action,
     Circumstances,

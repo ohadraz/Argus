@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Final
 
-from argus_core.models import OpenedPullRequest
+from core.models import OpenedPullRequest
 
 # For the annotations alone, as in `revisions`: the answer's type is the
 # prompt's.

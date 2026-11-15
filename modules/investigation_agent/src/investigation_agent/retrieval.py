@@ -3,8 +3,8 @@ from __future__ import annotations
 from functools import partial
 from typing import Protocol
 
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
+from core.mcp_transport import McpClient
+from core.models import (
     ChangeEvent,
     DeploymentChanges,
     FlagChange,

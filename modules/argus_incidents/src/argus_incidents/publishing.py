@@ -1,6 +1,6 @@
 """The one subscriber the event stream has.
 
-`argus_core` defines what an event is and how it is published; it cannot know
+`core` defines what an event is and how it is published; it cannot know
 where an event goes, because knowing would make the shared library depend on
 the module that owns the tables - which is this one. So the wiring lives here,
 and the process that holds the connections builds it and hands it to every
@@ -18,10 +18,10 @@ from collections.abc import Callable
 from datetime import datetime
 
 import psycopg
-from argus_core import Connections
-from argus_core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
-from argus_core.models import Alert
-from argus_core.replay import Recorder, ReplayEntry
+from core import Connections
+from core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
+from core.models import Alert
+from core.replay import Recorder, ReplayEntry
 
 from argus_incidents.repository import events, replay
 
@@ -81,7 +81,7 @@ def events_into(connections: Connections) -> Publisher:
     handed. Where the connections come from is settled once, by the process that
     has them.
 
-    The subscriber it returns is free to raise. `argus_core.events.publish` is
+    The subscriber it returns is free to raise. `core.events.publish` is
     where a failure here is caught and dropped, and that seam is what makes
     raising harmless.
     """
@@ -96,10 +96,10 @@ def events_into(connections: Connections) -> Publisher:
 def calls_into(connections: Connections) -> Recorder:
     """The replay log's subscriber, and the same arrangement as `events_into`.
 
-    `argus_core` says what an entry is and how it is handed over; this side is
+    `core` says what an entry is and how it is handed over; this side is
     the only thing that knows where it goes.
 
-    Called only through `argus_core.replay.record`, which catches and drops a
+    Called only through `core.replay.record`, which catches and drops a
     failure here. So this is free to raise: a receipt that could not be filed
     must not take down the investigation it was describing.
     """

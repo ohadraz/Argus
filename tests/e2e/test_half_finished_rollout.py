@@ -51,10 +51,10 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core import get_settings, utc_now
-from argus_core.anomaly import find_onset, has_recovered_since
-from argus_core.models import FailureMode, IncidentStatus, MetricBucket
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core import get_settings, utc_now
+from core.anomaly import find_onset, has_recovered_since
+from core.models import FailureMode, IncidentStatus, MetricBucket
 
 from tests.e2e.framework.argus import (
     RECORDED_HALF_FINISHED_ROLLOUT,

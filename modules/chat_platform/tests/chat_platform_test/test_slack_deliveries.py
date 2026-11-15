@@ -23,7 +23,6 @@ from typing import Any
 from urllib.parse import urlencode
 
 import pytest
-from argus_core.models import ReportChannel, a_chat_message, a_chat_thread
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from chat_platform.platform import (
     ChatDeliveryUnverified,
@@ -62,6 +61,7 @@ from chat_platform.slack_deliveries import (
     VALUE,
     parse_delivery,
 )
+from core.models import ReportChannel, a_chat_message, a_chat_thread
 
 SOME_SECRET = "some-signing-secret"
 NOW = datetime(2026, 10, 10, 3, 30, tzinfo=UTC)

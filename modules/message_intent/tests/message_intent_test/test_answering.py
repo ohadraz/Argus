@@ -19,11 +19,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from argus_core import to_iso
-from argus_core.llm import LLMClient, ModelDidNotAnswer
-from argus_core.models import Ask, ToolCall, ToolDefinition, Transcript, Turn
 from argus_narration import CandidateLine, NarrationLine
 from argus_testkit import Assertion, Kept, Scenario, all_of
+from core import to_iso
+from core.llm import LLMClient, ModelDidNotAnswer
+from core.models import Ask, ToolCall, ToolDefinition, Transcript, Turn
 from message_intent.answering import ANSWER_FIELD, ANSWER_TOOL_NAME, answer
 
 SOME_QUESTION = "why did you revert the checkout flag?"

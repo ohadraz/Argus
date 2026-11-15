@@ -11,9 +11,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TypedDict, Unpack
 
-from argus_core import new_id
-from argus_core.events import StatusChanged
-from argus_core.models import (
+from core import new_id
+from core.events import StatusChanged
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,

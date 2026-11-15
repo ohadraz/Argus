@@ -22,10 +22,12 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from argus_core import RunLost, get_settings
-from argus_core.budget import StillWanted, wanted_throughout
-from argus_core.events import Publisher, nobody
-from argus_core.models import (
+from argus_incidents import EndedByAPerson, WaitForPeople
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from core import RunLost, get_settings
+from core.budget import StillWanted, wanted_throughout
+from core.events import Publisher, nobody
+from core.models import (
     ActionProgress,
     Alert,
     Attempt,
@@ -51,10 +53,8 @@ from argus_core.models import (
     WhatArgusDid,
     no_leads,
 )
-from argus_core.replay import Recorder
-from argus_core.replay import nobody as records_nothing
-from argus_incidents import EndedByAPerson, WaitForPeople
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from core.replay import Recorder
+from core.replay import nobody as records_nothing
 from investigation_agent import Findings
 from langgraph.checkpoint.memory import MemorySaver
 from mitigation import Action, ChangeMade, Outcome, Verdict

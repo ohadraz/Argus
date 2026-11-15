@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import httpx2
 import pytest
-from argus_core import parse_iso
-from argus_core.events import ActionTaken, AlertAcknowledged, AnchoredOnTheAlarm, OnsetDetected
-from argus_core.models import DISCARD_CACHE_ENTRIES, FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core import parse_iso
+from core.events import ActionTaken, AlertAcknowledged, AnchoredOnTheAlarm, OnsetDetected
+from core.models import DISCARD_CACHE_ENTRIES, FailureMode, IncidentStatus
 
 from tests.e2e.framework.argus import (
     RECORDED_UNDATED_STATE_DIVERGENCE,

@@ -16,16 +16,16 @@ import logging
 import time
 from typing import Final
 
-from argus_core import (
+from argus_incidents import Backlog, Place, events_since, place_for
+from argus_telemetry import start_telemetry
+from chat_platform.slack import ChatSettings, slack_from
+from core import (
     Connections,
     DatabaseSettings,
     TelemetrySettings,
     get_settings,
     open_pool,
 )
-from argus_incidents import Backlog, Place, events_since, place_for
-from argus_telemetry import start_telemetry
-from chat_platform.slack import ChatSettings, slack_from
 
 from communication.relaying import CHAT_RELAY, Destination, relay_once
 from communication.saying import (

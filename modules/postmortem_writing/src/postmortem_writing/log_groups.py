@@ -24,8 +24,8 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Final, NamedTuple
 
-from argus_core import said_as_a_day
-from argus_core.models import CitedEvidence
+from core import said_as_a_day
+from core.models import CitedEvidence
 
 from postmortem_writing.figures import (
     AFTER_ARGUS_FIRST_ACTED,

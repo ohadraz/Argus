@@ -13,8 +13,9 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Final
 
-from argus_core import said_as_a_time
-from argus_core.models import (
+from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW, where_a_report_came_from
+from core import said_as_a_time
+from core.models import (
     ActionItemStatus,
     Alert,
     ChangeKind,
@@ -24,7 +25,6 @@ from argus_core.models import (
     PostmortemDocument,
     TimelineMarker,
 )
-from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW, where_a_report_came_from
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_revision, on_the_day_and_clock

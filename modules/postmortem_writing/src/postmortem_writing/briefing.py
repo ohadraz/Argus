@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import Effort, ModelPolicy
+from core.models import Effort, ModelPolicy
 
 from postmortem_writing.prompting import (
     CAUSAL_CHAIN_FIELD,

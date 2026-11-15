@@ -12,9 +12,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-from argus_core import parse_iso, to_iso
-from argus_core.events import PATCH_LINE_INDENT, CandidateSelected, a_changed_file_line
-from argus_core.models import (
+from argus_narration import A_PERSON
+from argus_testkit import Scenario, the_answer_was
+from core import parse_iso, to_iso
+from core.events import PATCH_LINE_INDENT, CandidateSelected, a_changed_file_line
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -48,8 +50,6 @@ from argus_core.models import (
     Verdict,
     WhyNoTrigger,
 )
-from argus_narration import A_PERSON
-from argus_testkit import Scenario, the_answer_was
 from postmortem_writing import (
     ActionRecord,
     CandidateRecord,

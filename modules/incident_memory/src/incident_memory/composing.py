@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from argus_core.models import (
+from core.models import (
     Alert,
     TakenAction,
     Verdict,

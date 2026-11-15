@@ -3,7 +3,7 @@ name = "argus-orchestrator"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-    "argus-argus_core[llm,mcp]",
+    "argus-core[llm,mcp]",
     "argus-argus_incidents",
     "argus-argus_narration",
     "argus-argus_telemetry",
@@ -42,7 +42,7 @@ dependencies = [
 # arrangement exists to catch.
 [dependency-groups]
 dev = [
-    "argus-argus_core[migrations]",
+    "argus-core[migrations]",
     "argus-argus_testkit",
     # What the walk's spans and measurements are asserted through: an SDK's
     # in-memory exporter and reader. Never a runtime dependency.
@@ -50,7 +50,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-argus-argus_core = { workspace = true }
+argus-core = { workspace = true }
 argus-incident_memory = { workspace = true }
 argus-argus_incidents = { workspace = true }
 argus-argus_narration = { workspace = true }

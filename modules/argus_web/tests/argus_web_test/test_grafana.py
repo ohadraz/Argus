@@ -16,10 +16,10 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_core import to_iso
-from argus_core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 from argus_testkit import Assertion, Scenario, one_record_was_logged
 from argus_web.grafana import GRAFANA_SOURCE, parse_grafana_alert, reports_only_resolutions
+from core import to_iso
+from core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 
 from argus_web_test.framework.builders import a_grafana_payload
 

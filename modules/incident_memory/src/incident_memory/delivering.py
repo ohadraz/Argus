@@ -26,16 +26,16 @@ from contextlib import contextmanager
 from typing import Final, Protocol
 
 import psycopg
-from argus_core import (
+from argus_telemetry import start_telemetry
+from core import (
     DatabaseSettings,
     SettingsSlice,
     TelemetrySettings,
     get_settings,
     open_pool,
 )
-from argus_core.embedding import an_embedder
-from argus_core.schema import require_schema
-from argus_telemetry import start_telemetry
+from core.embedding import an_embedder
+from core.schema import require_schema
 
 from incident_memory.filing import get_undelivered, record_delivered
 from incident_memory.keeping import Keeper, kept_in

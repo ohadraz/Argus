@@ -24,8 +24,6 @@ from typing import Any, NamedTuple, cast
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core import parse_iso, to_iso
-from argus_core.models import ChangeEvent, ChangeKind, MetricBucket
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -36,6 +34,8 @@ from argus_testkit import (
     raising,
     returning,
 )
+from core import parse_iso, to_iso
+from core.models import ChangeEvent, ChangeKind, MetricBucket
 from metrics_source.minutes import MetricsSource, MetricsUnavailable, RuleSeries
 from read_mcp_server.change_source import ChangeSource, ChangeSourceUnavailable
 from read_mcp_server.retrieval import (

@@ -18,8 +18,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import RetrievalChannel, TimelineEntry
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import RetrievalChannel, TimelineEntry
 from postmortem_writing.prompting import SubmittedPostmortem, SubmittedRuledOut, SubmittedStep
 from postmortem_writing.ruling import is_said_by_code, with_what_the_record_rules_out
 

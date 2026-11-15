@@ -24,7 +24,7 @@ answers or where that server is.
 
 from __future__ import annotations
 
-from argus_core.budget import StillWanted
+from core.budget import StillWanted
 
 from mitigation.actions import (
     REVERT_FEATURE_FLAG,

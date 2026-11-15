@@ -36,8 +36,8 @@ which harness ran it rather than what Argus does.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
+from core.models import FailureMode, IncidentStatus
 
 from tests.e2e.framework.argus import (
     INVESTIGATION_TIMEOUT_SECONDS,

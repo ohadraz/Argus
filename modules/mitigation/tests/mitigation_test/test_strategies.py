@@ -12,8 +12,9 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.events import a_changed_file_line
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario
+from core.events import a_changed_file_line
+from core.models import (
     PIN_TO_ACCELERATOR,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -35,7 +36,6 @@ from argus_core.models import (
     RollBackDeployment,
     ScaleOut,
 )
-from argus_testkit import Assertion, Scenario
 from mitigation import (
     Action,
     MitigationStrategy,

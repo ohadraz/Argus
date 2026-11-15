@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Final
 
-from argus_core import A_REVISION, short_form, the_revision_named
+from core import A_REVISION, short_form, the_revision_named
 
 from postmortem_writing.evidence import IncidentEvidence
 

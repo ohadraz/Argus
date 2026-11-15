@@ -39,11 +39,11 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from argus_core import get_settings
-from argus_core.events import FixAttempted
-from argus_core.models import FixOutcome, IncidentStatus
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core import get_settings
+from core.events import FixAttempted
+from core.models import FixOutcome, IncidentStatus
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 
 from tests.e2e.framework.argus import (

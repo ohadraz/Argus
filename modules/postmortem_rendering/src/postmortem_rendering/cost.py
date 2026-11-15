@@ -8,7 +8,7 @@ responder and their title beside it, that person's band.
 
 from __future__ import annotations
 
-from argus_core.models import PostmortemDocument
+from core.models import PostmortemDocument
 
 from postmortem_rendering.impact import Card
 

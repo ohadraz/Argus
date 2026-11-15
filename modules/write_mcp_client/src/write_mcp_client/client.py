@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from argus_core import Holding, WriteMcpEndpoint
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
+from core import Holding, WriteMcpEndpoint
+from core.mcp_transport import McpClient
+from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
     AutoscalerUndo,

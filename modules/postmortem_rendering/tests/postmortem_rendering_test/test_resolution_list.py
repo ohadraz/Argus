@@ -13,8 +13,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core.models import NOT_JUDGED, OpenedPullRequest, Refusal, ResolutionStep
 from argus_testkit import Scenario, the_answer_was
+from core.models import NOT_JUDGED, OpenedPullRequest, Refusal, ResolutionStep
 from postmortem_rendering.resolution import ReportedResolution
 from postmortem_rendering.resolution_list import the_resolution_list
 

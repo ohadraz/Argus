@@ -12,8 +12,8 @@ arguments are held to exactly the ones read back.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import ToolDefinition
 from argus_testkit import Assertion, Scenario
+from core.models import ToolDefinition
 from investigation_agent.tools import (
     DEPENDENCIES_TOOL,
     DEPLOYMENT_DIFF_TOOL,

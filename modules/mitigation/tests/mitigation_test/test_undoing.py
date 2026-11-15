@@ -17,8 +17,17 @@ from typing import TypedDict, Unpack
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from argus_core import RunLost
-from argus_core.models import (
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
+from core import RunLost
+from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
     AutoscalerUndo,
@@ -29,15 +38,6 @@ from argus_core.models import (
     FlagUndo,
     ReplicaUndo,
     UndoDescriptor,
-)
-from argus_testkit import (
-    Assertion,
-    Scenario,
-    all_of,
-    an_error_was_raised,
-    attempting,
-    calling,
-    one_record_was_logged,
 )
 from mitigation import (
     UndoAttempt,

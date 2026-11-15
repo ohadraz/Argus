@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from argus_core.models import CitedEvidence, PostmortemDocument
+from core.models import CitedEvidence, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run

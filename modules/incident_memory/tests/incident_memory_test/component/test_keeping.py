@@ -17,9 +17,9 @@ corpus rather than like a bug.
 from __future__ import annotations
 
 import pytest
-from argus_core.embedding import Embedder
-from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core.embedding import Embedder
+from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
 from incident_memory.keeping import kept_in
 from incident_memory.recalling import SERVICE_FIELD, Recaller, recalling_from
 from incident_memory.records import RememberedIncident

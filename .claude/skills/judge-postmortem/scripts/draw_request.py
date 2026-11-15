@@ -25,7 +25,7 @@ from itertools import product
 from pathlib import Path
 from typing import Any
 
-from argus_core.models import LogsInTheGap, Reference, ThreadMessage, ToolDefinition
+from core.models import LogsInTheGap, Reference, ThreadMessage, ToolDefinition
 from postmortem_writing.briefing import STANDING_BRIEF
 from postmortem_writing.prompting import (
     LEAD_EFFECTS_FIELD,

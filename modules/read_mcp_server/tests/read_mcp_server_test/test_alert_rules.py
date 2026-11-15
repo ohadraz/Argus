@@ -18,10 +18,10 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_core.models import AlertRuleStanding, RuleLine, WorseWhen
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
+from core.models import AlertRuleStanding, RuleLine, WorseWhen
 from metrics_source import RuleSeries
 from read_mcp_server.alert_rules import (
     ANNOTATIONS,

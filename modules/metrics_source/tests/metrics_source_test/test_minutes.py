@@ -9,8 +9,8 @@ start rather than one that reads metrics from nowhere.
 from __future__ import annotations
 
 import pytest
-from argus_core import Settings
 from argus_testkit import Scenario, the_answer_was
+from core import Settings
 from metrics_source.minutes import MetricsSettings
 
 

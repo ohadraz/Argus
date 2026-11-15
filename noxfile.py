@@ -88,7 +88,7 @@ def _discover_suites() -> dict[str, str]:
 _SUITES: Final = _discover_suites()
 MODULES: list[str] = sorted(_SUITES)
 
-# Every value `CODE_SEARCH` takes - `argus_core.models.CodeSearch`, spelled out
+# Every value `CODE_SEARCH` takes - `core.models.CodeSearch`, spelled out
 # rather than imported. This file is read before anything is installed, and a
 # task runner that cannot list its own sessions until the workspace resolves is
 # the one thing that cannot be used to fix a workspace that does not.
@@ -367,16 +367,16 @@ def schema(session: nox.Session) -> None:
     Registers `schema` as a nox session, i.e., runnable via
     `uv run python -m nox -s schema`.
     Applies Argus's database schema to whatever database the environment names,
-    by throwing away what is there and applying `argus_core.schema`'s DDL from
+    by throwing away what is there and applying `core.schema`'s DDL from
     nothing. It is destructive and that is the design: Argus keeps no migration
     history, so the DDL is the whole statement of what the database holds, and
     an edit to it reaches a database only by replacing it.
 
-    A wrapper around `python -m argus_core.schema` rather than the job itself.
+    A wrapper around `python -m core.schema` rather than the job itself.
     The e2e stack applies the schema too, as does anyone with a bare checkout
     and a postgres container, and only some of those are nox.
     """
-    session.run("uv", "run", "python", "-m", "argus_core.schema", external=True)
+    session.run("uv", "run", "python", "-m", "core.schema", external=True)
 
 @_a_session()
 def index(session: nox.Session) -> None:
@@ -1453,7 +1453,7 @@ def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
     stops the database an `e2e_replay` is halfway through using.
 
     Both halves of the port, said once. Compose reads `ARGUS_POSTGRES_PORT` for
-    the host side of its mapping and `argus_core.config` reads `DATABASE_PORT`
+    the host side of its mapping and `core.config` reads `DATABASE_PORT`
     for where to connect, and a session where those two disagree comes up
     healthy and connects to nothing.
     """
@@ -2032,7 +2032,7 @@ def _run_against_the_stack(
 
     `on_a_simulated_clock` runs every process of the stack - Argus's, the
     containers', and the pytest process - on one clock `_THE_SIMULATED_SPEED`
-    times faster than the real one, counted from now. See `argus_core.clock`.
+    times faster than the real one, counted from now. See `core.clock`.
 
     `shop_stands_in` serves the Target Service through its stand-in
     (`_THE_SHOP_AT_ITS_STAND_IN`).
@@ -2118,7 +2118,7 @@ def _run_against_the_stack(
         # the whole of why it is a step of its own: no Argus process applies the
         # schema, so none of them can be the one that has to start first.
         session.run(
-            "uv", "run", "python", "-m", "argus_core.schema", external=True
+            "uv", "run", "python", "-m", "core.schema", external=True
         )
         services = _the_services_for(
             slack_stands_in, github_stands_in, pagerduty_stands_in, model_stands_in

@@ -26,8 +26,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.events import Narrator, RolloutRead
-from argus_core.models import ChangeEvent, RolloutAccount, ToolCall
+from core.events import Narrator, RolloutRead
+from core.models import ChangeEvent, RolloutAccount, ToolCall
 
 from investigation_agent.retrieval import RolloutFetcher
 from investigation_agent.tools.results import Served, answered, could_not_be_read

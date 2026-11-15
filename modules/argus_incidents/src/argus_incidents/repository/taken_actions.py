@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import psycopg
-from argus_core.models import (
+from core.models import (
     ActionProgress,
     ActionType,
     TakenAction,

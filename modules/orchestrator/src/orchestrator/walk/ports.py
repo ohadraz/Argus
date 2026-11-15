@@ -12,9 +12,9 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from argus_core.budget import StillWanted
-from argus_core.events import IncidentEvent, Publisher, nobody
-from argus_core.models import (
+from core.budget import StillWanted
+from core.events import IncidentEvent, Publisher, nobody
+from core.models import (
     ActionProgress,
     ActionType,
     Alert,
@@ -42,8 +42,8 @@ from argus_core.models import (
 # `records_nothing` is aliased because `events` and `replay` each call their
 # no-op sink `nobody`, correctly and for the same reason - and this module
 # holds both.
-from argus_core.replay import Recorder
-from argus_core.replay import nobody as records_nothing
+from core.replay import Recorder
+from core.replay import nobody as records_nothing
 from incident_memory.records import RememberedIncident
 from mitigation import Action, ChangeMade, Outcome, Verdict
 from pydantic import BaseModel

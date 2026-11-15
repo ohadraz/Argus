@@ -15,12 +15,12 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.events import IncidentEvent, StatusChanged
-from argus_core.models import Alert, IncidentStatus, Report, ReportChannel
 from argus_incidents.repository import incidents
 from argus_incidents.resolution import resolve_incident
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core import connect_from_env, utc_now
+from core.events import IncidentEvent, StatusChanged
+from core.models import Alert, IncidentStatus, Report, ReportChannel
 
 SOME_REPORT = Report(by="some person", channel=ReportChannel.ARGUS_UI,
                      note="rolled the flag back by hand")

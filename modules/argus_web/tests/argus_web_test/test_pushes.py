@@ -27,7 +27,6 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.models import CodeSearch
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
@@ -37,6 +36,7 @@ from argus_web.pushes import (
     Watermark,
     receive_push,
 )
+from core.models import CodeSearch
 
 THE_REPOSITORY = "ohadraz/Argus-Demo-Target-App"
 THE_DEPLOYED_BRANCH = "main"

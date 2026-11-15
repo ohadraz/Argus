@@ -16,8 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from argus_core.llm import LLMClient
-from argus_core.models import ExecutiveSynopsisDocument, PostmortemDocument, TitleCost
+from core.llm import LLMClient
+from core.models import ExecutiveSynopsisDocument, PostmortemDocument, TitleCost
 
 from postmortem_writing.assumptions import SHARED_PAGE_ASSUMPTION_LABEL
 from postmortem_writing.breakdown import agreeing_breakdown

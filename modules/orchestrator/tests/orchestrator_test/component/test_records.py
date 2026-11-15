@@ -17,8 +17,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.events import (
+from argus_incidents.publishing import events_into_connection
+from argus_incidents.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    synopses,
+    taken_actions,
+)
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from core import connect_from_env, utc_now
+from core.events import (
     ExecutiveSynopsisWithheld,
     ExecutiveSynopsisWritten,
     IncidentEvent,
@@ -28,7 +38,7 @@ from argus_core.events import (
     StatusChanged,
     VerdictReached,
 )
-from argus_core.models import (
+from core.models import (
     REVERT_FEATURE_FLAG,
     ActionIdentity,
     ActionProgress,
@@ -48,16 +58,6 @@ from argus_core.models import (
     WhatArgusDid,
     WhatWasTried,
 )
-from argus_incidents.publishing import events_into_connection
-from argus_incidents.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    synopses,
-    taken_actions,
-)
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from incident_memory.filing import get_undelivered
 from incident_memory.records import RememberedIncident
 from orchestrator.records import Records

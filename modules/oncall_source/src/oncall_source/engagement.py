@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 
-from argus_core import SettingsSlice
+from core import SettingsSlice
 from pydantic import BaseModel
 
 

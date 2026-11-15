@@ -20,9 +20,9 @@ import logging
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core import Connections, ReadMcpEndpoint
-from argus_core.models import CodeSearch
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core import Connections, ReadMcpEndpoint
+from core.models import CodeSearch
 from deployment_platform import DeploymentPlatformReads
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Tool

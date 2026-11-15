@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-from argus_core.models import LogsInTheGap
+from core.models import LogsInTheGap
 from postmortem_writing.briefing import STANDING_BRIEF
 from postmortem_writing.prompting import SUBMIT_POSTMORTEM, submit_postmortem_for
 

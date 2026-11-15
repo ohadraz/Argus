@@ -12,8 +12,8 @@ for a reason the failure does not name.
 
 from __future__ import annotations
 
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import Effort
+from core.anomaly import AnomalyThresholds
+from core.models import Effort
 from investigation_agent.budget import InvestigationSettings
 
 A_LOOKBACK_IN_MINUTES = 30

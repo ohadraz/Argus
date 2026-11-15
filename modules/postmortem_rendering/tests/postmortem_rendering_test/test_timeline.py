@@ -9,13 +9,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Scenario, the_answer_was
+from core.models import (
     HypothesisConsidered,
     OpenedPullRequest,
     TimelineEntry,
     TimelineMarker,
 )
-from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.timeline import TimelineRow, the_timeline
 

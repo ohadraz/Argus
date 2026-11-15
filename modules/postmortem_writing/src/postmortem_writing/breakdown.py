@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Final
 
-from argus_core.models import PostmortemDocument, TitleCost
+from core.models import PostmortemDocument, TitleCost
 
 # Amounts agree to the cent: grouping adds the same terms in another order, and
 # 28 digits of Decimal can differ in the last one.

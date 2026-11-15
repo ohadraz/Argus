@@ -53,8 +53,8 @@ from datetime import datetime, timedelta
 
 import httpx2
 import pytest
-from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core.models import FailureMode, IncidentStatus
 
 from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,

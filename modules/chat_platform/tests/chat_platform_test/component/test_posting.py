@@ -16,10 +16,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core import utc_now
 from argus_testkit import Assertion, Scenario, all_of
 from chat_platform import Line, Posted
 from chat_platform.slack import ChatSettings, Slack
+from core import utc_now
 from slack_sdk import WebClient
 
 from chat_platform_test.framework.slack import messages_posted_to

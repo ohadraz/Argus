@@ -6,9 +6,11 @@ from functools import partial
 from typing import NamedTuple
 
 import pytest
-from argus_core import ReadMcpEndpoint, get_settings, parse_iso
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
+from argus_testkit.assertions import Assertion, all_of, the_answer_was
+from argus_testkit.scenario import Scenario, calling
+from core import ReadMcpEndpoint, get_settings, parse_iso
+from core.mcp_transport import McpClient
+from core.models import (
     ChangeEvent,
     CodeOutsideThePatch,
     CodeUse,
@@ -17,8 +19,6 @@ from argus_core.models import (
     RuleLine,
     RuleReading,
 )
-from argus_testkit.assertions import Assertion, all_of, the_answer_was
-from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import (
     branch_contains_revision,
     get_change_events,

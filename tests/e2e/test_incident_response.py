@@ -22,11 +22,11 @@ from datetime import timedelta
 import httpx2
 import psycopg
 import pytest
-from argus_core import utc_now
-from argus_core.models import Postmortem
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually
+from core import utc_now
+from core.models import Postmortem
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,

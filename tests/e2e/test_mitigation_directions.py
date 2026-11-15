@@ -20,8 +20,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from argus_core.models import FailureMode, IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
+from core.models import FailureMode, IncidentStatus
 
 from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,

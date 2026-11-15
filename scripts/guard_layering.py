@@ -4,7 +4,7 @@ Fails if a module imports something its layer is not allowed to know about, or
 if a test reaches into the kernel by module path.
 
 Runs the import-linter contracts declared in the root `pyproject.toml` -
-`argus_core` depends on nothing in this workspace, `argus_incidents` knows only
+`core` depends on nothing in this workspace, `argus_incidents` knows only
 the kernel, `argus_web` serves HTML without installing an agent, and the kernel
 is reached through its front doors. The contracts are the check on a claim
 `CLAUDE.md` has made since before it was true.
@@ -76,7 +76,7 @@ def _say_it_in_utf8() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
 CONFIGURATION = REPOSITORY / "pyproject.toml"
 
-KERNEL = "argus_core"
+KERNEL = "core"
 FRONT_DOOR_CONTRACT = "the kernel is reached through its front doors, not by module path"
 INDEPENDENCE_CONTRACT = "an agent knows the kernel and its own sources, never another agent"
 WALK_CONTRACT = "the walk writes to no store the fence cannot reach"
@@ -98,15 +98,15 @@ THE_WAY_RECALL_READS = ("incident_memory.recalling", "qdrant_client")
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests
 # the modules behind the front doors, and a test that could only reach them
 # through one could not test them at all.
-THE_KERNELS_OWN_SUITE = "modules/argus_core/tests"
+THE_KERNELS_OWN_SUITE = "modules/core/tests"
 
 # What a suite may still name by path, and why. A module deliberately left off a
 # front door is not thereby untestable: the Anthropic adapter is absent from
-# `argus_core.llm` so that no caller can reach for a vendor, and the two suites
+# `core.llm` so that no caller can reach for a vendor, and the two suites
 # whose whole subject is that adapter name it directly - as the kernel's own
 # suite does. An entry here is a claim that the importer exists to exercise the
 # thing rather than to use it.
-BEHIND_THE_DOOR = frozenset({"argus_core.llm.adapters.anthropic_adapter"})
+BEHIND_THE_DOOR = frozenset({"core.llm.adapters.anthropic_adapter"})
 
 
 def _the_modules_on_disk() -> set[str]:
@@ -144,8 +144,8 @@ def _the_front_doors() -> dict[str, set[str]]:
     a second place to add a door to, and the failure it produces is a suite
     refused an import the source tree is allowed.
 
-    Two shapes, and the difference is `argus_core`'s extras. `** -> argus_core.models`
-    is a door anything may use. `investigation_agent.** -> argus_core.llm` is one
+    Two shapes, and the difference is `core`'s extras. `** -> core.models`
+    is a door anything may use. `investigation_agent.** -> core.llm` is one
     only that module may, because `anthropic` is an optional dependency and only
     the modules that declared the extra have it. A suite is held to its own
     module's allowance for the same reason the source is: `test_module` resolves
@@ -344,7 +344,7 @@ def _the_suites_keep_the_agents_apart(independent: set[str]) -> None:
                 f"\n      {whose} is independent of it"
                 for path, lineno, named, whose in borrowed
             )
-            + "\nWhat two agents both need belongs in `argus_core`.",
+            + "\nWhat two agents both need belongs in `core`.",
             file=sys.stderr,
         )
         sys.exit(1)

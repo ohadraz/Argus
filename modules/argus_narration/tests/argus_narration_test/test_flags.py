@@ -17,9 +17,9 @@ the wrong reason for what Argus did.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import FlagChange
 from argus_narration.flags import FlagToggleRow, a_flag_history, on_or_off, said_as_a_state
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core.models import FlagChange
 
 SOME_MOMENT = "2026-08-30T10:05:00Z"
 A_LATER_MOMENT = "2026-08-30T10:25:00Z"

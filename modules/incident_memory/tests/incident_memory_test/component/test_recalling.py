@@ -18,8 +18,8 @@ suite invented.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
 from incident_memory.keeping import remember
 from incident_memory.recalling import recalled
 from incident_memory.records import RememberedIncident

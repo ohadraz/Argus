@@ -8,8 +8,9 @@ from decimal import Decimal
 from typing import TypedDict, Unpack
 
 import psycopg
-from argus_core import utc_now
-from argus_core.models import (
+from argus_incidents.repository import incidents
+from core import utc_now
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -42,7 +43,6 @@ from argus_core.models import (
     Weighing,
     WhyNoTrigger,
 )
-from argus_incidents.repository import incidents
 
 DONT_CARE_MOMENT = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 

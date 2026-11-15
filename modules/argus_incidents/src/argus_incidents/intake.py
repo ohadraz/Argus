@@ -17,9 +17,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-from argus_core import Connections, utc_now
-from argus_core.models import ALERT_FIRING, Alert, IncidentStatus
-from argus_core.telemetry import ARGUS_INCIDENT_ID
+from core import Connections, utc_now
+from core.models import ALERT_FIRING, Alert, IncidentStatus
+from core.telemetry import ARGUS_INCIDENT_ID
 
 from argus_incidents.publishing import PublisherFor, acknowledge_alert
 from argus_incidents.repository import incidents, references, runs

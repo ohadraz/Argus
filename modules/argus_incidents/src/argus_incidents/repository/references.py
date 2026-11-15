@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import psycopg
-from argus_core.models import Incident, RecordedReference, Reference
+from core.models import Incident, RecordedReference, Reference
 from psycopg.rows import class_row
 
 _GIVE_A_NAME = (

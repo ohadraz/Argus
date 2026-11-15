@@ -15,9 +15,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from argus_core import level_said_in, to_iso
-from argus_core.models import ActionProgress, OpenedPullRequest, Quantile, Verdict, said_as_money
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core import level_said_in, to_iso
+from core.models import ActionProgress, OpenedPullRequest, Quantile, Verdict, said_as_money
 from postmortem_writing.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels
 from postmortem_writing.summary import said_off_the_page, the_executive_summary
 

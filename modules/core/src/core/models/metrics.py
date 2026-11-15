@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+from typing import Final, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+# Which side of its threshold a rule calls worse: `above` for a rule that fires
+# over its line, `below` for one that fires under it. Named once, because the
+# reading, the series a source is asked for and every level measured from them
+# all carry it, and four spellings of one fact are four places to drift.
+type WorseWhen = Literal["above", "below"]
+
+# A quantile of how long requests took, as a minute's reading carries each
+# (`p50_ms`, `p95_ms`, `p99_ms`). Named once, because the levels measured from
+# them and the document that shows those levels both say which.
+type Quantile = Literal["p50", "p95", "p99"]
+
+
+class RuleLine(BaseModel):
+    """The threshold a paging rule compares its series with, and whether a
+    reading exactly on it fires.
+
+    The second half is not a detail. `lt` and `lte` draw the same line and
+    disagree about the one reading on it, so a line carried as a bare number
+    would judge that minute one of the two ways whichever the rule said.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    at: float
+    fires_on_it: bool
+
+
+class RuleReading(BaseModel):
+    """One minute of the series the paging rule evaluates, which way it is
+    worse, and the line it pages past.
+
+    `worse_when` is the rule's own direction, read from the evaluator its
+    threshold applies: `above` for a rule that fires over its line, `below` for
+    one that fires under it. It rides on the reading rather than beside the
+    window, so that whatever judges a minute - an onset, a recovery, a
+    postmortem's figure - judges it the way the rule does without being told
+    separately.
+
+    `line` rides with it for the same reason, and is `None` where the rule's
+    threshold could not be read: a minute the rule's own condition holds in is
+    one the rule would go on firing in, whatever range the service usually keeps.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    value: float
+    worse_when: WorseWhen
+    line: RuleLine | None = None
+
+    def is_past_its_line(self) -> bool:
+        """Whether the rule's condition holds on this minute's reading - `False`
+        where there is no line to be past."""
+        if self.line is None:
+            return False
+
+        if self.value == self.line.at:
+            return self.line.fires_on_it
+
+        return (self.value > self.line.at) == (self.worse_when == "above")
+
+
+class MetricBucket(BaseModel):
+    """One minute of pre-aggregated service metrics (spec §16, phase one).
+
+    `bucket_id` is the bucket's minute in wire format, per
+    `core.timestamps.to_iso_minute` - the same string a log line of that
+    minute yields, so the earliest anomalous bucket's id is directly usable as
+    the onset a `get_log_lines` window is anchored on, with no separate id
+    scheme to keep in sync.
+
+    The resource fields are gauges where the rest of the bucket is rates and
+    quantiles, so each says how its minute's single value is taken from the
+    instants within it. `memory_used_bytes` is the minute's **maximum**: what
+    matters about memory is the peak that could have breached the limit, not
+    the average that hid it. `memory_limit_bytes` and
+    `process_start_time_seconds` are the minute's **last observed** value, each
+    describing a configuration in force rather than a quantity accumulated - so
+    a minute containing a restart reports the new process.
+
+    `p99_ms` is the slowest one request in a hundred, and it is required where
+    `cache_hit_ratio` below is not. The difference is what an absence would
+    mean: a deployment consulting no cache genuinely has no hit ratio, where no
+    deployment lacks a tail - so a missing `p99_ms` would be a measurement that
+    went astray rather than a fact about the service, and nothing should be
+    invited to read it as one. It is carried beside the other two quantiles
+    rather than derived from them, because a fault reaching a few requests in a
+    hundred moves it and moves neither of them, which is the only reason to
+    report a third quantile at all.
+
+    `cpu_used_cores` and `cpu_limit_cores` are the other resource pair, and the
+    capacity is the *deployment's* - the total across the replicas serving it,
+    rather than one replica's limit. That is the level every other field here is
+    already at, and it is what lets one series carry both the incident and its
+    mitigation: scaling the deployment out moves the denominator, so the recovery
+    appears where the departure was.
+
+    Their aggregation rules differ from memory's, and deliberately.
+    `cpu_used_cores` is the minute's **mean** where `memory_used_bytes` is its
+    maximum: a heap's peak is what breaches a limit, and a breach is not undone by
+    the heap falling back, where a second at full CPU is absorbed by requests
+    queueing and is what an ordinary busy minute contains. A maximum here would
+    report every minute as saturated and so make saturation undetectable.
+    `cpu_limit_cores` is the minute's **last observed** value, as the memory limit
+    is, because it describes a capacity in force rather than a quantity
+    accumulated - so a minute during which the deployment was scaled reports the
+    capacity it ended with.
+
+    `cpu_used_cores` is required and `cpu_limit_cores` is not, which is the tail's
+    distinction and the memory limit's respectively: every process uses CPU, so an
+    absent figure would be a measurement that went astray rather than a fact about
+    the service, while a deployment imposing no CPU limit is ordinary and zero
+    would be indistinguishable from having no CPU at all.
+
+    `cache_hit_ratio` is the share of the minute's lookups a cache answered,
+    and it is a ratio where memory is a pair - unlike a limit there is no
+    threshold whose crossing anybody forecasts, so what a reader asks of it is
+    simply how much of the work the cache is carrying. Nullable for the reason
+    below: a service consulting no cache has none, and zero is what a cache
+    answering nothing reports. A reader has to be able to tell a deployment
+    without a fast path from one whose fast path has gone.
+
+    `rule_reading` is the minute's value of the series the rule that paged
+    evaluates, where the window was read for a rule whose series could be
+    followed. Nullable, and absent everywhere else: a window read for no rule
+    has no such series, and a rule whose query Argus cannot follow has one
+    nobody read - neither is a reading of zero.
+
+    `memory_limit_bytes` is nullable because a deployment imposing no limit is
+    ordinary, and zero would make "no limit set" indistinguishable from "no
+    memory available". Usage and limit are carried as absolute byte counts
+    rather than as a ratio: the ratio is derivable from the pair, the pair is
+    not derivable from the ratio, and forecasting when usage reaches the limit
+    needs both.
+    """
+
+    bucket_id: str
+    error_rate: float
+    p50_ms: int
+    p95_ms: int
+    p99_ms: int
+    request_volume: int
+    memory_used_bytes: int
+    memory_limit_bytes: int | None = None
+    process_start_time_seconds: float
+    cpu_used_cores: float
+    cpu_limit_cores: float | None = None
+    cache_hit_ratio: float | None = None
+    rule_reading: RuleReading | None = None
+
+
+# The name `MetricBucket.rule_reading` is keyed and reported by, for whoever has
+# to name the field rather than reach it: a source building a bucket from keys,
+# a reader choosing which columns to write. Said once beside the field, because
+# a key the bucket does not have is dropped without a word - the reading lost,
+# and the window read as one nobody had a rule for.
+RULE_READING_FIELD: Final = "rule_reading"

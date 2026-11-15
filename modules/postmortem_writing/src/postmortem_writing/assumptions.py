@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from argus_core.models import said_as_money
+from core.models import said_as_money
 
 from postmortem_writing.estimate import Unmeasured, weeks_back_for
 from postmortem_writing.measuring import Measurements

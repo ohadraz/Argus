@@ -23,15 +23,15 @@ from anthropic.types import ToolParam
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from anthropic_double.streaming import SSE_MEDIA_TYPE, from_stream
-from argus_core import get_settings
-from argus_core.llm.adapters.anthropic_adapter import (
+from argus_testkit import Assertion, Scenario, all_of, calling
+from core import get_settings
+from core.llm.adapters.anthropic_adapter import (
     EPHEMERAL_CACHE,
     MAX_TOKENS,
     MODEL,
     TOOL_USE_STOP_REASON,
     TOOL_USE_TYPE,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling
 from investigation_agent.tools import investigator_tools
 
 from tests.framework.investigating import what_the_read_tier_offers_the_investigator

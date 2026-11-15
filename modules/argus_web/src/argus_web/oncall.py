@@ -24,8 +24,8 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from argus_core import SettingsSlice
-from argus_core.models import (
+from core import SettingsSlice
+from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
     Incident,

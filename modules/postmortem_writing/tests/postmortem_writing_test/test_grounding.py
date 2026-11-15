@@ -20,8 +20,6 @@ import logging
 from typing import Any
 
 import pytest
-from argus_core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
-from argus_core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript, Turn
 from argus_testkit import (
     Assertion,
     Kept,
@@ -30,6 +28,8 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
+from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript, Turn
 from postmortem_writing.grounding import (
     FLAGS_FIELD,
     JUDGE_BRIEF,

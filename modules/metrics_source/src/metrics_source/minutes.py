@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from argus_core import SettingsSlice
-from argus_core.models import MetricBucket, RuleLine, WorseWhen
+from core import SettingsSlice
+from core.models import MetricBucket, RuleLine, WorseWhen
 
 
 @dataclass(frozen=True)

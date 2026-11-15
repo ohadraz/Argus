@@ -13,8 +13,8 @@ the patch's files, which is how a sentence about code outside it is recognised.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import CodeOutsideThePatch, CodeUse
 from argus_testkit import Scenario, the_answer_was
+from core.models import CodeOutsideThePatch, CodeUse
 from read_mcp_server.outside_the_patch import code_outside_the_patch
 
 LEDGER = "src/shop/ledger.py"

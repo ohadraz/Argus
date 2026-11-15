@@ -19,11 +19,11 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 import pytest
-from argus_core import Fence, Holding, WriteMcpEndpoint, connect_from_env, get_settings, utc_now
-from argus_core.mcp_transport import McpClient
-from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core import Fence, Holding, WriteMcpEndpoint, connect_from_env, get_settings, utc_now
+from core.mcp_transport import McpClient
+from core.models import Alert
 from mitigation import flag_changes_over
 from mitigation.tools import MitigationSettings, argus_changed_flag_since, set_flag
 from write_mcp_client import write_mcp

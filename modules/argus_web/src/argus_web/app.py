@@ -7,24 +7,6 @@ from pathlib import Path
 from typing import Annotated, Any, Final
 
 import psycopg
-from argus_core import (
-    Connections,
-    DatabaseSettings,
-    get_settings,
-    open_pool,
-    said_as_a_time,
-)
-from argus_core.events import Publisher
-from argus_core.models import (
-    Incident,
-    IncidentStatus,
-    Reference,
-    Report,
-    ReportChannel,
-    ThreadMessage,
-)
-from argus_core.schema import require_schema
-from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import (
     events_into,
     events_into_connection,
@@ -38,6 +20,24 @@ from argus_incidents.repository import conversation, references
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from chat_platform.slack import ChatSettings, slack_from
 from code_index.records import record_pushed
+from core import (
+    Connections,
+    DatabaseSettings,
+    get_settings,
+    open_pool,
+    said_as_a_time,
+)
+from core.events import Publisher
+from core.models import (
+    Incident,
+    IncidentStatus,
+    Reference,
+    Report,
+    ReportChannel,
+    ThreadMessage,
+)
+from core.schema import require_schema
+from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles

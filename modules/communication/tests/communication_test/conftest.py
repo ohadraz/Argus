@@ -10,8 +10,8 @@ The same shape as `argus_incidents`' and the orchestrator's own conftests,
 deliberately: each needs one database for a whole run and an empty one for each
 test, and several answers to that question would be several ways for a suite to
 be dirty. Not shared code, though. `argus_testkit` is where shared test support
-lives and it stays free of `argus_core` - depending back on the module it
-supports would close a cycle - and the alternative, a helper in `argus_core`
+lives and it stays free of `core` - depending back on the module it
+supports would close a cycle - and the alternative, a helper in `core`
 itself, would put docker in a production package.
 """
 
@@ -21,8 +21,8 @@ import subprocess
 from collections.abc import Iterator
 
 import pytest
-from argus_core import connect_from_env
-from argus_core.schema import reset_schema
+from core import connect_from_env
+from core.schema import reset_schema
 from psycopg import sql
 
 

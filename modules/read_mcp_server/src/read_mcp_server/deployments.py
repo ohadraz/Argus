@@ -33,8 +33,8 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
-from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
-from argus_core.models import ChangeEvent, DeploymentChanges, DeploymentComparison
+from core.events import PATCH_LINE_INDENT, a_changed_file_line
+from core.models import ChangeEvent, DeploymentChanges, DeploymentComparison
 from deployment_platform import DeploymentPlatformReads
 from repository_source import (
     BEHIND,

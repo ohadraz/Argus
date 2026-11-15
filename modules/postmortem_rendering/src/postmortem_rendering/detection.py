@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from argus_core import said_as_a_span
-from argus_core.models import (
+from core import said_as_a_span
+from core.models import (
     Alert,
     Detection,
     PostmortemDocument,

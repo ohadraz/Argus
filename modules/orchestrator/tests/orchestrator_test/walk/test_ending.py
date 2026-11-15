@@ -17,8 +17,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from argus_core.models import Alert, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of
+from core.models import Alert, IncidentStatus
 from orchestrator.walk.choosing import route_after_next_candidate
 from orchestrator.walk.ending import stopping_when_a_person_ended_it
 from orchestrator.walk.fixing import route_after_codefix

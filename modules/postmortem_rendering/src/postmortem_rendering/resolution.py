@@ -12,9 +12,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from argus_core.events import IncidentEvent, StatusChanged, the_escalations
-from argus_core.models import IncidentStatus
 from argus_narration import where_a_report_came_from
+from core.events import IncidentEvent, StatusChanged, the_escalations
+from core.models import IncidentStatus
 from pydantic import BaseModel, ConfigDict
 
 

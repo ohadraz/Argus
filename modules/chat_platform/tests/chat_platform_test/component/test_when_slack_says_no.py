@@ -19,7 +19,6 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core import utc_now
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -29,6 +28,7 @@ from argus_testkit import (
 )
 from chat_platform import Line, Posted
 from chat_platform.slack import ChatSettings, Slack
+from core import utc_now
 from slack_sdk import WebClient
 
 # By address rather than by name: `localhost` resolves to IPv6 first and waits

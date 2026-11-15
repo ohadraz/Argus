@@ -16,9 +16,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from argus_core.models import CodeUse, FileAsItRan
 from argus_testkit import Scenario, the_answer_was
 from codefix_agent.as_it_ran import the_files_as_they_ran, the_uses_as_they_ran
+from core.models import CodeUse, FileAsItRan
 
 SOME_BRANCH = "main"
 SOME_REVISION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"

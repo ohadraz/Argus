@@ -3,7 +3,7 @@
 The one input to an incident Argus did not produce. The event log says it
 arrived; this is where whatever decides on it - the wait, the press, the agents
 a lead reaches - reads it, because an account that could change an outcome
-would be a participant (`argus_core.events`).
+would be a participant (`core.events`).
 
 A message is written once. The chat platform retries a delivery it believes
 went unanswered, and its own name for the message is the row's key, so the
@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 import psycopg
-from argus_core.models import (
+from core.models import (
     Meaning,
     Offer,
     OfferedEnding,

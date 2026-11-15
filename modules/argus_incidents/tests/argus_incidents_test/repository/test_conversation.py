@@ -13,8 +13,17 @@ from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
-from argus_core.models import (
+from argus_incidents.repository import conversation
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+)
+from core import connect_from_env
+from core.models import (
     Alert,
     IncidentStatus,
     Meaning,
@@ -24,15 +33,6 @@ from argus_core.models import (
     ThreadMessage,
     Weighing,
     a_chat_message,
-)
-from argus_incidents.repository import conversation
-from argus_testkit import (
-    Assertion,
-    Scenario,
-    all_of,
-    an_error_was_raised,
-    attempting,
-    calling,
 )
 from pydantic import ValidationError
 

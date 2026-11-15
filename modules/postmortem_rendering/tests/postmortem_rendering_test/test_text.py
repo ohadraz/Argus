@@ -9,7 +9,8 @@ the document it was written from. Its words are the page's, worked out once
 from __future__ import annotations
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -20,7 +21,6 @@ from argus_core.models import (
     HypothesisConsidered,
     TimelineEntry,
 )
-from argus_testkit import Assertion, Scenario, all_of
 from postmortem_rendering.rendering import RenderedPostmortem, render
 from postmortem_rendering.text import as_text
 

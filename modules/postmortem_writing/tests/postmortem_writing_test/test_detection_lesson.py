@@ -23,8 +23,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-from argus_core.models import DetectionLesson, DetectionMeasuredFrom
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import DetectionLesson, DetectionMeasuredFrom
 from postmortem_writing.detection_lesson import SCRAPING_AND_STORING, the_detection_lesson
 
 from postmortem_writing_test.framework.builders import (

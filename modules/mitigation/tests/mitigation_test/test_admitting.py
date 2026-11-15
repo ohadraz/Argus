@@ -26,7 +26,8 @@ leaves behind is a controller held still rather than a value changed.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario
+from core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     PIN_TO_ACCELERATOR,
@@ -44,7 +45,6 @@ from argus_core.models import (
     ScaleOut,
     ServiceDependency,
 )
-from argus_testkit import Assertion, Scenario
 from mitigation import (
     GENERIC_MITIGATIONS,
     AdmittedMitigations,

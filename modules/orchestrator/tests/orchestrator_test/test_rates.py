@@ -22,9 +22,9 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from argus_core.models import PublishedRates, RatesUnavailable
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from argus_testkit.collecting import Kept
+from core.models import PublishedRates, RatesUnavailable
 from orchestrator.rates import HeldRates, Published, todays_rates
 from postmortem_writing import RateTable
 

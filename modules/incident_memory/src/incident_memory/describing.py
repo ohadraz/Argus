@@ -13,7 +13,7 @@ set of alert names cannot show and a real service produces constantly.
 
 from __future__ import annotations
 
-from argus_core.models import Alert, Hypothesis
+from core.models import Alert, Hypothesis
 
 
 def what_it_looked_like(alert: Alert, hypothesis: Hypothesis | None) -> str:

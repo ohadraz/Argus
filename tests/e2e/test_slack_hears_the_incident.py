@@ -27,9 +27,9 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core import get_settings
-from argus_core.models import IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core import get_settings
+from core.models import IncidentStatus
 
 from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE,

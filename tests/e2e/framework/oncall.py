@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx2
-from argus_core import get_settings, to_iso
+from core import get_settings, to_iso
 from oncall_source.pagerduty_webhooks import (
     AGENT,
     DATA,

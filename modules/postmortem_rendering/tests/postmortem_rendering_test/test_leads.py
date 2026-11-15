@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core.models import PostmortemLead, Standing, Weighing
 from argus_testkit import Scenario, the_answer_was
+from core.models import PostmortemLead, Standing, Weighing
 from postmortem_rendering.leads import LeadItem, the_leads
 from postmortem_rendering.lines import Line, Role, Run
 

@@ -20,8 +20,30 @@ from datetime import datetime
 from typing import Final, NamedTuple, get_args
 
 import psycopg
-from argus_core import Connections, parse_iso
-from argus_core.events import (
+from argus_incidents import when_it_was_taken
+from argus_incidents.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    references,
+    replay,
+    taken_actions,
+)
+from argus_narration import (
+    NarrationLine,
+    build_narration,
+    each_wait_told_once,
+    said_as_meant,
+    said_in_full,
+    what_the_action_does,
+    what_to_do,
+    what_was_done,
+    what_was_not_done,
+)
+from core import Connections, parse_iso
+from core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
@@ -49,8 +71,8 @@ from argus_core.events import (
     WithdrawalOffered,
     the_escalations,
 )
-from argus_core.llm import ClientFor
-from argus_core.models import (
+from core.llm import ClientFor
+from core.models import (
     CHAT_THREAD,
     AcceleratorPinUndo,
     ActionIdentity,
@@ -84,30 +106,8 @@ from argus_core.models import (
     the_identity_recorded,
     whether_it_can_be_put_back,
 )
-from argus_core.replay import Recorder, Replay
-from argus_core.replay import nobody as records_nothing
-from argus_incidents import when_it_was_taken
-from argus_incidents.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    references,
-    replay,
-    taken_actions,
-)
-from argus_narration import (
-    NarrationLine,
-    build_narration,
-    each_wait_told_once,
-    said_as_meant,
-    said_in_full,
-    what_the_action_does,
-    what_to_do,
-    what_was_done,
-    what_was_not_done,
-)
+from core.replay import Recorder, Replay
+from core.replay import nobody as records_nothing
 from postmortem_rendering import (
     as_text,
     render,

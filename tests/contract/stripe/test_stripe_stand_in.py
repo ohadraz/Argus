@@ -38,8 +38,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import pytest
-from argus_core import get_settings
 from argus_testkit import Assertion, Scenario
+from core import get_settings
 from revenue_source import Charge, RevenueSettings
 from revenue_source.stripe_adapter import charges_between
 from stripe import PaymentIntent, StripeClient

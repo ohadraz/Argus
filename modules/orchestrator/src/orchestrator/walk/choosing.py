@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from argus_core import to_iso
-from argus_core.events import CandidateSelected, Publisher, nobody, publish
-from argus_core.models import (
+from core import to_iso
+from core.events import CandidateSelected, Publisher, nobody, publish
+from core.models import (
     Attempt,
     IncidentStatus,
     Platform,

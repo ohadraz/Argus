@@ -13,8 +13,6 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core import parse_iso, to_iso
-from argus_core.models import ChangeEvent, ChangeKind, RevisionSource
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -23,6 +21,8 @@ from argus_testkit import (
     attempting,
     the_answer_was,
 )
+from core import parse_iso, to_iso
+from core.models import ChangeEvent, ChangeKind, RevisionSource
 from deployment_platform import (
     DeploymentPlatformError,
     DeploymentPlatformReads,

@@ -8,8 +8,8 @@ Each case is one postmortem and what the checklist says.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import ReviewCriterion
 from argus_testkit import Scenario, the_answer_was
+from core.models import ReviewCriterion
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.review import ReviewRow, the_review
 

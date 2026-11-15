@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 
-from argus_core.mcp_transport import McpClient
-from argus_core.models import ToolDefinition
+from core.mcp_transport import McpClient
+from core.models import ToolDefinition
 
 
 class NotServed(LookupError):

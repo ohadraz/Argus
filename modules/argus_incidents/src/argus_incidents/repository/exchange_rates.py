@@ -17,7 +17,7 @@ from datetime import date
 from decimal import Decimal
 
 import psycopg
-from argus_core.models import PublishedRates
+from core.models import PublishedRates
 
 
 def record(conn: psycopg.Connection, rates: PublishedRates) -> None:

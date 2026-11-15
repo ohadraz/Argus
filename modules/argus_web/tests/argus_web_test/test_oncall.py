@@ -32,15 +32,6 @@ from typing import Any
 from unittest.mock import call, create_autospec
 
 import pytest
-from argus_core.models import (
-    NOTIFICATION_KEY,
-    ON_CALL_INCIDENT,
-    Incident,
-    IncidentStatus,
-    Reference,
-    Report,
-    ReportChannel,
-)
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -51,6 +42,15 @@ from argus_testkit import (
     one_record_was_logged,
 )
 from argus_web.oncall import IncidentRecord, receive_delivery
+from core.models import (
+    NOTIFICATION_KEY,
+    ON_CALL_INCIDENT,
+    Incident,
+    IncidentStatus,
+    Reference,
+    Report,
+    ReportChannel,
+)
 from oncall_source import OnCallUnavailable, ReportedIncident
 from oncall_source.platform import (
     Delivery,

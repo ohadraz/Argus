@@ -17,11 +17,11 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
-from argus_core import utc_now
-from argus_core.events import AlertAcknowledged, IncidentEvent, nobody
-from argus_core.models import Alert
 from argus_incidents.publishing import acknowledge_alert
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core import utc_now
+from core.events import AlertAcknowledged, IncidentEvent, nobody
+from core.models import Alert
 
 SOME_INCIDENT_ID = "some-incident"
 DONT_CARE_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")

@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Final
 
-from argus_core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript
+from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript
 
 OVERVIEW_TOOL_NAME: Final = "submit_executive_overview"
 OVERVIEW_FIELD: Final = "overview"

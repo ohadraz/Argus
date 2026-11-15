@@ -4,9 +4,11 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
-from argus_core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings
-from argus_core.mcp_transport import McpClient, McpToolError, PlatformUnreachable
-from argus_core.models import (
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.scenario import Scenario, attempting, calling
+from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings
+from core.mcp_transport import McpClient, McpToolError, PlatformUnreachable
+from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
     DeploymentRestored,
@@ -16,8 +18,6 @@ from argus_core.models import (
     RestartedService,
     UndoDescriptor,
 )
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
-from argus_testkit.scenario import Scenario, attempting, calling
 from deployment_platform.argocd import AUTOMATED, ENABLED
 from write_mcp_client import (
     get_recent_flag_changes,

@@ -22,8 +22,18 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from argus_core import RunLost
-from argus_core.events import (
+from argus_incidents import IsStillWanted
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
+from core import RunLost
+from core.events import (
     ActionTaken,
     IncidentEvent,
     MitigationResumed,
@@ -32,7 +42,7 @@ from argus_core.events import (
     VerdictReached,
     nobody,
 )
-from argus_core.models import (
+from core.models import (
     DEPLOYMENT_PLATFORM,
     FLAG_PROVIDER,
     Action,
@@ -57,16 +67,6 @@ from argus_core.models import (
     Verdict,
     the_actions_through,
     the_subject_of,
-)
-from argus_incidents import IsStillWanted
-from argus_testkit import (
-    Assertion,
-    Scenario,
-    all_of,
-    an_error_was_raised,
-    attempting,
-    calling,
-    one_record_was_logged,
 )
 from mitigation import ChangeMade
 from orchestrator.walk import ports

@@ -16,11 +16,13 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import psycopg
-from argus_core import Connections, Holding, get_settings
-from argus_core.events import StatusChanged
-from argus_core.mcp_transport import McpClient
-from argus_core.models import Alert, IncidentStatus
-from argus_core.telemetry import (
+from argus_incidents import events_into_connection, publish_beside
+from argus_incidents.repository import incidents
+from core import Connections, Holding, get_settings
+from core.events import StatusChanged
+from core.mcp_transport import McpClient
+from core.models import Alert, IncidentStatus
+from core.telemetry import (
     ARGUS_INCIDENT_ID,
     ARGUS_INCIDENT_OUTCOME,
     ARGUS_INCIDENT_WALK_DURATION,
@@ -29,8 +31,6 @@ from argus_core.telemetry import (
     UNIT_SECONDS,
     UNIT_WALKS,
 )
-from argus_incidents import events_into_connection, publish_beside
-from argus_incidents.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import metrics, trace

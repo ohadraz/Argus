@@ -6,10 +6,10 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import Fence, connect_from_env, fence, utc_now, was_lost
-from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling
+from core import Fence, connect_from_env, fence, utc_now, was_lost
+from core.models import Alert
 
 from argus_incidents_test.framework import no_column_is_empty
 

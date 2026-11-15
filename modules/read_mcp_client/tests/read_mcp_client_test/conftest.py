@@ -17,7 +17,7 @@ from threading import Thread
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from argus_core import get_settings, parse_iso
+from core import get_settings, parse_iso
 from metrics_source.prometheus_adapter import QUERIES
 from read_mcp_server.alert_rules import RULE_DEFINITION_PATH
 

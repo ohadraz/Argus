@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from argus_core.vector_store import a_collection_that_exists
+from core.vector_store import a_collection_that_exists
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     FieldCondition,

@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Final
 
-from argus_core.models import ActionProgress, ResolutionStep, whether_it_can_be_put_back
+from core.models import ActionProgress, ResolutionStep, whether_it_can_be_put_back
 
 from postmortem_writing.estimate import LatencyLevels
 from postmortem_writing.evidence import ActionRecord, IncidentEvidence

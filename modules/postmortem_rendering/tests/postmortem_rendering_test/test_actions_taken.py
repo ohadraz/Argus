@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from argus_core.models import OpenedPullRequest, Refusal, ResolutionStep, TimelineEntry
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import OpenedPullRequest, Refusal, ResolutionStep, TimelineEntry
 from postmortem_rendering.actions_taken import (
     ActionsTakenSection,
     StepRow,

@@ -45,8 +45,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from argus_core.mcp_transport import an_exhausted_action
-from argus_core.models import AutoscalerUndo, AutoscalingRestored
+from core.mcp_transport import an_exhausted_action
+from core.models import AutoscalerUndo, AutoscalingRestored
 from deployment_platform import Autoscaler, DeploymentPlatformError, DeploymentPlatformWrites
 
 from write_mcp_server.refusing import a_platform_refusal

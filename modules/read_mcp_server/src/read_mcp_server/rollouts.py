@@ -40,7 +40,7 @@ a revision and a moment.
 
 from __future__ import annotations
 
-from argus_core.models import RolloutAccount, RolloutProgress
+from core.models import RolloutAccount, RolloutProgress
 from deployment_platform import DeploymentPlatformError, DeploymentPlatformReads
 
 from read_mcp_server.deploy_history import the_revisions_deployed

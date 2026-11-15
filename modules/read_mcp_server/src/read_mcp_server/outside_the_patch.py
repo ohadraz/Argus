@@ -28,8 +28,8 @@ import re
 from collections.abc import Iterator, Mapping
 from typing import Final, NamedTuple
 
-from argus_core import is_a_test_file
-from argus_core.models import CodeOutsideThePatch, CodeUse
+from core import is_a_test_file
+from core.models import CodeOutsideThePatch, CodeUse
 
 PYTHON_SUFFIX: Final = ".py"
 

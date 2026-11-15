@@ -29,17 +29,17 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import partial
 
-from argus_core import Connections, Settings, to_iso
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.mcp_transport import McpClient, McpToolError, McpUnreachable
-from argus_core.models import (
+from argus_incidents.repository import exchange_rates, incidents, references
+from core import Connections, Settings, to_iso
+from core.anomaly import AnomalyThresholds
+from core.mcp_transport import McpClient, McpToolError, McpUnreachable
+from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
     AlertRuleStanding,
     MetricBucket,
     Reference,
 )
-from argus_incidents.repository import exchange_rates, incidents, references
 from exchange_rate_source.frankfurter import (
     ExchangeRateSettings,
     rates_published_for,

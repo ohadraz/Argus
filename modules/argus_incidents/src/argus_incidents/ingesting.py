@@ -20,9 +20,9 @@ from collections.abc import Callable
 from datetime import datetime
 
 import psycopg
-from argus_core import Connections, utc_now
-from argus_core.events import IncidentEvent, PersonWrote
-from argus_core.models import Reference, ThreadMessage
+from core import Connections, utc_now
+from core.events import IncidentEvent, PersonWrote
+from core.models import Reference, ThreadMessage
 
 from argus_incidents.repository import conversation, events
 

@@ -37,7 +37,7 @@ from anthropic_double.streaming import SSE_MEDIA_TYPE, as_stream, from_stream
 
 UPSTREAM_BASE_URL = os.environ.get("ANTHROPIC_DOUBLE_UPSTREAM", "https://api.anthropic.com")
 
-# Where the double listens. Not an `argus_core` setting: the double is not
+# Where the double listens. Not an `core` setting: the double is not
 # part of Argus, and Argus's own config should not grow a field describing a
 # test fixture. Callers that need to point at it - the harness that starts it,
 # the tests that seed it - import these.
@@ -74,7 +74,7 @@ _TOOL_USE_TYPE: Final = "tool_use"
 
 # The two settings a stack hands every process, the double among them, to put
 # it on the stack's clock. Spelled here rather than imported from
-# `argus_core.clock`: the double does not depend on Argus.
+# `core.clock`: the double does not depend on Argus.
 _CLOCK_EPOCH_VARIABLE: Final = "SIM_CLOCK_EPOCH"
 _CLOCK_SPEED_VARIABLE: Final = "SIM_CLOCK_SPEED"
 
@@ -89,7 +89,7 @@ def _the_stacks_now() -> datetime:
     in that frame, so a lateness read off the real one would come out short by
     however far the stack has run ahead of it.
 
-    Raises `ValueError` where only one is set, for `argus_core.clock`'s reason.
+    Raises `ValueError` where only one is set, for `core.clock`'s reason.
     """
     epoch = os.environ.get(_CLOCK_EPOCH_VARIABLE)
     speed = os.environ.get(_CLOCK_SPEED_VARIABLE)

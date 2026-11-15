@@ -9,9 +9,9 @@ of them.
 
 from __future__ import annotations
 
-from argus_core import SettingsSlice
-from argus_core.budget import Budget
-from argus_core.models import CodeSearch, Effort
+from core import SettingsSlice
+from core.budget import Budget
+from core.models import CodeSearch, Effort
 
 
 class FixSettings(SettingsSlice):

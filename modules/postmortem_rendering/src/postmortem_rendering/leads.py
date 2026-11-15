@@ -8,7 +8,7 @@ has nothing to answer.
 
 from __future__ import annotations
 
-from argus_core.models import PostmortemDocument
+from core.models import PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run

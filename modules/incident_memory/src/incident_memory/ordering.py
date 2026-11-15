@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from argus_core.models import ActionIdentity, Verdict, WhatWouldBeTried
+from core.models import ActionIdentity, Verdict, WhatWouldBeTried
 
 from incident_memory.records import RememberedIncident
 

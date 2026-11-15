@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import NamedTuple
 
-from argus_core.models import DeploymentChanges, Reading, ToolCall, ToolResult
+from core.models import DeploymentChanges, Reading, ToolCall, ToolResult
 
 
 class DeploymentRead(NamedTuple):

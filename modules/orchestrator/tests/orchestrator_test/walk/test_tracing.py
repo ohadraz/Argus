@@ -17,14 +17,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from argus_core.models import Actor, Alert, IncidentStatus
-from argus_core.telemetry import (
-    ARGUS_AGENT,
-    ARGUS_INCIDENT_ID,
-    ARGUS_WALK_STEP,
-    ERROR_TYPE,
-    GEN_AI_AGENT_NAME,
-)
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -32,6 +24,14 @@ from argus_testkit import (
     attempting,
     the_answer_was,
     the_same_error_reached_the_caller,
+)
+from core.models import Actor, Alert, IncidentStatus
+from core.telemetry import (
+    ARGUS_AGENT,
+    ARGUS_INCIDENT_ID,
+    ARGUS_WALK_STEP,
+    ERROR_TYPE,
+    GEN_AI_AGENT_NAME,
 )
 from opentelemetry import baggage, trace
 from opentelemetry.trace import StatusCode

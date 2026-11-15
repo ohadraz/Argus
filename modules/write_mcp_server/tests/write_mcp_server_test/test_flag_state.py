@@ -25,7 +25,6 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_core.models import FlagUndo
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -36,6 +35,7 @@ from argus_testkit import (
     dont_care_sleep,
     one_record_was_logged,
 )
+from core.models import FlagUndo
 from write_mcp_server.flag_state import (
     EvaluateFlags,
     FlagNotSet,

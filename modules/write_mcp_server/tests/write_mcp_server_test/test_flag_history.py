@@ -18,8 +18,8 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_core.models import FlagChange
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
+from core.models import FlagChange
 from write_mcp_server.flag_history import (
     FlagHistoryUnavailable,
     recent_flag_changes,

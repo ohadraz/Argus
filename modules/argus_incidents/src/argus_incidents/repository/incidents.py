@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Final
 
 import psycopg
-from argus_core.models import Alert, Incident, IncidentStatus
+from core.models import Alert, Incident, IncidentStatus
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 

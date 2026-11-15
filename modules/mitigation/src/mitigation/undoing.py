@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 from typing import assert_never
 
-from argus_core import was_lost
-from argus_core.models import (
+from core import was_lost
+from core.models import (
     AcceleratorPinUndo,
     AutoscalerUndo,
     DeploymentRollbackUndo,

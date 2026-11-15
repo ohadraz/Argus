@@ -7,10 +7,10 @@ from datetime import timedelta
 
 import psycopg
 import pytest
-from argus_core import Connections, connect_from_env, in_real_time, utc_now
-from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
+from core import Connections, connect_from_env, in_real_time, utc_now
+from core.models import Alert
 from orchestrator.renewing import Stopped, keep_renewing
 
 # Where renewing logs from.

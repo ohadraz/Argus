@@ -32,7 +32,7 @@ from queue import SimpleQueue
 from types import FrameType, TracebackType
 from typing import Final, TextIO
 
-from argus_core import TelemetrySettings
+from core import TelemetrySettings
 from opentelemetry import metrics, trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.exporter.otlp.json.file import FileMetricExporter, FileSpanExporter

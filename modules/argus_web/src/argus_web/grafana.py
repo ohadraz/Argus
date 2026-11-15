@@ -5,7 +5,7 @@ import logging
 from typing import Any, Final
 from urllib.parse import urlsplit
 
-from argus_core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
+from core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 
 logger = logging.getLogger(__name__)
 

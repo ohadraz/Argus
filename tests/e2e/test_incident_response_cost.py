@@ -23,11 +23,11 @@ from decimal import Decimal
 import httpx2
 import psycopg
 import pytest
-from argus_core import get_settings, utc_now
-from argus_core.models import Postmortem
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually
+from core import get_settings, utc_now
+from core.models import Postmortem
 from postmortem_writing import PAY_BAND_ASSUMPTION_LABEL, WORKING_YEAR_ASSUMPTION_LABEL
 
 from tests.e2e.framework.argus import (

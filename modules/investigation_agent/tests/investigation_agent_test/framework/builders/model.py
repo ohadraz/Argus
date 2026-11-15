@@ -19,13 +19,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import Mock, create_autospec
 
-from argus_core.llm import (
+from core.llm import (
     AnswerTruncated,
     Conversation,
     ModelDidNotAnswer,
     ModelRefused,
 )
-from argus_core.models import Evidence, Standing, ToolCall, Turn
+from core.models import Evidence, Standing, ToolCall, Turn
 
 METRICS_TOOL = "get_metrics"
 LOGS_TOOL = "get_logs"

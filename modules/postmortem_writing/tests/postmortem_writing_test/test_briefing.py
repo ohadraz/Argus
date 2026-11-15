@@ -13,8 +13,8 @@ free to be improved and the teaching is not.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import Effort, ModelPolicy
 from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import Effort, ModelPolicy
 from postmortem_writing import STANDING_BRIEF, postmortem_policy
 
 # The five whys, by the words that carry its rules: where the chain starts,

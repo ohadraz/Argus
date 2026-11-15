@@ -24,8 +24,8 @@ from collections.abc import Callable
 from typing import Final
 from uuid import UUID, uuid5
 
-from argus_core.embedding import Embedder
-from argus_core.vector_store import a_collection_that_exists
+from core.embedding import Embedder
+from core.vector_store import a_collection_that_exists
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 

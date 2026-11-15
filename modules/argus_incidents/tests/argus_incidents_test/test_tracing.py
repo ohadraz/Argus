@@ -16,9 +16,9 @@ back and nothing is installed globally.
 from __future__ import annotations
 
 import pytest
-from argus_core.telemetry import ARGUS_INCIDENT_ID, ERROR_TYPE
 from argus_incidents import inside_the_incidents_trace
 from argus_testkit import Assertion, Scenario, all_of
+from core.telemetry import ARGUS_INCIDENT_ID, ERROR_TYPE
 from opentelemetry import baggage, propagate
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor

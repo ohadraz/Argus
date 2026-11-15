@@ -20,9 +20,9 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import PublishedRates, RatesUnavailable
 from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
+from core.models import PublishedRates, RatesUnavailable
 from exchange_rate_source.frankfurter import (
     ExchangeRateSettings,
     rates_published_for,

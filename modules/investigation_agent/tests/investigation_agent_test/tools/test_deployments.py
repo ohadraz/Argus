@@ -30,11 +30,11 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core import new_id
-from argus_core.events import DeploymentChangesRead, IncidentEvent, Narrator
-from argus_core.mcp_transport import McpToolError
-from argus_core.models import DeploymentChanges, DeploymentComparison, ToolCall
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core import new_id
+from core.events import DeploymentChangesRead, IncidentEvent, Narrator
+from core.mcp_transport import McpToolError
+from core.models import DeploymentChanges, DeploymentComparison, ToolCall
 from investigation_agent.retrieval import DeploymentDiffFetcher
 from investigation_agent.tools.deployments import (
     DEPLOYMENT_DIFF_TOOL,

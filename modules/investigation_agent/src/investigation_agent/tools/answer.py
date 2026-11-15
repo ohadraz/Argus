@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from argus_core.models import FailureMode, ToolDefinition
+from core.models import FailureMode, ToolDefinition
 
 ANSWER_TOOL: Final = "final_answer"
 

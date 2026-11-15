@@ -28,9 +28,24 @@ from decimal import Decimal
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, new_id, parse_iso, utc_now
-from argus_core.anomaly import AnomalyThresholds
-from argus_core.events import (
+from argus_incidents import calls_into
+from argus_incidents.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    references,
+    replay,
+    taken_actions,
+)
+from argus_narration import what_to_do
+from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
+from argus_testkit.assertions import an_error_was_raised
+from argus_testkit.scenario import attempting
+from core import connect_from_env, new_id, parse_iso, utc_now
+from core.anomaly import AnomalyThresholds
+from core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
@@ -59,8 +74,8 @@ from argus_core.events import (
     StatusChanged,
     VerdictReached,
 )
-from argus_core.llm import ClientFor, LLMClient
-from argus_core.models import (
+from core.llm import ClientFor, LLMClient
+from core.models import (
     CHAT_THREAD,
     DISCARD_CACHE_ENTRIES,
     PIN_TO_ACCELERATOR,
@@ -115,22 +130,7 @@ from argus_core.models import (
     a_chat_thread,
     as_a_change,
 )
-from argus_core.replay import CallType, Replay
-from argus_incidents import calls_into
-from argus_incidents.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    references,
-    replay,
-    taken_actions,
-)
-from argus_narration import what_to_do
-from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
-from argus_testkit.assertions import an_error_was_raised
-from argus_testkit.scenario import attempting
+from core.replay import CallType, Replay
 from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources

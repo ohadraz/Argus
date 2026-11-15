@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Final
 from urllib.parse import unquote
 
-from argus_core import TelemetrySettings
+from core import TelemetrySettings
 from pydantic import BaseModel, ConfigDict
 
 # Where Langfuse reads OTLP traces, below whatever base URL its region or a

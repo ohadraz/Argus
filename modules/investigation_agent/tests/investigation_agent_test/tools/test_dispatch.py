@@ -24,9 +24,6 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from argus_core.mcp_transport import McpToolError
-from argus_core.models import DeploymentChanges, ToolResult
-from argus_core.replay import CallType, Replay, ReplayEntry
 from argus_testkit import (
     Assertion,
     Kept,
@@ -36,6 +33,9 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
+from core.mcp_transport import McpToolError
+from core.models import DeploymentChanges, ToolResult
+from core.replay import CallType, Replay, ReplayEntry
 from investigation_agent.retrieval import (
     ChangeFetcher,
     DependencyFetcher,

@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Final
 
 import httpx2
-from argus_core import get_settings
+from core import get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 
 from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS

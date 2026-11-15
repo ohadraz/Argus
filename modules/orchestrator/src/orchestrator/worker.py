@@ -23,7 +23,16 @@ from os import getpid
 from typing import Final
 
 import psycopg
-from argus_core import (
+from argus_incidents import (
+    EndedByAPerson,
+    ended_by_a_person_via,
+    events_into_connection,
+    inside_the_incidents_trace,
+)
+from argus_incidents.repository import incidents, runs, taken_actions
+from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
+from argus_telemetry import start_telemetry
+from core import (
     Connections,
     DatabaseSettings,
     Fence,
@@ -38,20 +47,11 @@ from argus_core import (
     open_pool,
     was_lost,
 )
-from argus_core.events import StatusChanged, publish
-from argus_core.llm import ModelUnavailable
-from argus_core.models import IncidentStatus
-from argus_core.schema import require_schema
-from argus_core.telemetry import ARGUS_RUN_ID
-from argus_incidents import (
-    EndedByAPerson,
-    ended_by_a_person_via,
-    events_into_connection,
-    inside_the_incidents_trace,
-)
-from argus_incidents.repository import incidents, runs, taken_actions
-from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
-from argus_telemetry import start_telemetry
+from core.events import StatusChanged, publish
+from core.llm import ModelUnavailable
+from core.models import IncidentStatus
+from core.schema import require_schema
+from core.telemetry import ARGUS_RUN_ID
 from mitigation import (
     MitigationSettings,
     an_undo_over,
@@ -216,7 +216,7 @@ def take_one_run(conn: psycopg.Connection,
     for every log line written anywhere inside it. `tracer` defaults to the
     process's own.
 
-    And all of it is written for this claim of the run (`argus_core.fencing`):
+    And all of it is written for this claim of the run (`core.fencing`):
     the run is what the process is `holding` while it is worked, which fences
     every connection the walk is handed as it is handed out, and this worker's
     own connection is fenced with it until the run is settled. A store that

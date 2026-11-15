@@ -10,7 +10,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core.models import (
     AlarmClaim,
     Alert,
     CitedEvidence,
@@ -24,7 +25,6 @@ from argus_core.models import (
     RuleSeriesHarm,
     WorseWhen,
 )
-from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_rendering.impact import Card, the_impact
 from postmortem_rendering.lines import Line, Role
 

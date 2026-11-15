@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from argus_core.replay import ReplayEntry
 from argus_testkit import Kept
+from core.replay import ReplayEntry
 
 
 def a_recorder_that_keeps_what_it_is_given() -> Kept[ReplayEntry]:

@@ -1,6 +1,6 @@
 """Which model the repository index embeds its passages with.
 
-The model itself is the kernel's (`argus_core.embedding`), because long-term
+The model itself is the kernel's (`core.embedding`), because long-term
 memory embeds with one too and a thing two modules both name is a contract.
 What is left here is the only part that belongs to this index: which weights it
 asks for.
@@ -13,9 +13,9 @@ tested by naming a different one, and only this line has to change.
 
 from __future__ import annotations
 
-from argus_core import get_settings
-from argus_core.embedding import Embedder
-from argus_core.embedding import an_embedder as a_model_named
+from core import get_settings
+from core.embedding import Embedder
+from core.embedding import an_embedder as a_model_named
 
 
 def an_embedder(model_name: str | None = None) -> Embedder:

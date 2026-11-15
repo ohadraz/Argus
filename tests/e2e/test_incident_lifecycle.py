@@ -3,8 +3,8 @@ from __future__ import annotations
 from http import HTTPStatus as HttpStatus
 
 import pytest
-from argus_core.models import IncidentStatus
 from argus_testkit import Scenario, all_of, calling, eventually
+from core.models import IncidentStatus
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,

@@ -19,11 +19,11 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_core import Settings
-from argus_core.models import Ownership, ServiceDependency
 from argus_testkit import raising, returning
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
+from core import Settings
+from core.models import Ownership, ServiceDependency
 from read_mcp_server.registry import (
     RegistryUnavailable,
     ServiceRegistrySettings,

@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Final
 
-from argus_core.models import FlagChange
+from core.models import FlagChange
 from pydantic import BaseModel
 
 from argus_narration.clock import a_moment

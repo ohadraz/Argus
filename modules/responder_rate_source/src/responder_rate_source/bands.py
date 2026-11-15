@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from decimal import Decimal
 
-from argus_core import SettingsSlice
+from core import SettingsSlice
 from pydantic import BaseModel
 
 

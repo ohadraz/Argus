@@ -20,9 +20,34 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from argus_core import new_id
-from argus_core.budget import StillWanted
-from argus_core.llm import (
+from argus_narration import what_was_done
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_error_mentioned
+from argus_testkit.logs import one_record_was_logged
+from argus_testkit.scenario import Scenario, attempting, calling
+from codefix_agent.budget import FixSettings
+from codefix_agent.proposing import (
+    BranchWriter,
+    FixDeclined,
+    FixNotAnswered,
+    FixNotProposed,
+    FixStopped,
+    PullRequestOpener,
+    propose_fix,
+)
+from codefix_agent.retrieval import (
+    BranchMembership,
+    CodeOutsideReader,
+    FileLister,
+    FileReader,
+    IndexNotice,
+    MeaningSearcher,
+    ReadTierTools,
+    SourceSearcher,
+)
+from codefix_agent.tools import READ_FILE_TOOL
+from core import new_id
+from core.budget import StillWanted
+from core.llm import (
     AnswerTruncated,
     Conversation,
     Conversations,
@@ -30,7 +55,7 @@ from argus_core.llm import (
     ModelRefused,
     a_conversation_recorded_for,
 )
-from argus_core.models import (
+from core.models import (
     REVERT_FEATURE_FLAG,
     ActionIdentity,
     Ask,
@@ -59,32 +84,7 @@ from argus_core.models import (
     WhatArgusDid,
     a_chat_message,
 )
-from argus_core.replay import Recorder
-from argus_narration import what_was_done
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_error_mentioned
-from argus_testkit.logs import one_record_was_logged
-from argus_testkit.scenario import Scenario, attempting, calling
-from codefix_agent.budget import FixSettings
-from codefix_agent.proposing import (
-    BranchWriter,
-    FixDeclined,
-    FixNotAnswered,
-    FixNotProposed,
-    FixStopped,
-    PullRequestOpener,
-    propose_fix,
-)
-from codefix_agent.retrieval import (
-    BranchMembership,
-    CodeOutsideReader,
-    FileLister,
-    FileReader,
-    IndexNotice,
-    MeaningSearcher,
-    ReadTierTools,
-    SourceSearcher,
-)
-from codefix_agent.tools import READ_FILE_TOOL
+from core.replay import Recorder
 
 DONT_CARE_INCIDENT = "incident-41"
 

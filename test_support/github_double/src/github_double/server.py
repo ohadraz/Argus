@@ -33,7 +33,7 @@ from github_double.repository import (
     repository,
 )
 
-# Where the double listens. Not an `argus_core` setting, for the reason the
+# Where the double listens. Not an `core` setting, for the reason the
 # other doubles' ports are not: the double is not part of Argus, and Argus's own
 # config should not grow a field describing a test fixture.
 DEFAULT_PORT: Final = int(os.environ.get("GITHUB_DOUBLE_PORT", "8096"))

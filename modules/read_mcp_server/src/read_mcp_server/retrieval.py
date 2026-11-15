@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from typing import Protocol
 
 import httpx2
-from argus_core import SettingsSlice, parse_iso, to_iso, utc_now
-from argus_core.models import ChangeEvent, MetricBucket
+from core import SettingsSlice, parse_iso, to_iso, utc_now
+from core.models import ChangeEvent, MetricBucket
 from metrics_source import MetricsSource, RuleSeries
 
 from read_mcp_server.change_source import ChangeSource

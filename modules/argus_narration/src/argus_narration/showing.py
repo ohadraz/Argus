@@ -39,9 +39,9 @@ import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Final
 
-from argus_core import said_short, short_form
-from argus_core.events import ChangesRetrieved, FixAttempted, IncidentEvent
-from argus_core.models import CitedChange
+from core import said_short, short_form
+from core.events import ChangesRetrieved, FixAttempted, IncidentEvent
+from core.models import CitedChange
 from pydantic import BaseModel, ConfigDict
 
 from argus_narration.narrating import NarrationLine

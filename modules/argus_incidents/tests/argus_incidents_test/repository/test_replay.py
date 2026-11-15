@@ -1,6 +1,6 @@
 """Where a call Argus made out of its own process is written down (spec §11.1).
 
-The subscriber's counterpart for the replay log: `argus_core.replay` says what
+The subscriber's counterpart for the replay log: `core.replay` says what
 an entry is and how it is handed over, and this is the only thing that knows
 it ends up in Postgres.
 
@@ -23,11 +23,11 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.models import Alert
-from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core import connect_from_env, utc_now
+from core.models import Alert
+from core.replay import CallType, ReplayEntry
 
 from argus_incidents_test.framework import no_column_is_empty
 from argus_incidents_test.framework.builders import an_incident_created_for

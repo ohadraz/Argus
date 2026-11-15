@@ -18,10 +18,10 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from argus_core import connect_from_env
-from argus_core.models import PublishedRates
 from argus_incidents.repository import exchange_rates
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core import connect_from_env
+from core.models import PublishedRates
 
 from argus_incidents_test.framework import no_column_is_empty
 

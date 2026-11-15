@@ -13,8 +13,8 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import NamedTuple, Protocol, assert_never
 
-from argus_core import sleep_on_the_clock, to_iso_minute, utc_now, was_lost
-from argus_core.anomaly import (
+from core import sleep_on_the_clock, to_iso_minute, utc_now, was_lost
+from core.anomaly import (
     AnomalyThresholds,
     find_recovery,
     has_a_departure_in_it,
@@ -22,8 +22,8 @@ from argus_core.anomaly import (
     has_recovered_since,
     minutes_a_recovery_must_hold,
 )
-from argus_core.budget import StillWanted, wanted_throughout
-from argus_core.events import (
+from core.budget import StillWanted, wanted_throughout
+from core.events import (
     AwaitingRecovery,
     Publisher,
     RecoveryChecked,
@@ -31,7 +31,7 @@ from argus_core.events import (
     nobody,
     publish,
 )
-from argus_core.mcp_transport import (
+from core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_KNOWN_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
@@ -40,7 +40,7 @@ from argus_core.mcp_transport import (
     PlatformUnreachable,
     without_the_payload,
 )
-from argus_core.models import (
+from core.models import (
     AcceleratorPinUndo,
     ActionType,
     AlertRuleStanding,
@@ -656,7 +656,7 @@ def _without_the_platform_marker(unreachable: PlatformUnreachable) -> str:
     postmortem and a Slack line. The descriptor is on the outcome, where
     something can act on it; here it is noise.
 
-    The payload is removed by `argus_core.mcp_transport` rather than here,
+    The payload is removed by `core.mcp_transport` rather than here,
     because the shape of it is that module's and a caller cannot strip what it
     was never told the shape of.
 
@@ -1357,7 +1357,7 @@ def _when_a_recovery_would_have_shown(first_minute_begins: datetime,
     action taken on a minute boundary would then be refuted for want of a bucket
     that could not exist yet.
 
-    This module's arithmetic rather than `argus_core`'s, because `argus_core` has
+    This module's arithmetic rather than `core`'s, because `core` has
     no clock: it answers in minutes, which is what a window is made of, and
     turning that into an instant needs the moment the wait started from.
     """

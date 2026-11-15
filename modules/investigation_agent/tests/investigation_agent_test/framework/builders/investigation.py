@@ -13,11 +13,12 @@ from collections.abc import Callable
 from typing import NamedTuple
 from unittest.mock import Mock, create_autospec
 
-from argus_core import new_id
-from argus_core.budget import StillWanted, wanted_throughout
-from argus_core.events import Publisher, nobody
-from argus_core.llm import Conversations, a_conversation_recorded_for
-from argus_core.models import (
+from argus_testkit import dont_care_sleep, raising, returning
+from core import new_id
+from core.budget import StillWanted, wanted_throughout
+from core.events import Publisher, nobody
+from core.llm import Conversations, a_conversation_recorded_for
+from core.models import (
     Alert,
     Attempt,
     ChangeEvent,
@@ -29,7 +30,6 @@ from argus_core.models import (
     ToolDefinition,
     no_leads,
 )
-from argus_testkit import dont_care_sleep, raising, returning
 from investigation_agent import Findings, Reading, investigate
 from investigation_agent.budget import Budget, InvestigationSettings
 from investigation_agent.retrieval import (

@@ -3,9 +3,9 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from argus_core import SettingsSlice
-from argus_core.budget import Bound, Budget
-from argus_core.models import Effort
+from core import SettingsSlice
+from core.budget import Bound, Budget
+from core.models import Effort
 
 
 class InvestigationSettings(SettingsSlice):

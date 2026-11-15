@@ -19,7 +19,7 @@ import logging
 from collections.abc import Collection, Mapping, Sequence
 from typing import Final
 
-from argus_core.models import CodeSearch, ToolCall, ToolDefinition, ToolResult
+from core.models import CodeSearch, ToolCall, ToolDefinition, ToolResult
 
 from codefix_agent.budget import FixSettings
 from codefix_agent.prompting import ANSWER_QUESTION, REPORT_NOTHING_TO_CHANGE, SUBMIT_FIX

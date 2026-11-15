@@ -6,10 +6,10 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.models import Alert, ChannelReading, PostmortemLead, Standing
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of
+from core import connect_from_env, utc_now
+from core.models import Alert, ChannelReading, PostmortemLead, Standing
 
 from argus_incidents_test.framework import no_column_is_empty
 from argus_incidents_test.framework.builders import (

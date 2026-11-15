@@ -27,7 +27,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of
+from core.models import (
     DEPLOYMENT_PLATFORM,
     ActionIdentity,
     Alert,
@@ -42,7 +43,6 @@ from argus_core.models import (
     RecordedPlacement,
     WhatWouldBeTried,
 )
-from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.candidates import (
     the_circumstances,
     the_next_worth_trying,

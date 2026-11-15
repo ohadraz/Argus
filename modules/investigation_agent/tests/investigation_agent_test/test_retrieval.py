@@ -24,9 +24,9 @@ from typing import NamedTuple
 from unittest.mock import Mock, call, create_autospec
 
 import pytest
-from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, ChangeKind, FlagChange
 from argus_testkit import Assertion, Scenario, all_of, the_same_error_reached_the_caller
+from core.mcp_transport import McpClient
+from core.models import ChangeEvent, ChangeKind, FlagChange
 from investigation_agent.retrieval import (
     DeployHistory,
     FlagHistory,

@@ -16,16 +16,22 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
 
-from argus_core import parse_iso
-from argus_core.anomaly import the_end_of_the_onset
-from argus_core.events import (
+from argus_narration import (
+    A_PERSON,
+    THE_PARTS_OF_ARGUS,
+    as_a_clause,
+    said_as_the_document_shows,
+)
+from core import parse_iso
+from core.anomaly import the_end_of_the_onset
+from core.events import (
     HUNK_HEADER,
     PATCH_LINE_INDENT,
     WHAT_ENDS_A_FILE,
     names_as_changed,
     the_changed_file_it_names,
 )
-from argus_core.models import (
+from core.models import (
     NOT_JUDGED,
     ActionItem,
     ActionItemStatus,
@@ -54,12 +60,6 @@ from argus_core.models import (
     Trigger,
     Verdict,
     WhyNoTrigger,
-)
-from argus_narration import (
-    A_PERSON,
-    THE_PARTS_OF_ARGUS,
-    as_a_clause,
-    said_as_the_document_shows,
 )
 
 from postmortem_writing.estimate import LatencyLevels, Unmeasured
@@ -132,7 +132,7 @@ CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 # What the metrics show of a cause confirmed to be the load, measured by Argus:
 # `R1`, R for its rows - not "reading", which is already a retrieval
-# (`argus_core.models.Reading`).
+# (`core.models.Reading`).
 CAUSE_MEASURED_PREFIX: Final = "R"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
 # The item an incident whose fault is in another company's service is left

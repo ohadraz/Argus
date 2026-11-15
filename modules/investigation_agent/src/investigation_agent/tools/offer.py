@@ -18,8 +18,8 @@ from collections.abc import Collection, Mapping, Sequence
 from functools import partial
 from typing import Final, Protocol
 
-from argus_core.mcp_transport import McpClient
-from argus_core.models import ToolDefinition
+from core.mcp_transport import McpClient
+from core.models import ToolDefinition
 from read_mcp_client import offered
 
 from investigation_agent.tools.answer import answer_tool

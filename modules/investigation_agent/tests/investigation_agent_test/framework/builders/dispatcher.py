@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock, create_autospec
 
-from argus_core.models import ToolCall
+from core.models import ToolCall
 from investigation_agent.retrieval import (
     ChangeFetcher,
     DependencyFetcher,

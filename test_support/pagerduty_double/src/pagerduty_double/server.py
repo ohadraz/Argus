@@ -30,7 +30,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-# Where the double listens. Not an `argus_core` setting, for the reason the
+# Where the double listens. Not an `core` setting, for the reason the
 # other doubles' ports are not: the double is not part of Argus, and Argus's own
 # config should not grow a field describing a test fixture. HTTPS, because the
 # SDK will not address anything else - see `certificate`.

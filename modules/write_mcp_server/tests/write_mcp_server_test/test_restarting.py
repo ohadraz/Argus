@@ -17,8 +17,6 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.mcp_transport import UNREACHABLE_PLATFORM_MARKER
-from argus_core.models import RestartedService
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -29,6 +27,8 @@ from argus_testkit import (
     dont_care_sleep,
     one_record_was_logged,
 )
+from core.mcp_transport import UNREACHABLE_PLATFORM_MARKER
+from core.models import RestartedService
 from deployment_platform import (
     DeploymentPlatformWrites,
     PlatformRefused,

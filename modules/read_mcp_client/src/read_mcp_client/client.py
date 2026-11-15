@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import ReadMcpEndpoint
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
+from core import ReadMcpEndpoint
+from core.mcp_transport import McpClient
+from core.models import (
     AlertRuleStanding,
     ChangeEvent,
     CodeOutsideThePatch,

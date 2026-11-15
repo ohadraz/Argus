@@ -27,9 +27,6 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import Connections, Holding, LLMSettings, get_settings
-from argus_core.mcp_transport import McpClient
-from argus_core.models import ModelPolicy
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -39,6 +36,9 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
+from core import Connections, Holding, LLMSettings, get_settings
+from core.mcp_transport import McpClient
+from core.models import ModelPolicy
 from incident_memory.records import RememberedIncident
 from orchestrator.walk.assembling import (
     Collaborators,

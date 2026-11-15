@@ -45,9 +45,9 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.events import ActionTaken, OnsetDetected
-from argus_core.models import RESTART_SERVICE, IncidentStatus
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core.events import ActionTaken, OnsetDetected
+from core.models import RESTART_SERVICE, IncidentStatus
 
 from tests.e2e.framework.argus import (
     RECORDED_RESOURCE_LEAK,

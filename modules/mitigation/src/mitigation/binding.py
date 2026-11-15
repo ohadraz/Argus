@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from functools import partial
 
-from argus_core.mcp_transport import McpClient
+from core.mcp_transport import McpClient
 
 from mitigation.tools import (
     MitigationSettings,

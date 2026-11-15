@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import RevisionSource
+from core.models import RevisionSource
 
 # The one host whose pages are known, and where it serves them.
 _GITHUB_HOST: Final = "github.com"

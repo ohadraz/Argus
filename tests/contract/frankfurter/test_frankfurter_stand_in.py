@@ -23,8 +23,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core import get_settings
-from argus_core.models import PublishedRates, RatesUnavailable
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -32,6 +30,8 @@ from argus_testkit import (
     an_error_was_raised,
     attempting,
 )
+from core import get_settings
+from core.models import PublishedRates, RatesUnavailable
 from exchange_rate_source import rates_published_for
 from exchange_rate_source.frankfurter import ExchangeRateSettings
 

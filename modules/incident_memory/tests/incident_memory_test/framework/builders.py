@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from argus_core import new_id
-from argus_core.models import (
+from core import new_id
+from core.models import (
     REVERT_FEATURE_FLAG,
     ActionIdentity,
     ActionType,

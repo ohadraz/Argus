@@ -5,7 +5,7 @@ TBD - created by archiving change simulated-clock-for-the-e2e-stack. Update Purp
 ## Requirements
 ### Requirement: Argus reads one clock, which a stack may run faster than real time
 Every reading of the current instant in Argus's runtime path SHALL come from
-`argus_core`'s clock. Given an epoch and a speed, that clock SHALL read
+`core`'s clock. Given an epoch and a speed, that clock SHALL read
 `epoch + (real - epoch) * speed`; given neither, it SHALL read the real clock.
 Telemetry is the exception: it records the process rather than the world being
 watched, and the OTel SDK stamps it from the real clock, so the times it is

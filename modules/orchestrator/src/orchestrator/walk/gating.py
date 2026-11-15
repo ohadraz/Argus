@@ -5,14 +5,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from argus_core.events import (
+from core.events import (
     ActionRecommended,
     ActionRefused,
     Publisher,
     nobody,
     publish,
 )
-from argus_core.models import (
+from core.models import (
     Action,
     Attempt,
     Circumstances,

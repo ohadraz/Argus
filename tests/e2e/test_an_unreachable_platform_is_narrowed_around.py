@@ -53,8 +53,9 @@ from __future__ import annotations
 
 import httpx2
 import pytest
-from argus_core.events import ActionTaken, PlatformUnavailable, VerdictReached
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from core.events import ActionTaken, PlatformUnavailable, VerdictReached
+from core.models import (
     DEPLOYMENT_PLATFORM,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -64,7 +65,6 @@ from argus_core.models import (
     the_actions_through,
     the_platform_of,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_CONTROL_PLANE_UNREACHABLE,

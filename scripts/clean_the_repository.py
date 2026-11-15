@@ -34,7 +34,7 @@ import sys
 from typing import Any, Final
 
 import httpx2
-from argus_core import get_settings
+from core import get_settings
 
 # What Argus names a branch it cuts, and the only thing this deletes. Kept in
 # step with `codefix_agent` by being the prefix that module writes rather than a

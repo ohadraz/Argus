@@ -22,9 +22,22 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import new_id, to_iso
-from argus_core.anomaly import THE_JUDGED_SIGNALS
-from argus_core.events import (
+from argus_narration.narrating import (
+    CandidateNamed,
+    NarrationLine,
+    as_a_clause,
+    build_narration,
+    each_wait_told_once,
+    said_as_meant,
+    said_in_full,
+    what_to_do,
+    what_was_done,
+    what_was_not_done,
+)
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from core import new_id, to_iso
+from core.anomaly import THE_JUDGED_SIGNALS
+from core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
@@ -69,7 +82,7 @@ from argus_core.events import (
     VerdictReached,
     WithdrawalOffered,
 )
-from argus_core.models import (
+from core.models import (
     DEPLOYMENT_PLATFORM,
     DISCARD_CACHE_ENTRIES,
     FLAG_PROVIDER,
@@ -114,19 +127,6 @@ from argus_core.models import (
     the_actions_through,
     why_it_was_refused,
 )
-from argus_narration.narrating import (
-    CandidateNamed,
-    NarrationLine,
-    as_a_clause,
-    build_narration,
-    each_wait_told_once,
-    said_as_meant,
-    said_in_full,
-    what_to_do,
-    what_was_done,
-    what_was_not_done,
-)
-from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 # The minute most lines here are about, and the one before it: a window from
 # the one to the other spans the minutes between them.

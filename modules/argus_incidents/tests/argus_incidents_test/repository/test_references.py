@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
-from argus_core.models import (
+from argus_incidents.repository import incidents, references
+from argus_testkit import Assertion, Scenario, calling, the_answer_was
+from core import connect_from_env, utc_now
+from core.models import (
     ALERT_FIRING,
     CHAT_THREAD,
     NOTIFICATION_KEY,
@@ -32,8 +34,6 @@ from argus_core.models import (
     Reference,
     a_chat_thread,
 )
-from argus_incidents.repository import incidents, references
-from argus_testkit import Assertion, Scenario, calling, the_answer_was
 
 from argus_incidents_test.framework import no_column_is_empty
 from argus_incidents_test.framework.builders import an_incident_created_for

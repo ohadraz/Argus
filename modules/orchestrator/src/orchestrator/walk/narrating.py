@@ -12,9 +12,9 @@ import logging
 from collections.abc import Callable
 from typing import Any, Final
 
-from argus_core.events import StatusChanged
-from argus_core.models import IncidentStatus, Meaning
 from argus_incidents import EndedByAPerson, WaitForPeople
+from core.events import StatusChanged
+from core.models import IncidentStatus, Meaning
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import TransitionIncident

@@ -4,7 +4,7 @@ An SDK's in-memory exporter and reader, handed to the code under test as its
 tracer and meter where it would otherwise take the process's own - which in a
 test is OTel's no-op, and reports nothing to anyone.
 
-The same rig as `argus_core`'s suite keeps for the model and tool calls, kept
+The same rig as `core`'s suite keeps for the model and tool calls, kept
 again here rather than shared: a suite cannot import another suite, and the one
 place both could reach is `argus_testkit`, which would then carry an SDK into
 every suite in the workspace for the two that read spans.

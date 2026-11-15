@@ -25,7 +25,7 @@ import logging
 from collections.abc import Callable
 from datetime import date
 
-from argus_core.models import PublishedRates, RatesUnavailable
+from core.models import PublishedRates, RatesUnavailable
 from postmortem_writing import RateTable
 
 logger = logging.getLogger(__name__)

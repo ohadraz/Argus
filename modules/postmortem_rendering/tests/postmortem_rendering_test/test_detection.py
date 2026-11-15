@@ -8,7 +8,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Scenario, the_answer_was
+from core.models import (
     AlarmClaim,
     Alert,
     CitedEvidence,
@@ -17,7 +18,6 @@ from argus_core.models import (
     DetectionMeasuredFrom,
     TimelineMarker,
 )
-from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow

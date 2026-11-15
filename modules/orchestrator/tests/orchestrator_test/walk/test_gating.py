@@ -27,8 +27,9 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
-from argus_core.events import ActionRecommended, ActionRefused, IncidentEvent
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core.events import ActionRecommended, ActionRefused, IncidentEvent
+from core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     Action,
@@ -49,7 +50,6 @@ from argus_core.models import (
     ServiceDependency,
     why_it_was_refused,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.gating import route_after_gate, tier_gate_node

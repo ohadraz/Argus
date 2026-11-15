@@ -27,7 +27,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, all_of
+from core.models import (
     Alert,
     DiscardCacheEntries,
     Evidence,
@@ -40,7 +41,6 @@ from argus_core.models import (
     RevertFeatureFlag,
     RollBackDeployment,
 )
-from argus_testkit import Assertion, Scenario, all_of
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.state import IncidentState

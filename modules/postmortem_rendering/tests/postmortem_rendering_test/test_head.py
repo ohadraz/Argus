@@ -13,7 +13,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from argus_core.models import (
+from argus_testkit import Assertion, Scenario, the_answer_was
+from core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -30,7 +31,6 @@ from argus_core.models import (
     TimelineMarker,
     Trigger,
 )
-from argus_testkit import Assertion, Scenario, the_answer_was
 from postmortem_rendering.head import Head, a_head, a_title, the_day_it_is_dated_by
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution

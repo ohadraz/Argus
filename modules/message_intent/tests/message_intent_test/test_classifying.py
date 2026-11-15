@@ -19,9 +19,9 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from argus_core.llm import LLMClient, ModelDidNotAnswer
-from argus_core.models import Ask, Meaning, ToolCall, ToolDefinition, Transcript, Turn
 from argus_testkit import Assertion, Kept, Scenario
+from core.llm import LLMClient, ModelDidNotAnswer
+from core.models import Ask, Meaning, ToolCall, ToolDefinition, Transcript, Turn
 from message_intent.classifying import classify
 from message_intent.prompting import MEANING_FIELD, SUBMIT_TOOL_NAME
 

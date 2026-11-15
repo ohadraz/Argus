@@ -29,17 +29,17 @@ from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Final, NamedTuple, Protocol
 
-from argus_core import was_lost
-from argus_core.budget import StillWanted, wanted_throughout
-from argus_core.llm import (
+from core import was_lost
+from core.budget import StillWanted, wanted_throughout
+from core.llm import (
     AnswerTruncated,
     Conversation,
     Conversations,
     ModelRefused,
     a_conversation_recorded_for,
 )
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
+from core.mcp_transport import McpClient
+from core.models import (
     Ask,
     CodeOutsideThePatch,
     CodeUse,
@@ -60,8 +60,8 @@ from argus_core.models import (
 
 # Aliased because `replay`'s no-op sink is called `nobody`, as `events`' is, and
 # this module has no use for the other one to be confused with.
-from argus_core.replay import Recorder
-from argus_core.replay import nobody as records_nothing
+from core.replay import Recorder
+from core.replay import nobody as records_nothing
 from pydantic import ValidationError
 from read_mcp_client import (
     branch_contains_revision,

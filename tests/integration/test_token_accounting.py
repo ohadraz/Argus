@@ -24,12 +24,12 @@ import httpx2
 import psycopg
 import pytest
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core import connect_from_env, get_settings, utc_now
-from argus_core.budget import Budget
-from argus_core.models import Alert
 from argus_incidents.publishing import calls_into
 from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
+from core import connect_from_env, get_settings, utc_now
+from core.budget import Budget
+from core.models import Alert
 from investigation_agent import investigate
 from investigation_agent.budget import InvestigationSettings, a_budget_for
 

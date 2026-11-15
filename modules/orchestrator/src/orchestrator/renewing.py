@@ -14,8 +14,8 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import Final
 
-from argus_core import Connections, in_real_time
 from argus_incidents.repository import runs
+from core import Connections, in_real_time
 
 logger = logging.getLogger(__name__)
 

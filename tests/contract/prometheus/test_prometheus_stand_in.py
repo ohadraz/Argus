@@ -38,8 +38,6 @@ from datetime import UTC, datetime, timedelta
 
 import httpx2
 import pytest
-from argus_core import get_settings
-from argus_core.models import MetricBucket, WorseWhen
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -48,6 +46,8 @@ from argus_testkit import (
     attempting,
     the_error_mentioned,
 )
+from core import get_settings
+from core.models import MetricBucket, WorseWhen
 from metrics_source import MetricsSettings, MetricsUnavailable, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 

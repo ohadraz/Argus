@@ -28,10 +28,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from argus_core import parse_iso
-from argus_core.anomaly import the_end_of_the_onset
-from argus_core.events import names_as_changed, the_changed_file_it_names
-from argus_core.models import (
+from core import parse_iso
+from core.anomaly import the_end_of_the_onset
+from core.events import names_as_changed, the_changed_file_it_names
+from core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
     PIN_TO_ACCELERATOR,

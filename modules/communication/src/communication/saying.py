@@ -20,9 +20,19 @@ import logging
 from collections.abc import Mapping
 from typing import Final
 
-from argus_core import Connections
-from argus_core.events import CommunicationFailed
-from argus_core.models import (
+from argus_incidents.repository import events, references, synopses
+from argus_narration import (
+    NarrationLine,
+    ShownRevision,
+    a_candidate_cause,
+    shown,
+    the_pull_requests,
+    the_revisions,
+)
+from chat_platform import ChatPlatformWrites, Line, Link, Offer
+from core import Connections
+from core.events import CommunicationFailed
+from core.models import (
     CHAT_BRIEFING,
     CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
@@ -34,16 +44,6 @@ from argus_core.models import (
     a_chat_withdrawal_offer,
     the_place_of,
 )
-from argus_incidents.repository import events, references, synopses
-from argus_narration import (
-    NarrationLine,
-    ShownRevision,
-    a_candidate_cause,
-    shown,
-    the_pull_requests,
-    the_revisions,
-)
-from chat_platform import ChatPlatformWrites, Line, Link, Offer
 
 from communication.policy import Register
 from communication.relaying import Destination, Outcome
