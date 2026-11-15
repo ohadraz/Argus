@@ -1,0 +1,509 @@
+"""The front door: what is happening now, as a browser gets it.
+
+Nothing is stubbed. A request reaches the real app, reads the events the real
+repository recorded against a real Postgres, and comes back as the HTML a
+person watching the demo beside the shop's console would be looking at. The
+assertions are on data attributes the templates carry deliberately - a page
+contract - rather than on prose, which is free to change without any of these
+tests having an opinion.
+"""
+from __future__ import annotations
+
+import psycopg
+import pytest
+from argus_testkit import Assertion, Scenario, all_of
+from core import connect_from_env, utc_now
+from core.events import (
+    AlertAcknowledged,
+    FixAttempted,
+    HypothesisFormed,
+    IncidentEvent,
+    LogsRetrieved,
+    MetricsRetrieved,
+    OnsetDetected,
+)
+from core.models import (
+    Alert,
+    FailureMode,
+    FixOutcome,
+    IncidentStatus,
+    MetricBucket,
+    RuleReading,
+)
+from incident_record.repository import events, incidents
+
+from web_app_test.framework.assertions import (
+    the_page_keeps_asking,
+    the_page_links_to,
+    the_page_says,
+    the_page_shows,
+)
+from web_app_test.framework.reading import page_at
+
+# What htmx's "ask again in a moment" looks like in the rendered page. Named
+# because the claim is about the page continuing to ask at all, and a spelling
+# repeated in each test is one that can drift in one of them.
+
+
+@pytest.mark.component
+def test_the_front_page_says_when_nothing_is_happening() -> None:
+    # Argus is idle most of the time, and a screen left open during a demo has
+    # to say that rather than show an empty frame that reads as broken.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+
+    Scenario() \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_shows("idle", "true")
+        )
+
+
+@pytest.mark.component
+def test_the_front_page_keeps_asking_so_an_incident_arrives_on_its_own() -> None:
+    # Somebody opens this screen before staging the scenario. If the page only
+    # showed what existed when it was opened, the incident they are waiting for
+    # would never appear.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+
+    Scenario() \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_keeps_asking()
+        )
+
+
+@pytest.mark.component
+def test_the_front_page_shows_the_incident_that_has_not_finished() -> None:
+    # Not simply the newest: an incident that resolved after this one opened
+    # has nothing left to watch, and the one still running is the only thing
+    # anybody came to this page for.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        still_running = incidents.create(conn, _an_alert("running-service"), at=utc_now())
+        already_finished = incidents.create(conn, _an_alert("finished-service"), at=utc_now())
+        _finished(conn, already_finished)
+
+    Scenario() \
+        .given(
+            still_running, already_finished
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_shows("live-incident", still_running)
+        )
+
+
+@pytest.mark.component
+def test_with_nothing_running_the_front_page_shows_the_newest_one_as_finished() -> None:
+    # A resolved incident vanishing the moment it resolves would take it off
+    # the screen exactly when everyone in the room is looking at it.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _finished(conn, incident_id)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(all_of(
+            the_page_shows("live-incident", incident_id),
+            the_page_shows("running", "false")
+        ))
+
+
+@pytest.mark.component
+def test_the_front_page_narrates_what_argus_did_in_the_order_it_did_it() -> None:
+    # The account is a sequence. A page that reordered it would be telling a
+    # different story from the one that was recorded.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(conn, AlertAcknowledged(incident_id=incident_id, alert=_an_alert("io-shop")))
+        _recorded(conn, OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:14Z"))
+        _recorded(conn, _a_hypothesis_formed_for(incident_id))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_shows(
+                "line", "alert-acknowledged", "onset-detected", "hypothesis-formed"
+            )
+        )
+
+
+@pytest.mark.component
+def test_a_metrics_retrieval_is_shown_as_a_table_with_the_bad_minutes_marked() -> None:
+    # The shop's console reddens the same minutes. Two screens side by side in
+    # a demo that mark different ones make a reader translate between them.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(
+            conn,
+            MetricsRetrieved(
+                incident_id=incident_id,
+                window_start="2026-08-30T10:12Z",
+                window_end="2026-08-30T10:14Z",
+                buckets=[
+                    _a_bucket("2026-08-30T10:12Z", error_rate=0.01),
+                    _a_bucket("2026-08-30T10:14Z", error_rate=0.31)
+                ]
+            )
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(all_of(
+            the_page_shows("bucket", "2026-08-30T10:12Z", "2026-08-30T10:14Z"),
+            the_page_shows("elevated", "false", "true")
+        ))
+
+
+@pytest.mark.component
+def test_a_metrics_retrieval_read_for_a_rule_shows_the_rules_series() -> None:
+    # On an incident in what the service answers, the only column that moved.
+    # A page leaving it out would show a reader five flat series and no reason
+    # anybody was paged.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(
+            conn,
+            MetricsRetrieved(
+                incident_id=incident_id,
+                window_start="2026-08-30T10:12Z",
+                window_end="2026-08-30T10:14Z",
+                buckets=[
+                    _a_bucket("2026-08-30T10:12Z", error_rate=0.01,
+                              rule_reading=RuleReading(value=0.9, worse_when="below")),
+                    _a_bucket("2026-08-30T10:14Z", error_rate=0.01,
+                              rule_reading=RuleReading(value=0.4, worse_when="below"))
+                ]
+            )
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            all_of(
+                the_page_shows("rule-reading", "0.9", "0.4"),
+                # A rule fires; a person is paged - and the column is the
+                # series of the rule that fired.
+                the_page_says("alert rule's series")
+            )
+        )
+
+
+@pytest.mark.component
+def test_a_metrics_retrieval_read_for_no_rule_shows_no_rules_series() -> None:
+    # Not a column of blanks: a window read for no rule has no such series, and
+    # an empty column under a heading reads as a series that went missing.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(
+            conn,
+            MetricsRetrieved(
+                incident_id=incident_id,
+                window_start="2026-08-30T10:12Z",
+                window_end="2026-08-30T10:14Z",
+                buckets=[
+                    _a_bucket("2026-08-30T10:12Z", error_rate=0.01),
+                    _a_bucket("2026-08-30T10:14Z", error_rate=0.31)
+                ]
+            )
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            all_of(
+                the_page_shows("rule-reading"),
+                _the_page_does_not_say("alert rule's series")
+            )
+        )
+
+
+@pytest.mark.component
+def test_a_log_retrieval_is_shown_with_its_levels_distinguished() -> None:
+    # Warnings and errors apart from the rest, at a glance, in a page somebody
+    # is scanning while the incident is still running.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(
+            conn,
+            LogsRetrieved(
+                incident_id=incident_id,
+                window_start="2026-08-30T10:12Z",
+                window_end="2026-08-30T10:14Z",
+                lines=[
+                    "2026-08-30T10:12Z INFO io-shop: account page rendered",
+                    "2026-08-30T10:13Z WARN io-shop: account page error rate at 6%",
+                    "2026-08-30T10:14Z ERROR io-shop: account page request failed"
+                ]
+            )
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_shows("level", "info", "warn", "error")
+        )
+
+
+@pytest.mark.component
+def test_the_evidence_shown_is_the_evidence_that_was_read() -> None:
+    # Byte for byte, out of the event. A page that re-fetched at render time
+    # would show what the log store says now rather than what Argus saw.
+    a_line_that_was_read = "2026-08-30T10:14Z ERROR io-shop: account page request failed"
+
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(
+            conn,
+            LogsRetrieved(
+                incident_id=incident_id,
+                window_start="2026-08-30T10:12Z",
+                window_end="2026-08-30T10:14Z",
+                lines=[a_line_that_was_read]
+            )
+        )
+
+    Scenario() \
+        .given(
+            a_line_that_was_read
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_says(a_line_that_was_read)
+        )
+
+
+@pytest.mark.component
+def test_what_code_fix_said_of_the_code_is_shown_with_the_line_about_it() -> None:
+    # "Found no code-level fix" alone sends a reader nowhere. What Code-Fix
+    # said would have to change instead is the one lead the line has.
+    some_explanation = "scrape.yaml would have to name the port http-metrics"
+
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(conn, FixAttempted(incident_id=incident_id,
+                                     outcome=FixOutcome.NOT_WARRANTED,
+                                     detail="dont care what the node said",
+                                     explanation=some_explanation))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_says(some_explanation)
+        )
+
+
+@pytest.mark.component
+def test_what_code_fix_said_of_the_code_is_shown_formatted() -> None:
+    # Code-Fix writes its explanation in Markdown, being a pull request's body.
+    # Shown as written, `**` and all, it reads as markup nobody rendered.
+    some_explanation = "**The extra latency is not caused here.**\n- scrape.yaml names the old port"
+
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(conn, FixAttempted(incident_id=incident_id,
+                                     outcome=FixOutcome.NOT_WARRANTED,
+                                     detail="dont care what the node said",
+                                     explanation=some_explanation))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(all_of(
+            the_page_says("<strong>The extra latency is not caused here.</strong>"),
+            the_page_says("<ul><li>scrape.yaml names the old port</li></ul>"),
+            _the_page_does_not_say("**The extra latency")
+        ))
+
+
+@pytest.mark.component
+def test_the_front_page_reaches_the_history_and_the_incidents_own_page() -> None:
+    # Both without knowing a URL: somebody watching the live page is one click
+    # from an older incident, and one click from this one's whole walk.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(all_of(
+            the_page_links_to("/history"),
+            the_page_links_to(f"/incidents/{incident_id}")
+        ))
+
+
+@pytest.mark.component
+def test_the_polled_live_fragment_carries_the_incident_on_its_own() -> None:
+    # What the poll swaps in. If it did not carry the incident, a page opened
+    # before the alert arrived would refresh itself into an empty one forever.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/now")
+        ) \
+        .then(
+            the_page_shows("live-incident", incident_id)
+        )
+
+
+@pytest.mark.component
+def test_an_incidents_own_page_narrates_it_too() -> None:
+    # The account of a finished incident is the point of recording one. A
+    # narration only reachable while the incident is still running would be a
+    # replay log nobody can replay.
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(conn, OnsetDetected(incident_id=incident_id, onset="2026-08-30T10:14Z"))
+        _finished(conn, incident_id)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            the_page_shows("line", "onset-detected")
+        )
+
+
+def _the_page_does_not_say(text: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if text in page:
+            raise AssertionError(f"Expected the page not to say [{text}], it did.")
+
+        return True
+
+    return assertion
+
+
+def _no_incidents_at_all(conn: psycopg.Connection) -> None:
+    """An empty database, which is the one state the front page's rule cannot
+    be set up into by adding a row.
+
+    "The newest incident, running or not" is a question about every incident
+    there is, so a test about what the page does with none of them has to be
+    the only incident there is - none.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute("TRUNCATE incident CASCADE")
+    conn.commit()
+
+
+def _finished(conn: psycopg.Connection, incident_id: str) -> None:
+    incidents.transition(
+        conn,
+        incident_id,
+        IncidentStatus.RESOLVED,
+        at=utc_now(),
+    )
+
+
+def _recorded(conn: psycopg.Connection, event: IncidentEvent) -> None:
+    events.record(conn, event)
+
+
+def _an_alert(service: str) -> Alert:
+    return Alert(service=service, alert_name="HighErrorRate")
+
+
+def _a_bucket(bucket_id: str,
+              error_rate: float,
+              rule_reading: RuleReading | None = None) -> MetricBucket:
+    return MetricBucket(
+        bucket_id=bucket_id,
+        error_rate=error_rate,
+        p50_ms=120,
+        p95_ms=240,
+        p99_ms=420,
+        request_volume=200,
+        memory_used_bytes=440 * 1024**2,
+        process_start_time_seconds=1_756_000_000.0,
+        cpu_used_cores=0.77,
+        cpu_limit_cores=3.0,
+        rule_reading=rule_reading
+    )
+
+
+def _a_hypothesis_formed_for(incident_id: str) -> HypothesisFormed:
+    return HypothesisFormed(
+        incident_id=incident_id,
+        hypothesis_id="00000000-0000-0000-0000-0000000000aa",
+        summary="dont care",
+        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+        confidence=0.9,
+        subject="dont-care-flag",
+        rank=1,
+        number=1
+    )

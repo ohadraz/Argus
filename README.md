@@ -27,7 +27,7 @@ See [`AGENTS.md`](AGENTS.md) for the full, tool-agnostic policy and its rational
 
 ## Architecture at a glance
 
-- **`argus_web`** - the only HTTP surface. Receives the alert webhook, normalizes it into Argus's own domain object (currently: a deterministic Grafana unified-alerting parser), and calls the Orchestrator in-process.
+- **`web_app`** - the only HTTP surface. Receives the alert webhook, normalizes it into Argus's own domain object (currently: a deterministic Grafana unified-alerting parser), and calls the Orchestrator in-process.
 - **`orchestrator`** - a LangGraph `StateGraph` implementing the incident state machine (`investigating -> mitigating -> resolved`, with `fixing`/`escalated` branches), Postgres-backed and checkpointed.
 - **`investigation_agent`, `mitigation`, `codefix_agent`, `communication`, `postmortem_writing`** - the five delegates, each its own workspace package; the Investigator and Code-Fix are the agents among them.
 - **`core`** - shared domain models, Postgres schema, and configuration.
@@ -41,7 +41,7 @@ This is a [`uv` workspace](https://docs.astral.sh/uv/concepts/workspaces/) - eac
 ```
 modules/
 ├── core/                 # shared models, Postgres schema, config
-├── argus_web/            # HTTP surface: alert webhook
+├── web_app/              # HTTP surface: alert webhook
 ├── orchestrator/         # LangGraph StateGraph, incident FSM
 ├── investigation_agent/
 ├── mitigation/
@@ -66,7 +66,7 @@ openspec/                       # change proposals, design docs, delta specs
 uv sync --all-packages
 ```
 
-Run the full end-to-end suite (brings up Postgres and `argus_web`, runs the tests, tears both down):
+Run the full end-to-end suite (brings up Postgres and `web_app`, runs the tests, tears both down):
 
 ```bash
 uv run python -m nox -s e2e

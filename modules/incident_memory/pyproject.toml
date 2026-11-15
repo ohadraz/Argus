@@ -17,7 +17,7 @@ dependencies = [
 #
 # Unlike `code_index`'s, this extra narrows nothing that is actually installed,
 # and that is worth stating rather than leaving to be discovered. `code_index`
-# has a dependant that takes it bare - `argus_web` writes the watermark row and
+# has a dependant that takes it bare - `web_app` writes the watermark row and
 # never searches - where the only distribution depending on this one is
 # `orchestrator`, with `[store]`. It has no choice: whether memory is searched
 # at all is `incident_memory_enabled`, read when the worker starts, and a

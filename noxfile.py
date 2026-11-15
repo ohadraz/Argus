@@ -1147,7 +1147,7 @@ def _start_service(
 
     `env` overrides settings for *this* service only, which is how one process
     in the stack can be pointed somewhere the others are not - `e2e_replay`
-    uses it to aim `argus_web` at the Anthropic double. It is merged into a
+    uses it to aim `web_app` at the Anthropic double. It is merged into a
     copy of the session's own environment rather than replacing it: a child
     started with only the overrides would lose `PATH`, `SYSTEMROOT` and the
     database URL, and would fail in ways that look nothing like the cause.
@@ -1377,7 +1377,7 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # `anthropic_double` is here for the *integration* tests, which run in the same
 # session: they exercise the real adapter against a recorded response, with no
 # API key. The e2e tests in the same run still talk to the real Anthropic API -
-# nothing points `argus_web` at the double.
+# nothing points `web_app` at the double.
 # Kept in step with `anthropic_double.server.DEFAULT_BASE_URL` by hand rather
 # than imported: this file is read by nox before anything is necessarily
 # installed, and a noxfile that fails to import takes every session with it.
@@ -1733,7 +1733,7 @@ _GITHUB_AT_THE_DOUBLE = {
     "GITHUB_WEBHOOK_SECRET": "the-suite-signs-its-pushes-with-this"
 }
 
-# Where both `argus_web` and the worker find "PagerDuty" when a suite is
+# Where both `web_app` and the worker find "PagerDuty" when a suite is
 # running. Not for the reason GitHub's double exists - Argus never writes to
 # PagerDuty - but because a suite has no account to read, and what an incident
 # there holds is something each case has to say for itself.
@@ -1829,7 +1829,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
     # offline suite opened a real draft pull request on every run, and a pull
     # request number, once spent, is spent for good.
     _GITHUB_DOUBLE,
-    # PagerDuty, for a stack that has no account. Up before `argus_web`, which
+    # PagerDuty, for a stack that has no account. Up before `web_app`, which
     # reads it the moment a resolution is delivered.
     _PAGERDUTY_DOUBLE,
     (
@@ -1837,12 +1837,12 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # monitoring posts its alerts from inside a container, and a server
         # listening only on `127.0.0.1` is not reachable from there however the
         # container spells the host.
-        "argus_web",
-        ["-m", "argus_web.serving", "--host", "0.0.0.0", "--port", "8000"],
+        "web_app",
+        ["-m", "web_app.serving", "--host", "0.0.0.0", "--port", "8000"],
         "http://localhost:8000/openapi.json"
     ),
     (
-        # What actually walks an incident. `argus_web` only writes the run down
+        # What actually walks an incident. `web_app` only writes the run down
         # and answers the alert, so a stack without this accepts every alert and
         # investigates none - and the suite's first assertion about a status
         # would be the thing that reported it.
@@ -1901,7 +1901,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # What understands what a person wrote in an incident's thread, and
         # offers to resolve it when that is what they said. Its own process
         # rather than the worker's: a message is not a run, and understanding
-        # one must not wait behind a walk. `argus_web` has already ingested the
+        # one must not wait behind a walk. `web_app` has already ingested the
         # message, so a stack without this takes people's words in and never
         # answers them.
         #
@@ -2347,7 +2347,7 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     `-s e2e_replay` for all three. The parametrization has to be named, as
     `test_module`'s does: a trailing `-- <mode>` becomes `session.posargs`,
     which this session hands to pytest.
-    Runs the end-to-end suite against the full local stack with `argus_web`
+    Runs the end-to-end suite against the full local stack with `web_app`
     pointed at the Anthropic double, so **every model answer is replayed from a
     recording committed to this repo**. No API key, no tokens, no cost - which
     is exactly why this is the version CI runs on every push.
@@ -2386,7 +2386,7 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     two processes that talk to a model and to nobody else: the **worker**, which
     walks the graph, and the **intent reader**, which understands what a person wrote -
     each at a double of its own (`_THE_MODEL_AT_ITS_DOUBLES`), so that neither
-    is handed the other's answers. `argus_web` receives alerts and makes no
+    is handed the other's answers. `web_app` receives alerts and makes no
     model call, so aiming it at a double aims nothing: the walk would reach the
     real API, spend real tokens, and still report itself as a replayed run.
     Nothing in the production path knows this session exists: a pipeline that

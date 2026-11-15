@@ -175,7 +175,7 @@ A_PERSON: Final = "A person"
 THE_CLAIM_WAS_NOT_IN_THE_WINDOW: Final = "the alarm's own claim was not in the window"
 
 # Each signal a window is judged on, by the heading of its column in the walk
-# page's metrics table (`argus_web`'s `evidence.html`). The rule's series as a
+# page's metrics table (`web_app`'s `evidence.html`). The rule's series as a
 # noun a sentence can end on, where the column heading drops the article.
 _A_SIGNAL_AS_THE_TABLE_HEADS_IT: Final[dict[str, str]] = {
     "error_rate": "errors",

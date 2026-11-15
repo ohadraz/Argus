@@ -1,8 +1,8 @@
 """How a person's words about an incident reach its record - and nothing about
 what they meant.
 
-The resolution's sibling, and in this package for its reason: `argus_web` calls
-this, and anything `argus_web` can import must reach nothing that walks a graph.
+The resolution's sibling, and in this package for its reason: `web_app` calls
+this, and anything `web_app` can import must reach nothing that walks a graph.
 What the words meant is classified later, by the intent reader; the chat
 platform waits three seconds for an answer, and a model takes longer than that.
 

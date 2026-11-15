@@ -1,7 +1,7 @@
 """What a push to the service's repository does to Argus's index of it (§11).
 
 An edge-triggered notification, level-triggered reconciliation pair, and both
-halves are here. `argus_web` verifies the delivery and writes down the commit
+halves are here. `web_app` verifies the delivery and writes down the commit
 the branch moved to - that and nothing else, because indexing in the process
 that serves a page would install an ONNX runtime to render HTML. The catch-up pass
 sees the two commits differ and closes the gap.
@@ -37,7 +37,11 @@ import httpx2
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, eventually
-from argus_web.pushes import (
+from code_index.records import RepositoryIndex
+from code_index.records import get as the_index_recorded_for
+from core import get_settings
+from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
+from web_app.pushes import (
     AFTER_FIELD,
     BRANCH_REF_PREFIX,
     FULL_NAME_FIELD,
@@ -46,10 +50,6 @@ from argus_web.pushes import (
     SIGNATURE_HEADER,
     SIGNATURE_PREFIX,
 )
-from code_index.records import RepositoryIndex
-from code_index.records import get as the_index_recorded_for
-from core import get_settings
-from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,

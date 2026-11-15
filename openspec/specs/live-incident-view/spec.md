@@ -6,7 +6,7 @@ Argus's front door - the incident happening now, narrated as it happens, with th
 
 ### Requirement: The front door is what is happening now
 
-`argus_web` SHALL serve, as its front page, the incident currently running - not a list of past ones. Somebody who opens Argus during an incident is looking for the incident, and a list is one click of indirection in front of the only thing they came for.
+`web_app` SHALL serve, as its front page, the incident currently running - not a list of past ones. Somebody who opens Argus during an incident is looking for the incident, and a list is one click of indirection in front of the only thing they came for.
 
 #### Scenario: Nothing is happening
 

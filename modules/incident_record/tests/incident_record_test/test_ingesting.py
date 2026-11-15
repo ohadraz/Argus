@@ -1,7 +1,7 @@
 """The door a person's words about an incident come in through.
 
-Beside the resolution and shaped like it, for the same reason: `argus_web`
-calls it, and anything `argus_web` can import must reach nothing that walks a
+Beside the resolution and shaped like it, for the same reason: `web_app`
+calls it, and anything `web_app` can import must reach nothing that walks a
 graph. It ingests and decides nothing - what the words meant is classified
 later, by the intent reader.
 

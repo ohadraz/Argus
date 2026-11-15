@@ -1,8 +1,8 @@
 """How an incident is withdrawn - and nothing about how one is walked.
 
 The Orchestrator's second entrypoint, beside `intake`, and in this package for
-its reason rather than for tidiness: `argus_web` calls this, and anything
-`argus_web` can import must reach nothing that walks a graph.
+its reason rather than for tidiness: `web_app` calls this, and anything
+`web_app` can import must reach nothing that walks a graph.
 
 Marking is all this does. The walk that is running the incident finds out by
 reading the status back, and unwinds what it had done itself - which is what

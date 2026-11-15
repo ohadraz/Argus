@@ -41,7 +41,7 @@ def _upgrade_to_head() -> None:
     an extra: `argus-core[migrations]`. Everything else in this file - and
     `require_schema` in particular, which every service calls on the way up -
     asks the database whether the tables are there, which needs no migration
-    tool. Imported at module level it would be `argus_web` and the worker each
+    tool. Imported at module level it would be `web_app` and the worker each
     declaring a dependency on Alembic in order to check that somebody else had
     already run it.
     """

@@ -1,7 +1,7 @@
 """When an action was taken, as every reader of an incident says it.
 
 In this package because two readers say it - the postmortem and the incident's
-pages - and `argus_web` may import nothing that walks a graph. Said by each in
+pages - and `web_app` may import nothing that walks a graph. Said by each in
 its own way, the page dated an action by its row and the postmortem by its
 announcement, and the one action stood in two different seconds.
 """

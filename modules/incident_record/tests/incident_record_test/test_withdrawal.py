@@ -1,8 +1,8 @@
 """The door a human stops Argus through.
 
 The Orchestrator's second entrypoint, beside the one that starts an incident,
-and in its own module for the same reason that one is: `argus_web` calls it, and
-anything `argus_web` can import must reach nothing that walks a graph.
+and in its own module for the same reason that one is: `web_app` calls it, and
+anything `web_app` can import must reach nothing that walks a graph.
 
 It publishes, which the repository beneath it does not. A page watching an
 incident finds out that somebody stopped it the same way it finds out anything

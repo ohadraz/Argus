@@ -69,7 +69,7 @@ Lifting means renaming: `_the_page_says` becomes `the_page_says`. A blanket
    `attribute`, and a local assertion already had a parameter called
    `attribute` - the parameter shadowed the import and every call raised
    `'str' object is not callable`.
-2. **Check the shared library for the name.** `argus_web`'s `_the_answer_was`
+2. **Check the shared library for the name.** `web_app`'s `_the_answer_was`
    collided with `the_answer_was` in `argus_testkit`, and they were different
    assertions - one an equality, one an HTTP status. It became
    `the_response_was`.

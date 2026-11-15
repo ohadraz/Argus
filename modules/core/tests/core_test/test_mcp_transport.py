@@ -731,7 +731,7 @@ def test_a_caller_that_already_has_an_event_loop_is_answered_rather_than_crashed
     """The hard failure the old transport was one async caller away from.
 
     Opening an event loop per call raises `RuntimeError` when the caller already
-    has one, which is every route in `argus_web`. Nothing there reaches a tool
+    has one, which is every route in `web_app`. Nothing there reaches a tool
     today; the day something does, it gets an answer.
     """
     Scenario() \

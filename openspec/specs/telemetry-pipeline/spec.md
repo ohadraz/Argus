@@ -67,7 +67,7 @@ A failure to export, to write a file, or to configure telemetry SHALL NOT fail a
 - **THEN** the call behaves exactly as it would uninstrumented
 
 ### Requirement: An incident is one trace
-`argus_web` SHALL open a SERVER span for alert intake. When intake opens an incident, the span SHALL carry `argus.incident.id`, and its context SHALL be stored with the incident. Every walk of that incident, every unwind of it and every withdrawal of it SHALL continue that stored context, so that all of them share the intake's trace id:
+`web_app` SHALL open a SERVER span for alert intake. When intake opens an incident, the span SHALL carry `argus.incident.id`, and its context SHALL be stored with the incident. Every walk of that incident, every unwind of it and every withdrawal of it SHALL continue that stored context, so that all of them share the intake's trace id:
 - the worker works each claimed run inside a `run` span, carrying `argus.incident.id` and `argus.run.id`, that is a child of the intake span;
 - the orchestrator's walk span carries `argus.incident.id`, and is a child of the run span;
 - each agent the walk delegates to gets a child span named for the agent and carrying `argus.agent`;

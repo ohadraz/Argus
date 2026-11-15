@@ -7,7 +7,7 @@ with it; anything importing it can run an incident, and a web process that can
 run an incident eventually does.
 
 The split is therefore the point rather than tidiness, and it is now a package
-boundary rather than a convention: `argus_web` depends on this package and not
+boundary rather than a convention: `web_app` depends on this package and not
 on `orchestrator`, so langgraph is never installed in the web process at all.
 What walks is the worker's, in its own process.
 """
@@ -34,7 +34,7 @@ def start_incident(alert: Alert,
     """The Orchestrator's entrypoint (spec §7.1): creates the `Incident` row
     and puts its walk in line - or, for a rule whose incident is still open or
     a firing an incident already holds, answers with that incident - called by
-    `argus_web` (§7.9) with a normalized `Alert` domain object - never a
+    `web_app` (§7.9) with a normalized `Alert` domain object - never a
     vendor's raw payload.
 
     Returns as soon as the incident exists. An investigation that ran inside

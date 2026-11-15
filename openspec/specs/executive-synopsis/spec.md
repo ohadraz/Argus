@@ -43,12 +43,12 @@ whether or not any destination is configured.
 ### Requirement: Pay is shown only where the synopsis is posted
 The system SHALL NOT show the responder cost's midpoint, minimum or maximum,
 per title or in total, anywhere but the synopsis's Slack messages to the
-configured members and channels: not in `argus_web`, an event, the
+configured members and channels: not in `web_app`, an event, the
 timeline, the war room, an incident's thread, the postmortem channel, or a
 request to the model.
 
 #### Scenario: No route serves pay
-- **WHEN** every `argus_web` route is requested for an incident with a synopsis
+- **WHEN** every `web_app` route is requested for an incident with a synopsis
 - **THEN** no response carries a responder cost figure
 
 #### Scenario: The war room hears no pay

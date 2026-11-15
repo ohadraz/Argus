@@ -5,7 +5,7 @@ if a test reaches into the kernel by module path.
 
 Runs the import-linter contracts declared in the root `pyproject.toml` -
 `core` depends on nothing in this workspace, `incident_record` knows only
-the kernel, `argus_web` serves HTML without installing an agent, and the kernel
+the kernel, `web_app` serves HTML without installing an agent, and the kernel
 is reached through its front doors. The contracts are the check on a claim
 `CLAUDE.md` has made since before it was true.
 

@@ -1,7 +1,7 @@
 """The door a person tells Argus the incident is over through.
 
-Beside the withdrawal and shaped like it, for the same reason: `argus_web` calls
-it - and PagerDuty's webhook will - and anything `argus_web` can import must
+Beside the withdrawal and shaped like it, for the same reason: `web_app` calls
+it - and PagerDuty's webhook will - and anything `web_app` can import must
 reach nothing that walks a graph.
 
 It publishes, which the repository beneath it does not, and what it publishes

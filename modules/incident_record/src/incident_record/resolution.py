@@ -1,8 +1,8 @@
 """How a person tells Argus the incident is over - and nothing about how one is
 walked.
 
-The withdrawal's sibling, and in this package for its reason: `argus_web` calls
-this, and anything `argus_web` can import must reach nothing that walks a graph.
+The withdrawal's sibling, and in this package for its reason: `web_app` calls
+this, and anything `web_app` can import must reach nothing that walks a graph.
 
 Marking is all this does, as it is all the withdrawal does. The walk that is
 running the incident finds out by reading the status back, and stops where it

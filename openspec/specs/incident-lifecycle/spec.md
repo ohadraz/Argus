@@ -7,8 +7,8 @@ Orchestrator invocation, the FSM's status transitions, timeline auditing, and st
 persistence across the sub-agent graph (Investigator, Mitigation, Code-Fix,
 Communicator, Postmortem) and the tier-gate node.
 ## Requirements
-### Requirement: `argus_web` receives the alert webhook and invokes the Orchestrator in-process
-The system SHALL expose an alert webhook endpoint on `argus_web` (spec §7.9)
+### Requirement: `web_app` receives the alert webhook and invokes the Orchestrator in-process
+The system SHALL expose an alert webhook endpoint on `web_app` (spec §7.9)
 that validates the incoming payload and calls the Orchestrator's entrypoint
 in-process (spec §7.1), which creates a new `Incident` row and enqueues the run
 of the graph for it. The endpoint SHALL answer as soon as the incident exists,
@@ -23,9 +23,9 @@ service match the alert of an incident still open SHALL NOT open a new one, and 
 SHALL answer with that incident's id.
 
 #### Scenario: Webhook call starts a new incident
-- **GIVEN** `argus_web`'s alert webhook endpoint is running
+- **GIVEN** `web_app`'s alert webhook endpoint is running
 - **WHEN** a webhook call is received with a valid alert payload
-- **THEN** `argus_web` validates the payload and calls the Orchestrator's
+- **THEN** `web_app` validates the payload and calls the Orchestrator's
   entrypoint in-process, which creates a new `Incident` row with
   `status = acknowledged` and enqueues a run for that incident
 

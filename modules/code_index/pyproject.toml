@@ -13,7 +13,7 @@ dependencies = [
 # hard dependency, for the reason `core` makes `anthropic` and `mcp`
 # extras: the watermark is Postgres and the passages are Qdrant, and the two
 # callers that only need to know which commit was indexed - the push webhook
-# in `argus_web`, and anything else asking whether the index is current -
+# in `web_app`, and anything else asking whether the index is current -
 # would otherwise install an ONNX runtime to write one string in one row.
 #
 # Every caller that searches or builds declares `argus-code_index[store]`, and

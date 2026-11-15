@@ -5,7 +5,7 @@ Argus's own screen - what it saw about an incident, and what it did about it. Se
 ## Requirements
 ### Requirement: Argus has a view of its own reasoning
 
-`argus_web` SHALL serve a server-rendered page showing what Argus did about an incident. It is Argus's screen, not the shop's: the Target Service's console shows the incident from outside, and this shows it from inside.
+`web_app` SHALL serve a server-rendered page showing what Argus did about an incident. It is Argus's screen, not the shop's: the Target Service's console shows the incident from outside, and this shows it from inside.
 
 #### Scenario: Opening an incident
 

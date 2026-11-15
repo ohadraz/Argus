@@ -95,9 +95,9 @@ A record attribute whose name says it holds a secret (containing `token`, `secre
 - **THEN** both the console and `logs.jsonl` show it as `[redacted]`
 
 ### Requirement: The servers' loggers reach the root
-`argus_web` and both MCP servers SHALL run uvicorn without uvicorn's own logging configuration, so that the `uvicorn` and `uvicorn.error` loggers propagate to the root logger and reach `logs.jsonl`.
+`web_app` and both MCP servers SHALL run uvicorn without uvicorn's own logging configuration, so that the `uvicorn` and `uvicorn.error` loggers propagate to the root logger and reach `logs.jsonl`.
 
-#### Scenario: argus_web starts
-- **WHEN** `argus_web` starts serving
+#### Scenario: web_app starts
+- **WHEN** `web_app` starts serving
 - **THEN** uvicorn's startup record is in `argus-web`'s `logs.jsonl`
 
