@@ -12,7 +12,6 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from agent_mitigation import Action, ChangeMade, Outcome, Verdict
 from argus_core.budget import StillWanted
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models import (
@@ -46,6 +45,7 @@ from argus_core.models import (
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from incident_memory.records import RememberedIncident
+from mitigation import Action, ChangeMade, Outcome, Verdict
 from pydantic import BaseModel
 
 
@@ -291,7 +291,7 @@ class Admitted(Protocol):
     A question about the kind, not the instance: what admits an action is
     membership of the closed set of generic mitigations somebody declared and
     defended, and no property of the particular action can put it in or out.
-    The real answer comes from `agent_mitigation`, which holds the set; the gate
+    The real answer comes from `mitigation`, which holds the set; the gate
     names the question as a type so that the one check standing between a
     proposal and production is asked of something a test can replace with an
     answer of no.

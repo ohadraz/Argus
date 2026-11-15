@@ -35,7 +35,7 @@ from argus_core.models import (
 )
 from pydantic import BaseModel
 
-from agent_mitigation.strategies import DEFAULT_STRATEGIES, Strategies
+from mitigation.strategies import DEFAULT_STRATEGIES, Strategies
 
 __all__ = [
     "REVERT_FEATURE_FLAG",

@@ -23,10 +23,6 @@ from os import getpid
 from typing import Final
 
 import psycopg
-from agent_mitigation import (
-    MitigationSettings,
-    an_undo_over,
-)
 from argus_core import (
     Connections,
     DatabaseSettings,
@@ -56,6 +52,10 @@ from argus_incidents import (
 from argus_incidents.repository import incidents, runs, taken_actions
 from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
 from argus_telemetry import start_telemetry
+from mitigation import (
+    MitigationSettings,
+    an_undo_over,
+)
 from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel, ConfigDict

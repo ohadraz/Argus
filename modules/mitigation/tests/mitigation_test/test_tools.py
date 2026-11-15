@@ -14,7 +14,24 @@ from typing import NamedTuple, cast
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
-from agent_mitigation.tools import (
+from argus_core import to_iso
+from argus_core.mcp_transport import McpClient
+from argus_core.models import (
+    AcceleratorPinUndo,
+    Action,
+    ChangeEvent,
+    DeploymentRollbackUndo,
+    DiscardCacheEntries,
+    FlagChange,
+    FlagHistory,
+    PinAutoscaler,
+    PinToAccelerator,
+    RollBackDeployment,
+    RolloutProgress,
+    ScaleOut,
+)
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
+from mitigation.tools import (
     Arrival,
     DeploymentsBetween,
     FlagChangesSince,
@@ -36,25 +53,8 @@ from agent_mitigation.tools import (
     rules_read_over,
     somebody_else_changed_flag_since,
 )
-from argus_core import to_iso
-from argus_core.mcp_transport import McpClient
-from argus_core.models import (
-    AcceleratorPinUndo,
-    Action,
-    ChangeEvent,
-    DeploymentRollbackUndo,
-    DiscardCacheEntries,
-    FlagChange,
-    FlagHistory,
-    PinAutoscaler,
-    PinToAccelerator,
-    RollBackDeployment,
-    RolloutProgress,
-    ScaleOut,
-)
-from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 
-from agent_mitigation_test.framework.builders import (
+from mitigation_test.framework.builders import (
     a_deployment,
     an_action_restarting,
     an_action_setting,
@@ -1286,7 +1286,7 @@ def test_a_provider_that_cannot_say_whether_argus_changed_a_flag_is_logged(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_mitigation.tools", logging.WARNING,
+            one_record_was_logged(caplog, "mitigation.tools", logging.WARNING,
                                   "flag history could not be read",
                                   values={"flag": SOME_FLAG}, failure=ConnectionError)
         )
@@ -1309,7 +1309,7 @@ def test_a_provider_that_cannot_say_whether_anybody_else_changed_a_flag_is_logge
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "agent_mitigation.tools", logging.WARNING,
+            one_record_was_logged(caplog, "mitigation.tools", logging.WARNING,
                                   "flag history could not be read",
                                   values={"flag": SOME_FLAG}, failure=ConnectionError)
         )

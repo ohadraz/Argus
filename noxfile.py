@@ -1566,7 +1566,7 @@ def _a_qdrant_for(module: str) -> dict[str, str]:
 
 # Settings every process in an e2e run shares - the services started here and
 # the pytest process asserting on them. One place, because the two derive
-# different things from the same number: `agent_mitigation` waits this long for
+# different things from the same number: `mitigation` waits this long for
 # the service to recover, and the suite's own timeouts are computed from it. If
 # they disagreed, the suite would either give up before Argus did or wait long
 # after it had.

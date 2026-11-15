@@ -19,13 +19,13 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 import pytest
-from agent_mitigation import flag_changes_over
-from agent_mitigation.tools import MitigationSettings, argus_changed_flag_since, set_flag
 from argus_core import Fence, Holding, WriteMcpEndpoint, connect_from_env, get_settings, utc_now
 from argus_core.mcp_transport import McpClient
 from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
+from mitigation import flag_changes_over
+from mitigation.tools import MitigationSettings, argus_changed_flag_since, set_flag
 from write_mcp_client import write_mcp
 
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG

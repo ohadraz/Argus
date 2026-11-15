@@ -19,9 +19,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from agent_mitigation.accelerators import the_accelerator_to_pin_to
 from argus_core.models import PodPlacement, RecordedPlacement
 from argus_testkit import Assertion, Scenario
+from mitigation.accelerators import the_accelerator_to_pin_to
 
 THE_ONSET = datetime(2026, 10, 7, 21, 41, tzinfo=UTC)
 

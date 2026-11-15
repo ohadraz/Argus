@@ -56,7 +56,7 @@ from argus_core.models import (
     ScaleOut,
 )
 
-from agent_mitigation.accelerators import the_accelerator_to_pin_to
+from mitigation.accelerators import the_accelerator_to_pin_to
 
 __all__ = [
     "DEFAULT_STRATEGIES",

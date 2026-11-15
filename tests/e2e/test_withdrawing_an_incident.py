@@ -38,12 +38,12 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from agent_mitigation import Undone
 from argus_core.events import ActionTaken, ChangeUndone, StatusChanged
 from argus_core.models import IncidentStatus, Report, ReportChannel
 from argus_incidents.repository import events, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from deployment_platform.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
+from mitigation import Undone
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,

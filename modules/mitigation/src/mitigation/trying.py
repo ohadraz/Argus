@@ -61,7 +61,7 @@ from argus_core.models import (
     reports_what_it_changed,
 )
 
-from agent_mitigation.actions import (
+from mitigation.actions import (
     Action,
     Outcome,
     UndoAttempt,
@@ -69,7 +69,7 @@ from agent_mitigation.actions import (
     Verdict,
     state_name,
 )
-from agent_mitigation.tools import (
+from mitigation.tools import (
     Arrival,
     ArrivalFor,
     Clock,

@@ -7,7 +7,6 @@ from collections.abc import Callable
 from datetime import datetime
 from functools import partial
 
-from agent_mitigation import Verdict
 from argus_core import utc_now, was_lost
 from argus_core.events import (
     ActionTaken,
@@ -36,6 +35,7 @@ from argus_core.models import (
     the_subject_of,
 )
 from argus_incidents import IsStillWanted
+from mitigation import Verdict
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_mitigation import propose_action
+from mitigation import propose_action
 
 from orchestrator.walk.candidates import the_circumstances
 from orchestrator.walk.deltas import StateDelta

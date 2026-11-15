@@ -20,7 +20,7 @@ from functools import partial
 
 from argus_core.mcp_transport import McpClient
 
-from agent_mitigation.tools import (
+from mitigation.tools import (
     MitigationSettings,
     accelerator_pin_restorer_over,
     autoscaling_restorer_over,
@@ -30,8 +30,8 @@ from agent_mitigation.tools import (
     flag_setter_over,
     somebody_else_changed_flag_since,
 )
-from agent_mitigation.trying import UndoChange
-from agent_mitigation.undoing import undo_change
+from mitigation.trying import UndoChange
+from mitigation.undoing import undo_change
 
 __all__ = ["an_undo_over"]
 

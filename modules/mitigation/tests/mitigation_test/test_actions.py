@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
-from agent_mitigation import Action, RevertFeatureFlag, propose_action
 from argus_core.models import Circumstances, FailureMode, FlagChange
 from argus_testkit import Assertion, Scenario
+from mitigation import Action, RevertFeatureFlag, propose_action
 
-from agent_mitigation_test.framework.assertions import nothing_was_proposed
-from agent_mitigation_test.framework.builders import (
+from mitigation_test.framework.assertions import nothing_was_proposed
+from mitigation_test.framework.builders import (
     DONT_CARE_FLAG,
     EARLIER_IN_THE_WINDOW,
     LATER_IN_THE_WINDOW,

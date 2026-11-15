@@ -7,30 +7,6 @@ from typing import Any, cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import (
-    Action,
-    ChangeMade,
-    Outcome,
-    UndoAttempt,
-    Undone,
-    Verdict,
-    take_action,
-)
-from agent_mitigation.tools import (
-    AcceleratorPinner,
-    Arrival,
-    AutoscalerPinner,
-    CacheEntryDiscarder,
-    DeploymentRoller,
-    DeploymentScaler,
-    FlagSetter,
-    MetricsFetcher,
-    MitigationSettings,
-    PerformingWrites,
-    RuleReader,
-    ServiceRestarter,
-)
-from agent_mitigation.trying import UndoChange
 from argus_core import RunLost, new_id
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.budget import StillWanted, wanted_throughout
@@ -74,9 +50,33 @@ from argus_testkit import (
     dont_care_sleep,
     one_record_was_logged,
 )
+from mitigation import (
+    Action,
+    ChangeMade,
+    Outcome,
+    UndoAttempt,
+    Undone,
+    Verdict,
+    take_action,
+)
+from mitigation.tools import (
+    AcceleratorPinner,
+    Arrival,
+    AutoscalerPinner,
+    CacheEntryDiscarder,
+    DeploymentRoller,
+    DeploymentScaler,
+    FlagSetter,
+    MetricsFetcher,
+    MitigationSettings,
+    PerformingWrites,
+    RuleReader,
+    ServiceRestarter,
+)
+from mitigation.trying import UndoChange
 
-from agent_mitigation_test.framework.assertions import the_verdict_is
-from agent_mitigation_test.framework.builders import (
+from mitigation_test.framework.assertions import the_verdict_is
+from mitigation_test.framework.builders import (
     ACTION_TIME,
     CALM_MINUTES,
     CALM_RATE,
@@ -5641,7 +5641,7 @@ def _the_rule_was_never_read(read_rule: RuleReader) -> Assertion[Outcome]:
 
 # Where taking an action logs from. The verdict is the Orchestrator's line; these
 # are the things that went wrong on the way to one.
-THE_TRYING = "agent_mitigation.trying"
+THE_TRYING = "mitigation.trying"
 
 
 @pytest.mark.unit

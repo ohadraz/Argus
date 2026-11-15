@@ -20,11 +20,11 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from agent_mitigation import an_undo_over
-from agent_mitigation.tools import MitigationSettings
 from argus_core.mcp_transport import McpClient
 from argus_core.models import AcceleratorPinUndo, DeploymentRollbackUndo
 from argus_testkit import Assertion, Scenario, all_of
+from mitigation import an_undo_over
+from mitigation.tools import MitigationSettings
 
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
 RESTORE_ACCELERATOR_PIN_TOOL = "restore_accelerator_pin"

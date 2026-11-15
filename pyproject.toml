@@ -138,7 +138,6 @@ root_packages = [
     "agent_communicator",
     "agent_intent",
     "agent_investigator",
-    "agent_mitigation",
     "agent_postmortem",
     "argus_core",
     "argus_incidents",
@@ -151,6 +150,7 @@ root_packages = [
     "exchange_rate_source",
     "incident_memory",
     "metrics_source",
+    "mitigation",
     "oncall_source",
     "orchestrator",
     "postmortem_rendering",
@@ -304,7 +304,7 @@ ignore_imports = [
     "orchestrator.** -> argus_core.llm",
     "agent_codefix.** -> argus_core.mcp_transport",
     "agent_investigator.** -> argus_core.mcp_transport",
-    "agent_mitigation.** -> argus_core.mcp_transport",
+    "mitigation.** -> argus_core.mcp_transport",
     "orchestrator.** -> argus_core.mcp_transport",
     "read_mcp_client.** -> argus_core.mcp_transport",
     "write_mcp_client.** -> argus_core.mcp_transport",
@@ -375,8 +375,8 @@ type = "forbidden"
 source_modules = [
     "agent_codefix",
     "agent_investigator",
-    "agent_mitigation",
     "agent_postmortem",
+    "mitigation",
     "orchestrator",
 ]
 forbidden_modules = [
@@ -477,6 +477,6 @@ modules = [
     "agent_communicator",
     "agent_intent",
     "agent_investigator",
-    "agent_mitigation",
     "agent_postmortem",
+    "mitigation",
 ]

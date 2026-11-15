@@ -32,21 +32,6 @@ from agent_investigator import (
 )
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
-from agent_mitigation import (
-    MitigationSettings,
-    an_undo_over,
-    argus_changed_flag_since,
-    deployments_over,
-    fetch_recent_deployments,
-    fetch_recent_flag_changes,
-    flag_changes_over,
-    how_a_change_arrives,
-    is_a_generic_mitigation,
-    performing_writes_over,
-    recent_metrics_over,
-    rules_read_over,
-    take_action,
-)
 from agent_postmortem import judge_policy, postmortem_policy, synopsis_policy
 from argus_core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
@@ -67,6 +52,21 @@ from argus_incidents import (
     waiting_for_people_via,
 )
 from incident_memory.records import RememberedIncident
+from mitigation import (
+    MitigationSettings,
+    an_undo_over,
+    argus_changed_flag_since,
+    deployments_over,
+    fetch_recent_deployments,
+    fetch_recent_flag_changes,
+    flag_changes_over,
+    how_a_change_arrives,
+    is_a_generic_mitigation,
+    performing_writes_over,
+    recent_metrics_over,
+    rules_read_over,
+    take_action,
+)
 from oncall_source import OnCallSettings
 from oncall_source.pagerduty_adapter import pagerduty_from
 

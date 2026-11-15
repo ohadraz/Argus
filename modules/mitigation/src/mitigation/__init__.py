@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from argus_core.budget import StillWanted
 
-from agent_mitigation.actions import (
+from mitigation.actions import (
     REVERT_FEATURE_FLAG,
     Action,
     Outcome,
@@ -36,14 +36,14 @@ from agent_mitigation.actions import (
     Verdict,
     propose_action,
 )
-from agent_mitigation.admitting import (
+from mitigation.admitting import (
     GENERIC_MITIGATIONS,
     AdmittedMitigations,
     is_a_generic_mitigation,
     is_within_reach,
 )
-from agent_mitigation.binding import an_undo_over
-from agent_mitigation.strategies import (
+from mitigation.binding import an_undo_over
+from mitigation.strategies import (
     MitigationStrategy,
     PinToAcceleratorStrategy,
     Reasons,
@@ -54,7 +54,7 @@ from agent_mitigation.strategies import (
     why_no_mitigation_answers,
     why_nothing_was_proposed,
 )
-from agent_mitigation.tools import (
+from mitigation.tools import (
     DeploymentsBetween,
     FlagChangesSince,
     MitigationSettings,
@@ -73,8 +73,8 @@ from agent_mitigation.tools import (
     recent_metrics_over,
     rules_read_over,
 )
-from agent_mitigation.trying import ChangeMade, UndoChange, take_action
-from agent_mitigation.undoing import undo_change
+from mitigation.trying import ChangeMade, UndoChange, take_action
+from mitigation.undoing import undo_change
 
 __all__ = [
     "GENERIC_MITIGATIONS",

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from agent_mitigation import is_within_reach, why_nothing_was_proposed
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -25,6 +24,7 @@ from argus_core.models import (
     the_subject_of,
     why_it_was_refused,
 )
+from mitigation import is_within_reach, why_nothing_was_proposed
 
 from orchestrator.walk.candidates import the_circumstances
 from orchestrator.walk.deltas import Narration, StateDelta

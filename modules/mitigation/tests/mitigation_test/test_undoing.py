@@ -17,19 +17,6 @@ from typing import TypedDict, Unpack
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import (
-    UndoAttempt,
-    Undone,
-    undo_change,
-)
-from agent_mitigation.tools import (
-    AcceleratorPinRestorer,
-    AutoscalingRestorer,
-    CapacityRestorer,
-    ChangedFromOutside,
-    DeploymentRestorer,
-    FlagSetter,
-)
 from argus_core import RunLost
 from argus_core.models import (
     AcceleratorPinRestored,
@@ -52,8 +39,21 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
+from mitigation import (
+    UndoAttempt,
+    Undone,
+    undo_change,
+)
+from mitigation.tools import (
+    AcceleratorPinRestorer,
+    AutoscalingRestorer,
+    CapacityRestorer,
+    ChangedFromOutside,
+    DeploymentRestorer,
+    FlagSetter,
+)
 
-from agent_mitigation_test.framework.builders import (
+from mitigation_test.framework.builders import (
     ACTION_TIME,
     a_capacity_restorer_nobody_calls,
     a_restorer_nobody_calls,
@@ -83,7 +83,7 @@ THE_CARD_IT_WAS_HELD_TO = "Tesla-V100-SXM2-16GB"
 
 
 # Where putting a change back logs from.
-THE_UNDOING = "agent_mitigation.undoing"
+THE_UNDOING = "mitigation.undoing"
 
 # The case lists below hold ways to build what a case is handed rather than the
 # things themselves. A lambda looks its names up when it is called, so the

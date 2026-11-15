@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from agent_mitigation import Action
 from argus_core.models import Outcome, Verdict
 from argus_testkit.assertions import Assertion
+from mitigation import Action
 
 
 def the_verdict_is(verdict: Verdict) -> Assertion[Outcome]:

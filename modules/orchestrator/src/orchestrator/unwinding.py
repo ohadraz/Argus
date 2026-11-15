@@ -5,7 +5,7 @@ stopping honest - a walk halted mid-flight has production in a state it chose
 for a reason that no longer applies, and nobody but Argus knows what that state
 replaced.
 
-The undo itself belongs to `agent_mitigation`, which is where knowing how to put
+The undo itself belongs to `mitigation`, which is where knowing how to put
 a flag back belongs. What lives here is the process: which changes, in what
 order, and where the answers are written down - none of which an agent can
 decide, because all three need the records and the single writer that holds
@@ -18,7 +18,6 @@ import logging
 from collections.abc import Callable
 from typing import Protocol
 
-from agent_mitigation import UndoAttempt
 from argus_core import Connections
 from argus_core.events import ChangeUndone
 from argus_core.models import (
@@ -32,6 +31,7 @@ from argus_core.models import (
 )
 from argus_incidents import PublisherFor, events_into_connection, publish_beside
 from argus_incidents.repository import taken_actions
+from mitigation import UndoAttempt
 
 logger = logging.getLogger(__name__)
 

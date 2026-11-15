@@ -12,19 +12,6 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from agent_mitigation import (
-    Action,
-    MitigationStrategy,
-    PinToAcceleratorStrategy,
-    RestartDependencyStrategy,
-    RestartServiceStrategy,
-    ScaleOutStrategy,
-    Strategies,
-    propose_action,
-    why_no_mitigation_answers,
-    why_nothing_was_proposed,
-)
-from agent_mitigation.strategies import DEFAULT_STRATEGIES, NO_MITIGATION_BECAUSE
 from argus_core.events import a_changed_file_line
 from argus_core.models import (
     PIN_TO_ACCELERATOR,
@@ -49,9 +36,22 @@ from argus_core.models import (
     ScaleOut,
 )
 from argus_testkit import Assertion, Scenario
+from mitigation import (
+    Action,
+    MitigationStrategy,
+    PinToAcceleratorStrategy,
+    RestartDependencyStrategy,
+    RestartServiceStrategy,
+    ScaleOutStrategy,
+    Strategies,
+    propose_action,
+    why_no_mitigation_answers,
+    why_nothing_was_proposed,
+)
+from mitigation.strategies import DEFAULT_STRATEGIES, NO_MITIGATION_BECAUSE
 
-from agent_mitigation_test.framework.assertions import nothing_was_proposed
-from agent_mitigation_test.framework.builders import (
+from mitigation_test.framework.assertions import nothing_was_proposed
+from mitigation_test.framework.builders import (
     DONT_CARE_FLAG,
     a_deployment,
     a_hypothesis_blaming,

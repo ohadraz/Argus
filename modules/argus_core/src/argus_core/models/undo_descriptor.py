@@ -20,7 +20,7 @@ PIN_TO_ACCELERATOR_TOOL: Final = "pin_to_accelerator"
 class FlagUndo(BaseModel):
     """The record of one change, in the shape that puts it back (spec §7.3, §13).
 
-    Here rather than in `agent_mitigation` for the reason `Action` is here: it
+    Here rather than in `mitigation` for the reason `Action` is here: it
     crosses every boundary the change itself does. The write tier returns one,
     the Orchestrator's gate requires one before anything mutating is called, the
     `action` table stores it, and a withdrawal reads it back hours later to undo

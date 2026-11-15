@@ -9,11 +9,11 @@ the change it made trying to fix the incident.
 from __future__ import annotations
 
 import pytest
-from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
 from argus_core.models import ChangeEvent, FlagChange
 from argus_testkit import Assertion, Scenario
+from mitigation.attribution import change_by_actor_to, changes_not_made_by
 
-from agent_mitigation_test.framework.builders import a_deployment
+from mitigation_test.framework.builders import a_deployment
 
 AN_ACTOR = "Argus"
 A_HUMAN = "admin"

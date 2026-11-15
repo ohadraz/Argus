@@ -1494,7 +1494,7 @@ Telemetry and the replay log (§11.1) answer different questions and hold differ
 
 A `uv` workspace covers `modules/*` (§20.2): the Orchestrator, Web Application, each sub-agent package, each MCP server, the Backoffice, and `argus_core` are each their own installable Python package with its own `pyproject.toml`, independently versioned. A root workspace `pyproject.toml` (`[tool.uv.workspace]`, members = `modules/*`) ties these together for local dev (`uv sync` installs everything editable) without forcing a shared version or deploy lifecycle; `uv`'s lockfile covers the whole workspace.
 
-Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each `agent_*` package, and each MCP *client* package have no deployment image; they're installed as dependencies into the two processes that run them - the Web Application, which reaches only the Orchestrator's intake, and the worker, which walks the graph and so is the only process the agents run inside (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
+Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each agent's package, and each MCP *client* package have no deployment image; they're installed as dependencies into the two processes that run them - the Web Application, which reaches only the Orchestrator's intake, and the worker, which walks the graph and so is the only process the agents run inside (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
 
 The benchmark harness sits outside the workspace entirely: its own `pyproject.toml`, not deployed as a service (§19) - a script/CLI run against an already-deployed Argus stack (§21.4), consuming `argus_core` schemas as a regular dependency.
 
@@ -1537,7 +1537,7 @@ argus/
 │   ├── chat_platform/               # the chat platform's port and its one adapter (Slack): deliveries, signatures, names
 │   ├── argus_web/                   # HTTP surface: alert, push, on-call and chat webhooks, incident view, config API
 │   ├── agent_investigator/
-│   ├── agent_mitigation/
+│   ├── mitigation/                  # what to do about a cause, doing it, and putting a recorded change back
 │   ├── agent_codefix/
 │   ├── agent_communicator/          # the relay over the event log, its delivery policy and destination adapters
 │   ├── agent_intent/                # what people write in an incident's thread: one reading each, and the offer to resolve

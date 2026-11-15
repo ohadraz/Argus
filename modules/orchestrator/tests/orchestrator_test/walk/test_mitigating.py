@@ -22,7 +22,6 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import ChangeMade
 from argus_core import RunLost
 from argus_core.events import (
     ActionTaken,
@@ -69,6 +68,7 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
+from mitigation import ChangeMade
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation

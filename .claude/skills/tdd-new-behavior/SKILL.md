@@ -5,7 +5,7 @@ description: Use when adding new behavior to any module under TDD. Claude propos
 
 Given a described behavior to add:
 
-1. Identify the exact test file it belongs in (e.g., `modules/agent-mitigation/tests/test_agent.py`).
+1. Identify the exact test file it belongs in (e.g., `modules/mitigation/tests/mitigation_test/test_trying.py`).
 2. Print the proposed test function as a code block in chat, using the project's
    pytest marker conventions (`unit` / `integration` / `e2e` / `contract`) and
    existing naming style in that module - including the variable-naming prefixes

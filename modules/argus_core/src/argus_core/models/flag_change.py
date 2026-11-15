@@ -34,7 +34,7 @@ class FlagChange(BaseModel):
     occurred_at: str
     # Who the provider attributes the change to. Absent when it does not say.
     # Load-bearing: Argus writes under a credential of its own, so this is what
-    # tells its own revert from a human's - see `agent_mitigation.attribution`,
+    # tells its own revert from a human's - see `mitigation.attribution`,
     # which is what stops Argus offering its own action as a candidate cause.
     actor: str | None = None
 

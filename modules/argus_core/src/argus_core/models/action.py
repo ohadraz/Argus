@@ -129,7 +129,7 @@ _THE_SPELLINGS_OF_A_VERDICT: Final = frozenset(verdict.value for verdict in Verd
 class RevertFeatureFlag(BaseModel):
     """Reverting one feature flag to where it was (spec §7.3, §13).
 
-    Here rather than in `agent_mitigation` for the same reason `Hypothesis` is
+    Here rather than in `mitigation` for the same reason `Hypothesis` is
     here: it crosses agent boundaries. Mitigation proposes one, the
     Orchestrator's gate node inspects it, the graph's state carries it between
     the two, and the `action` table stores what became of it - so it belongs to

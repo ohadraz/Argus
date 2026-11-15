@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from agent_mitigation import propose_action
 from argus_core import parse_iso
 from argus_core.models import (
     Alert,
@@ -32,6 +31,7 @@ from argus_core.models import (
     the_identity_of,
     the_platform_of,
 )
+from mitigation import propose_action
 
 
 def the_circumstances(alert: Alert,

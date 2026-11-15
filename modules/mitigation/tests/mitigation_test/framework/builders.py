@@ -5,25 +5,6 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from unittest.mock import MagicMock, create_autospec
 
-from agent_mitigation import Action, Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
-from agent_mitigation.tools import (
-    AcceleratorPinner,
-    AcceleratorPinRestorer,
-    AutoscalerPinner,
-    AutoscalingRestorer,
-    CacheEntryDiscarder,
-    CapacityRestorer,
-    ChangedFromOutside,
-    DeploymentRestorer,
-    DeploymentRoller,
-    DeploymentScaler,
-    FlagSetter,
-    MetricsFetcher,
-    PerformingWrites,
-    ServiceRestarter,
-)
-from agent_mitigation.trying import UndoChange
-from agent_mitigation.undoing import undo_change
 from argus_core import to_iso_minute
 from argus_core.models import (
     CacheEntriesDiscarded,
@@ -39,6 +20,25 @@ from argus_core.models import (
     UndoDescriptor,
     Undone,
 )
+from mitigation import Action, Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
+from mitigation.tools import (
+    AcceleratorPinner,
+    AcceleratorPinRestorer,
+    AutoscalerPinner,
+    AutoscalingRestorer,
+    CacheEntryDiscarder,
+    CapacityRestorer,
+    ChangedFromOutside,
+    DeploymentRestorer,
+    DeploymentRoller,
+    DeploymentScaler,
+    FlagSetter,
+    MetricsFetcher,
+    PerformingWrites,
+    ServiceRestarter,
+)
+from mitigation.trying import UndoChange
+from mitigation.undoing import undo_change
 
 DONT_CARE_FLAG = "dont-care-flag"
 DONT_CARE_INCIDENT_ID = "3f0c6a8e-6f1e-4a9a-8c3d-2b7f9d1e5a44"

@@ -58,7 +58,7 @@ from write_mcp_client import (
     set_feature_flag,
 )
 
-from agent_mitigation.attribution import change_by_actor_to, changes_not_made_by
+from mitigation.attribution import change_by_actor_to, changes_not_made_by
 
 logger = logging.getLogger(__name__)
 

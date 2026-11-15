@@ -26,12 +26,6 @@ leaves behind is a controller held still rather than a value changed.
 from __future__ import annotations
 
 import pytest
-from agent_mitigation import (
-    GENERIC_MITIGATIONS,
-    AdmittedMitigations,
-    is_a_generic_mitigation,
-    is_within_reach,
-)
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
@@ -51,8 +45,14 @@ from argus_core.models import (
     ServiceDependency,
 )
 from argus_testkit import Assertion, Scenario
+from mitigation import (
+    GENERIC_MITIGATIONS,
+    AdmittedMitigations,
+    is_a_generic_mitigation,
+    is_within_reach,
+)
 
-from agent_mitigation_test.framework.builders import DONT_CARE_FLAG, an_action_setting
+from mitigation_test.framework.builders import DONT_CARE_FLAG, an_action_setting
 
 
 @pytest.mark.unit
