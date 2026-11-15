@@ -30,7 +30,7 @@ from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
-import agent_investigator
+import investigation_agent
 import pytest
 from argus_core import to_iso
 from argus_core.events import (
@@ -2332,7 +2332,7 @@ def _the_investigation_was_stopped(investigate: MagicMock,
     least one - the point of the cases below is that this node does nothing
     with them.
     """
-    investigate.return_value = agent_investigator.Findings(
+    investigate.return_value = investigation_agent.Findings(
         candidates=list(candidates), already_read=[], stopped=True
     )
 
@@ -2451,7 +2451,7 @@ def _the_investigation_disproved_the_alarm(investigate: MagicMock,
     least one - the point of the cases below is that this node does nothing
     with them.
     """
-    investigate.return_value = agent_investigator.Findings(
+    investigate.return_value = investigation_agent.Findings(
         candidates=list(candidates), already_read=[], disproof=A_DISPROOF
     )
 
@@ -2459,14 +2459,14 @@ def _the_investigation_disproved_the_alarm(investigate: MagicMock,
 def _the_investigation_weighed(investigate: MagicMock,
                                weighed: list[ThreadMessage],
                                *candidates: Hypothesis) -> None:
-    investigate.return_value = agent_investigator.Findings(
+    investigate.return_value = investigation_agent.Findings(
         candidates=list(candidates), already_read=[], leads_weighed=weighed
     )
 
 
 def _the_investigation_returned(investigate: MagicMock,
                                 *candidates: Hypothesis) -> None:
-    investigate.return_value = agent_investigator.Findings(
+    investigate.return_value = investigation_agent.Findings(
         candidates=list(candidates), already_read=[]
     )
 
@@ -2474,7 +2474,7 @@ def _the_investigation_returned(investigate: MagicMock,
 def _the_investigation_recorded_the_placement(investigate: MagicMock,
                                               placement: RecordedPlacement,
                                               *candidates: Hypothesis) -> None:
-    investigate.return_value = agent_investigator.Findings(
+    investigate.return_value = investigation_agent.Findings(
         candidates=list(candidates), already_read=[], placement=placement
     )
 
@@ -2483,7 +2483,7 @@ def _the_investigation_read_what_deployments_changed(
         investigate: MagicMock,
         deployment_changes: dict[str, DeploymentChanges],
         *candidates: Hypothesis) -> None:
-    investigate.return_value = agent_investigator.Findings(
+    investigate.return_value = investigation_agent.Findings(
         candidates=list(candidates), already_read=[], deployment_changes=deployment_changes
     )
 
@@ -2519,7 +2519,7 @@ def _the_investigation_found_the_incident_unread(investigate: MagicMock,
     the saying reaches the gate, which is where the fact is finally asked a
     question.
     """
-    investigate.return_value = agent_investigator.Findings(
+    investigate.return_value = investigation_agent.Findings(
         candidates=list(candidates),
         already_read=[],
         readings_cover_the_incident=False

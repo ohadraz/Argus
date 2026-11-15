@@ -1,0 +1,537 @@
+"""The channel that says what a deployment changed.
+
+The fifth, and the second that is not a window over time. What a deployment
+changed is a fact about one commit, so there is nothing to date, nothing to
+widen, and no reading to record - but unlike the register it does take an
+argument, because which deployment is being asked about is the model's to name
+and there is more than one.
+
+It is the one channel that composes with another. The change channel says a
+deployment happened and gives its revision; this says what was in it. A model
+holding the first answer has everything it needs to ask the second, which is why
+the revision is the only argument and why its description names the channel it
+comes from.
+
+Its silence is not evidence, so it reports rather than raises. A repository that
+could not be compared supports no conclusion about the deployment either way -
+where the change channel raises because "nothing changed in this window" is a
+conclusion something acts on, and a source never read must not arrive looking
+like one read and found empty. Here the model is told, and can answer at a lower
+confidence or say which distinction it could not make.
+
+What came back goes on the account, as it was read. The write-up says what a
+deployment changed and which deploy carried a change, and the transcript the
+model read is not something it holds.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import create_autospec
+
+import pytest
+from argus_core import new_id
+from argus_core.events import DeploymentChangesRead, IncidentEvent, Narrator
+from argus_core.mcp_transport import McpToolError
+from argus_core.models import DeploymentChanges, DeploymentComparison, ToolCall
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from investigation_agent.retrieval import DeploymentDiffFetcher
+from investigation_agent.tools.deployments import (
+    DEPLOYMENT_DIFF_TOOL,
+    REVISION_ARG,
+    read_what_a_deployment_changed,
+)
+from investigation_agent.tools.results import DeploymentRead
+
+SOME_SERVICE = "io-shop"
+
+THE_REVISION_DEPLOYED = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
+THE_REVISION_DEPLOYED_BEFORE = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
+
+THE_CONFIGURATION_FILE = "deploy/values-production.yaml"
+
+WHAT_THE_READ_TIER_SAID = [
+    f"Deployment of revision {THE_REVISION_DEPLOYED} to {SOME_SERVICE}, compared "
+    f"against {THE_REVISION_DEPLOYED_BEFORE} - the revision deployed before it.",
+    f"modified {THE_CONFIGURATION_FILE}",
+    "  -  port: 6379",
+    "  +  port: 6380"
+]
+
+# Reaches nobody, for every case not about what is published.
+DONT_CARE_NARRATOR = Narrator(new_id())
+
+
+@pytest.mark.unit
+def test_the_answer_carries_what_the_deployment_changed() -> None:
+    # Every line of it, unedited. What separates a bad deployment from a broken
+    # configuration is inside the diff, and a channel that summarised it would be
+    # deciding the distinction on the model's behalf.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            )
+        ) \
+        .then(all_of(
+            _the_answer_mentions(THE_CONFIGURATION_FILE),
+            _the_answer_mentions("port: 6380"),
+            _it_was_served()
+        ))
+
+
+@pytest.mark.unit
+def test_the_deployment_asked_about_is_the_one_the_model_named() -> None:
+    # The revision comes out of the call rather than out of anything the loop
+    # holds. There is one incident and one service, and there are as many
+    # deployments as the history holds - so this is the one channel where the
+    # subject is the model's to choose and getting it from elsewhere would answer
+    # about a deployment nobody asked about.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            )
+        ) \
+        .then(_the_deployment_asked_about_was(
+            the_read_tier, SOME_SERVICE, THE_REVISION_DEPLOYED
+        ))
+
+
+@pytest.mark.unit
+def test_the_model_is_shown_the_lines_and_nothing_else() -> None:
+    # Whether they list every file is the write-up's to use, never a line the
+    # model reads: what it is shown of a deploy is what it always was.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            ).result.content
+        ) \
+        .then(the_answer_was("\n".join(WHAT_THE_READ_TIER_SAID)))
+
+
+@pytest.mark.unit
+def test_what_the_deployment_changed_is_handed_back_under_the_revision_named() -> None:
+    # The walk decides from it: a candidate blaming a file is answered by the
+    # deploy whose diff names that file. So it goes back as a value - what is
+    # published is an account, and an account is read by nothing that decides.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            ).deployment_read
+        ) \
+        .then(the_answer_was(DeploymentRead(
+            revision=THE_REVISION_DEPLOYED,
+            changes=DeploymentChanges(said=WHAT_THE_READ_TIER_SAID, lists_every_file=True)
+        )))
+
+
+@pytest.mark.unit
+def test_a_repository_that_could_not_be_read_hands_back_nothing_read() -> None:
+    # A comparison nobody could make is not a diff, and handed back as one it
+    # would read as a deploy that changed nothing.
+    the_read_tier = a_repository_that_could_not_be_compared()
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            ).deployment_read
+        ) \
+        .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_a_call_naming_no_revision_is_refused_with_the_reason() -> None:
+    # A strict schema requires it, so this is not the ordinary case - but a
+    # refusal the model can act on costs one turn, where reading the history for
+    # a revision of `None` costs a request and answers about nothing.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                ToolCall(id="call-1", name=DEPLOYMENT_DIFF_TOOL, arguments={}),
+                SOME_SERVICE,
+                the_read_tier,
+                DONT_CARE_NARRATOR
+            )
+        ) \
+        .then(all_of(
+            _it_was_not_served(),
+            _the_answer_mentions(REVISION_ARG),
+            _nothing_was_asked_of(the_read_tier)
+        ))
+
+
+@pytest.mark.unit
+def test_a_repository_that_could_not_be_read_is_reported_rather_than_ending_the_walk()\
+        -> None:
+    # The change channel raises when it cannot be read, because "nothing changed"
+    # is a conclusion something acts on. This is the other case: a comparison
+    # nobody could make supports no conclusion about the deployment at all, and
+    # the model can still answer - at a lower confidence, or by naming the
+    # distinction it could not draw. Ending the investigation over it would throw
+    # away everything already retrieved to avoid a gap the model can report.
+    the_read_tier = a_repository_that_could_not_be_compared()
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            )
+        ) \
+        .then(all_of(
+            _it_was_not_served(),
+            _the_answer_mentions(THE_REVISION_DEPLOYED)
+        ))
+
+
+@pytest.mark.unit
+def test_a_deployment_the_read_tier_had_nothing_to_say_about_is_still_answered()\
+        -> None:
+    # An answer of no lines at all, which the read tier does not produce and
+    # which must not reach a model as empty text: empty reads exactly like a tool
+    # that failed to say anything, and the model's next move for the two differs.
+    the_read_tier = a_deployment_that_changed([])
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            )
+        ) \
+        .then(_the_answer_is_not_empty())
+
+
+@pytest.mark.unit
+def test_the_channel_records_no_reading() -> None:
+    # A reading says which minutes are already in front of the model, and there
+    # are no minutes here. One recorded for this would put a windowed retrieval in
+    # the record for a question that has no window, and `channels_unread` would
+    # begin reporting a channel that cannot be unread in the sense the others are.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            )
+        ) \
+        .then(_nothing_was_recorded_as_read())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lists_every_file", [True, False], ids=["whole", "short"])
+def test_what_the_deployment_changed_is_published_as_it_was_read(
+        lists_every_file: bool) -> None:
+    # Under the revision the model named, every line unedited: the write-up
+    # names the deploy that carried a change by what its own diff shows, and a
+    # summary of the diff would leave it nothing to find that in. And whether
+    # the lines list every file, which the model is not shown and the write-up
+    # needs - where they do, a file they leave out is as it was before.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID,
+                                              lists_every_file=lists_every_file)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_what_was_read_was_published(
+            published, THE_REVISION_DEPLOYED, WHAT_THE_READ_TIER_SAID, lists_every_file
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("comparison", list(DeploymentComparison))
+def test_what_the_deployment_changed_is_published_with_whether_it_was_compared(
+        comparison: DeploymentComparison) -> None:
+    # Only a comparison is a diff. An answer that there was nothing to compare
+    # is still what the model was told, and every other reader says it in its
+    # own words - of the service whose history was read.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID, comparison=comparison)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_published_as(published, comparison, SOME_SERVICE))
+
+
+@pytest.mark.unit
+def test_a_call_naming_no_revision_publishes_nothing_read() -> None:
+    # What is published is what was read about a deployment, and a refusal is
+    # nothing read about any.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                ToolCall(id="call-1", name=DEPLOYMENT_DIFF_TOOL, arguments={}),
+                SOME_SERVICE,
+                the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_nothing_read_was_published(published))
+
+
+@pytest.mark.unit
+def test_a_repository_that_could_not_be_read_publishes_nothing_read() -> None:
+    # A comparison nobody could make, published as a read, would be a diff of
+    # nothing that the write-up then finds no change in.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_repository_that_could_not_be_compared()
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_nothing_read_was_published(published))
+
+
+@pytest.mark.unit
+def test_a_deployment_the_read_tier_had_nothing_to_say_about_publishes_nothing_read()\
+        -> None:
+    # The read tier does not answer with nothing, and an answer of nothing is
+    # not a diff - the model is told it is unread rather than empty, and the
+    # account is told the same by being told nothing.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed([])
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_nothing_read_was_published(published))
+
+
+def a_call_about(revision: str) -> ToolCall:
+    return ToolCall(
+        id="call-1",
+        name=DEPLOYMENT_DIFF_TOOL,
+        arguments={REVISION_ARG: revision}
+    )
+
+
+def a_deployment_that_changed(lines: list[str], lists_every_file: bool = True,
+                              comparison: DeploymentComparison = DeploymentComparison.COMPARED
+                              ) -> Any:
+    the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
+    the_read_tier.return_value = DeploymentChanges(said=lines,
+                                                   lists_every_file=lists_every_file,
+                                                   comparison=comparison)
+
+    return the_read_tier
+
+
+def a_repository_that_could_not_be_compared() -> Any:
+    the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
+    the_read_tier.side_effect = McpToolError("the repository could not be compared")
+
+    return the_read_tier
+
+
+def _the_answer_mentions(expected: str) -> Assertion[Any]:
+    def assertion(answer: Any) -> bool:
+        if expected not in answer.result.content:
+            raise AssertionError(
+                f"Expected the answer to mention [{expected}], and what the "
+                f"model is shown is: {answer.result.content}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_answer_is_not_empty() -> Assertion[Any]:
+    def assertion(answer: Any) -> bool:
+        if not answer.result.content.strip():
+            raise AssertionError(
+                "The channel answered with empty text, which reads to a model "
+                "exactly like a tool that failed to say anything."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_served() -> Assertion[Any]:
+    def assertion(answer: Any) -> bool:
+        if answer.result.failed:
+            raise AssertionError(
+                f"Expected the call to be served as evidence, and it came back "
+                f"marked failed: {answer.result.content}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_not_served() -> Assertion[Any]:
+    def assertion(answer: Any) -> bool:
+        if not answer.result.failed:
+            raise AssertionError(
+                "A comparison that could not be made was served as evidence "
+                "about the incident, so the model cannot tell a deployment it "
+                "has been told about from one nobody could read."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_recorded_as_read() -> Assertion[Any]:
+    def assertion(answer: Any) -> bool:
+        if answer.reading is not None:
+            raise AssertionError(
+                f"Expected no reading for a channel with no window, and one was "
+                f"recorded: {answer.reading}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_read_was_published(published: list[IncidentEvent],
+                                 revision: str,
+                                 said: list[str],
+                                 lists_every_file: bool) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        read = [(event.revision, event.said, event.lists_every_file) for event in published
+                if isinstance(event, DeploymentChangesRead)]
+
+        if read != [(revision, said, lists_every_file)]:
+            raise AssertionError(
+                f"Expected one read of what [{revision}] changed, published with "
+                f"every line the read tier said and that they "
+                f"{'do' if lists_every_file else 'do not'} list every file, and what "
+                f"was published is {read}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_read_was_published(published: list[IncidentEvent]) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        read = [event for event in published if isinstance(event, DeploymentChangesRead)]
+
+        if read:
+            raise AssertionError(
+                f"Expected nothing published as read about a deployment nobody "
+                f"was told about, and {read} was."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_deployment_asked_about_was(the_read_tier: Any,
+                                   service: str,
+                                   revision: str) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        asked = the_read_tier.call_args_list
+
+        if not asked:
+            raise AssertionError(
+                f"Expected the read tier to be asked about [{revision}], and it "
+                f"was not asked anything."
+            )
+
+        about = asked[0].args + tuple(asked[0].kwargs.values())
+
+        if about[:2] != (service, revision):
+            raise AssertionError(
+                f"Expected the read tier to be asked about [{service}] at "
+                f"[{revision}], and it was asked about {about}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_asked_of(the_read_tier: Any) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        if the_read_tier.call_args_list:
+            raise AssertionError(
+                f"Expected a call with no revision to cost no retrieval, and "
+                f"{the_read_tier.call_args_list} was asked for."
+            )
+
+        return True
+
+    return assertion
+
+
+def _published_as(published: list[IncidentEvent],
+                  comparison: DeploymentComparison,
+                  service: str) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        read = [(event.comparison, event.service) for event in published
+                if isinstance(event, DeploymentChangesRead)]
+
+        if read != [(comparison, service)]:
+            raise AssertionError(
+                f"Expected one read published as [{comparison}] of [{service}], and what "
+                f"was published is {read}."
+            )
+
+        return True
+
+    return assertion

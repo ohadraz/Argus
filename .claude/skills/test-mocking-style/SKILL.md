@@ -4,7 +4,7 @@ description: Use when writing or reviewing test doubles/mocks anywhere in this w
 ---
 
 **Injection seam: default-argument parameter, not a class.** Match the
-`agent_investigator.investigate()`/`fetch_logs` pattern - a dependency becomes a
+`investigation_agent.investigate()`/`fetch_logs` pattern - a dependency becomes a
 parameter with a real default (`def some_node(state, collaborator: Collaborator =
 _real_collaborator) -> ...`). Only reach for a class (`__init__` holding the
 dependencies, `__call__` doing the work) when there are 2+ related collaborators

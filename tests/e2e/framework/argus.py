@@ -22,10 +22,6 @@ from typing import Any, Final
 import httpx2
 import psycopg
 from agent_codefix.prompting import FILES_FIELD, SUBMIT_FIX
-from agent_investigator.tools.answer import ANSWER_TOOL
-from agent_investigator.tools.changes import CHANGES_TOOL
-from agent_investigator.tools.logs import LOGS_TOOL
-from agent_investigator.tools.metrics import METRICS_TOOL
 from anthropic_double.clock import instants_in, moved_in
 from anthropic_double.recordings import RECORDINGS_DIR, load, load_arrival
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
@@ -49,6 +45,10 @@ from argus_incidents.repository import (
 )
 from argus_incidents.repository.runs import RunState
 from argus_testkit import Assertion, all_of
+from investigation_agent.tools.answer import ANSWER_TOOL
+from investigation_agent.tools.changes import CHANGES_TOOL
+from investigation_agent.tools.logs import LOGS_TOOL
+from investigation_agent.tools.metrics import METRICS_TOOL
 from postmortem_writing.grounding import JUDGE_TOOL_NAME
 from postmortem_writing.prompting import SUBMIT_TOOL_NAME
 

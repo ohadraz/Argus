@@ -20,18 +20,6 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from agent_codefix import FixSettings, fixes_over
-from agent_investigator import (
-    changes_over,
-    dependencies_over,
-    deployment_diffs_over,
-    logs_over,
-    metrics_over,
-    placements_over,
-    read_tier_tools_over,
-    rollouts_over,
-)
-from agent_investigator import investigate as _investigate
-from agent_investigator.budget import InvestigationSettings
 from argus_core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
@@ -51,6 +39,18 @@ from argus_incidents import (
     waiting_for_people_via,
 )
 from incident_memory.records import RememberedIncident
+from investigation_agent import (
+    changes_over,
+    dependencies_over,
+    deployment_diffs_over,
+    logs_over,
+    metrics_over,
+    placements_over,
+    read_tier_tools_over,
+    rollouts_over,
+)
+from investigation_agent import investigate as _investigate
+from investigation_agent.budget import InvestigationSettings
 from mitigation import (
     MitigationSettings,
     an_undo_over,

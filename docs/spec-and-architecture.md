@@ -51,7 +51,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 
 ## 4. Design Principles
 
-1. **State lives in structured data, not an LLM's context.** Incident state, hypotheses, and actions are DB rows, never a reconstructed chat log. Agents read this state and propose changes; the Orchestrator is the sole writer (§7.1).
+1. **State lives in structured data, not an LLM's context.** Incident state, hypotheses, and actions are DB rows, never a reconstructed chat log. The delegates read this state and propose changes; the Orchestrator is the sole writer (§7.1).
 2. **Every mutating action is tiered before it's taken.** The tier (read-only / generic mitigation / outside the declared set / escalate) is checked by the Orchestrator before dispatch - never left to agent convention. What admits an action is membership of a declared set, not whether it can be undone (§13).
 3. **Agents are stateless function callers**: a prompt + scoped tools + an LLM call, invoked by the Orchestrator with the relevant incident-state slice. No agent holds its own memory.
 4. **Every external integration is a port with a swappable adapter.** Where a standard exists, the adapter implements it; otherwise Argus defines its own minimal interface and ships one adapter for the demo.
@@ -62,7 +62,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 
 ## 5. Terminology
 
-- **Argus** - the system itself: the Web Application (`argus_web`, its only HTTP surface, §7.9), the Orchestrator, sub-agents, the incident view `argus_web` serves, the Backoffice, and the tool servers connecting them to the outside world.
+- **Argus** - the system itself: the Web Application (`argus_web`, its only HTTP surface, §7.9), the Orchestrator and the parts it delegates to, the incident view `argus_web` serves, the Backoffice, and the tool servers connecting them to the outside world.
 - **Target Service** - the app Argus watches: a real, small, runnable app in its own repo (`argus-target-service`), with real feature-flag checkpoints and a real test suite.
 - **Target Environment** - everything the Target Service is wired to for a given deployment: flag backend, metrics backend, deployed-commit state. Self-hosted instances for the demo; nothing about Argus changes if these are swapped for real infra later (§12).
 - **Scenario control** - a Target Service module that seeds a known incident cause (or none) and reactively decides whether the anomaly is resolved, used by both a demo UI and the benchmark harness (§15.2).
@@ -88,7 +88,7 @@ flowchart LR
     subgraph Argus["Argus"]
         WEB[argus_web]
         ORCH[Orchestrator - LangGraph]
-        AGENTS[Sub-agents]
+        AGENTS[Delegates - two agents among them]
         MCPS[MCP tool servers]
         RELAY[Relay - follows the event log]
         INTENT[Intent Reader - understands what people write]
@@ -124,7 +124,7 @@ flowchart LR
     BO -.->|writes secrets| VAULT
 ```
 
-**Backend:** `argus_web` as the single HTTP entrypoint (§7.9), the Orchestrator + sub-agents (in-process), Postgres for incident state, Qdrant for long-term memory (§11.2) and the repository index (§11.5), and the Target Environment (flags, metrics, logs).
+**Backend:** `argus_web` as the single HTTP entrypoint (§7.9), the Orchestrator + its delegates (in-process), Postgres for incident state, Qdrant for long-term memory (§11.2) and the repository index (§11.5), and the Target Environment (flags, metrics, logs).
 
 **Frontend:** the incident view the Web Application serves (§7.7) plus a separate Backoffice admin surface (§7.8, §14) - neither reaches Postgres or Qdrant with SQL of its own.
 
@@ -132,7 +132,7 @@ flowchart LR
 
 ### 7.1 Orchestrator
 
-A **LangGraph `StateGraph`** whose nodes are the sub-agents below; typed state (`IncidentState`, Pydantic) mirrors the Postgres schema (§11.1). Edges are conditional functions implementing the incident FSM (§10) - the graph defines legal transitions, the LLM picks among them. LangGraph's Postgres checkpointing gives incident-level durability for free: on restart it resumes from the last checkpoint.
+A **LangGraph `StateGraph`** whose nodes are the delegates below; typed state (`IncidentState`, Pydantic) mirrors the Postgres schema (§11.1). Edges are conditional functions implementing the incident FSM (§10) - the graph defines legal transitions, the LLM picks among them. LangGraph's Postgres checkpointing gives incident-level durability for free: on restart it resumes from the last checkpoint.
 
 No HTTP surface of its own. `argus_web` (§7.9) calls its intake in-process after validating the webhook, and that call creates the incident and queues its walk; the graph itself is invoked by a **worker process**, which takes queued runs one at a time. An investigation therefore outlives the request that announced it - it survives the caller hanging up, and it survives `argus_web` restarting - which is what makes the checkpointing above worth having: a run whose worker stopped is claimed by the next one and continues from the state already recorded, rather than beginning again.
 
@@ -146,7 +146,7 @@ Responsibilities:
 - Run the tier-gate node (§13) before any mutating tool call reaches an MCP server.
 - Own the escalation decision (the round budget, and whether the investigation named anything left to try).
 - Fix the order candidates are tried in, from what long-term memory says was tried on incidents like this one (§11.2).
-- Sole writer of all incident-domain Postgres state (`Incident.status`, `HYPOTHESIS`, `ACTION`, §11.1) - agents propose changes, the Orchestrator persists them, pairing every state mutation with the `INCIDENT_EVENT` that accounts for it, written on the same connection (§10, §11.1).
+- Sole writer of all incident-domain Postgres state (`Incident.status`, `HYPOTHESIS`, `ACTION`, §11.1) - delegates propose changes, the Orchestrator persists them, pairing every state mutation with the `INCIDENT_EVENT` that accounts for it, written on the same connection (§10, §11.1).
 
 ### 7.2 Investigator agent
 
@@ -252,7 +252,7 @@ It answers by calling `submit_postmortem`, never in prose, so a document is a st
 
 The review holds Google's five criteria. Three are checked by code against the document as written: key incident data collected (a timeline, and evidence cited at every step of the chain), impact assessed (a loss figure, and a recovery the metrics showed or a person reported), and the root-cause analysis complete (more than one step, nothing left wrong with the answer, a cause an action confirmed, and the answer's own word that its chain reaches a cause beyond the change that set the incident off). The other two - every action item owned and dated, and the document reviewed and shared - are things people do after it is written, and are recorded as left for a person rather than as failed: a box that is always unticked teaches its reader to stop looking at the boxes.
 
-The document has two forms - its page, and a PDF a reader keeps, forwards and attaches - and one wording. A module of its own works out every word a reader is told from the stored document and the incident's record, joining words, labels and the sentence said in place of anything absent included, as lines of pieces each marked with the part it plays; the page and the PDF decide only what each part looks like, so they cannot come to say different things. It lives apart from the Postmortem Writer because the page is served by a process that installs no agent. Every amount is stored at the precision it was computed to and shown to the cent with its thousands grouped; every duration is shown to the second; every time is said in UTC, and the page says it again on the reader's own clock, which a file has no reader to say it on. Supporting information carries every address in full - the document's own, the incident's walk, the proposed fix - because the document is read away from the screen it came from, where an address relative to nothing leads nowhere. Every label the model is shown is the label of a row, so a label the prose cites leads, in both forms, to the row it names: a candidate, an action, an action item, a line of the timeline, a lead, and a change to production or a log message read - the last two kinds no other section is a row for, so the document stores each as the model was shown it, under its label, and Supporting information lists them. The forms leave out a line of the timeline that says only that an agent was called in - the agent's next line says it - unless something cites it, and count the lines they keep again, a label in the prose included: the stored document keeps every line under the label the model was shown. The PDF is made from the stored document each time it is asked for and never stored, so it says what the page says at that moment - a resolution reported after the document was written included - and it is offered only where there is a document.
+The document has two forms - its page, and a PDF a reader keeps, forwards and attaches - and one wording. A module of its own works out every word a reader is told from the stored document and the incident's record, joining words, labels and the sentence said in place of anything absent included, as lines of pieces each marked with the part it plays; the page and the PDF decide only what each part looks like, so they cannot come to say different things. It lives apart from the Postmortem Writer because the page is served by a process that installs no agent. Every amount is stored at the precision it was computed to and shown to the cent with its thousands grouped; every duration is shown to the second; every time is said in UTC, and the page says it again on the reader's own clock, which a file has no reader to say it on. Supporting information carries every address in full - the document's own, the incident's walk, the proposed fix - because the document is read away from the screen it came from, where an address relative to nothing leads nowhere. Every label the model is shown is the label of a row, so a label the prose cites leads, in both forms, to the row it names: a candidate, an action, an action item, a line of the timeline, a lead, and a change to production or a log message read - the last two kinds no other section is a row for, so the document stores each as the model was shown it, under its label, and Supporting information lists them. The forms leave out a line of the timeline that says only that a part of Argus was called in - its next line says it - unless something cites it, and count the lines they keep again, a label in the prose included: the stored document keeps every line under the label the model was shown. The PDF is made from the stored document each time it is asked for and never stored, so it says what the page says at that moment - a resolution reported after the document was written included - and it is offered only where there is a document.
 
 What people told the incident is part of what happened (§7.5a). The prompt carries each lead under its label, with who wrote it, when, and what the investigation made of it - or that nothing ever did - and the tool gains a required `lead_effects`: one sentence per lead on whether it changed what was done. A lead left out is refused as a missing field is, because the person who wrote it is owed the line. The field exists only where there are leads, so an incident nobody wrote about is asked exactly what it always was. The document reports each lead with the record's facts copied beside the model's sentence, so a lead weighed again later does not rewrite a postmortem already read, and the postmortem page shows them together.
 
@@ -280,7 +280,7 @@ Argus's own screen - what it is doing, as it does it. Served by the Web Applicat
 
 The front page is the incident that is happening now: the newest one that has not finished, or, when nothing is running, the newest there is, shown as finished. That rule needs no "current incident" state to keep correct, and a resolved incident stays on screen at the moment everyone is looking at it. With no incident at all the page says so and waits.
 
-A header names the alert, the service, the status and how long the incident has been going; the status is visibly live while it runs and still once it ends, so a glance answers "is this still happening" without reading a word. Below it, the incident's recorded events (§11.1, §4 principle 8) are narrated in the order they were published, each line naming who did it - Argus itself, the Investigator, the Mitigator - because "what did Argus do" is really "which of its agents did what". The narration is a rendering of the stream and nothing more: it never groups two events into a conclusion, drops one it finds uninteresting, or restates a hypothesis in its own words.
+A header names the alert, the service, the status and how long the incident has been going; the status is visibly live while it runs and still once it ends, so a glance answers "is this still happening" without reading a word. Below it, the incident's recorded events (§11.1, §4 principle 8) are narrated in the order they were published, each line naming who did it - Argus itself, the Investigator, the Mitigator - because "what did Argus do" is really "which of its parts did what". The narration is a rendering of the stream and nothing more: it never groups two events into a conclusion, drops one it finds uninteresting, or restates a hypothesis in its own words.
 
 The evidence rides on the events that read it and is gathered into one table per channel below the narration - metrics, flag history, production changes, log lines - each row said once. An investigation that widens re-reads overlapping windows, so evidence rendered under each retrieval would show the same minute several times over. The narration links into those tables wherever a line names one row: the onset to its minute, an action to the flag change it reverted, a cited finding to the minute it names and that minute's log lines. Prose is never matched to a particular log line, because a link built by guessing which line was meant points confidently at the wrong evidence, which is worse than no link at all. Model prose is repaired for presentation only - escape sequences resolved, flag states said the way the rest of the page says them, times rendered as clock times - and never edited in what it claims.
 
@@ -319,7 +319,7 @@ Several patterns, applied to different sub-problems:
 - **ReAct** - the Investigator's core loop: observe (query logs/metrics/diff) → reason (form hypothesis) → act (query more, or hand off to Mitigation) → observe result. Detailed in §9.
 - **Agentic search** - how Code-Fix (§7.4) localizes a bug: the model searches and reads the repository as tools across turns, following the code rather than matching a query against it. What it is handed to start from is the whole hypothesis, evidence included - the service's error boundary records the innermost frame, so a log line among that evidence names the file and the line.
 - **RAG** - retrieval by embedding similarity. Two uses, over two different corpora: (1) Code-Fix (§7.4) searches an index of the Target Service's own source (§11.5) for the code a fault is *described* by, alongside the substring search that finds the code a fault is *named* in - the model picks per question, and which retriever wins on which repository is a benchmark dimension (§21) rather than an assertion here; (2) the walk retrieves similar past incidents from long-term memory (§11.2) before it proposes an action, and demotes any candidate whose answering action was tried on one of them and refuted - a fact about what was *done*, which the incident's own evidence can never supply.
-- **Multi-agent orchestration** - the Orchestrator (§7.1) delegates to specialized agents (Investigator, Mitigation, Code-Fix, Postmortem), each with a narrow tool set and prompt, coordinated through shared incident state (§11.1). The Communicator (§7.5) is coordinated through that same state without being delegated to at all: it follows what the others published rather than waiting to be called, which is what keeps an incident reported even when the walk is too busy to say so.
+- **Multi-agent orchestration** - the Orchestrator (§7.1) delegates to specialized parts (Investigator, Mitigator, Code-Fix, Postmortem Writer), coordinated through shared incident state (§11.1). Two of them are agents - the Investigator and Code-Fix choose their own next tool call, each from a narrow tool set under a prompt of its own; the Postmortem Writer asks a model in fixed steps, and the Mitigator asks none. The Communicator (§7.5) is coordinated through that same state without being delegated to at all: it follows what the others published rather than waiting to be called, which is what keeps an incident reported even when the walk is too busy to say so.
 - **Self-critique / reflection** - before any mitigation or escalation, the agent scores its own confidence against a threshold (§10); after a mitigation, it re-observes state and judges whether its hypothesis was confirmed or refuted (§7.3).
 
 ## 9. The Investigation Loop
@@ -1356,7 +1356,7 @@ The nightly sweep exists because the per-push module matrix is selective. A chan
 ```mermaid
 flowchart TB
     subgraph ArgusDeploy["Argus - Docker Compose / Railway"]
-        WEB[argus_web service<br/>HTTP + Orchestrator + sub-agents, in-process]
+        WEB[argus_web service<br/>HTTP + Orchestrator + delegates, in-process]
         MCPS[argus-read-mcp,<br/>argus-write-mcp]
         RELAY[relay<br/>follows the event log, posts what a human hears]
         INTENT[intent reader<br/>follows the event log, understands what people write]
@@ -1492,9 +1492,9 @@ Telemetry and the replay log (§11.1) answer different questions and hold differ
 
 ### 20.1 Approach
 
-A `uv` workspace covers `modules/*` (§20.2): the Orchestrator, Web Application, each sub-agent package, each MCP server, the Backoffice, and `argus_core` are each their own installable Python package with its own `pyproject.toml`, independently versioned. A root workspace `pyproject.toml` (`[tool.uv.workspace]`, members = `modules/*`) ties these together for local dev (`uv sync` installs everything editable) without forcing a shared version or deploy lifecycle; `uv`'s lockfile covers the whole workspace.
+A `uv` workspace covers `modules/*` (§20.2): the Orchestrator, Web Application, each delegate's package, each MCP server, the Backoffice, and `argus_core` are each their own installable Python package with its own `pyproject.toml`, independently versioned. A root workspace `pyproject.toml` (`[tool.uv.workspace]`, members = `modules/*`) ties these together for local dev (`uv sync` installs everything editable) without forcing a shared version or deploy lifecycle; `uv`'s lockfile covers the whole workspace.
 
-Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each agent's package, and each MCP *client* package have no deployment image; they're installed as dependencies into the two processes that run them - the Web Application, which reaches only the Orchestrator's intake, and the worker, which walks the graph and so is the only process the agents run inside (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
+Independent *versioning* is true of every module; independent *deployment* is not - only modules with a network entrypoint (Web Application, MCP servers, Backoffice) ship a Dockerfile and deploy as their own service (§19). `argus_core`, the Orchestrator, each delegate's package, and each MCP *client* package have no deployment image; they're installed as dependencies into the two processes that run them - the Web Application, which reaches only the Orchestrator's intake, and the worker, which walks the graph and so is the only process the delegates run inside (§7.1, §7.9). Their per-module CI (§18.4) still builds/tests them in isolation - what independent versioning buys even without independent deployment.
 
 The benchmark harness sits outside the workspace entirely: its own `pyproject.toml`, not deployed as a service (§19) - a script/CLI run against an already-deployed Argus stack (§21.4), consuming `argus_core` schemas as a regular dependency.
 
@@ -1536,7 +1536,7 @@ argus/
 │   ├── deployment_platform/          # the deployment platform's port, split by tier, and its one adapter (Argo CD)
 │   ├── chat_platform/               # the chat platform's port and its one adapter (Slack): deliveries, signatures, names
 │   ├── argus_web/                   # HTTP surface: alert, push, on-call and chat webhooks, incident view, config API
-│   ├── agent_investigator/
+│   ├── investigation_agent/
 │   ├── mitigation/                  # what to do about a cause, doing it, and putting a recorded change back
 │   ├── agent_codefix/
 │   ├── communication/               # the relay over the event log, its delivery policy and destination adapters
@@ -1667,7 +1667,7 @@ The postmortem has no eval. Its output is prose, so scoring it means a model jud
 | **Spec writer** | Owns this document, keeps scope/requirements current, writes the final report |
 | **Product owner** | Prioritizes features vs. deadline, decides scope cuts, owns the demo narrative |
 | **Evaluator** | Owns the benchmark suite (§21), runs evaluations, tracks metrics, writes the eval section of the report |
-| **Engineer(s)** | Build the Orchestrator, Web Application, sub-agents, Target Environment APIs, memory layer, Slack/git integration, incident view, Backoffice, Docker/deployment |
+| **Engineer(s)** | Build the Orchestrator, Web Application, delegates, Target Environment APIs, memory layer, Slack/git integration, incident view, Backoffice, Docker/deployment |
 
 (With a small team, one person can be spec writer + product owner, but keep evaluator a distinct hat - easy to let slide if the same person also builds features.)
 

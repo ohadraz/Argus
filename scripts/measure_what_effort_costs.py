@@ -28,8 +28,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from agent_investigator import investigate  # noqa: E402
-from agent_investigator.budget import Budget, InvestigationSettings  # noqa: E402
 from argus_core import get_settings, new_id  # noqa: E402
 from argus_core.llm import build_llm_client  # noqa: E402
 from argus_core.models import (  # noqa: E402
@@ -41,6 +39,8 @@ from argus_core.models import (  # noqa: E402
     Transcript,
     Turn,
 )
+from investigation_agent import investigate  # noqa: E402
+from investigation_agent.budget import Budget, InvestigationSettings  # noqa: E402
 
 from tests.eval.test_investigator_eval import (  # noqa: E402
     Incident,

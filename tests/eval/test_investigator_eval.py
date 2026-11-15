@@ -7,8 +7,6 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from agent_investigator import BRIEF, Findings, investigate, investigator_tools
-from agent_investigator.budget import Bound, Budget, InvestigationSettings
 from argus_core import get_settings, new_id, parse_iso
 from argus_core.llm import build_llm_client
 from argus_core.models import (
@@ -36,6 +34,8 @@ from argus_core.models import (
 )
 from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
+from investigation_agent import BRIEF, Findings, investigate, investigator_tools
+from investigation_agent.budget import Bound, Budget, InvestigationSettings
 
 from tests.framework.assertions import the_cause_was_identified_as
 from tests.framework.investigating import (

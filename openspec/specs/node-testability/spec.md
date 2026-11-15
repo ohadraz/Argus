@@ -17,12 +17,12 @@ The system SHALL have integration test coverage for `argus_incidents/repository`
 - **THEN** the incident's status is `mitigating`, and the timeline shows `investigating` followed by `mitigating`
 
 ### Requirement: investigator_node's investigate dependency is injectable
-The system SHALL allow `investigator_node` to accept an injectable `investigate` callable, defaulting to `agent_investigator.investigate`, so its own logic can be tested independently of a live Target Service.
+The system SHALL allow `investigator_node` to accept an injectable `investigate` callable, defaulting to `investigation_agent.investigate`, so its own logic can be tested independently of a live Target Service.
 
 #### Scenario: Default behavior is unchanged
 - **GIVEN** no explicit `investigate` argument is passed to `investigator_node`
 - **WHEN** it runs
-- **THEN** it uses `agent_investigator.investigate` exactly as before
+- **THEN** it uses `investigation_agent.investigate` exactly as before
 
 #### Scenario: A stub investigate can be injected for testing
 - **GIVEN** a stub `investigate` callable returning a known hypothesis, confidence, and failure_mode

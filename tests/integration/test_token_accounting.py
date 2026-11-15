@@ -23,8 +23,6 @@ from collections.abc import Iterator
 import httpx2
 import psycopg
 import pytest
-from agent_investigator import investigate
-from agent_investigator.budget import InvestigationSettings, a_budget_for
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.budget import Budget
@@ -32,6 +30,8 @@ from argus_core.models import Alert
 from argus_incidents.publishing import calls_into
 from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
+from investigation_agent import investigate
+from investigation_agent.budget import InvestigationSettings, a_budget_for
 
 from tests.framework.investigating import (
     logs_that_say_little,

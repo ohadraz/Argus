@@ -2,7 +2,7 @@
 reach the replay log.
 
 The unit tests either side of this one hold the halves: `argus_core` proves an
-entry is built and written, `agent_investigator` proves a conversation is bound
+entry is built and written, `investigation_agent` proves a conversation is bound
 to the right incident and recorder. Neither can prove they were joined - the
 seam between them is a default argument, and a default nobody passes is exactly
 the kind of wiring that is written once, never exercised, and discovered empty
@@ -22,8 +22,6 @@ from collections.abc import Iterator
 import httpx2
 import psycopg
 import pytest
-from agent_investigator import investigate
-from agent_investigator.budget import InvestigationSettings
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.models import Alert
@@ -31,6 +29,8 @@ from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.publishing import calls_into
 from argus_incidents.repository import incidents, replay
 from argus_testkit import Assertion, Scenario, all_of, calling
+from investigation_agent import investigate
+from investigation_agent.budget import InvestigationSettings
 
 from tests.framework.investigating import (
     logs_that_say_little,

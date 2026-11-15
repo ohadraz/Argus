@@ -14,7 +14,7 @@ dependencies = [
     # not do is import them. `incident_memory`'s own extra says why the trade
     # is taken this way round.
     "argus-incident_memory[store]",
-    "argus-agent_investigator",
+    "argus-investigation_agent",
     "argus-mitigation",
     "argus-agent_codefix",
     "argus-postmortem_writing",
@@ -60,7 +60,7 @@ argus-responder_rate_source = { workspace = true }
 argus-revenue_source = { workspace = true }
 argus-exchange_rate_source = { workspace = true }
 argus-argus_testkit = { workspace = true }
-argus-agent_investigator = { workspace = true }
+argus-investigation_agent = { workspace = true }
 argus-mitigation = { workspace = true }
 argus-agent_codefix = { workspace = true }
 argus-postmortem_writing = { workspace = true }

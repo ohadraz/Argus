@@ -1,0 +1,123 @@
+"""The deployment channel: what one deployment changed.
+
+The fifth, and the second that is not a window over time. What a deployment
+changed is a fact about one commit, so there is nothing to date, nothing to widen
+and no reading to record - but unlike the register it takes an argument, because
+there is more than one deployment and which one is being asked about is the
+model's to name.
+
+The one channel that composes with another. The change channel says a deployment
+happened and hands over its revision; this says what was in it. So its
+description names where the revision comes from: a model that has just read the
+change channel already holds everything this needs, and a model that has not
+should read that first.
+
+Its silence is not evidence, so it reports rather than raises. The change channel
+raises when it cannot be read, because "nothing changed in this window" is a
+conclusion something acts on and a source never read must not arrive looking like
+one read and found empty. A comparison nobody could make supports no conclusion
+about the deployment either way, and the model can still answer - at a lower
+confidence, or by naming the distinction it could not draw. Ending the
+investigation over it would throw away everything already retrieved to avoid a
+gap the model is able to report.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Final
+
+from argus_core.events import DeploymentChangesRead, Narrator
+from argus_core.models import ToolCall
+
+from investigation_agent.retrieval import DeploymentDiffFetcher
+from investigation_agent.tools.results import (
+    DeploymentRead,
+    Served,
+    answered,
+    could_not_be_read,
+    could_not_serve,
+)
+
+DEPLOYMENT_DIFF_TOOL: Final = "get_what_a_deployment_changed"
+
+# The one argument the model names, as the read tier declares it - read back
+# here, so the two have to agree, and an offer that renamed it would leave this
+# refusing every call.
+REVISION_ARG: Final = "revision"
+
+_NOTHING_CAME_BACK = (
+    "The read tier answered about this deployment with nothing at all, which is "
+    "not an answer it gives - treat what this deployment changed as unread rather "
+    "than as empty."
+)
+
+
+def read_what_a_deployment_changed(
+    call: ToolCall,
+    service: str,
+    fetch_what_a_deployment_changed: DeploymentDiffFetcher,
+    narrator: Narrator
+) -> Served:
+    """What the deployment the model named changed, or why that could not be read.
+
+    No reading, for the reason the register channel records none: a reading is
+    what tells a later round which minutes are already in front of the model,
+    and there are no minutes here. What came back is narrated whole all the
+    same, because the write-up names the deploy that carried a change by what
+    its own diff shows - and only what came back: a refusal, a comparison
+    nobody could make and an answer of nothing are none of them a diff.
+
+    Anything at all going wrong is reported as the same fact, which is why this
+    catches broadly. Across the tier boundary the repository's own failure has
+    already become a transport error, so there is no useful class left to
+    distinguish - and every one of them means one thing to a model: it does not
+    get to find out what this deployment changed.
+    """
+    revision = _the_revision_named_in(call)
+
+    if not revision:
+        return could_not_serve(call, (
+            f"that call named no {REVISION_ARG}, so there is no deployment to read "
+            f"about. Call it again with the revision of the deployment you mean, "
+            f"as the change channel reported it."
+        ))
+
+    try:
+        changes = fetch_what_a_deployment_changed(service, revision)
+    except Exception as error:
+        return could_not_be_read(
+            call,
+            (f"what the deployment of [{revision}] changed could not be read, so "
+             f"nothing here says whether it shipped source code or a configuration "
+             f"value: {error}"),
+            what_was_asked=f"what the deployment of [{revision}] changed",
+            because=str(error)
+        )
+
+    if not changes.said:
+        return answered(call, _NOTHING_CAME_BACK)
+
+    narrator.say(DeploymentChangesRead, revision=revision, said=list(changes.said),
+                 lists_every_file=changes.lists_every_file, comparison=changes.comparison,
+                 service=service)
+
+    # The lines alone: whether they list every file, and whether they are a
+    # diff at all, is the write-up's to use, and what the model is shown of a
+    # deploy is what it always was. The whole of it goes back beside them, for
+    # the walk.
+    return answered(call, "\n".join(changes.said))._replace(
+        deployment_read=DeploymentRead(revision=revision, changes=changes)
+    )
+
+
+def _the_revision_named_in(call: ToolCall) -> str:
+    """The revision the model asked about, as text, or empty if it named none.
+
+    Read defensively although the schema is strict. A blank string and a missing
+    key mean the same thing here - there is no deployment to ask about - and both
+    are cheaper to refuse in a sentence than to send to the read tier, which would
+    spend a request to answer about nothing.
+    """
+    named: Any = call.arguments.get(REVISION_ARG)
+
+    return named.strip() if isinstance(named, str) else ""

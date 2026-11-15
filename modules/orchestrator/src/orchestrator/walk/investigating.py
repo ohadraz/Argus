@@ -118,7 +118,7 @@ def investigator_node(
     `record_hypothesis` defaults to the real recorder, and
     repository write, injectable so this node's logic can be unit tested without
     a live Target Service or database - mirroring the seams
-    `agent_investigator.investigate()` establishes for its own retrieval and
+    `investigation_agent.investigate()` establishes for its own retrieval and
     model calls.
 
     `fetch_deployments` is the one collaborator that may be absent, and absent

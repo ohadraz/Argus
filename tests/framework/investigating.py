@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agent_investigator.tools import READ_TIER_HELD
 from argus_core import get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.models import (
@@ -32,6 +31,7 @@ from argus_core.models import (
     ServiceDependency,
     ToolDefinition,
 )
+from investigation_agent.tools import READ_TIER_HELD
 
 from tests.framework.read_tier import what_the_read_tier_offers
 

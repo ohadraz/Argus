@@ -170,7 +170,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         configured maximum span, with a leading notice line when that happens.
         All times are ISO-8601 strings, since an `@mcp.tool()` parameter must be
         JSON-schema-representable. Passing nothing returns the whole log, which
-        is what `agent_investigator` still does.
+        is what `investigation_agent` still does.
         `filters` matches the tool's eventual shape (§16 field-level filtering)
         but isn't acted on yet. The behavior itself - and the `fetch` injection
         seam a `Callable` default cannot have on a decorated function - lives in

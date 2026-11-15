@@ -30,7 +30,7 @@ class ResolvedWindow(NamedTuple):
 
     `start`/`end` are both `None` only when the caller supplied no alert time
     and no window at all, which means "no window" - the pass-through behavior
-    `agent_investigator` still relies on. `clamped` records that the caller
+    `investigation_agent` still relies on. `clamped` records that the caller
     asked for a wider span than configuration allows and got a narrower one,
     so the tool can say so instead of silently returning less than was asked
     for.

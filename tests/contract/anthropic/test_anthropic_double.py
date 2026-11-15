@@ -19,7 +19,6 @@ from uuid import uuid4
 import anthropic
 import httpx2
 import pytest
-from agent_investigator.tools import investigator_tools
 from anthropic.types import ToolParam
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
@@ -33,6 +32,7 @@ from argus_core.llm.adapters.anthropic_adapter import (
     TOOL_USE_TYPE,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling
+from investigation_agent.tools import investigator_tools
 
 from tests.framework.investigating import what_the_read_tier_offers_the_investigator
 

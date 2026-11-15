@@ -12,15 +12,15 @@ arguments are held to exactly the ones read back.
 from __future__ import annotations
 
 import pytest
-from agent_investigator.tools import (
+from argus_core.models import ToolDefinition
+from argus_testkit import Assertion, Scenario
+from investigation_agent.tools import (
     DEPENDENCIES_TOOL,
     DEPLOYMENT_DIFF_TOOL,
     READ_TIER_HELD,
     ROLLOUT_TOOL,
 )
-from agent_investigator.tools.deployments import REVISION_ARG
-from argus_core.models import ToolDefinition
-from argus_testkit import Assertion, Scenario
+from investigation_agent.tools.deployments import REVISION_ARG
 
 from tests.framework.read_tier import what_the_read_tier_offers
 

@@ -9,7 +9,6 @@ resolution-markers = [
 [manifest]
 members = [
     "argus-agent-codefix",
-    "argus-agent-investigator",
     "argus-anthropic-double",
     "argus-argus-core",
     "argus-argus-incidents",
@@ -24,6 +23,7 @@ members = [
     "argus-exchange-rate-source",
     "argus-github-double",
     "argus-incident-memory",
+    "argus-investigation-agent",
     "argus-message-intent",
     "argus-metrics-source",
     "argus-mitigation",
@@ -135,31 +135,6 @@ dev = [
 requires-dist = [
     { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
     { name = "argus-argus-narration", editable = "modules/argus_narration" },
-    { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
-    { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
-
-[[package]]
-name = "argus-agent-investigator"
-version = "0.1.0"
-source = { editable = "modules/agent_investigator" }
-dependencies = [
-    { name = "argus-argus-core", extra = ["llm", "mcp"] },
-    { name = "argus-read-mcp-client" },
-    { name = "argus-write-mcp-client" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "argus-argus-testkit" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
@@ -599,6 +574,31 @@ dev = [
 ]
 
 [[package]]
+name = "argus-investigation-agent"
+version = "0.1.0"
+source = { editable = "modules/investigation_agent" }
+dependencies = [
+    { name = "argus-argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-read-mcp-client" },
+    { name = "argus-write-mcp-client" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
+    { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
+    { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
 name = "argus-message-intent"
 version = "0.1.0"
 source = { editable = "modules/message_intent" }
@@ -710,13 +710,13 @@ version = "0.1.0"
 source = { editable = "modules/orchestrator" }
 dependencies = [
     { name = "argus-agent-codefix" },
-    { name = "argus-agent-investigator" },
     { name = "argus-argus-core", extra = ["llm", "mcp"] },
     { name = "argus-argus-incidents" },
     { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
     { name = "argus-exchange-rate-source" },
     { name = "argus-incident-memory", extra = ["store"] },
+    { name = "argus-investigation-agent" },
     { name = "argus-mitigation" },
     { name = "argus-oncall-source" },
     { name = "argus-postmortem-rendering" },
@@ -741,13 +741,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-agent-codefix", editable = "modules/agent_codefix" },
-    { name = "argus-agent-investigator", editable = "modules/agent_investigator" },
     { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
     { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
     { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-exchange-rate-source", editable = "modules/exchange_rate_source" },
     { name = "argus-incident-memory", extras = ["store"], editable = "modules/incident_memory" },
+    { name = "argus-investigation-agent", editable = "modules/investigation_agent" },
     { name = "argus-mitigation", editable = "modules/mitigation" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },

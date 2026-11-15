@@ -145,7 +145,7 @@ def _the_front_doors() -> dict[str, set[str]]:
     refused an import the source tree is allowed.
 
     Two shapes, and the difference is `argus_core`'s extras. `** -> argus_core.models`
-    is a door anything may use. `agent_investigator.** -> argus_core.llm` is one
+    is a door anything may use. `investigation_agent.** -> argus_core.llm` is one
     only that module may, because `anthropic` is an optional dependency and only
     the modules that declared the extra have it. A suite is held to its own
     module's allowance for the same reason the source is: `test_module` resolves
@@ -293,8 +293,8 @@ def _the_walk_reaches_no_store_the_fence_cannot_reach(walk: set[str]) -> None:
 def _the_packages_named_by(path: Path) -> list[tuple[int, str]]:
     """The top-level package of everything this file imports, however it does it.
 
-    Both spellings, because both reach: `import agent_investigator` and
-    `from agent_investigator.reasoning import ...` are the same edge, and the
+    Both spellings, because both reach: `import investigation_agent` and
+    `from investigation_agent.reasoning import ...` are the same edge, and the
     one that actually appeared in this workspace was the second.
     """
     try:

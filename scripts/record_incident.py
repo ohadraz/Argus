@@ -48,7 +48,6 @@ from typing import Any, Final, NamedTuple
 
 import httpx2
 import psycopg
-from agent_investigator.tools.answer import ANSWER_TOOL
 from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
 from argus_core import get_settings, to_iso, utc_now
 from argus_core.events import (
@@ -66,6 +65,7 @@ from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, 
 from argus_incidents.repository import runs, synopses
 from argus_incidents.repository.runs import RunState
 from incident_memory.filing import get_undelivered
+from investigation_agent.tools.answer import ANSWER_TOOL
 from postmortem_writing import WRITE_UP_TOOLS
 from postmortem_writing.grounding import (
     FLAGS_FIELD,
