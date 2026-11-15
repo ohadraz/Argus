@@ -565,6 +565,39 @@ def test_an_incident_resolved_after_an_action_skips_code_fix_and_is_written_up(
 
 
 @pytest.mark.component
+def test_an_incident_resolved_mid_investigation_is_investigated_to_its_answer(
+    collaborators: Collaborators
+) -> None:
+    # The person reported it over between two of the investigation's turns.
+    # They are owed the write-up, and the cause it names is what the
+    # investigation finds - so the investigation goes on to its answer, and the
+    # answer is recorded. Nothing is tried: the resolution still stops every
+    # step that changes the world.
+    pressed: list[bool] = []
+    went_on: list[bool] = []
+    recorded: list[Hypothesis] = []
+
+    Scenario() \
+        .given(
+            a_walk_resolved_mid_investigation := replace(
+                collaborators,
+                investigate=_an_investigation_resolved_between_its_turns(pressed, went_on),
+                ended_by_a_person=_resolved_once_pressed(pressed),
+                record_hypothesis=recorded.append
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(),
+                                   a_walk_resolved_mid_investigation)) \
+        .then(all_of(_the_walk_went(INVESTIGATOR_NODE,
+                                    REMEMBERING_NODE,
+                                    POSTMORTEM_NODE,
+                                    SYNOPSIS_NODE),
+                     _the_incident_ended(IncidentStatus.RESOLVED),
+                     _the_investigation_went_on(went_on),
+                     _one_hypothesis_was_recorded_blaming(recorded, SOME_FLAG)))
+
+
+@pytest.mark.component
 def test_a_person_answering_while_the_walk_waits_ends_it_before_code_fix(
     collaborators: Collaborators
 ) -> None:
@@ -1070,6 +1103,76 @@ def _a_person_answering_once_it_acted(acted: list[bool], answered: list[bool]) -
         return bool(acted)
 
     return wait
+
+
+def _resolved_once_pressed(pressed: list[bool]) -> EndedByAPerson:
+    """Nobody's ending until the person presses, and a resolution after."""
+    def ended_by_a_person(dont_care_incident_id: str, /) -> IncidentStatus | None:
+        return IncidentStatus.RESOLVED if pressed else None
+
+    return ended_by_a_person
+
+
+def _an_investigation_resolved_between_its_turns(pressed: list[bool],
+                                                 went_on: list[bool]) -> ports.Investigate:
+    """An investigation during whose first turn the person presses. It asks
+    the walk's question before its second turn, as the real one does, notes
+    the answer, and offers a candidate only if it was let go on."""
+    def investigate(alert: Alert,
+                    incident_id: str,
+                    *,
+                    already_read: Sequence[Reading] | None = None,
+                    already_refuted: Sequence[Attempt] | None = None,
+                    publisher: Publisher = nobody,
+                    recorder: Recorder = records_nothing,
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
+        pressed.append(True)
+        went_on.append(still_wanted())
+
+        if not went_on[-1]:
+            return Findings(candidates=[], already_read=[], stopped=True)
+
+        return Findings(
+            candidates=[a_candidate_blaming(SOME_FLAG).model_copy(
+                update={"incident_id": incident_id}
+            )],
+            already_read=[]
+        )
+
+    return investigate
+
+
+def _the_investigation_went_on(went_on: list[bool]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if went_on != [True]:
+            raise AssertionError(
+                f"Expected the investigation to be let go on to its answer after "
+                f"the press, once, and the walk's question answered {went_on}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _one_hypothesis_was_recorded_blaming(recorded: list[Hypothesis],
+                                         flag: str) -> Assertion[Walked]:
+    """The cause the write-up names is the hypothesis on record, so a resolved
+    incident with none recorded is written up without one."""
+    def assertion(dont_care_walked: Walked) -> bool:
+        blamed = [hypothesis.subject for hypothesis in recorded]
+
+        if blamed != [flag]:
+            raise AssertionError(
+                f"Expected one hypothesis recorded, blaming [{flag}], got {blamed}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_wait_noting(happened: list[str]) -> WaitForPeople:

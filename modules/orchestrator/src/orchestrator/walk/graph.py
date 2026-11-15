@@ -117,11 +117,21 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         ended_by_a_person=collaborators.ended_by_a_person,
         wait_for_people=collaborators.wait_for_people
     )
-    # The yes-or-no the nodes hand their agents. Either ending is a reason not
-    # to take the next step; where the walk goes after stopping is the routers'.
+    # The yes-or-no the nodes that change the world hand their agents. Either
+    # ending is a reason not to take their next step; where the walk goes after
+    # stopping is the routers'.
     # A run taken back is no answer at all, and stops the walk where it is asked.
     still_wanted = wanted_until_a_person_ends_it(collaborators.ended_by_a_person,
                                                  collaborators.still_held)
+    # The investigation's own: stopped only by a withdrawal. It changes nothing,
+    # and what it finds is the cause the write-up a resolution is owed names -
+    # so a person resolving the incident mid-investigation lets it reach its
+    # answer, and the walk goes on to remember and write up from there.
+    wanted_until_withdrawn = wanted_until_a_person_ends_it(
+        collaborators.ended_by_a_person,
+        collaborators.still_held,
+        stops_for=frozenset({IncidentStatus.WITHDRAWN})
+    )
 
     step(
         INVESTIGATOR_NODE, Actor.INVESTIGATOR,
@@ -135,7 +145,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     fetch_deployments=collaborators.fetch_deployments,
                     publisher=collaborators.publisher,
                     recorder=collaborators.recorder,
-                    still_wanted=still_wanted,
+                    still_wanted=wanted_until_withdrawn,
                     leads_of=collaborators.leads_of,
                     record_weighing=collaborators.record_weighing)
         )

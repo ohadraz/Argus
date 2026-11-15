@@ -9,7 +9,7 @@ whether to put anything back afterwards.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Final, Protocol
 
 from argus_core import Connections, Holding, RunLost
 from argus_core.models import IncidentStatus
@@ -22,10 +22,10 @@ class IsStillWanted(Protocol):
     raised, when the run walking it is no longer this process's.
 
     The yes-or-no the nodes hand their agents, asked between model turns and
-    before every change to the world. Either ending a person writes is a reason
-    not to take the next step, so a step needs only whether there is one; what
-    the walk does after stopping differs between the two, and is decided where
-    the ending itself is read.
+    before every change to the world. Which endings are a reason not to take
+    the next step is settled where the question is built, so a step needs only
+    whether there is one; what the walk does after stopping differs between the
+    two, and is decided where the ending itself is read.
 
     Raised rather than answered `False` when the run was taken back, because a
     `False` is an incident somebody ended, and the walk goes on to remember and
@@ -102,9 +102,22 @@ def still_held_via(connections: Connections, holding: Holding) -> StillHeld:
     return still_held
 
 
+# Both of a person's endings: what stops a step unless it is told otherwise.
+_EVERY_PERSONS_ENDING: Final = frozenset({IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED})
+
+
 def wanted_until_a_person_ends_it(ended_by_a_person: EndedByAPerson,
-                                  still_held: StillHeld) -> IsStillWanted:
-    """The yes-or-no, asked of the ending: wanted while nobody has ended it.
+                                  still_held: StillHeld,
+                                  stops_for: frozenset[IncidentStatus] = _EVERY_PERSONS_ENDING
+                                  ) -> IsStillWanted:
+    """The yes-or-no, asked of the ending: wanted until a person ends it in
+    one of the ways in `stops_for`.
+
+    Every ending by default, because a step that changes the world has no
+    business going on once a person has said the incident is over, however
+    they said it. The investigation is told otherwise: it changes nothing, and
+    what it finds is the cause the write-up a resolution is owed names - so only
+    a withdrawal, which is owed nothing, stops it.
 
     The run is asked first, and a run taken back is `RunLost` raised: the
     incident is somebody else's walk now, and whether a person ended it is
@@ -115,7 +128,7 @@ def wanted_until_a_person_ends_it(ended_by_a_person: EndedByAPerson,
         if not still_held():
             raise RunLost("a newer claim holds this run")
 
-        return ended_by_a_person(incident_id) is None
+        return ended_by_a_person(incident_id) not in stops_for
 
     return is_still_wanted
 

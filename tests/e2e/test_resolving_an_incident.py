@@ -16,18 +16,16 @@ them, and it is their press that ends the incident.
 From the page and the platform, resolved once Argus has changed something,
 and before the change has been judged, which is the moment the two endings
 differ most: there is a flag for a withdrawal to put back, and the resolution
-must not. It is also the one moment a replayed walk can be stopped at
-deterministically. The double answers in order and never reads the request, so
-a stop between two of the investigation's turns would leave one of its answers
-queued for the write-up; by the time the flag has moved, the investigation has
-had every answer it asks for.
+must not.
 
 From the thread, in an order rather than at a moment. The person writes while
 the walk's model is held, so their words are on the incident before Argus has
-investigated anything; Argus then waits after its first step for their answer,
-and their press is the next thing that happens to it. Nothing here races the
-walk, so nothing here can lose to it. That a resolution leaves Argus's changes
-in place is the page's case, and the same for every channel.
+investigated anything. Their press can then land anywhere in the investigation
+and end the walk at the same point: a resolution lets the investigation reach
+its answer, and the walk stops once it returns or, where the investigation is
+over first, while it waits for their answer. Nothing here races the walk, so
+nothing here can lose to it. That a resolution leaves Argus's changes in place
+is the page's case, and the same for every channel.
 """
 
 from __future__ import annotations

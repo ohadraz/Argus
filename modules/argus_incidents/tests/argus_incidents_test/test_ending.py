@@ -142,8 +142,9 @@ def test_an_incident_with_no_row_at_all_reads_as_withdrawn(a_clean_database: Non
 
 @pytest.mark.unit
 def test_an_incident_nobody_ended_is_still_wanted() -> None:
-    # The yes-or-no the agents and the nodes ask between their steps. They
-    # stop for either ending alike, so they need only whether there is one.
+    # The yes-or-no the agents and the nodes ask between their steps. Unless
+    # told otherwise they stop for either ending alike, so they need only
+    # whether there is one.
     Scenario() \
         .given(
             nobody_ended_it := _an_ending_of(None)
@@ -175,6 +176,32 @@ def test_an_incident_a_person_ended_is_no_longer_wanted(ending: IncidentStatus) 
         ) \
         .then(
             _it_is_wanted(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("ending", "wanted"),
+                         [(IncidentStatus.RESOLVED, True), (IncidentStatus.WITHDRAWN, False)],
+                         ids=["resolved", "withdrawn"])
+def test_a_step_only_a_withdrawal_stops_is_still_wanted_after_a_resolution(
+    ending: IncidentStatus, wanted: bool
+) -> None:
+    # The investigation's question. A person who reported the incident
+    # resolved is owed the write-up, and its cause is what the investigation
+    # finds - so a resolution lets the investigation reach its answer. A
+    # withdrawal is owed nothing, and stops it as it stops every other step.
+    Scenario() \
+        .given(
+            a_person_ended_it := _an_ending_of(ending)
+        ) \
+        .when(
+            lambda: wanted_until_a_person_ends_it(a_person_ended_it, _held(True),
+                                                  stops_for=frozenset({IncidentStatus.WITHDRAWN}))(
+                DONT_CARE_INCIDENT_ID
+            )
+        ) \
+        .then(
+            _it_is_wanted(wanted)
         )
 
 

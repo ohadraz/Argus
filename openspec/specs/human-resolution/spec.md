@@ -65,18 +65,21 @@ timeline SHALL say the change in that person's name, not in Argus's.
 ### Requirement: A resolution stops the walk and changes nothing back
 
 A walk whose incident is resolved SHALL stop at the same points where it stops
-for a withdrawal: between model turns, before every change to the world, and at
-every node boundary. It SHALL NOT propose or take any further action, and it
-SHALL NOT run Code-Fix. Unlike a withdrawal, it SHALL put nothing back: every
-change Argus made stays in place and is recorded as still applied. This holds
-even if the walk fails after the resolution.
+for a withdrawal - between model turns, before every change to the world, and at
+every node boundary - except between the Investigator's model turns. The
+investigation changes nothing, and what it finds is the cause the postmortem
+names, so a resolution SHALL let it run to its answer, which is recorded, and
+SHALL stop the walk once it returns. It SHALL NOT propose or take any further
+action, and it SHALL NOT run Code-Fix. Unlike a withdrawal, it SHALL put nothing
+back: every change Argus made stays in place and is recorded as still applied.
+This holds even if the walk fails after the resolution.
 
 #### Scenario: Resolved during investigation
 
 - **GIVEN** an incident under investigation that has taken no action
-- **WHEN** it is resolved
-- **THEN** no action is taken, Code-Fix does not run, and the incident ends
-  `resolved`
+- **WHEN** it is resolved between two of the investigation's model turns
+- **THEN** the investigation runs to its answer and the answer is recorded, no
+  action is taken, Code-Fix does not run, and the incident ends `resolved`
 
 #### Scenario: Resolved after a mitigation was applied
 
