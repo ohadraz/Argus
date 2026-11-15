@@ -22,7 +22,7 @@ dependencies = [
     # postmortem's page words them.
     "argus-postmortem_rendering",
     "argus-oncall_source",
-    "argus-responder_rate_source",
+    "argus-pay_band_source",
     "argus-revenue_source",
     "argus-exchange_rate_source",
     "langgraph>=0.2",
@@ -56,7 +56,7 @@ argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
 argus-telemetry = { workspace = true }
 argus-oncall_source = { workspace = true }
-argus-responder_rate_source = { workspace = true }
+argus-pay_band_source = { workspace = true }
 argus-revenue_source = { workspace = true }
 argus-exchange_rate_source = { workspace = true }
 argus-argus_testkit = { workspace = true }

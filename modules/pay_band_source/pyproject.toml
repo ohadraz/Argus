@@ -1,5 +1,5 @@
 [project]
-name = "argus-responder_rate_source"
+name = "argus-pay_band_source"
 version = "0.1.0"
 requires-python = ">=3.14"
 
@@ -26,4 +26,4 @@ build-backend = "hatchling.build"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/responder_rate_source"]
+packages = ["src/pay_band_source"]

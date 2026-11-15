@@ -46,6 +46,11 @@ from exchange_rate_source.frankfurter import (
 from incident_record.repository import exchange_rates, incidents, references
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
+from pay_band_source import (
+    PayBandSettings,
+    PayBandsUnavailable,
+    pay_bands,
+)
 from postmortem_writing import (
     EngagedResponder,
     EngagementAnswer,
@@ -55,11 +60,6 @@ from postmortem_writing import (
     Sources,
 )
 from read_mcp_client import get_alert_rule, get_metrics_summary
-from responder_rate_source import (
-    PayBandsUnavailable,
-    ResponderRateSettings,
-    pay_bands,
-)
 from revenue_source import RevenueSettings, taken_between
 from revenue_source.stripe_adapter import charges_between
 
@@ -118,7 +118,7 @@ def the_real_sources(settings: Settings,
                       settings=ExchangeRateSettings.of(settings)),
         engagement=partial(_who_responded, platform=oncall, connections=connections),
         bands=partial(_what_a_title_is_worth,
-                      settings=ResponderRateSettings.of(settings)),
+                      settings=PayBandSettings.of(settings)),
         metrics=partial(_metrics_between, client=read,
                         served=timedelta(minutes=settings.metrics_window_minutes)),
         alert_rule=partial(_the_alert_rule, client=read),
@@ -283,7 +283,7 @@ def _the_platform_incidents_of(incident_id: str,
 
 
 def _what_a_title_is_worth(*,
-                           settings: ResponderRateSettings
+                           settings: PayBandSettings
                            ) -> Mapping[str, PayBand] | None:
     """What each job title the HR source prices is worth a year.
 

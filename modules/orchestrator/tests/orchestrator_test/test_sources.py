@@ -24,8 +24,8 @@ from core.anomaly import AnomalyThresholds
 from core.mcp_transport import McpClient, McpToolError, McpUnreachable
 from core.models import AlertRuleStanding, MetricBucket
 from orchestrator.sources import the_real_sources
+from pay_band_source import PayBandsUnavailable
 from postmortem_writing import Sources
-from responder_rate_source import PayBandsUnavailable
 
 DONT_CARE_START = datetime(2026, 9, 2, 11, 0, tzinfo=UTC)
 DONT_CARE_END = datetime(2026, 9, 2, 12, 30, tzinfo=UTC)

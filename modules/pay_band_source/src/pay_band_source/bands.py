@@ -18,7 +18,7 @@ from core import SettingsSlice
 from pydantic import BaseModel
 
 
-class ResponderRateSettings(SettingsSlice):
+class PayBandSettings(SettingsSlice):
     """What it takes to read the HR system's pay bands.
 
     The credential only ever needs to read pay grades and bands. Compensation

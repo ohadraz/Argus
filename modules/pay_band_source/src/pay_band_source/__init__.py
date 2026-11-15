@@ -15,18 +15,18 @@ the same reason - an adapter exercised only against a fake written by the same
 hand proves the fake.
 """
 
-from responder_rate_source.bamboohr_adapter import pay_bands
-from responder_rate_source.bands import (
+from pay_band_source.bamboohr_adapter import pay_bands
+from pay_band_source.bands import (
     PayBand,
     PayBandsByTitle,
+    PayBandSettings,
     PayBandsUnavailable,
-    ResponderRateSettings,
 )
 
 __all__ = [
     "PayBand",
     "PayBandsByTitle",
     "PayBandsUnavailable",
-    "ResponderRateSettings",
+    "PayBandSettings",
     "pay_bands"
 ]
