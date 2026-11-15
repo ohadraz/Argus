@@ -20,17 +20,6 @@ from datetime import datetime
 from typing import Final, NamedTuple, get_args
 
 import psycopg
-from argus_narration import (
-    NarrationLine,
-    build_narration,
-    each_wait_told_once,
-    said_as_meant,
-    said_in_full,
-    what_the_action_does,
-    what_to_do,
-    what_was_done,
-    what_was_not_done,
-)
 from core import Connections, parse_iso
 from core.events import (
     ActionRecommended,
@@ -107,6 +96,17 @@ from incident_record.repository import (
     references,
     replay,
     taken_actions,
+)
+from narration import (
+    NarrationLine,
+    build_narration,
+    each_wait_told_once,
+    said_as_meant,
+    said_in_full,
+    what_the_action_does,
+    what_to_do,
+    what_was_done,
+    what_was_not_done,
 )
 from postmortem_rendering import (
     as_text,

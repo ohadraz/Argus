@@ -26,16 +26,6 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 
 import pytest
-from argus_narration import CandidateLine, Finding, NarrationLine
-from argus_narration.showing import (
-    ShownRevision,
-    as_shown,
-    said_as_the_document_shows,
-    shown,
-    the_pull_requests,
-    the_revisions,
-    the_short_forms,
-)
 from argus_testkit import Scenario, the_answer_was
 from core import new_id
 from core.events import ChangesRetrieved, FixAttempted
@@ -46,6 +36,16 @@ from core.models import (
     FixOutcome,
     OpenedPullRequest,
     RevisionSource,
+)
+from narration import CandidateLine, Finding, NarrationLine
+from narration.showing import (
+    ShownRevision,
+    as_shown,
+    said_as_the_document_shows,
+    shown,
+    the_pull_requests,
+    the_revisions,
+    the_short_forms,
 )
 
 DONT_CARE_MOMENT = datetime(2026, 10, 11, 12, 18, tzinfo=UTC)

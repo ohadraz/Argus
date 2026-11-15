@@ -21,10 +21,10 @@ from collections.abc import Sequence
 from textwrap import indent
 from typing import Final
 
-from argus_narration import NarrationLine, said_in_full
 from core import to_iso
 from core.llm import LLMClient, ModelDidNotAnswer
 from core.models import Ask, ToolDefinition, Transcript, Turn
+from narration import NarrationLine, said_in_full
 
 # The tool's name and its one field, named once: the definition offered to the
 # model and the reading of its call both use them.

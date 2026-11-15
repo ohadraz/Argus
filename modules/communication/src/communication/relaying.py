@@ -26,9 +26,9 @@ import logging
 from enum import StrEnum
 from typing import Final, Protocol
 
-from argus_narration import NarrationLine, a_narration_line
 from chat_platform import Link
 from incident_record import Backlog, Place
+from narration import NarrationLine, a_narration_line
 
 from communication.policy import Register, how_it_is_said
 

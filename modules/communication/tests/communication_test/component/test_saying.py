@@ -22,7 +22,6 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from argus_narration import a_narration_line
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -85,6 +84,7 @@ from core.models import (
     the_place_of,
 )
 from incident_record.repository import events, incidents, postmortems, references, synopses
+from narration import a_narration_line
 from slack_sdk import WebClient
 
 from communication_test.framework.slack import messages_posted_to

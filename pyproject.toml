@@ -134,7 +134,6 @@ markers = [
 # be broken by it.
 [tool.importlinter]
 root_packages = [
-    "argus_narration",
     "argus_telemetry",
     "argus_web",
     "chat_platform",
@@ -150,6 +149,7 @@ root_packages = [
     "message_intent",
     "metrics_source",
     "mitigation",
+    "narration",
     "oncall_source",
     "orchestrator",
     "postmortem_rendering",
@@ -337,7 +337,7 @@ source_modules = ["incident_memory"]
 forbidden_modules = ["*"]
 # The kernel and nothing else - in particular not `incident_record`. What a
 # past incident tried is composed from actions handed to it, the way
-# `argus_narration` renders events handed to it: the walk already holds a
+# `narration` renders events handed to it: the walk already holds a
 # repository, and a second module opening its own connection to the same rows
 # would put the question of which incident's actions these are in two places.
 # The rows this module does own - the records filed for memory - are its own
@@ -398,7 +398,7 @@ forbidden_modules = ["*"]
 ignore_imports = [
     "postmortem_rendering.** -> core",
     "postmortem_rendering.** -> core.**",
-    "postmortem_rendering.** -> argus_narration",
+    "postmortem_rendering.** -> narration",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -417,7 +417,7 @@ ignore_imports = [
     "argus_web.** -> core.**",
     "argus_web.** -> incident_record",
     "argus_web.** -> incident_record.**",
-    "argus_web.** -> argus_narration",
+    "argus_web.** -> narration",
     "argus_web.** -> postmortem_rendering",
     # The watermark, and nothing else of the index. `code_index.records` is
     # Postgres alone - one row saying where the repository is - where

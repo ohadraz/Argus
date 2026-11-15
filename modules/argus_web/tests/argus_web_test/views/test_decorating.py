@@ -17,7 +17,6 @@ from pathlib import Path
 
 import argus_web
 import pytest
-from argus_narration import NarrationLine, a_narration_line, shown
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
 from core import new_id
@@ -37,6 +36,7 @@ from core.models import (
     RecalledIncident,
     Verdict,
 )
+from narration import NarrationLine, a_narration_line, shown
 
 SOME_MINUTE = "2026-08-30T10:03:00Z"
 SOME_FLAG = "monthly-spend-feature"

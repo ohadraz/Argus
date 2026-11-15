@@ -14,17 +14,17 @@ values, and returns values; what puts tags around them belongs to whoever is
 doing the showing.
 """
 
-from argus_narration.clock import a_minute, a_moment, a_window, is_a_moment
-from argus_narration.findings import Finding, a_finding, pointed_at
-from argus_narration.flags import (
+from narration.clock import a_minute, a_moment, a_window, is_a_moment
+from narration.findings import Finding, a_finding, pointed_at
+from narration.flags import (
     FlagToggleRow,
     a_flag_history,
     on_or_off,
     said_as_a_state,
 )
-from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
-from argus_narration.metrics import BucketRow, a_bucket_row
-from argus_narration.narrating import (
+from narration.logs import LogLine, a_log_line, the_minutes_logged
+from narration.metrics import BucketRow, a_bucket_row
+from narration.narrating import (
     A_PERSON,
     THE_CLAIM_WAS_NOT_IN_THE_WINDOW,
     THE_PARTS_OF_ARGUS,
@@ -44,8 +44,8 @@ from argus_narration.narrating import (
     what_was_not_done,
     where_a_report_came_from,
 )
-from argus_narration.prose import InstantInProse, said_plainly, the_instants_in
-from argus_narration.showing import (
+from narration.prose import InstantInProse, said_plainly, the_instants_in
+from narration.showing import (
     ShownRevision,
     as_shown,
     said_as_shown,

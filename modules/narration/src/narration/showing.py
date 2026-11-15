@@ -44,7 +44,7 @@ from core.events import ChangesRetrieved, FixAttempted, IncidentEvent
 from core.models import CitedChange
 from pydantic import BaseModel, ConfigDict
 
-from argus_narration.narrating import NarrationLine
+from narration.narrating import NarrationLine
 
 # A name quoted in brackets: not straight after a word, as an index is; nothing
 # inside that a phrase or another bracket would have; and not a link's text.

@@ -16,15 +16,6 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Final
 
-from argus_narration import (
-    Finding,
-    ShownRevision,
-    a_finding,
-    said_as_a_state,
-    said_as_shown,
-    said_plainly,
-    the_links_in,
-)
 from core import UuidStr, to_iso
 from core.events import IncidentEvent
 from core.models import (
@@ -37,6 +28,15 @@ from core.models import (
     Undone,
 )
 from incident_record import when_it_was_taken
+from narration import (
+    Finding,
+    ShownRevision,
+    a_finding,
+    said_as_a_state,
+    said_as_shown,
+    said_plainly,
+    the_links_in,
+)
 from pydantic import BaseModel, Field
 
 # A walk shown with no revision the incident read to say short.

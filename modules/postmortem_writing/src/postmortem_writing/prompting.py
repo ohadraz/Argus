@@ -25,7 +25,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final, NamedTuple
 
-from argus_narration import where_a_report_came_from
 from core import (
     A_REVISION,
     level_said_in,
@@ -68,6 +67,7 @@ from core.models import (
     the_detection_lesson_said,
     whether_it_can_be_put_back,
 )
+from narration import where_a_report_came_from
 from pydantic import BaseModel, field_validator, model_validator
 
 from postmortem_writing.detection_lesson import (

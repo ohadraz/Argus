@@ -96,12 +96,12 @@ from core.models import (
 )
 from pydantic import BaseModel, Field
 
-from argus_narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window
-from argus_narration.findings import Finding, a_finding
-from argus_narration.flags import on_or_off, said_as_a_state
-from argus_narration.logs import LogLine, a_log_line
-from argus_narration.metrics import BucketRow, a_bucket_row
-from argus_narration.prose import said_plainly
+from narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window
+from narration.findings import Finding, a_finding
+from narration.flags import on_or_off, said_as_a_state
+from narration.logs import LogLine, a_log_line
+from narration.metrics import BucketRow, a_bucket_row
+from narration.prose import said_plainly
 
 # Who a reader sees on each line. The orchestrator narrates as Argus itself,
 # because from outside "the orchestrator called in the Investigator" is one

@@ -5,13 +5,13 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-core[llm]",
-    "argus-argus_narration",
+    "argus-narration",
 ]
 
 
 [tool.uv.sources]
 argus-core = { workspace = true }
-argus-argus_narration = { workspace = true }
+argus-narration = { workspace = true }
 
 
 [build-system]

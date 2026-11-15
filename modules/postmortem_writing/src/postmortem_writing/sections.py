@@ -16,12 +16,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
 
-from argus_narration import (
-    A_PERSON,
-    THE_PARTS_OF_ARGUS,
-    as_a_clause,
-    said_as_the_document_shows,
-)
 from core import parse_iso
 from core.anomaly import the_end_of_the_onset
 from core.events import (
@@ -60,6 +54,12 @@ from core.models import (
     Trigger,
     Verdict,
     WhyNoTrigger,
+)
+from narration import (
+    A_PERSON,
+    THE_PARTS_OF_ARGUS,
+    as_a_clause,
+    said_as_the_document_shows,
 )
 
 from postmortem_writing.estimate import LatencyLevels, Unmeasured

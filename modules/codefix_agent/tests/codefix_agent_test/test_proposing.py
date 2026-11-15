@@ -20,7 +20,6 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from argus_narration import what_was_done
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_error_mentioned
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
@@ -85,6 +84,7 @@ from core.models import (
     a_chat_message,
 )
 from core.replay import Recorder
+from narration import what_was_done
 
 DONT_CARE_INCIDENT = "incident-41"
 

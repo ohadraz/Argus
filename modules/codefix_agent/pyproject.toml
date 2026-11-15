@@ -9,7 +9,7 @@ dependencies = [
     "argus-core[llm,mcp]",
     # What Argus did about an incident is said in the words its own account
     # uses, so the fix and the write-up say one action one way.
-    "argus-argus_narration",
+    "argus-narration",
     "argus-read_mcp_client",
     "argus-write_mcp_client",
 ]
@@ -23,7 +23,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
-argus-argus_narration = { workspace = true }
+argus-narration = { workspace = true }
 argus-read_mcp_client = { workspace = true }
 argus-write_mcp_client = { workspace = true }
 argus-argus_testkit = { workspace = true }

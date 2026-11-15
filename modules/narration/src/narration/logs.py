@@ -13,7 +13,7 @@ from collections.abc import Iterable
 
 from pydantic import BaseModel
 
-from argus_narration.clock import a_moment, is_a_moment
+from narration.clock import a_moment, is_a_moment
 
 # What a log line's level token means, as the Target Service writes them. The
 # page distinguishes warnings and errors from the rest; anything it cannot read

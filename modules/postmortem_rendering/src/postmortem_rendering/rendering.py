@@ -14,10 +14,10 @@ from datetime import date
 from string import digits
 from typing import Any, Final
 
-from argus_narration import as_shown, the_short_forms
 from core import said_short
 from core.events import IncidentEvent
 from core.models import Alert, Postmortem
+from narration import as_shown, the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.action_items import ActionItemsSection, the_action_items

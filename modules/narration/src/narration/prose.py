@@ -33,7 +33,7 @@ from typing import Final, NamedTuple
 
 from core import parse_iso, to_iso
 
-from argus_narration.clock import a_moment, is_a_moment
+from narration.clock import a_moment, is_a_moment
 
 # An instant inside a sentence, in the two shapes that are not already how this
 # page says the time: a timestamp - `T` or a space between date and time, to

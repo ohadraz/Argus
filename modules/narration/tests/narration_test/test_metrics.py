@@ -21,9 +21,9 @@ so the row says both, in the units a dashboard says them in.
 from __future__ import annotations
 
 import pytest
-from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_testkit import Assertion, Scenario, all_of
 from core.models import MetricBucket, RuleReading
+from narration.metrics import BucketRow, a_bucket_row
 
 THE_RATE_A_MINUTE_IS_MARKED_AT = 0.05
 

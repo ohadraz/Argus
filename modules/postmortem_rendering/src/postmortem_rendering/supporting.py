@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from argus_narration import the_short_forms
 from core import A_REVISION, parse_iso, said_short
 from core.events import PATCH_LINE_INDENT
 from core.models import (
@@ -25,6 +24,7 @@ from core.models import (
     changes_not_listed,
     no_logs_listed,
 )
+from narration import the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run

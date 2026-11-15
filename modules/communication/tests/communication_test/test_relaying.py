@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_narration import a_narration_line
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -38,6 +37,7 @@ from core.events import (
 )
 from core.models import RetrievalChannel
 from incident_record.repository import events
+from narration import a_narration_line
 
 from communication_test.framework.assertions import it_said, the_lines_said_were
 from communication_test.framework.builders import (

@@ -15,7 +15,7 @@ from typing import Final
 from core.models import FlagChange
 from pydantic import BaseModel
 
-from argus_narration.clock import a_moment
+from narration.clock import a_moment
 
 # The two words this page has a house style for. Everything else a subject
 # might have moved between - a version, a limit, a region - belongs to the

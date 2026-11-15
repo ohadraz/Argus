@@ -17,7 +17,7 @@ from core import parse_iso, said_as_a_day, said_as_a_time
 from core.models import Evidence
 from pydantic import BaseModel
 
-from argus_narration.prose import said_plainly
+from narration.prose import said_plainly
 
 
 class Finding(BaseModel):

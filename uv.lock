@@ -9,7 +9,6 @@ resolution-markers = [
 [manifest]
 members = [
     "argus-anthropic-double",
-    "argus-argus-narration",
     "argus-argus-telemetry",
     "argus-argus-testkit",
     "argus-argus-web",
@@ -27,6 +26,7 @@ members = [
     "argus-message-intent",
     "argus-metrics-source",
     "argus-mitigation",
+    "argus-narration",
     "argus-oncall-source",
     "argus-orchestrator",
     "argus-pagerduty-double",
@@ -133,29 +133,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "argus-argus-narration"
-version = "0.1.0"
-source = { editable = "modules/argus_narration" }
-dependencies = [
-    { name = "argus-core" },
-    { name = "pydantic" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "argus-argus-testkit" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "argus-core", editable = "modules/core" },
-    { name = "pydantic", specifier = ">=2.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
-
-[[package]]
 name = "argus-argus-telemetry"
 version = "0.1.0"
 source = { editable = "modules/argus_telemetry" }
@@ -194,12 +171,12 @@ name = "argus-argus-web"
 version = "0.1.0"
 source = { editable = "modules/argus_web" }
 dependencies = [
-    { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
     { name = "argus-chat-platform" },
     { name = "argus-code-index" },
     { name = "argus-core" },
     { name = "argus-incident-record" },
+    { name = "argus-narration" },
     { name = "argus-oncall-source" },
     { name = "argus-postmortem-rendering" },
     { name = "fastapi" },
@@ -217,12 +194,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-code-index", editable = "modules/code_index" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
+    { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },
     { name = "fastapi", specifier = ">=0.115" },
@@ -313,8 +290,8 @@ name = "argus-codefix-agent"
 version = "0.1.0"
 source = { editable = "modules/codefix_agent" }
 dependencies = [
-    { name = "argus-argus-narration" },
     { name = "argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-narration" },
     { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
 ]
@@ -326,8 +303,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-core", extras = ["llm", "mcp"], editable = "modules/core" },
+    { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
@@ -340,11 +317,11 @@ name = "argus-communication"
 version = "0.1.0"
 source = { editable = "modules/communication" }
 dependencies = [
-    { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
     { name = "argus-chat-platform" },
     { name = "argus-core" },
     { name = "argus-incident-record" },
+    { name = "argus-narration" },
     { name = "psycopg", extra = ["binary"] },
 ]
 
@@ -359,11 +336,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
+    { name = "argus-narration", editable = "modules/narration" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
 
@@ -603,11 +580,11 @@ name = "argus-message-intent"
 version = "0.1.0"
 source = { editable = "modules/message_intent" }
 dependencies = [
-    { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
     { name = "argus-chat-platform" },
     { name = "argus-core", extra = ["llm"] },
     { name = "argus-incident-record" },
+    { name = "argus-narration" },
     { name = "psycopg", extra = ["binary"] },
 ]
 
@@ -619,11 +596,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-core", extras = ["llm"], editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
+    { name = "argus-narration", editable = "modules/narration" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
 
@@ -682,6 +659,29 @@ requires-dist = [
 dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
+name = "argus-narration"
+version = "0.1.0"
+source = { editable = "modules/narration" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "pydantic", specifier = ">=2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
 name = "argus-oncall-source"
 version = "0.1.0"
 source = { editable = "modules/oncall_source" }
@@ -709,7 +709,6 @@ name = "argus-orchestrator"
 version = "0.1.0"
 source = { editable = "modules/orchestrator" }
 dependencies = [
-    { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
     { name = "argus-codefix-agent" },
     { name = "argus-core", extra = ["llm", "mcp"] },
@@ -718,6 +717,7 @@ dependencies = [
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
     { name = "argus-mitigation" },
+    { name = "argus-narration" },
     { name = "argus-oncall-source" },
     { name = "argus-postmortem-rendering" },
     { name = "argus-postmortem-writing" },
@@ -740,7 +740,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-codefix-agent", editable = "modules/codefix_agent" },
     { name = "argus-core", extras = ["llm", "mcp"], editable = "modules/core" },
@@ -749,6 +748,7 @@ requires-dist = [
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-investigation-agent", editable = "modules/investigation_agent" },
     { name = "argus-mitigation", editable = "modules/mitigation" },
+    { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },
     { name = "argus-postmortem-writing", editable = "modules/postmortem_writing" },
@@ -791,8 +791,8 @@ name = "argus-postmortem-rendering"
 version = "0.1.0"
 source = { editable = "modules/postmortem_rendering" }
 dependencies = [
-    { name = "argus-argus-narration" },
     { name = "argus-core" },
+    { name = "argus-narration" },
     { name = "fpdf2" },
     { name = "pydantic" },
 ]
@@ -805,8 +805,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-core", editable = "modules/core" },
+    { name = "argus-narration", editable = "modules/narration" },
     { name = "fpdf2", specifier = ">=2.8" },
     { name = "pydantic", specifier = ">=2.0" },
 ]
@@ -822,14 +822,14 @@ name = "argus-postmortem-writing"
 version = "0.1.0"
 source = { editable = "modules/postmortem_writing" }
 dependencies = [
-    { name = "argus-argus-narration" },
     { name = "argus-core", extra = ["llm"] },
+    { name = "argus-narration" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-core", extras = ["llm"], editable = "modules/core" },
+    { name = "argus-narration", editable = "modules/narration" },
 ]
 
 [[package]]

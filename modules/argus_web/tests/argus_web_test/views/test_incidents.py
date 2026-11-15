@@ -16,7 +16,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_narration import ShownRevision
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.incidents import (
     Candidate,
@@ -39,6 +38,7 @@ from core.models import (
     Undone,
     Verdict,
 )
+from narration import ShownRevision
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 

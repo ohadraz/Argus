@@ -14,8 +14,8 @@ the service writes one, and taken as prose everywhere else.
 from __future__ import annotations
 
 import pytest
-from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
 from argus_testkit import Assertion, Scenario, all_of
+from narration.logs import LogLine, a_log_line, the_minutes_logged
 
 SOME_MINUTE = "2026-08-30T10:12"
 ANOTHER_MINUTE = "2026-08-30T10:13"

@@ -16,7 +16,6 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Final, NamedTuple
 
-from argus_narration import the_short_forms
 from core import A_REVISION
 from core.llm import LLMClient
 from core.models import (
@@ -29,6 +28,7 @@ from core.models import (
     Transcript,
     Turn,
 )
+from narration import the_short_forms
 
 from postmortem_writing.checking import (
     Given,

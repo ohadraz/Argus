@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
 
-from argus_narration import said_as_the_document_shows, the_short_forms
 from core import said_as_a_time
 from core.models import PostmortemDocument
+from narration import said_as_the_document_shows, the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import on_the_day

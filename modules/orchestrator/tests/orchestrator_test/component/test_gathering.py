@@ -28,7 +28,6 @@ from decimal import Decimal
 
 import psycopg
 import pytest
-from argus_narration import what_to_do
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
@@ -131,6 +130,7 @@ from incident_record.repository import (
     replay,
     taken_actions,
 )
+from narration import what_to_do
 from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources

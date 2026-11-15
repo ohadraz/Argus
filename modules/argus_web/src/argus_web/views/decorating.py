@@ -12,7 +12,7 @@ knows an event from another.
 
 from __future__ import annotations
 
-from argus_narration import NarrationLine
+from narration import NarrationLine
 from pydantic import BaseModel
 
 # How a marked word is dressed, by the kind of line it appears on. A status

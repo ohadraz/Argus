@@ -24,8 +24,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
-from argus_narration.prose import InstantInProse, said_plainly, the_instants_in
 from argus_testkit import Scenario, the_answer_was
+from narration.prose import InstantInProse, said_plainly, the_instants_in
 
 
 @pytest.mark.unit

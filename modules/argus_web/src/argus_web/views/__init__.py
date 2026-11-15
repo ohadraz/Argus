@@ -2,7 +2,7 @@
 
 One module per subject: the incident's own rows, and the story that gathers
 what an incident read. The account a reader follows is not here - it is
-`argus_narration`, said once for every destination that reports an incident,
+`narration`, said once for every destination that reports an incident,
 and the story arranges what that module renders. Nor is the postmortem: what it
 says is `postmortem_rendering`'s, worked out once for the page and the PDF.
 

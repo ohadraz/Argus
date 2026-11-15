@@ -20,14 +20,6 @@ import logging
 from collections.abc import Mapping
 from typing import Final
 
-from argus_narration import (
-    NarrationLine,
-    ShownRevision,
-    a_candidate_cause,
-    shown,
-    the_pull_requests,
-    the_revisions,
-)
 from chat_platform import ChatPlatformWrites, Line, Link, Offer
 from core import Connections
 from core.events import CommunicationFailed
@@ -44,6 +36,14 @@ from core.models import (
     the_place_of,
 )
 from incident_record.repository import events, references, synopses
+from narration import (
+    NarrationLine,
+    ShownRevision,
+    a_candidate_cause,
+    shown,
+    the_pull_requests,
+    the_revisions,
+)
 
 from communication.policy import Register
 from communication.relaying import Destination, Outcome

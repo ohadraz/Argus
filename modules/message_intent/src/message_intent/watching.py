@@ -23,7 +23,6 @@ from collections.abc import Callable
 from functools import partial
 from typing import Final
 
-from argus_narration import build_narration
 from argus_telemetry import start_telemetry
 from chat_platform.slack import ChatSettings, slack_from
 from core import (
@@ -45,6 +44,7 @@ from core.models import (
 from core.replay import Replay
 from incident_record import calls_into, events_into
 from incident_record.repository import conversation, events, incidents
+from narration import build_narration
 
 from message_intent.answering import answer
 from message_intent.classifying import classify
