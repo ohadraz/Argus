@@ -48,7 +48,7 @@ from typing import Final
 from anthropic_double.recordings import is_a_question
 
 # The tools that say which stage a walk got to. Spelled here rather than
-# imported: neither `agent_postmortem` nor `agent_codefix` exports its submit
+# imported: neither `postmortem_writing` nor `agent_codefix` exports its submit
 # tool, and a guard over committed data has no business reaching past a
 # package's front door to read a name. A rename fails this loudly on every
 # recording at once, which is the cheapest possible way to find out.

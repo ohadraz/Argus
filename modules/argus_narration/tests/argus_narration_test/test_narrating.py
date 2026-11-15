@@ -221,7 +221,7 @@ ARGUS = "Argus"
 INVESTIGATOR_AGENT = "Investigator Agent"
 INTENT_AGENT = "Intent Agent"
 CODE_FIX_AGENT = "Code-Fix Agent"
-POSTMORTEM_AGENT = "Postmortem Agent"
+POSTMORTEM_WRITER = "Postmortem Writer"
 COMMUNICATOR = "Communicator"
 UNNAMED_PERSON = "A person"
 
@@ -2763,7 +2763,7 @@ def test_a_postmortem_line_is_its_summary_with_the_cause_marked() -> None:
         .then(all_of(_the_only_line_marks(the_cause),
                      _the_only_line_says(f"Wrote the postmortem - {the_summary}",
                                          f"{some_engineer_minutes} engineer minutes"),
-                     _the_lines_are_credited_to([POSTMORTEM_AGENT])))
+                     _the_lines_are_credited_to([POSTMORTEM_WRITER])))
 
 
 @pytest.mark.unit
@@ -2801,7 +2801,7 @@ def test_a_synopsis_written_is_said_without_a_word_of_it() -> None:
         .given(a_synopsis) \
         .when(lambda: build_narration([a_synopsis])) \
         .then(all_of(_the_only_line_reads("Wrote the executive synopsis"),
-                     _the_lines_are_credited_to([POSTMORTEM_AGENT])))
+                     _the_lines_are_credited_to([POSTMORTEM_WRITER])))
 
 
 @pytest.mark.unit

@@ -32,7 +32,6 @@ from agent_investigator import (
 )
 from agent_investigator import investigate as _investigate
 from agent_investigator.budget import InvestigationSettings
-from agent_postmortem import judge_policy, postmortem_policy, synopsis_policy
 from argus_core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
@@ -69,6 +68,7 @@ from mitigation import (
 )
 from oncall_source import OnCallSettings
 from oncall_source.pagerduty_adapter import pagerduty_from
+from postmortem_writing import judge_policy, postmortem_policy, synopsis_policy
 
 from orchestrator.gathering import write_postmortem_for, write_synopsis_for
 from orchestrator.records import Records

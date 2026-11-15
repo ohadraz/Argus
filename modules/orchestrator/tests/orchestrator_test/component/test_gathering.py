@@ -28,9 +28,6 @@ from decimal import Decimal
 
 import psycopg
 import pytest
-from agent_postmortem import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
-from agent_postmortem.grounding import FLAGS_FIELD
-from agent_postmortem.synopsis_prompting import OVERVIEW_FIELD
 from argus_core import connect_from_env, new_id, parse_iso, utc_now
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
@@ -136,6 +133,9 @@ from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
 from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
+from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
+from postmortem_writing.grounding import FLAGS_FIELD
+from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD
 
 # How many hours a year the bands are divided by. Any number does: nothing here
 # publishes a cost, and the arithmetic that would use it is the agent's own

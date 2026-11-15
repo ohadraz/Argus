@@ -1,6 +1,6 @@
 """What the shop took, read from the payment provider.
 
-The adapter behind `agent_postmortem`'s `Revenue` port. It answers one question
+The adapter behind `postmortem_writing`'s `Revenue` port. It answers one question
 - what was taken between two instants - and answers it in the currencies the
 provider was paid in.
 

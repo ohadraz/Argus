@@ -17,17 +17,17 @@ from __future__ import annotations
 import httpx2
 import psycopg
 import pytest
-from agent_postmortem import (
+from argus_core.models import ActionItemStatus, Postmortem, TimelineMarker
+from argus_incidents.repository import postmortems
+from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit.assertions import eventually
+from postmortem_writing import (
     ANALYSIS_COMPLETE,
     IMPACT_ASSESSED,
     ITEMS_OWNED_AND_DATED,
     KEY_DATA_COLLECTED,
     REVIEWED_AND_SHARED,
 )
-from argus_core.models import ActionItemStatus, Postmortem, TimelineMarker
-from argus_incidents.repository import postmortems
-from argus_testkit import Assertion, Scenario, all_of, calling
-from argus_testkit.assertions import eventually
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,

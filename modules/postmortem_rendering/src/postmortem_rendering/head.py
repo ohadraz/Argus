@@ -32,7 +32,7 @@ from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
 from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
 
-_THE_AUTHOR: Final = "Argus Postmortem agent"
+_THE_AUTHOR: Final = "Argus Postmortem Writer"
 # A postmortem is a snapshot: each part holds as of the end of the work it
 # reports, which the timeline dates - except who ended it, read afresh.
 _AS_OF: Final = ("Each part is as of when the work it reports ended, which the timeline "

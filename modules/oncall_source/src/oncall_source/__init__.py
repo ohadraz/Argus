@@ -1,6 +1,6 @@
 """Who responded to an incident, and for how long.
 
-The adapter behind `agent_postmortem`'s `Engagement` port. It answers one
+The adapter behind `postmortem_writing`'s `Engagement` port. It answers one
 question - what human attention one incident took - as minutes, a count of
 people, and the titles they held.
 

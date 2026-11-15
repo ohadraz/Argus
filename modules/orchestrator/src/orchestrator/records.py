@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from agent_postmortem import said_off_the_page
 from argus_core import Connections
 from argus_core.events import (
     ExecutiveSynopsisWithheld,
@@ -54,6 +53,7 @@ from argus_incidents.repository import (
 from incident_memory import filing
 from incident_memory.composing import VERDICTS_THAT_JUDGE_AN_ACTION
 from incident_memory.records import RememberedIncident
+from postmortem_writing import said_off_the_page
 
 from orchestrator.gathering import what_became_of
 from orchestrator.walk.ports import ClaimedAction

@@ -18,13 +18,13 @@ from unittest.mock import Mock, create_autospec
 
 import psycopg
 import pytest
-from agent_postmortem import Sources
 from argus_core import Connections, get_settings, to_iso
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient, McpToolError, McpUnreachable
 from argus_core.models import AlertRuleStanding, MetricBucket
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 from orchestrator.sources import the_real_sources
+from postmortem_writing import Sources
 from responder_rate_source import PayBandsUnavailable
 
 DONT_CARE_START = datetime(2026, 9, 2, 11, 0, tzinfo=UTC)

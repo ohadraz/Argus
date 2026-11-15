@@ -1067,7 +1067,7 @@ def test_a_synopsis_is_its_overview_and_a_link_to_the_whole_of_it(
                                         a_narration_line(_the_synopsis_written_for(an_incident_id)),
                                         Register.BRIEFED)) \
             .then(all_of(
-                _that_message_opens_with(slack, f"Postmortem Agent: {some_overview}"),
+                _that_message_opens_with(slack, f"Postmortem Writer: {some_overview}"),
                 _that_message_says_once(slack, some_overview),
                 _that_message_does_not_say(slack, "Human cost"),
                 _that_message_says(slack, its_pdf)

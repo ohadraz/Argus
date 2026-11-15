@@ -11,7 +11,6 @@ members = [
     "argus-agent-codefix",
     "argus-agent-intent",
     "argus-agent-investigator",
-    "argus-agent-postmortem",
     "argus-anthropic-double",
     "argus-argus-core",
     "argus-argus-incidents",
@@ -32,6 +31,7 @@ members = [
     "argus-orchestrator",
     "argus-pagerduty-double",
     "argus-postmortem-rendering",
+    "argus-postmortem-writing",
     "argus-read-mcp-client",
     "argus-read-mcp-server",
     "argus-repository-source",
@@ -201,21 +201,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
-
-[[package]]
-name = "argus-agent-postmortem"
-version = "0.1.0"
-source = { editable = "modules/agent_postmortem" }
-dependencies = [
-    { name = "argus-argus-core", extra = ["llm"] },
-    { name = "argus-argus-narration" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" },
-    { name = "argus-argus-narration", editable = "modules/argus_narration" },
-]
 
 [[package]]
 name = "argus-anthropic-double"
@@ -726,7 +711,6 @@ source = { editable = "modules/orchestrator" }
 dependencies = [
     { name = "argus-agent-codefix" },
     { name = "argus-agent-investigator" },
-    { name = "argus-agent-postmortem" },
     { name = "argus-argus-core", extra = ["llm", "mcp"] },
     { name = "argus-argus-incidents" },
     { name = "argus-argus-narration" },
@@ -736,6 +720,7 @@ dependencies = [
     { name = "argus-mitigation" },
     { name = "argus-oncall-source" },
     { name = "argus-postmortem-rendering" },
+    { name = "argus-postmortem-writing" },
     { name = "argus-responder-rate-source" },
     { name = "argus-revenue-source" },
     { name = "langgraph" },
@@ -757,7 +742,6 @@ dev = [
 requires-dist = [
     { name = "argus-agent-codefix", editable = "modules/agent_codefix" },
     { name = "argus-agent-investigator", editable = "modules/agent_investigator" },
-    { name = "argus-agent-postmortem", editable = "modules/agent_postmortem" },
     { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
     { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
     { name = "argus-argus-narration", editable = "modules/argus_narration" },
@@ -767,6 +751,7 @@ requires-dist = [
     { name = "argus-mitigation", editable = "modules/mitigation" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },
+    { name = "argus-postmortem-writing", editable = "modules/postmortem_writing" },
     { name = "argus-responder-rate-source", editable = "modules/responder_rate_source" },
     { name = "argus-revenue-source", editable = "modules/revenue_source" },
     { name = "langgraph", specifier = ">=0.2" },
@@ -830,6 +815,21 @@ requires-dist = [
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
     { name = "pypdf", specifier = ">=6.0" },
+]
+
+[[package]]
+name = "argus-postmortem-writing"
+version = "0.1.0"
+source = { editable = "modules/postmortem_writing" }
+dependencies = [
+    { name = "argus-argus-core", extra = ["llm"] },
+    { name = "argus-argus-narration" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" },
+    { name = "argus-argus-narration", editable = "modules/argus_narration" },
 ]
 
 [[package]]

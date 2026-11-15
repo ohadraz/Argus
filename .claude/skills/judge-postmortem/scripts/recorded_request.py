@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from agent_postmortem.prompting import SUBMIT_POSTMORTEM
+from postmortem_writing.prompting import SUBMIT_POSTMORTEM
 
 # The fields only some incidents are offered, in the order the code adds them.
 OFFERED_IN_ORDER = ("lead_effects", "logs_show_serving_as_before")

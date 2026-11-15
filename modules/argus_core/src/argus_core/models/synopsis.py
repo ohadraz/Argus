@@ -1,6 +1,6 @@
 """What the executive synopsis says, and what it says once it is written down.
 
-Here rather than in `agent_postmortem` because three modules name this shape:
+Here rather than in `postmortem_writing` because three modules name this shape:
 the step that writes it, the repository that keeps it, and the Communicator
 that posts it. A type two modules both name is a contract between them.
 

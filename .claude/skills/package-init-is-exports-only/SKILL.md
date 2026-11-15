@@ -19,7 +19,7 @@ Not allowed: `def`, `async def`, `class`, or any assignment other than `__all__`
 
 A module named for what it does, beside its siblings. The package's entry point
 is not special and does not get to live in the doorway: `write_postmortem` lives
-in `agent_postmortem/writing.py` and is re-exported, exactly as `PostmortemDocument`
+in `postmortem_writing/writing.py` and is re-exported, exactly as `PostmortemDocument`
 lives in `document.py` and is re-exported.
 
 Name the module for the work, following whatever the package already does -
@@ -46,5 +46,5 @@ Three reasons, in the order they bite:
 
 Move the definitions into a new module, leave the imports and `__all__` behind,
 and change no callers: a package re-exporting the same names has the same public
-API, so `from agent_postmortem import write_postmortem` keeps working and
+API, so `from postmortem_writing import write_postmortem` keeps working and
 `communication.post_update` still resolves for `create_autospec`.

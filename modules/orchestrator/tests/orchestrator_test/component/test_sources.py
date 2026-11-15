@@ -25,7 +25,6 @@ from typing import Any
 from unittest.mock import call, create_autospec
 
 import pytest
-from agent_postmortem import EngagementAnswer, NotPaged, Sources
 from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient
@@ -42,6 +41,7 @@ from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_l
 from oncall_source import Acknowledgement, OnCallUnavailable, ReportedIncident
 from oncall_source.platform import OnCallPlatform, PagedIncident
 from orchestrator.sources import the_real_sources
+from postmortem_writing import EngagementAnswer, NotPaged, Sources
 
 SOME_PLATFORM_INCIDENT = "Q2FJZEW25HFSAW"
 SOME_OTHER_PLATFORM_INCIDENT = "Q0N5RRK7RT1Q46"

@@ -1618,7 +1618,7 @@ def test_the_postmortem_header_says_whether_a_person_has_reviewed_it(met: bool |
             lambda: page_at(f"/incidents/{incident_id}/postmortem")
         ) \
         .then(all_of(
-            the_page_says("Argus Postmortem agent"),
+            the_page_says("Argus Postmortem Writer"),
             the_page_says(said)
         ))
 

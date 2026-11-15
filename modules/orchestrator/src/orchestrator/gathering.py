@@ -1,6 +1,6 @@
 """Turning an incident's rows back into one incident (spec §7.6).
 
-The Postmortem agent holds no connection and reads no rows; what it needs is
+The Postmortem Writer holds no connection and reads no rows; what it needs is
 scattered across the tables `argus_incidents` owns, and assembling it is the
 Orchestrator's work. Keeping the gathering here is also what stops two readers
 of the same incident disagreeing: the page and the postmortem read the same
@@ -20,17 +20,6 @@ from datetime import datetime
 from typing import Final, NamedTuple, get_args
 
 import psycopg
-from agent_postmortem import (
-    ActionRecord,
-    CandidateRecord,
-    DeploymentChangesRecord,
-    IncidentEvidence,
-    RefusalRecord,
-    ResolutionRecord,
-    Sources,
-    write_executive_synopsis,
-    write_postmortem,
-)
 from argus_core import Connections, parse_iso
 from argus_core.events import (
     ActionRecommended,
@@ -126,6 +115,17 @@ from postmortem_rendering import (
     the_resolution_list,
     the_synopsis_figures,
     the_synopsis_figures_said,
+)
+from postmortem_writing import (
+    ActionRecord,
+    CandidateRecord,
+    DeploymentChangesRecord,
+    IncidentEvidence,
+    RefusalRecord,
+    ResolutionRecord,
+    Sources,
+    write_executive_synopsis,
+    write_postmortem,
 )
 
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER

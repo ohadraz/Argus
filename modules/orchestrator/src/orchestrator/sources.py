@@ -29,14 +29,6 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import partial
 
-from agent_postmortem import (
-    EngagedResponder,
-    EngagementAnswer,
-    NotPaged,
-    PayBand,
-    RateTable,
-    Sources,
-)
 from argus_core import Connections, Settings, to_iso
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient, McpToolError, McpUnreachable
@@ -54,6 +46,14 @@ from exchange_rate_source.frankfurter import (
 )
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
+from postmortem_writing import (
+    EngagedResponder,
+    EngagementAnswer,
+    NotPaged,
+    PayBand,
+    RateTable,
+    Sources,
+)
 from read_mcp_client import get_alert_rule, get_metrics_summary
 from responder_rate_source import (
     PayBandsUnavailable,

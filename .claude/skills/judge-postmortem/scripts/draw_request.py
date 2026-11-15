@@ -25,14 +25,14 @@ from itertools import product
 from pathlib import Path
 from typing import Any
 
-from agent_postmortem.briefing import STANDING_BRIEF
-from agent_postmortem.prompting import (
+from argus_core.models import LogsInTheGap, Reference, ThreadMessage, ToolDefinition
+from postmortem_writing.briefing import STANDING_BRIEF
+from postmortem_writing.prompting import (
     LEAD_EFFECTS_FIELD,
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     STOPS_THE_HARM_FIELD,
     submit_postmortem_for,
 )
-from argus_core.models import LogsInTheGap, Reference, ThreadMessage, ToolDefinition
 
 # What switches HEAD's optional fields on; their schemas are HEAD's constants.
 A_STAND_IN_LEAD = ThreadMessage(incident_id="00000000-0000-0000-0000-000000000000",

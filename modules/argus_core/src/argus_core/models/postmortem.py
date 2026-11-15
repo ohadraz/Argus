@@ -1,6 +1,6 @@
 """What a postmortem says, and what it says once it has been written down.
 
-Here rather than in `agent_postmortem` because three modules name this shape:
+Here rather than in `postmortem_writing` because three modules name this shape:
 the agent that produces it, the repository that persists it, and the walk that
 carries it between them. A type two modules both have to name is a contract
 between them, and a contract kept inside one of the parties is one the other

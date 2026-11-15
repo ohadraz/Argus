@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Covers the two ports the Postmortem agent reads through - revenue in a window,
+Covers the two ports the Postmortem Writer reads through - revenue in a window,
 and responder timings - defined by what the agent needs rather than by what any
 provider offers, so an adapter satisfies a seam that already exists.
 

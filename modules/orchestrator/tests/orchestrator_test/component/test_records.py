@@ -17,7 +17,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import pytest
-from agent_postmortem import said_off_the_page
 from argus_core import connect_from_env, utc_now
 from argus_core.events import (
     ExecutiveSynopsisWithheld,
@@ -63,6 +62,7 @@ from incident_memory.filing import get_undelivered
 from incident_memory.records import RememberedIncident
 from orchestrator.records import Records
 from orchestrator.walk.ports import ClaimedAction
+from postmortem_writing import said_off_the_page
 
 from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead, reverting
 

@@ -4,7 +4,7 @@
 
 Covers where an incident is talked about: the war-room message an accepted
 alert opens, the thread its progress updates reply into, the channel message
-that announces its end, the delivery of the postmortem the Postmortem agent
+that announces its end, the delivery of the postmortem the Postmortem Writer
 wrote, and the rule that a Slack workspace refusing a call never changes an
 incident's outcome.
 ## Requirements
@@ -82,9 +82,9 @@ is followed.
   and the span judged over, and is not posted to the channel
 
 ### Requirement: The postmortem is delivered where it can be read
-The system SHALL deliver the postmortem document the Postmortem agent produced
+The system SHALL deliver the postmortem document the Postmortem Writer produced
 to the configured postmortem channel, and the incident's closing message SHALL
-link to it. The Postmortem agent SHALL NOT deliver anything: it produces the
+link to it. The Postmortem Writer SHALL NOT deliver anything: it produces the
 document and nothing more.
 
 #### Scenario: A postmortem is posted and linked

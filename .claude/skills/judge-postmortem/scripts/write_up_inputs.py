@@ -1,6 +1,6 @@
 """The CLI inputs for the write-up call, from a held replay's request: the
 brief, the tool in the API's shape, and HEAD's standing brief as the system
-prompt. Run with the workspace interpreter, which has `agent_postmortem`.
+prompt. Run with the workspace interpreter, which has `postmortem_writing`.
 
 A replay of a stale recording can mix revisions - edit brief.txt by hand
 afterwards so it says what a fresh run would.
@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from agent_postmortem.briefing import STANDING_BRIEF
+from postmortem_writing.briefing import STANDING_BRIEF
 
 
 def main() -> None:

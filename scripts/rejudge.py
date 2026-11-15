@@ -48,23 +48,23 @@ from os.path import commonprefix
 from pathlib import Path
 from typing import Any, Final
 
-from agent_postmortem.grounding import (
+from argus_core import LLMSettings, Settings
+from argus_core.llm import LLMClient, build_llm_client
+from argus_core.models import ToolDefinition, Transcript, Turn
+from postmortem_writing.grounding import (
     DID_NOT_ANSWER,
     FLAGS_FIELD,
     JUDGE_TOOL_NAME,
     flags_on,
     judge_policy,
 )
-from agent_postmortem.prompting import (
+from postmortem_writing.prompting import (
     CAUSAL_CHAIN_FIELD,
     ROOT_CAUSE_FIELD,
     RULED_OUT_FIELD,
     SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
 )
-from argus_core import LLMSettings, Settings
-from argus_core.llm import LLMClient, build_llm_client
-from argus_core.models import ToolDefinition, Transcript, Turn
 
 RECORDINGS: Final = (Path(__file__).resolve().parents[1] / "test_support"
                      / "anthropic_double" / "recordings")
@@ -194,12 +194,12 @@ def _judged(label: str, asked: _Asked, settings: Settings, out: Path) -> _Judged
         settings=LLMSettings(anthropic_api_key=settings.anthropic_api_key,
                              anthropic_base_url="")))
     hearing = _Hearing()
-    logging.getLogger("agent_postmortem.grounding").addHandler(hearing)
+    logging.getLogger("postmortem_writing.grounding").addHandler(hearing)
     try:
         flags = flags_on(judge, record=asked.record, answer=asked.answer, rows=rows,
                          scope=asked.scope)
     finally:
-        logging.getLogger("agent_postmortem.grounding").removeHandler(hearing)
+        logging.getLogger("postmortem_writing.grounding").removeHandler(hearing)
 
     turn = judge.turns[-1] if judge.turns else None
     calls = [call.arguments for call in (turn.tool_calls if turn else [])

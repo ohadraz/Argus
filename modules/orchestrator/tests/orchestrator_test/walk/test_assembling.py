@@ -27,7 +27,6 @@ from typing import Any
 
 import psycopg
 import pytest
-from agent_postmortem import judge_policy, postmortem_policy
 from argus_core import Connections, Holding, LLMSettings, get_settings
 from argus_core.mcp_transport import McpClient
 from argus_core.models import ModelPolicy
@@ -47,6 +46,7 @@ from orchestrator.walk.assembling import (
     against,
     the_store_for,
 )
+from postmortem_writing import judge_policy, postmortem_policy
 
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Covers what the Postmortem agent produces on a terminal transition: which
+Covers what the Postmortem Writer produces on a terminal transition: which
 figures are measured, which are estimated and disclosed as such, that the
 model supplies prose and never a number, and that the agent terminates even
 when the document is incomplete.
@@ -237,7 +237,7 @@ action item answers, and for figures the prose may not name. Where any of these
 are found it SHALL ask the model once more, naming them. Whatever comes back
 SHALL be written, with the review checklist recording what it fell short of.
 There SHALL be no further attempt. The document SHALL then be handed to the
-Communicator for delivery: the Postmortem agent SHALL produce the document and
+Communicator for delivery: the Postmortem Writer SHALL produce the document and
 SHALL NOT send it anywhere, so that what a postmortem says and where it is read
 stay separate concerns.
 
@@ -255,7 +255,7 @@ stay separate concerns.
 #### Scenario: The written document is handed over for delivery
 - **GIVEN** a written postmortem
 - **WHEN** the incident ends
-- **THEN** the Communicator delivers that document, and the Postmortem agent
+- **THEN** the Communicator delivers that document, and the Postmortem Writer
   makes no call to any destination
 
 ### Requirement: A disproven incident's document reports no impact rather than an absent one
