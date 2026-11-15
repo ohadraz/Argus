@@ -102,11 +102,11 @@
               "timed_by": "T12"
             },
             {
-              "item": "The Mitigation Agent rolled back the deployment of io-shop off the renamed port.",
+              "item": "The Mitigator rolled back the deployment of io-shop off the renamed port.",
               "timed_by": "T19"
             },
             {
-              "item": "The Mitigation Agent saw that the metrics could be read again and confirmed that the rollback had worked.",
+              "item": "The Mitigator saw that the metrics could be read again and confirmed that the rollback had worked.",
               "timed_by": "T22"
             },
             {

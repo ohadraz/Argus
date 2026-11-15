@@ -111,11 +111,11 @@
           "got_lucky": [],
           "went_well": [
             {
-              "item": "The Mitigation Agent restarted io-shop to act on C1, the leading candidate.",
+              "item": "The Mitigator restarted io-shop to act on C1, the leading candidate.",
               "timed_by": "T17"
             },
             {
-              "item": "The Mitigation Agent checked the service afterwards, found it no longer at the incident's level, and judged the restart CONFIRMED.",
+              "item": "The Mitigator checked the service afterwards, found it no longer at the incident's level, and judged the restart CONFIRMED.",
               "timed_by": "T20"
             },
             {

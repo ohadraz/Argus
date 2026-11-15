@@ -108,11 +108,11 @@
               "timed_by": "T9"
             },
             {
-              "item": "The Mitigation Agent scaled out the deployment of io-shop, and the service came back to normal.",
+              "item": "The Mitigator scaled out the deployment of io-shop, and the service came back to normal.",
               "timed_by": "T16"
             },
             {
-              "item": "The Mitigation Agent checked that the service was no longer at the incident's level before it judged the action confirmed.",
+              "item": "The Mitigator checked that the service was no longer at the incident's level before it judged the action confirmed.",
               "timed_by": "T19"
             },
             {

@@ -128,7 +128,7 @@
             ]
           },
           {
-            "quote": "The Mitigation Agent judged the switch-off refuted and switched monthly-spend-feature back on. Yet after the switch-off, ZeroDivisionError was logged only in the minutes when the flag was still logged evaluating on ({G5309.4} and {Gce95.5}). Switching it back on likely let more account page requests evaluate it as on and reach the failing path. No log from after it was put back on was read.",
+            "quote": "The Mitigator judged the switch-off refuted and switched monthly-spend-feature back on. Yet after the switch-off, ZeroDivisionError was logged only in the minutes when the flag was still logged evaluating on ({G5309.4} and {Gce95.5}). Switching it back on likely let more account page requests evaluate it as on and reach the failing path. No log from after it was put back on was read.",
             "rows": [
               "T21",
               "M1",

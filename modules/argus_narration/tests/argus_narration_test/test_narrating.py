@@ -500,7 +500,7 @@ def test_a_flag_history_is_carried_as_the_changes_it_reported() -> None:
 @pytest.mark.unit
 def test_a_flag_history_read_is_credited_to_argus() -> None:
     # The walk reads the flag history itself, every round, before any agent is
-    # called in to act on it. Credited to the Mitigation Agent, the line put a
+    # called in to act on it. Credited to the Mitigator, the line put a
     # read by an agent ahead of the line calling that agent in - and on an
     # incident that never called it in at all.
     some_read = FlagChangesRetrieved(incident_id=new_id(), changes=[])
@@ -2051,7 +2051,7 @@ def test_moving_to_a_candidate_whose_number_was_never_carried_names_none() -> No
 
 @pytest.mark.unit
 def test_a_line_written_in_the_past_goes_on_in_a_sentence_lowered() -> None:
-    # After whoever said it - "the Mitigation Agent restarted io-pricing" - and
+    # After whoever said it - "the Mitigator restarted io-pricing" - and
     # with no full stop: the sentence it goes into ends it.
     some_line = "Restarted io-pricing"
 

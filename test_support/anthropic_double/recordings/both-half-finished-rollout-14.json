@@ -132,11 +132,11 @@
               "timed_by": "T16"
             },
             {
-              "item": "The Mitigation Agent rolled back io-shop's deployment off revision 696c33a.",
+              "item": "The Mitigator rolled back io-shop's deployment off revision 696c33a.",
               "timed_by": "T19"
             },
             {
-              "item": "The Mitigation Agent confirmed the rollback had brought the service back from the incident's level.",
+              "item": "The Mitigator confirmed the rollback had brought the service back from the incident's level.",
               "timed_by": "T22"
             },
             {

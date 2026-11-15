@@ -55,7 +55,12 @@ from argus_core.models import (
     Verdict,
     WhyNoTrigger,
 )
-from argus_narration import A_PERSON, as_a_clause, said_as_the_document_shows
+from argus_narration import (
+    A_PERSON,
+    THE_PARTS_OF_ARGUS,
+    as_a_clause,
+    said_as_the_document_shows,
+)
 
 from agent_postmortem.estimate import LatencyLevels, Unmeasured
 from agent_postmortem.evidence import CandidateRecord, DeploymentChangesRecord, IncidentEvidence
@@ -116,9 +121,6 @@ CONTRIBUTING_FACTOR_PREFIX: Final = "CF-"
 # number.
 ALERT_PREFIX: Final = "AL"
 NARRATION_PREFIX: Final = "T"
-# How the narration names an agent, which a clause gives "the" to - "the
-# Investigator Agent" - where Argus and a person go by their names.
-_AN_AGENT: Final = " Agent"
 OUTSIDE_THE_WALK_PREFIX: Final = "XW"
 PRODUCTION_CHANGE_PREFIX: Final = "P"
 DEPLOYMENT_CHANGES_PREFIX: Final = "D"
@@ -1274,8 +1276,8 @@ def as_the_timeline_shows_it(entry: TimelineEntry, shorts: Mapping[str, str],
 def said_as_a_clause(entry: TimelineEntry) -> str:
     """A line of the narration as a sentence goes on with it, after a span or a
     class of change: whoever said it, then the line as the narration says it
-    going on - "the Mitigation Agent restarted io-pricing", "Argus moved on to
-    C2" (`as_a_clause`). An agent takes "the"; Argus and a person go by their
+    going on - "the Mitigator restarted io-pricing", "Argus moved on to
+    C2" (`as_a_clause`). A part of Argus takes "the"; Argus and a person go by their
     names, and a person unnamed goes by "a person". No full stop: the sentence
     it goes into ends it.
     """
@@ -1284,7 +1286,7 @@ def said_as_a_clause(entry: TimelineEntry) -> str:
     if entry.who is None:
         return said
 
-    who = (f"the {entry.who}" if entry.who.endswith(_AN_AGENT)
+    who = (f"the {entry.who}" if entry.who in THE_PARTS_OF_ARGUS
            else A_PERSON.lower() if entry.who == A_PERSON else entry.who)
 
     return f"{who} {said}"

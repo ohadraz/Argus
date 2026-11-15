@@ -116,11 +116,11 @@
               "timed_by": "T9"
             },
             {
-              "item": "The Mitigation Agent restarted io-shop for C1.",
+              "item": "The Mitigator restarted io-shop for C1.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent checked the service after the restart and judged the action confirmed.",
+              "item": "The Mitigator checked the service after the restart and judged the action confirmed.",
               "timed_by": "T21"
             },
             {

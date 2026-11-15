@@ -123,7 +123,7 @@ def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize(("line", "said"), [
     (NarrationLine(at=datetime(2026, 10, 11, 12, 4, tzinfo=UTC), kind="action-taken",
-                   who="Mitigation Agent", text="Reverted the feature flag checkout, moved ",
+                   who="Mitigator", text="Reverted the feature flag checkout, moved ",
                    moved_from="ON", moved_to="OFF"),
      "Reverted the feature flag checkout, moved from ON to OFF"),
     (NarrationLine(at=datetime(2026, 10, 11, 12, 3, tzinfo=UTC), kind="hypothesis-formed",
@@ -217,7 +217,7 @@ def _a_timeline() -> list[NarrationLine]:
                       text="The checkout flag was switched on a minute before errors rose"),
         NarrationLine(at=datetime(2026, 10, 11, 12, 5, tzinfo=UTC),
                       kind="action-taken",
-                      who="Mitigation Agent",
+                      who="Mitigator",
                       text="Reverted the checkout flag")
     ]
 

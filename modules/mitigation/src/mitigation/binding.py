@@ -1,4 +1,4 @@
-"""Binding the agent's capabilities to the tier they are performed over.
+"""Binding the Mitigator's capabilities to the tier they are performed over.
 
 Every other module here states a capability and declares what it needs; this
 one is where a deployment hands those needs a client. It exists because one of

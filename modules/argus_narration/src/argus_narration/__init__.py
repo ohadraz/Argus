@@ -27,6 +27,7 @@ from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_narration.narrating import (
     A_PERSON,
     THE_CLAIM_WAS_NOT_IN_THE_WINDOW,
+    THE_PARTS_OF_ARGUS,
     CandidateLine,
     CandidateNamed,
     NarrationLine,
@@ -68,6 +69,7 @@ __all__ = [
     "NarrationLine",
     "ShownRevision",
     "THE_CLAIM_WAS_NOT_IN_THE_WINDOW",
+    "THE_PARTS_OF_ARGUS",
     "a_bucket_row",
     "a_candidate_cause",
     "a_finding",

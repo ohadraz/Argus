@@ -964,7 +964,7 @@ def test_why_the_change_put_back_did_not_help_is_published_as_a_mitigation_after
                 _an_open_item(_item_number(items_on_the_record + 2),
                               some_question, ActionItemType.MITIGATE),
                 _an_open_item(_item_number(items_on_the_record + 3),
-                              "Before the Mitigation Agent judges a change it made, have it "
+                              "Before the Mitigator judges a change it made, have it "
                               "confirm from the service's own logs that the change reached "
                               "the service.",
                               ActionItemType.PROCESS)

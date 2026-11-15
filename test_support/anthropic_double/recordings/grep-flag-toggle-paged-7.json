@@ -124,11 +124,11 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent switched monthly-spend-feature back off, a change that can be undone.",
+              "item": "The Mitigator switched monthly-spend-feature back off, a change that can be undone.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent judged the revert confirmed once the service was no longer at the incident's level.",
+              "item": "The Mitigator judged the revert confirmed once the service was no longer at the incident's level.",
               "timed_by": "T21"
             },
             {

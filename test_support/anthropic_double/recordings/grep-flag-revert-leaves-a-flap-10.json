@@ -115,7 +115,7 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent switched monthly-spend-feature off, an action that can be put back.",
+              "item": "The Mitigator switched monthly-spend-feature off, an action that can be put back.",
               "timed_by": "T18"
             },
             {
@@ -124,7 +124,7 @@
             }
           ],
           "went_wrong": [
-            "The Mitigation Agent judged the switch-off refuted and put monthly-spend-feature back on. Yet the logs after the switch-off showed evaluations still returning on in the same minutes the ZeroDivisionError came, so the flag was left on with the failing code in use."
+            "The Mitigator judged the switch-off refuted and put monthly-spend-feature back on. Yet the logs after the switch-off showed evaluations still returning on in the same minutes the ZeroDivisionError came, so the flag was left on with the failing code in use."
           ]
         },
         "reaches_a_cause": true,

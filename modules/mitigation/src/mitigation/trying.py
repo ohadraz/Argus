@@ -1,6 +1,6 @@
 """Taking one proposed action, and judging what the service did (spec §7.3).
 
-The mutating half of the agent. `actions.py` decides what to do without
+The mutating half of the Mitigator. `actions.py` decides what to do without
 touching anything; this performs it, runs the verification wait, and puts the
 change back where the wait refutes the hypothesis it was taken on.
 """
@@ -191,7 +191,7 @@ def take_action(action: Action,
 
     The verdict rests on the same departure rule that located the onset, so
     Mitigation and the Investigator cannot disagree about whether a given
-    minute was healthy - two agents that could would be two incidents.
+    minute was healthy - two parts of Argus that could would be two incidents.
 
     An action that could not be taken at all is never `REFUTED`: nothing was
     changed, so there is nothing to judge and nothing to undo, and a verdict here
@@ -239,7 +239,7 @@ def take_action(action: Action,
     before its write: nothing was made, and told otherwise a caller records a
     candidate as tried that never was. What a caller does with it is the
     caller's - this does not guard it, since whether a failure to record may
-    be survived is the recorder's judgement and not the agent's.
+    be survived is the recorder's judgement and not the Mitigator's.
     """
     if not still_wanted():
         logger.info("action not taken, incident no longer wanted")

@@ -110,11 +110,11 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent switched monthly-spend-feature from on to off. This change can be put back.",
+              "item": "The Mitigator switched monthly-spend-feature from on to off. This change can be put back.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent checked the service's metrics before it judged the action confirmed, instead of assuming the revert had worked.",
+              "item": "The Mitigator checked the service's metrics before it judged the action confirmed, instead of assuming the revert had worked.",
               "timed_by": "T21"
             },
             {

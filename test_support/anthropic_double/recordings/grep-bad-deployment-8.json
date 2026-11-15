@@ -110,11 +110,11 @@
               "timed_by": "T17"
             },
             {
-              "item": "The Mitigation Agent rolled back the deployment of io-shop for C1.",
+              "item": "The Mitigator rolled back the deployment of io-shop for C1.",
               "timed_by": "T20"
             },
             {
-              "item": "The Mitigation Agent confirmed the rollback once the service was no longer at the incident's level.",
+              "item": "The Mitigator confirmed the rollback once the service was no longer at the incident's level.",
               "timed_by": "T23"
             },
             {

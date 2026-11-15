@@ -7,7 +7,7 @@
       "type": "thinking"
     },
     {
-      "text": "I found no unsupported claims in the overview. Each of its eight claims matches the record, so I flagged nothing.\n\n- **Who did it:** The record says the Mitigation Agent reverted the flag and the Code-Fix Agent opened the fix. The writer was told to use the \"what was done\" list, which names Argus for both, so calling them Argus is fine.\n- **\"Still a draft\":** The record holds nothing about PR #570 after it was opened as a draft, so saying it is still a draft and has not been put in place doesn't go beyond the record.\n- **\"Likely\":** The word stays on the group of shoppers the cause names as likely affected, and nowhere else.",
+      "text": "I found no unsupported claims in the overview. Each of its eight claims matches the record, so I flagged nothing.\n\n- **Who did it:** The record says the Mitigator reverted the flag and the Code-Fix Agent opened the fix. The writer was told to use the \"what was done\" list, which names Argus for both, so calling them Argus is fine.\n- **\"Still a draft\":** The record holds nothing about PR #570 after it was opened as a draft, so saying it is still a draft and has not been put in place doesn't go beyond the record.\n- **\"Likely\":** The word stays on the group of shoppers the cause names as likely affected, and nowhere else.",
       "type": "text"
     },
     {

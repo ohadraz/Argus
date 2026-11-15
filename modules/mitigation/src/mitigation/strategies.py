@@ -112,7 +112,7 @@ class RevertFeatureFlagStrategy:
     Which flag comes from the hypothesis, confirmed against what the provider
     recorded as changing - never from Argus's configuration and never from
     which flags are currently on. A configured flag name would hardcode the
-    demo's answer into the agent, and current state cannot see half the
+    demo's answer into the Mitigator, and current state cannot see half the
     problem: a flag switched off into an incident is off now, exactly like
     every flag that has been off for a year.
     """
@@ -159,7 +159,7 @@ class RestartServiceStrategy:
     the climb starts again.
 
     The service comes from the alert and from nowhere else. Not from Argus's
-    configuration, which would hardcode one deployment's answer into the agent
+    configuration, which would hardcode one deployment's answer into the Mitigator
     - and not from the hypothesis, whose subject is the model's description of
     what is accumulating rather than the name of anything that can be
     addressed. Those descriptions are prose: "kuki heap (memory_used_bytes /
@@ -207,7 +207,7 @@ class RollBackDeploymentStrategy:
 
     Like a restart and unlike a flag revert, the subject comes from the alert
     and from nowhere else. Not from Argus's configuration, which would
-    hardcode one deployment's answer into the agent - and not from the
+    hardcode one deployment's answer into the Mitigator - and not from the
     hypothesis, whose subject is never an address: it describes what went
     wrong, or names a revision only for the record to be compared against.
 
@@ -310,7 +310,7 @@ class ScaleOutStrategy:
 
     Like a restart and a rollback, the deployment comes from the alert and from
     nowhere else. Not from Argus's configuration, which would hardcode one
-    estate's answer into the agent - and not from the hypothesis, whose subject
+    estate's answer into the Mitigator - and not from the hypothesis, whose subject
     is the model's description of what ran out of room rather than the name of
     anything a platform can be asked about.
 
@@ -363,7 +363,7 @@ class PinAutoscalerStrategy:
 
     Like a restart, a rollback and a scale-out, the deployment comes from the alert
     and from nowhere else. Not from Argus's configuration, which would hardcode one
-    estate's answer into the agent - and not from the hypothesis, whose subject is
+    estate's answer into the Mitigator - and not from the hypothesis, whose subject is
     never an address: here it describes what would not settle, rather than naming
     anything a platform can be asked about.
 

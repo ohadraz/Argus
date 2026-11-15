@@ -121,11 +121,11 @@
               "timed_by": "T15"
             },
             {
-              "item": "The Mitigation Agent switched monthly-spend-feature back to OFF, an action that can be undone.",
+              "item": "The Mitigator switched monthly-spend-feature back to OFF, an action that can be undone.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent confirmed the revert from the service's own metrics before Argus marked the incident mitigated.",
+              "item": "The Mitigator confirmed the revert from the service's own metrics before Argus marked the incident mitigated.",
               "timed_by": "T21"
             },
             {

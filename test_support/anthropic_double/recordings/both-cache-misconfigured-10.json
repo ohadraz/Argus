@@ -133,11 +133,11 @@
               "timed_by": "T17"
             },
             {
-              "item": "The Mitigation Agent rolled io-shop back off revision 0d8e826.",
+              "item": "The Mitigator rolled io-shop back off revision 0d8e826.",
               "timed_by": "T20"
             },
             {
-              "item": "The Mitigation Agent saw that the service was no longer at the incident's level and judged the rollback confirmed.",
+              "item": "The Mitigator saw that the service was no longer at the incident's level and judged the rollback confirmed.",
               "timed_by": "T23"
             },
             {

@@ -140,11 +140,11 @@
               "timed_by": "T16"
             },
             {
-              "item": "The Mitigation Agent put monthly-spend-feature back when reverting it did not help, so the refuted action left nothing changed behind it.",
+              "item": "The Mitigator put monthly-spend-feature back when reverting it did not help, so the refuted action left nothing changed behind it.",
               "timed_by": "T23"
             },
             {
-              "item": "The Mitigation Agent switched legacy-checkout-fallback back on, which put the service back.",
+              "item": "The Mitigator switched legacy-checkout-fallback back on, which put the service back.",
               "timed_by": "T26"
             },
             {

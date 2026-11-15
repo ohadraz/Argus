@@ -129,11 +129,11 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent reverted the feature flag legacy-checkout-fallback back to ON.",
+              "item": "The Mitigator reverted the feature flag legacy-checkout-fallback back to ON.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent judged the revert CONFIRMED once the service was no longer at the incident's level.",
+              "item": "The Mitigator judged the revert CONFIRMED once the service was no longer at the incident's level.",
               "timed_by": "T21"
             },
             {

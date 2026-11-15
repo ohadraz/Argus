@@ -294,7 +294,7 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
                                         a_narration_line(_the_action_on(an_incident_id)),
                                         Register.FOLLOWED)) \
             .then(all_of(
-                _that_message_names(slack, "Mitigation Agent"),
+                _that_message_names(slack, "Mitigator"),
                 _that_message_marks(slack, SOME_FLAG)
             ))
 

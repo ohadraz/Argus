@@ -22,7 +22,7 @@ from chat_platform import Line, Link, Posted
 from chat_platform.slack_posting import as_slack_says_it, post_message, update_message
 from slack_sdk import WebClient
 
-SOME_AGENT = "Mitigation Agent"
+SOME_AGENT = "Mitigator"
 SOME_CHANNEL = "C-war-room"
 SOME_MESSAGE = "1760000300.000400"
 

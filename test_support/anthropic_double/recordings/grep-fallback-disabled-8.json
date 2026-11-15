@@ -132,11 +132,11 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent turned legacy-checkout-fallback back on. That change can be put back and needs no code fix.",
+              "item": "The Mitigator turned legacy-checkout-fallback back on. That change can be put back and needs no code fix.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent judged the revert confirmed once it saw the service was no longer at the incident's level.",
+              "item": "The Mitigator judged the revert confirmed once it saw the service was no longer at the incident's level.",
               "timed_by": "T21"
             },
             {

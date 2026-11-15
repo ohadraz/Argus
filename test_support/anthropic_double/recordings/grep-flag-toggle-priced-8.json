@@ -107,11 +107,11 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent reverted monthly-spend-feature from on to off. This needed no deploy and can be put back.",
+              "item": "The Mitigator reverted monthly-spend-feature from on to off. This needed no deploy and can be put back.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent confirmed that the service had left the incident's level after the revert.",
+              "item": "The Mitigator confirmed that the service had left the incident's level after the revert.",
               "timed_by": "T21"
             },
             {

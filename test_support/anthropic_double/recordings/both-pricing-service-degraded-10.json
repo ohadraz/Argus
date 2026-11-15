@@ -112,11 +112,11 @@
               "timed_by": "T15"
             },
             {
-              "item": "The Mitigation Agent restarted io-pricing.",
+              "item": "The Mitigator restarted io-pricing.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent confirmed the restart had worked, having seen the service out of the incident's level.",
+              "item": "The Mitigator confirmed the restart had worked, having seen the service out of the incident's level.",
               "timed_by": "T21"
             },
             {

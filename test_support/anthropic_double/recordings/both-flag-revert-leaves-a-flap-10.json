@@ -137,7 +137,7 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent switched monthly-spend-feature off to test that candidate, an action that could be put back.",
+              "item": "The Mitigator switched monthly-spend-feature off to test that candidate, an action that could be put back.",
               "timed_by": "T18"
             },
             {
@@ -146,7 +146,7 @@
             }
           ],
           "went_wrong": [
-            "The Mitigation Agent judged the switch-off refuted and switched monthly-spend-feature back on. Yet after the switch-off, ZeroDivisionError was logged only in the minutes when the flag was still logged evaluating on ({G5309.4} and {Gce95.5}). Switching it back on likely let more account page requests evaluate it as on and reach the failing path. No log from after it was put back on was read.",
+            "The Mitigator judged the switch-off refuted and switched monthly-spend-feature back on. Yet after the switch-off, ZeroDivisionError was logged only in the minutes when the flag was still logged evaluating on ({G5309.4} and {Gce95.5}). Switching it back on likely let more account page requests evaluate it as on and reach the failing path. No log from after it was put back on was read.",
             "Argus counted C2 as already tested by the switch-off and moved to FIXING with nothing further to try. But C2 said the errors followed the flag's evaluations minute by minute, which pointed to the switch-off not having taken hold everywhere rather than to the flag being innocent."
           ]
         },
@@ -155,7 +155,7 @@
         "still_at_risk": "With monthly-spend-feature back on, account pages could keep failing for any shopper who has bought before but not this month.",
         "stops_the_harm": "Switch monthly-spend-feature off again. To confirm it took effect, check at the service that account page requests log only monthly-spend-feature=off evaluations, with no monthly-spend-feature=on lines from any replica, and that ZeroDivisionError lines from src/io_shop/spend_summary.py stop appearing.",
         "symptom": "Account pages failed for shoppers",
-        "why_it_did_not_help": "Find out whether switching monthly-spend-feature off reached every replica and every flag evaluation. After the switch-off the service still logged the flag evaluating on in {Gce95.5}, and ZeroDivisionError in the same minutes ({G5309.4}). Find what kept serving the flag as on, and whether the error level the Mitigation Agent saw came from those minutes or from other errors."
+        "why_it_did_not_help": "Find out whether switching monthly-spend-feature off reached every replica and every flag evaluation. After the switch-off the service still logged the flag evaluating on in {Gce95.5}, and ZeroDivisionError in the same minutes ({G5309.4}). Find what kept serving the flag as on, and whether the error level the Mitigator saw came from those minutes or from other errors."
       },
       "name": "submit_postmortem",
       "type": "tool_use"

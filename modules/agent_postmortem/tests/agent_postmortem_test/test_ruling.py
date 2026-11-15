@@ -35,7 +35,7 @@ ACTION_TAKEN = "action-taken"
 VERDICT_REACHED = "verdict-reached"
 
 INVESTIGATOR = "Investigator Agent"
-MITIGATION = "Mitigation Agent"
+MITIGATION = "Mitigator"
 ARGUS = "Argus"
 A_PERSON = "A person"
 

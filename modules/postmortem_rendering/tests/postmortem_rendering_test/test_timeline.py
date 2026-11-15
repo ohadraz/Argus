@@ -139,7 +139,7 @@ def test_a_name_a_line_of_the_walk_quotes_is_said_as_code() -> None:
             some_postmortem := a_postmortem(
                 hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
                                                  result="dont care", label="C1")],
-                timeline=[TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent",
+                timeline=[TimelineEntry(at=SOME_MOMENT, who="Mitigator",
                                         text="Scaled [io-shop] to [6] replicas for C1",
                                         label="T1")])
         ) \

@@ -7,7 +7,7 @@
       "type": "thinking"
     },
     {
-      "text": "I found no claims to flag. Every factual claim in the document is backed by the record, and the hedged or attributed ones are worded as the record allows.\n\n- **Cause:** The load-against-CPU root cause and causal-chain links 2\u20134 are backed by R1 (requests 1200/min rising to a 5400/min peak), R2 (CPU at 94% of its limit on average, 100% at peak) and T7 (3 replicas). The record's own line says the load, not the service, is what changed.\n- **\"Nothing about the service changed\":** T9 (no production changes read back) and T12 (no flag changes) back this.\n- **Contributing factor 1 (no replicas added):** T7 and T19 show the service at 3 replicas until the Mitigation Agent scaled it out, and AI-3 calls that a change Argus made \"by hand\". Nothing in the record shows autoscaling.\n- **Contributing factor 2 (the account-page code):** It is credited to Code-Fix and hedged (\"likely\", \"Nothing ran this reading\"), as F1 requires.\n- **Not judged:** I didn't check the \"had it been otherwise\" fields (only their what-ifs, which aren't judged), the action items, or the went-well/went-wrong verdict itself. I did check the fact in \"went wrong\" that nobody was paged, and it is supported.",
+      "text": "I found no claims to flag. Every factual claim in the document is backed by the record, and the hedged or attributed ones are worded as the record allows.\n\n- **Cause:** The load-against-CPU root cause and causal-chain links 2\u20134 are backed by R1 (requests 1200/min rising to a 5400/min peak), R2 (CPU at 94% of its limit on average, 100% at peak) and T7 (3 replicas). The record's own line says the load, not the service, is what changed.\n- **\"Nothing about the service changed\":** T9 (no production changes read back) and T12 (no flag changes) back this.\n- **Contributing factor 1 (no replicas added):** T7 and T19 show the service at 3 replicas until the Mitigator scaled it out, and AI-3 calls that a change Argus made \"by hand\". Nothing in the record shows autoscaling.\n- **Contributing factor 2 (the account-page code):** It is credited to Code-Fix and hedged (\"likely\", \"Nothing ran this reading\"), as F1 requires.\n- **Not judged:** I didn't check the \"had it been otherwise\" fields (only their what-ifs, which aren't judged), the action items, or the went-well/went-wrong verdict itself. I did check the fact in \"went wrong\" that nobody was paged, and it is supported.",
       "type": "text"
     },
     {
@@ -83,7 +83,7 @@
             ]
           },
           {
-            "quote": "The service did not add replicas as load grew. It stayed at {T7.2} replicas (as of T7) until the Mitigation Agent scaled it out by hand. No autoscaling of io-shop was seen in the record.",
+            "quote": "The service did not add replicas as load grew. It stayed at {T7.2} replicas (as of T7) until the Mitigator scaled it out by hand. No autoscaling of io-shop was seen in the record.",
             "rows": [
               "T7",
               "T15",

@@ -885,8 +885,8 @@ def reports_what_it_changed(action_type: ActionType) -> bool:
     action is taken: the gate decides whether a confirmation could ever arrive
     while there is still nothing to inspect.
 
-    Declared beside what admits an action unasked rather than inside the
-    mitigation agent, because both are properties of the kind and a reader
+    Declared beside what admits an action unasked rather than inside
+    `mitigation`, because both are properties of the kind and a reader
     weighing one wants the other in front of them - and because a second copy
     kept where it is used is a second copy that comes to disagree.
     """

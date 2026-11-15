@@ -1,13 +1,13 @@
 # flag-revert-mitigation Specification
 
 ## Purpose
-What the Mitigation agent does once a cause has been named: choose a reversible
+What the Mitigator does once a cause has been named: choose a reversible
 action deterministically, identify the flag to put back from what the provider
 recorded as changing, take the action, and measure the verdict from re-queried
 metrics - undoing the action when that verdict refutes it.
 ## Requirements
 ### Requirement: A generic mitigation is chosen from the cause, in code
-The Mitigation agent SHALL derive the action to take from the hypothesis's
+The Mitigator SHALL derive the action to take from the hypothesis's
 `failure_mode` and the subject it names, deterministically and without asking a
 model. A cause with no mapped generic mitigation SHALL yield no action rather
 than an approximate one.
@@ -54,7 +54,7 @@ incident.
 - **THEN** no model call is made
 
 ### Requirement: The flag to revert is identified from the provider's change history
-The Mitigation agent SHALL revert the flag the hypothesis names, confirmed
+The Mitigator SHALL revert the flag the hypothesis names, confirmed
 against the flag changes the provider recorded in the environment over a recent
 window. The hypothesis says *which* flag; the provider's history says whether it
 really changed and in which direction, and that history remains the only
@@ -119,7 +119,7 @@ configuration, which would hardcode one environment's answer into the agent.
 - **THEN** no flag is changed and the incident escalates
 
 ### Requirement: A flag is reverted in whichever direction it was changed
-The Mitigation agent SHALL undo a flag change in either direction: a flag that
+The Mitigator SHALL undo a flag change in either direction: a flag that
 was switched on SHALL be switched off, and a flag that was switched off SHALL be
 switched on. An incident caused by a flag being withdrawn is as real as one
 caused by a flag being introduced, and an agent that can only turn flags off
@@ -141,7 +141,7 @@ cannot mitigate the first at all.
 - **THEN** it records the flag as having been off, not as having been on
 
 ### Requirement: The verdict is measured from re-queried metrics
-After taking an action, the Mitigation agent SHALL re-query the same metrics
+After taking an action, the Mitigator SHALL re-query the same metrics
 channel the Investigator read and SHALL return `confirmed` only where the
 service's minutes after the action no longer depart from its baseline. The
 judgement of whether a minute departs SHALL be the same one used to locate an

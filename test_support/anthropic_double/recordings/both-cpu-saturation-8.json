@@ -84,7 +84,7 @@
         "contributing_factors": [
           {
             "addressed_by": [],
-            "factor": "The service did not add replicas as load grew. It stayed at {T7.2} replicas (as of T7) until the Mitigation Agent scaled it out by hand. No autoscaling of io-shop was seen in the record.",
+            "factor": "The service did not add replicas as load grew. It stayed at {T7.2} replicas (as of T7) until the Mitigator scaled it out by hand. No autoscaling of io-shop was seen in the record.",
             "had_it_been_otherwise": "Replicas would have been added as request volume climbed, before CPU reached its limit. Requests would not have queued, or the slow stretch would have been shorter.",
             "label": "CF-1"
           },
@@ -105,11 +105,11 @@
               "timed_by": "T12"
             },
             {
-              "item": "The Mitigation Agent scaled out the io-shop deployment for C1.",
+              "item": "The Mitigator scaled out the io-shop deployment for C1.",
               "timed_by": "T15"
             },
             {
-              "item": "The Mitigation Agent checked the service against its metrics before judging the action confirmed, rather than assuming the scale-out had worked.",
+              "item": "The Mitigator checked the service against its metrics before judging the action confirmed, rather than assuming the scale-out had worked.",
               "timed_by": "T18"
             },
             {

@@ -237,7 +237,7 @@ WHY_IT_DID_NOT_HELP_FIELD: Final = "why_it_did_not_help"
 # service there and dropped the check for next time - three in four on the
 # field's input - which every write-up of the incident before it had.
 CONFIRM_IT_REACHED_THE_SERVICE: Final = (
-    "Before the Mitigation Agent judges a change it made, have it confirm from the "
+    "Before the Mitigator judges a change it made, have it confirm from the "
     "service's own logs that the change reached the service."
 )
 
@@ -1283,7 +1283,7 @@ _WHY_IT_DID_NOT_HELP: Final[dict[str, Any]] = {
     "description": (
         "One action item: what to find out about why the action that was put back did "
         "not help - whether it reached the service, and if it did, why it did not end "
-        "the harm. The document already lists that the Mitigation Agent is to confirm a "
+        "the harm. The document already lists that the Mitigator is to confirm a "
         "change reached the service before judging it: leave that out of your items."
     )
 }

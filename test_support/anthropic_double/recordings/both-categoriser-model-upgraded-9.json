@@ -109,11 +109,11 @@
               "timed_by": "T11"
             },
             {
-              "item": "The Mitigation Agent rolled the io-shop deployment back off revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342.",
+              "item": "The Mitigator rolled the io-shop deployment back off revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342.",
               "timed_by": "T17"
             },
             {
-              "item": "The Mitigation Agent confirmed the rollback, after which the alerting rule stopped firing.",
+              "item": "The Mitigator confirmed the rollback, after which the alerting rule stopped firing.",
               "timed_by": "T20"
             },
             {

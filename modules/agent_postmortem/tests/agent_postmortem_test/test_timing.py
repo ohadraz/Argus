@@ -36,7 +36,7 @@ SOME_FIGURES = {
     _the_instant_of(SOME_LOG_GROUP): Figure(given="200", written="200")
 }
 
-MITIGATION = "Mitigation Agent"
+MITIGATION = "Mitigator"
 ARGUS = "Argus"
 # Who the narration says a thread message is by: nobody it can name.
 A_PERSON = "A person"
@@ -95,7 +95,7 @@ def test_a_timed_item_is_said_as_its_row_says_it() -> None:
     # times exactly what the row did.
     Scenario() \
         .given(
-            an_answer := _an_answer_saying(("The Mitigation Agent restarted io-pricing, and "
+            an_answer := _an_answer_saying(("The Mitigator restarted io-pricing, and "
                                             "the action was confirmed.", SOME_RESTART))
         ) \
         .when(

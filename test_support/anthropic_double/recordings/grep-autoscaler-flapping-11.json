@@ -97,11 +97,11 @@
               "timed_by": "T15"
             },
             {
-              "item": "The Mitigation Agent raised io-shop's autoscaler floor, an action that can be put back.",
+              "item": "The Mitigator raised io-shop's autoscaler floor, an action that can be put back.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent checked the service and judged the action confirmed once the alerting rule had stopped firing.",
+              "item": "The Mitigator checked the service and judged the action confirmed once the alerting rule had stopped firing.",
               "timed_by": "T21"
             },
             {

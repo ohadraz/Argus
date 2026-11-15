@@ -112,11 +112,11 @@
               "timed_by": "T17"
             },
             {
-              "item": "The Mitigation Agent rolled back the io-shop deployment, in a way that can be undone.",
+              "item": "The Mitigator rolled back the io-shop deployment, in a way that can be undone.",
               "timed_by": "T20"
             },
             {
-              "item": "The Mitigation Agent watched the service and judged the rollback confirmed only after seeing it back below the incident's level.",
+              "item": "The Mitigator watched the service and judged the rollback confirmed only after seeing it back below the incident's level.",
               "timed_by": "T23"
             },
             {

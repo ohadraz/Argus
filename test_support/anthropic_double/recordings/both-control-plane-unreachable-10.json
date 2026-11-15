@@ -120,11 +120,11 @@
               "timed_by": "T21"
             },
             {
-              "item": "The Mitigation Agent reverted monthly-spend-feature from ON to OFF. This needed nothing from the deployment platform.",
+              "item": "The Mitigator reverted monthly-spend-feature from ON to OFF. This needed nothing from the deployment platform.",
               "timed_by": "T23"
             },
             {
-              "item": "The Mitigation Agent checked the service and judged the flag revert confirmed.",
+              "item": "The Mitigator checked the service and judged the flag revert confirmed.",
               "timed_by": "T26"
             },
             {

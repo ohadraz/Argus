@@ -132,11 +132,11 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent switched monthly-spend-feature off, a step that can be undone.",
+              "item": "The Mitigator switched monthly-spend-feature off, a step that can be undone.",
               "timed_by": "T19"
             },
             {
-              "item": "The Mitigation Agent put the flag back on once switching it off did not help, leaving the service as it found it.",
+              "item": "The Mitigator put the flag back on once switching it off did not help, leaving the service as it found it.",
               "timed_by": "T22"
             },
             {

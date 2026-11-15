@@ -142,11 +142,11 @@
               "timed_by": "T13"
             },
             {
-              "item": "The Mitigation Agent reverted monthly-spend-feature, the change the errors began with.",
+              "item": "The Mitigator reverted monthly-spend-feature, the change the errors began with.",
               "timed_by": "T19"
             },
             {
-              "item": "The Mitigation Agent switched monthly-spend-feature back on when the revert was judged not to help, so the service was left as Argus had found it.",
+              "item": "The Mitigator switched monthly-spend-feature back on when the revert was judged not to help, so the service was left as Argus had found it.",
               "timed_by": "T22"
             },
             {
@@ -155,7 +155,7 @@
             }
           ],
           "went_wrong": [
-            "The Mitigation Agent judged the revert refuted while io-shop's own flag evaluations still logged monthly-spend-feature=on in {Gce95.5}, after the flag had been switched off.",
+            "The Mitigator judged the revert refuted while io-shop's own flag evaluations still logged monthly-spend-feature=on in {Gce95.5}, after the flag had been switched off.",
             "Argus found an earlier incident in memory, 9c1d4e7a-0000-4000-8000-00000000fee1, where reverting this same flag had been refuted, and tried the same revert again without first finding out why it had not helped then.",
             "The second investigation formed only C2, which blamed the same flag change that had already been tried, so it gave Argus nothing new to try."
           ]

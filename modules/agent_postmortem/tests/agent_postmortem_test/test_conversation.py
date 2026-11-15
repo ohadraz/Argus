@@ -138,7 +138,7 @@ METRICS_RETRIEVED = "metrics-retrieved"
 ACTION_TAKEN = "action-taken"
 READ_THE_METRICS = "Read the service's per-minute metrics"
 RESTARTED_THE_REPLICAS = "Restarted the replicas"
-MITIGATION = "Mitigation Agent"
+MITIGATION = "Mitigator"
 CODE_FIX = "Code-Fix Agent"
 # A figure written in digits and a size said in words: each sent back wherever
 # a reader would see it.

@@ -104,7 +104,7 @@ CANDIDATE_SELECTED: str = CandidateSelected.model_fields["kind"].default
 
 # Who a line of the narration is said by, as the narration names them, and
 # the lines a clause goes on with.
-SOME_AGENT = "Investigator Agent"
+SOME_PART_OF_ARGUS = "Mitigator"
 ARGUS = "Argus"
 SOME_PERSON_NAMED = "Some Person"
 SOME_LINE = "Read back 0 production changes"
@@ -2750,7 +2750,7 @@ def test_a_marker_whose_moment_is_unknown_is_left_out() -> None:
 def test_the_mitigation_applied_marker_is_the_line_that_took_the_action() -> None:
     # The line already says what was done, by whom and when. A row of the
     # marker's own would say the same action twice, back to back.
-    the_line = a_timeline_entry("Turned the flag off", who="Mitigation Agent",
+    the_line = a_timeline_entry("Turned the flag off", who="Mitigator",
                                 at=STARTED_AT + timedelta(minutes=2))
 
     Scenario() \
@@ -2781,7 +2781,7 @@ def test_a_marked_line_keeps_its_place_among_lines_said_at_the_same_moment() -> 
         .given(
             evidence := an_evidence_bundle(
                 onset_at=None,
-                timeline=[a_timeline_entry("Called in the Mitigation Agent", at=the_mitigation),
+                timeline=[a_timeline_entry("Called in the Mitigator", at=the_mitigation),
                           a_timeline_entry("Turned the flag off", at=the_mitigation)],
                 actions=[an_action("dont care", verdict=Verdict.CONFIRMED, line=1)])
         ) \
@@ -2790,7 +2790,7 @@ def test_a_marked_line_keeps_its_place_among_lines_said_at_the_same_moment() -> 
                      if entry.at == the_mitigation]
         ) \
         .then(
-            the_answer_was(["Called in the Mitigation Agent", "Turned the flag off"])
+            the_answer_was(["Called in the Mitigator", "Turned the flag off"])
         )
 
 
@@ -3455,14 +3455,14 @@ def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesR
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("who", "said_as"), [
-    (SOME_AGENT, f"the {SOME_AGENT}"),
+    (SOME_PART_OF_ARGUS, f"the {SOME_PART_OF_ARGUS}"),
     (ARGUS, ARGUS),
     (SOME_PERSON_NAMED, SOME_PERSON_NAMED),
     (A_PERSON, _lowered(A_PERSON))
-], ids=["an-agent", "argus", "a-person-named", "a-person-unnamed"])
+], ids=["a-part-of-argus", "argus", "a-person-named", "a-person-unnamed"])
 def test_a_line_said_as_a_clause_opens_with_whoever_said_it_as_a_sentence_goes_on(
         who: str, said_as: str) -> None:
-    # Mid-sentence, after a span or what a read ruled out: an agent takes
+    # Mid-sentence, after a span or what a read ruled out: a part of Argus takes
     # "the", a name stays as written, and the narration's unnamed person is
     # "a person".
     Scenario() \

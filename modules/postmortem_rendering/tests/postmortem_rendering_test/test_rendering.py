@@ -341,9 +341,9 @@ def test_a_line_saying_only_an_agent_was_called_in_is_left_out_and_the_rest_coun
         .given(
             some_postmortem := a_postmortem(timeline=[
                 TimelineEntry(at=SOME_MOMENT, who="Argus", text="THE FIRST", label="T1"),
-                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigation Agent",
+                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigator",
                               label="T2", an_agent_called_in=True),
-                TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE THIRD",
+                TimelineEntry(at=SOME_MOMENT, who="Mitigator", text="THE THIRD",
                               label="T3")],
                 causal_chain=_a_step_citing("T3"))
         ) \
@@ -352,7 +352,7 @@ def test_a_line_saying_only_an_agent_was_called_in_is_left_out_and_the_rest_coun
         ) \
         .then(all_of(
             _the_timeline_reads(("T1", "THE FIRST"), ("T2", "THE THIRD")),
-            _the_first_step_rests_on("T2 14:03:07 Mitigation Agent: THE THIRD"),
+            _the_first_step_rests_on("T2 14:03:07 Mitigator: THE THIRD"),
             _it_cites_as("T2")
         ))
 
@@ -363,9 +363,9 @@ def test_a_line_saying_only_an_agent_was_called_in_is_kept_where_something_cites
     Scenario() \
         .given(
             some_postmortem := a_postmortem(timeline=[
-                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigation Agent",
+                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigator",
                               label="T1", an_agent_called_in=True),
-                TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE SECOND",
+                TimelineEntry(at=SOME_MOMENT, who="Mitigator", text="THE SECOND",
                               label="T2")],
                 causal_chain=_a_step_citing("T1"))
         ) \
@@ -373,7 +373,7 @@ def test_a_line_saying_only_an_agent_was_called_in_is_kept_where_something_cites
             lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
-            _the_timeline_reads(("T1", "Called in the Mitigation Agent"), ("T2", "THE SECOND"))
+            _the_timeline_reads(("T1", "Called in the Mitigator"), ("T2", "THE SECOND"))
         )
 
 
@@ -388,9 +388,9 @@ def test_a_line_the_model_s_prose_names_after_one_left_out_is_named_by_its_new_l
                 timeline=[
                     TimelineEntry(at=SOME_MOMENT, who="Argus", text="dont care", label="T1"),
                     TimelineEntry(at=SOME_MOMENT, who="Argus",
-                                  text="Called in the Mitigation Agent", label="T2",
+                                  text="Called in the Mitigator", label="T2",
                                   an_agent_called_in=True),
-                    TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="dont care",
+                    TimelineEntry(at=SOME_MOMENT, who="Mitigator", text="dont care",
                                   label="T3")],
                 causal_chain=[ChainStep(text="The rollback was confirmed (T3), not `T3`.",
                                         cites=[])])
@@ -410,9 +410,9 @@ def test_a_line_saying_only_an_agent_was_called_in_is_kept_where_the_prose_names
             some_postmortem := a_postmortem(
                 timeline=[
                     TimelineEntry(at=SOME_MOMENT, who="Argus",
-                                  text="Called in the Mitigation Agent", label="T1",
+                                  text="Called in the Mitigator", label="T1",
                                   an_agent_called_in=True),
-                    TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE SECOND",
+                    TimelineEntry(at=SOME_MOMENT, who="Mitigator", text="THE SECOND",
                                   label="T2")],
                 causal_chain=[ChainStep(text="It was called in (T1).", cites=[])])
         ) \
@@ -420,7 +420,7 @@ def test_a_line_saying_only_an_agent_was_called_in_is_kept_where_the_prose_names
             lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
-            _the_timeline_reads(("T1", "Called in the Mitigation Agent"), ("T2", "THE SECOND"))
+            _the_timeline_reads(("T1", "Called in the Mitigator"), ("T2", "THE SECOND"))
         )
 
 
@@ -430,11 +430,11 @@ def test_a_line_outside_the_walk_is_counted_again_apart_from_the_walk_s() -> Non
     Scenario() \
         .given(
             some_postmortem := a_postmortem(timeline=[
-                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigation Agent",
+                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigator",
                               label="T1", an_agent_called_in=True),
                 TimelineEntry(at=SOME_MOMENT, who="kuki", text="THE PERSON'S", label="XW1",
                               outside_the_walk=True),
-                TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE WALK'S",
+                TimelineEntry(at=SOME_MOMENT, who="Mitigator", text="THE WALK'S",
                               label="T2")])
         ) \
         .when(

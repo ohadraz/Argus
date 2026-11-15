@@ -91,7 +91,7 @@
             ]
           },
           {
-            "quote": "The service did not add replicas as load grew. It stayed at {T7.2} replicas (as of T7) until the Mitigation Agent scaled it out by hand. No autoscaling of io-shop was seen in the record.",
+            "quote": "The service did not add replicas as load grew. It stayed at {T7.2} replicas (as of T7) until the Mitigator scaled it out by hand. No autoscaling of io-shop was seen in the record.",
             "rows": [
               "T7",
               "T15",

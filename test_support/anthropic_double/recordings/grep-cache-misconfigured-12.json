@@ -128,11 +128,11 @@
               "timed_by": "T17"
             },
             {
-              "item": "The Mitigation Agent rolled back the io-shop deployment off revision 0d8e826.",
+              "item": "The Mitigator rolled back the io-shop deployment off revision 0d8e826.",
               "timed_by": "T20"
             },
             {
-              "item": "The Mitigation Agent checked the service after the rollback and judged the action confirmed.",
+              "item": "The Mitigator checked the service after the rollback and judged the action confirmed.",
               "timed_by": "T23"
             },
             {

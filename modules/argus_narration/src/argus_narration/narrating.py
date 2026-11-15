@@ -152,11 +152,17 @@ _AWAITING_RECOVERY: Final[str] = AwaitingRecovery.model_fields["kind"].default
 _ALARM_DISPROVEN: Final[str] = AlarmDisproven.model_fields["kind"].default
 _OFFER_EXPIRED: Final[str] = OfferExpired.model_fields["kind"].default
 
-_MITIGATION = "Mitigation Agent"
+_MITIGATION = "Mitigator"
 _CODEFIX = "Code-Fix Agent"
 _COMMUNICATOR = "Communicator Agent"
 _POSTMORTEM = "Postmortem Agent"
 _INTENT = "Intent Agent"
+# Argus's own parts, as a line names whoever said it - the names a clause gives
+# "the" to, "the Mitigator restarted io-pricing", where Argus and a person go by
+# their names. Public because the postmortem goes on with a line mid-sentence,
+# and a name is not a part of Argus by how it happens to end.
+THE_PARTS_OF_ARGUS: Final = frozenset({_INVESTIGATOR, _MITIGATION, _CODEFIX, _COMMUNICATOR,
+                                       _POSTMORTEM, _INTENT})
 # Whoever wrote in the incident's thread, before anybody has looked their name
 # up. Not their platform id: an id is a lookup key, and a reader handed one has
 # been handed a chore rather than a person. Public because a destination going

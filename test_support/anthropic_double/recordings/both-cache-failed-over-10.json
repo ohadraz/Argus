@@ -98,7 +98,7 @@
               "item": "The alert itself listed which cached figures disagreed and when the copies stopped keeping up, which gave the mitigation an exact list of entries to discard."
             },
             {
-              "item": "The Mitigation Agent discarded the stale cached figures, which sent those pages back to the purchase ledger.",
+              "item": "The Mitigator discarded the stale cached figures, which sent those pages back to the purchase ledger.",
               "timed_by": "T19"
             },
             {

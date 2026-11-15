@@ -660,7 +660,7 @@ def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
     """The write tier's flag history, asked from one moment onwards.
 
     A named function rather than `get_recent_flag_changes` itself, because the
-    agent needs exactly one of that tool's calling shapes and a seam is only
+    Mitigator needs exactly one of that tool's calling shapes and a seam is only
     useful if a test can spec against the shape the caller actually uses.
     """
     return get_recent_flag_changes(since, client=client)
@@ -680,7 +680,7 @@ def fetch_recent_flag_changes(
     is exactly what the list covers.
 
     A named function rather than `get_recent_flag_changes` passed directly,
-    because the agent needs exactly one of that tool's calling shapes - a
+    because the Mitigator needs exactly one of that tool's calling shapes - a
     window ending now - and a seam is only useful if a test can spec against
     the shape the caller actually uses. Deciding the window here also keeps
     `propose_action` free of both configuration and I/O.
@@ -700,7 +700,7 @@ def fetch_recent_flag_changes(
     out by almost every caller. Ending it at the present asks what somebody
     *just* changed, which is the right question about an incident happening now
     and the wrong one about an incident a check found long afterwards: there the
-    flag moved a week ago, a window ending now does not reach it, and the agent
+    flag moved a week ago, a window ending now does not reach it, and the Mitigator
     proposes nothing about a flag that is still on.
 
     Anchored rather than widened, and the difference matters. The lookback is
@@ -784,7 +784,7 @@ def argus_changed_flag_since(
     one direction the rest of Argus never asks it.
 
     `None` means the provider could not say - it could not be reached, or it
-    attributes nothing to Argus because operator and agent share a credential.
+    attributes nothing to Argus because operator and Argus share a credential.
     A caller must not read that as "no change was made": the difference between
     an unmade change and an unanswerable question is the difference between
     acting again and escalating.
@@ -822,7 +822,7 @@ def somebody_else_changed_flag_since(
     must not read it as "nobody has been in here" - the two are the difference
     between putting a change back and overwriting a person.
 
-    A deployment that attributes nothing - operator and agent sharing one
+    A deployment that attributes nothing - operator and Argus sharing one
     credential - answers `True`, because `changes_not_made_by` filters nothing
     there and Argus's own write is then indistinguishable from somebody else's.
     That is the safe direction: a flag left as found can be put back by hand,
@@ -861,7 +861,7 @@ def restart_a_service(service: str, *, client: McpClient) -> RestartedService:
     """Restarts a service, answering with the process that came up.
 
     A named function rather than `restart_service` itself, for the reason
-    `_flag_changes_since` is one: the agent needs one of that tool's calling
+    `_flag_changes_since` is one: the Mitigator needs one of that tool's calling
     shapes, and a seam is only useful if a test can spec against the shape the
     caller actually uses.
     """
@@ -875,7 +875,7 @@ def roll_back_a_deployment(application: str,
     that cost.
 
     A named function rather than `roll_back_deployment` itself, for the
-    reason `restart_a_service` is one: the agent needs one of that tool's
+    reason `restart_a_service` is one: the Mitigator needs one of that tool's
     calling shapes, and a seam is only useful if a test can spec against the
     shape the caller actually uses.
     """
@@ -897,7 +897,7 @@ def scale_out_a_deployment(application: str,
     that cost.
 
     A named function rather than `scale_out` itself, for the reason
-    `restart_a_service` is one: the agent needs one of that tool's calling shapes,
+    `restart_a_service` is one: the Mitigator needs one of that tool's calling shapes,
     and a seam is only useful if a test can spec against the shape the caller
     actually uses.
     """
@@ -919,7 +919,7 @@ def pin_an_autoscaler(application: str,
     that changed.
 
     A named function rather than `pin_autoscaler` itself, for the reason
-    `scale_out_a_deployment` is one: the agent needs one of that tool's calling
+    `scale_out_a_deployment` is one: the Mitigator needs one of that tool's calling
     shapes, and a seam is only useful if a test can spec against the shape the
     caller actually uses.
     """
@@ -932,7 +932,7 @@ def discard_the_cache_entries(keys: Sequence[str],
     """Throws away the named cache entries, answering with how many were there.
 
     A named function rather than the tool itself, for the reason
-    `pin_an_autoscaler` is one: the agent needs one of that tool's calling shapes,
+    `pin_an_autoscaler` is one: the Mitigator needs one of that tool's calling shapes,
     and a seam is only useful if a test can spec against the shape the caller
     actually uses.
     """

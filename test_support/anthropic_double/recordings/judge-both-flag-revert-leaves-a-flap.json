@@ -146,7 +146,7 @@
             ]
           },
           {
-            "quote": "The Mitigation Agent judged the switch-off refuted and switched monthly-spend-feature back on. Yet after the switch-off, ZeroDivisionError was logged only in the minutes when the flag was still logged evaluating on ({G5309.4} and {Gce95.5})",
+            "quote": "The Mitigator judged the switch-off refuted and switched monthly-spend-feature back on. Yet after the switch-off, ZeroDivisionError was logged only in the minutes when the flag was still logged evaluating on ({G5309.4} and {Gce95.5})",
             "rows": [
               "T21",
               "M1",

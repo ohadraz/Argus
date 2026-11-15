@@ -6224,7 +6224,7 @@ def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_har
 
 @pytest.mark.unit
 def test_why_the_change_did_not_help_is_asked_to_leave_the_document_s_own_check_out() -> None:
-    # The document lists its own item after this one, that the Mitigation Agent
+    # The document lists its own item after this one, that the Mitigator
     # confirm a change reached the service before judging it; a write-up not
     # told so would list it a second time.
     Scenario() \

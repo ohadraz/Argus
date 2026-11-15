@@ -1,6 +1,6 @@
 """What Mitigation proposes to do (spec §7.3, §13).
 
-The pure half of the agent. Choosing an action is a deterministic function of
+The pure half of the Mitigator. Choosing an action is a deterministic function of
 the cause the Investigator named and the circumstances the round established -
 no model, no I/O. The Investigator already made the judgement; a model standing
 between a verdict and a write can only hallucinate, or pick a tool that exists
@@ -17,7 +17,7 @@ guard nothing.
 
 `Action`, `RevertFeatureFlag`, `Outcome` and `Verdict` themselves live in
 `argus_core.models.action` - they cross into the Orchestrator's graph state and
-into the `action` table, so they belong to no single agent - and are re-exported
+into the `action` table, so they belong to no single part of Argus - and are re-exported
 here because this is where a caller reasoning about mitigation looks for them.
 """
 
@@ -53,7 +53,7 @@ __all__ = [
 def state_name(enabled: bool) -> str:
     """How a flag's state is spelled in anything a human reads.
 
-    Here rather than beside either caller because both halves of the agent
+    Here rather than beside either caller because both halves of the Mitigator
     write it - taking an action narrates what it set, putting one back narrates
     what it restored - and two spellings of the same state would read as two
     different things having happened.

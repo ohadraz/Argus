@@ -114,11 +114,11 @@
               "timed_by": "T12"
             },
             {
-              "item": "The Mitigation Agent rolled io-shop back off revision 9f4ad14, and the rollback can be undone.",
+              "item": "The Mitigator rolled io-shop back off revision 9f4ad14, and the rollback can be undone.",
               "timed_by": "T18"
             },
             {
-              "item": "The Mitigation Agent checked that the service's metrics could be read again before judging the rollback confirmed.",
+              "item": "The Mitigator checked that the service's metrics could be read again before judging the rollback confirmed.",
               "timed_by": "T20"
             },
             {

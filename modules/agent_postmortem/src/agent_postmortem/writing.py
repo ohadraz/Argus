@@ -310,7 +310,7 @@ def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
     kept until the fault is fixed, which the document says after the model's
     words, ending them as a sentence where they did not end as one - and the
     second finds out why the change put back did not. After them the document's
-    own, a process item: that the Mitigation Agent confirm a change reached the
+    own, a process item: that the Mitigator confirm a change reached the
     service before judging it.
 
     Open and nobody's: Argus edits no item after the document is written, so

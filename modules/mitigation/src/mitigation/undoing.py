@@ -50,7 +50,7 @@ def undo_change(undo_descriptor: UndoDescriptor,
     in what order, and where the answers are written down belong to whoever
     holds the records - a refuted action asks for its own, and a withdrawn
     incident asks for every change it made. Sequencing them here would put a
-    coordinator inside an agent, and a database behind it.
+    coordinator inside the Mitigator, and a database behind it.
 
     Conditional, and that is the whole of why this is not a bare `set_state`.
     Somebody who has changed the flag since Argus set it changed it
