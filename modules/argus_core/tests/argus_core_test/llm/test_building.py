@@ -39,7 +39,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -203,7 +203,7 @@ class _AnApiListening:
 
 
 @contextmanager
-def _an_api_listening() -> Iterator[_AnApiListening]:
+def _an_api_listening() -> Generator[_AnApiListening]:
     """The stand-in, listening on a port of its own on this machine for as
     long as the block runs."""
     answered = Message(id="dont_care_id", model="dont_care_model", role=ASSISTANT_ROLE,

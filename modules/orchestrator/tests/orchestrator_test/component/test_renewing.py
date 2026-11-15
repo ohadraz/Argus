@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -140,7 +140,7 @@ def _stopped_after(rounds: int, asked: list[float]) -> Stopped:
 def _connections_counting_into(opened: list[None]) -> Connections:
     """Real connections, each one opened kept count of - a renewal is one."""
     @contextmanager
-    def counted() -> Iterator[psycopg.Connection]:
+    def counted() -> Generator[psycopg.Connection]:
         opened.append(None)
 
         with connect_from_env() as conn:
@@ -154,7 +154,7 @@ def _connections_failing_the_first_time() -> Connections:
     attempts: list[None] = []
 
     @contextmanager
-    def failing_once() -> Iterator[psycopg.Connection]:
+    def failing_once() -> Generator[psycopg.Connection]:
         attempts.append(None)
 
         if len(attempts) == 1:

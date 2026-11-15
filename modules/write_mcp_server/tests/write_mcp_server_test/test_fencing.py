@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -264,7 +264,7 @@ def _a_hold_answering(still_held: bool, asked: list[Fence] | None = None) -> Hol
     """A run held or not by whichever claim asks - each asked about kept in
     `asked`, where it is given."""
     @contextmanager
-    def hold(fence: Fence) -> Iterator[bool]:
+    def hold(fence: Fence) -> Generator[bool]:
         if asked is not None:
             asked.append(fence)
 
@@ -275,7 +275,7 @@ def _a_hold_answering(still_held: bool, asked: list[Fence] | None = None) -> Hol
 
 def _a_hold_recording_into(made: list[str]) -> HoldForAChange:
     @contextmanager
-    def hold(dont_care_fence: Fence) -> Iterator[bool]:
+    def hold(dont_care_fence: Fence) -> Generator[bool]:
         made.append("held")
 
         try:
@@ -288,7 +288,7 @@ def _a_hold_recording_into(made: list[str]) -> HoldForAChange:
 
 def _a_hold_that_cannot_be_had() -> HoldForAChange:
     @contextmanager
-    def hold(dont_care_fence: Fence) -> Iterator[bool]:
+    def hold(dont_care_fence: Fence) -> Generator[bool]:
         raise RuntimeError("the database is not answering")
 
     return hold
@@ -296,7 +296,7 @@ def _a_hold_that_cannot_be_had() -> HoldForAChange:
 
 def _a_hold_that_cannot_be_let_go() -> HoldForAChange:
     @contextmanager
-    def hold(dont_care_fence: Fence) -> Iterator[bool]:
+    def hold(dont_care_fence: Fence) -> Generator[bool]:
         yield True
 
         raise RuntimeError("the database went away before the commit")

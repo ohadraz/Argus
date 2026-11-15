@@ -17,7 +17,7 @@ job - walks no run, and writes as it always did.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Final
@@ -88,7 +88,7 @@ class Holding:
         return self._held
 
     @contextmanager
-    def of(self, held: Fence) -> Iterator[None]:
+    def of(self, held: Fence) -> Generator[None]:
         """`held` for as long as the block runs, and nothing after - however it
         ends."""
         self._held = held

@@ -12,7 +12,7 @@ carries it into the server that answers.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from typing import Final
 
@@ -29,7 +29,7 @@ def inside_the_incidents_trace(incident_id: str,
                                trace_context: Mapping[str, str],
                                span: str,
                                kind: SpanKind = SpanKind.INTERNAL,
-                               tracer: Tracer | None = None) -> Iterator[Span]:
+                               tracer: Tracer | None = None) -> Generator[Span]:
     """A span for some work on the incident, continuing the trace it keeps.
 
     `trace_context` is what the incident kept, as the propagator wrote it. An

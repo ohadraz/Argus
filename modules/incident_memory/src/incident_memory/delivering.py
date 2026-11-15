@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Final, Protocol
 
@@ -84,7 +84,7 @@ class Pass(Protocol):
 
 
 @contextmanager
-def holding_the_delivery(conn: psycopg.Connection) -> Iterator[bool]:
+def holding_the_delivery(conn: psycopg.Connection) -> Generator[bool]:
     """Whether this connection holds the delivery for the block - and, if it
     does, gives it back however the block ends.
 

@@ -13,7 +13,7 @@ claim it acted for, and said it so the server could read it.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from functools import partial
 
@@ -27,14 +27,14 @@ THE_RUN_HELD = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
 def holding_only(held: Fence) -> HoldForAChange:
     """A run that `held` holds and no other claim does."""
     @contextmanager
-    def hold(fence: Fence) -> Iterator[bool]:
+    def hold(fence: Fence) -> Generator[bool]:
         yield fence == held
 
     return hold
 
 
 @contextmanager
-def holds_for(held: Fence, dont_care_settings: DatabaseSettings) -> Iterator[HoldForAChange]:
+def holds_for(held: Fence, dont_care_settings: DatabaseSettings) -> Generator[HoldForAChange]:
     """What the server's `main` is handed in place of the database's holds."""
     yield holding_only(held)
 

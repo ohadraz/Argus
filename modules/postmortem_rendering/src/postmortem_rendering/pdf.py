@@ -21,7 +21,7 @@ line while fpdf2 logs it, so the file is still made.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from itertools import accumulate, pairwise
 from pathlib import Path
@@ -165,7 +165,7 @@ class _Sheet(FPDF):
             self.cell(_WIDTH / 2, 4, f"Page {self.page_no()} of {{nb}}", align="R")
 
     @contextmanager
-    def _from_the_side(self) -> Iterator[None]:
+    def _from_the_side(self) -> Generator[None]:
         """Sets what is written inside it from the page's side margin. A page
         breaks wherever the body is, and the footer closing it and the header
         opening the next are written then - with the body's margin in force,

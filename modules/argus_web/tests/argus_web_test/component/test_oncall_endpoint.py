@@ -15,7 +15,7 @@ question.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from http import HTTPStatus as HttpStatus
@@ -199,7 +199,7 @@ def _the_start_of(incident_id: str) -> datetime:
 def _the_platform_saying(delivery: Delivery,
                          keys: list[str] | Exception,
                          note: str | None = None,
-                         paged_at: datetime | None = None) -> Iterator[None]:
+                         paged_at: datetime | None = None) -> Generator[None]:
     """The platform saying `delivery` about a page under `keys`, opened at
     `paged_at` and resolved an hour later."""
     platform = create_autospec(OnCallPlatform, instance=True)
@@ -222,7 +222,7 @@ def _the_platform_saying(delivery: Delivery,
 
 
 @contextmanager
-def _the_platform_refusing(refusal: Exception) -> Iterator[None]:
+def _the_platform_refusing(refusal: Exception) -> Generator[None]:
     platform = create_autospec(OnCallPlatform, instance=True)
     platform.parse_delivery.side_effect = refusal
 
@@ -231,13 +231,13 @@ def _the_platform_refusing(refusal: Exception) -> Iterator[None]:
 
 
 @contextmanager
-def _no_platform() -> Iterator[None]:
+def _no_platform() -> Generator[None]:
     with _the_platform_being(None):
         yield
 
 
 @contextmanager
-def _the_platform_being(platform: Any) -> Iterator[None]:
+def _the_platform_being(platform: Any) -> Generator[None]:
     """FastAPI's own seam for standing something in, put back as the block ends."""
     app.dependency_overrides[oncall_platform_of] = lambda: platform
 

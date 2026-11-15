@@ -21,7 +21,7 @@ a second walk.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from typing import Any, Final
 
@@ -125,7 +125,7 @@ class FencedFastMCP(TracedFastMCP):
 
 
 @contextmanager
-def holds_in_the_database(settings: DatabaseSettings) -> Iterator[HoldForAChange]:
+def holds_in_the_database(settings: DatabaseSettings) -> Generator[HoldForAChange]:
     """The run's own row, asked and kept on a pool of this process's own.
 
     Kept for the length of a transaction, which the database ends if nothing is
@@ -136,7 +136,7 @@ def holds_in_the_database(settings: DatabaseSettings) -> Iterator[HoldForAChange
         "options": f"-c idle_in_transaction_session_timeout={LONGER_THAN_ANY_CHANGE}"
     }) as pool:
         @contextmanager
-        def hold(held: Fence) -> Iterator[bool]:
+        def hold(held: Fence) -> Generator[bool]:
             with pool.connection() as conn:
                 yield runs.hold_for_a_change(conn, held)
 
@@ -151,7 +151,7 @@ def _the_claim_in(meta: Mapping[str, Any] | None) -> Fence | None:
 
 
 @contextmanager
-def _let_go_after(held_for_now: ExitStack, tool: str) -> Iterator[None]:
+def _let_go_after(held_for_now: ExitStack, tool: str) -> Generator[None]:
     """Lets the run go once the change is made, however it was made.
 
     A change that raised is raised as it was, the run let go on its way out. A

@@ -40,7 +40,7 @@ import random
 import re
 import sys
 import traceback
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -149,7 +149,7 @@ class _AFlag:
 
 
 @contextmanager
-def _no_cache(dont_care_endpoint: Any) -> Iterator[None]:
+def _no_cache(dont_care_endpoint: Any) -> Generator[None]:
     """Where the shop would open its cache: there is none here, and what it
     writes into one is never read back - its cache check reads the staging."""
     yield None

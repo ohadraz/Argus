@@ -43,7 +43,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager, suppress
 from types import TracebackType
@@ -554,7 +554,7 @@ class McpClient:
         ).result()
 
     @contextmanager
-    def _a_tool_call(self, name: str) -> Iterator[dict[str, Any]]:
+    def _a_tool_call(self, name: str) -> Generator[dict[str, Any]]:
         """One call's span and duration, and the `_meta` that carries it across.
 
         Yields the carrier the span's context was injected into, which is what
@@ -922,7 +922,7 @@ def _said_on(span: Span, error: Exception) -> None:
 @contextmanager
 def serving_a_tool_call(name: str,
                         meta: Mapping[str, Any] | None,
-                        tracer: Tracer | None = None) -> Iterator[Span]:
+                        tracer: Tracer | None = None) -> Generator[Span]:
     """The server's half: a span for one tool call, inside the caller's trace.
 
     `meta` is the request's `_meta`, where the client put its span's context.

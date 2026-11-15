@@ -16,7 +16,7 @@ question.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from http import HTTPStatus as HttpStatus
@@ -285,7 +285,7 @@ _THE_MEANING_OF: dict[OfferedEnding, Meaning] = {
 
 
 @contextmanager
-def _the_platform_saying(delivery: Delivery) -> Iterator[None]:
+def _the_platform_saying(delivery: Delivery) -> Generator[None]:
     platform = create_autospec(ChatPlatformReads, instance=True)
     platform.channel = ReportChannel.SLACK
     platform.parse_delivery.return_value = delivery
@@ -295,7 +295,7 @@ def _the_platform_saying(delivery: Delivery) -> Iterator[None]:
 
 
 @contextmanager
-def _the_platform_refusing(refusal: Exception) -> Iterator[None]:
+def _the_platform_refusing(refusal: Exception) -> Generator[None]:
     platform = create_autospec(ChatPlatformReads, instance=True)
     platform.parse_delivery.side_effect = refusal
 
@@ -304,13 +304,13 @@ def _the_platform_refusing(refusal: Exception) -> Iterator[None]:
 
 
 @contextmanager
-def _no_platform() -> Iterator[None]:
+def _no_platform() -> Generator[None]:
     with _the_platform_being(None):
         yield
 
 
 @contextmanager
-def _the_platform_being(platform: Any) -> Iterator[None]:
+def _the_platform_being(platform: Any) -> Generator[None]:
     """FastAPI's own seam for standing something in, put back as the block ends."""
     app.dependency_overrides[chat_platform_of] = lambda: platform
 

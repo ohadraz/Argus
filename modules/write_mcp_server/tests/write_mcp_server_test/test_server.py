@@ -8,7 +8,7 @@ and nothing about the tool itself would say so.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from unittest.mock import create_autospec
 
@@ -65,7 +65,7 @@ def _a_server() -> FencedFastMCP:
 
 
 @contextmanager
-def _a_hold_never_asked(dont_care_fence: Fence) -> Iterator[bool]:
+def _a_hold_never_asked(dont_care_fence: Fence) -> Generator[bool]:
     raise AssertionError("Expected the run never asked after while assembling, and it was.")
 
 

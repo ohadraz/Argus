@@ -9,7 +9,7 @@ grid no clock moves. Everything else the shop does it does as the shop.
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from types import ModuleType
@@ -82,7 +82,7 @@ def pinning_the_clock_of(state: Any) -> PinTheShopsClock:
     the shop's module, and a module's names are not known until it is loaded.
     """
     @contextmanager
-    def pinned(instant: datetime) -> Iterator[None]:
+    def pinned(instant: datetime) -> Generator[None]:
         own_clock: Callable[[], datetime] = state.utc_now
         state.utc_now = lambda: instant
         try:

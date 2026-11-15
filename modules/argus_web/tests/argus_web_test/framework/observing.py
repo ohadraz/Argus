@@ -9,7 +9,7 @@ this one's exporter.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from argus_web.app import app, tracer_of
@@ -19,7 +19,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 
 @contextmanager
-def observing_the_app() -> Iterator[InMemorySpanExporter]:
+def observing_the_app() -> Generator[InMemorySpanExporter]:
     """The app's spans, readable as each one ends, for as long as the block runs."""
     spans = InMemorySpanExporter()
     provider = TracerProvider()
