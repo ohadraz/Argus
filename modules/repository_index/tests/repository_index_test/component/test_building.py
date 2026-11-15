@@ -27,11 +27,11 @@ from unittest.mock import create_autospec
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from code_index.building import IndexSettings, SourceReader, index_repository
-from code_index.indexing import Embedder
-from code_index.records import get
-from code_index.store import chunks_held_for, ids_held_for
 from qdrant_client import QdrantClient
+from repository_index.building import IndexSettings, SourceReader, index_repository
+from repository_index.indexing import Embedder
+from repository_index.records import get
+from repository_index.store import chunks_held_for, ids_held_for
 from repository_source import RepositoryUnreadable
 
 # What a file this cannot parse is cut by. The fixtures here are Python and are
@@ -40,7 +40,7 @@ from repository_source import RepositoryUnreadable
 SOME_MAX_LINES = 60
 SOME_OVERLAP = 10
 
-SOME_COLLECTION = "code_index_building_test"
+SOME_COLLECTION = "repository_index_building_test"
 SOME_REPOSITORY = "owner/some-service"
 SOME_DIRECTORY = "src/shop"
 
@@ -245,9 +245,9 @@ def _some_settings() -> IndexSettings:
         github_read_token="ghp_dont-care-read-token",
         github_source_paths=SOME_DIRECTORY,
         github_base_branch=DONT_CARE_BRANCH,
-        code_index_collection=SOME_COLLECTION,
-        code_index_max_lines=SOME_MAX_LINES,
-        code_index_chunk_overlap=SOME_OVERLAP
+        repository_index_collection=SOME_COLLECTION,
+        repository_index_max_lines=SOME_MAX_LINES,
+        repository_index_chunk_overlap=SOME_OVERLAP
     )
 
 

@@ -25,9 +25,6 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
-from code_index.chunking import Chunk
-from code_index.indexing import Embedder
-from code_index.store import Found
 from core.models import CodeSearch
 from qdrant_client import QdrantClient
 from read_mcp_server.meaning import (
@@ -42,6 +39,9 @@ from read_mcp_server.meaning import (
     the_index_notice,
 )
 from read_mcp_server.repository import RepositoryReadSettings
+from repository_index.chunking import Chunk
+from repository_index.indexing import Embedder
+from repository_index.store import Found
 
 THE_COMMIT_DEPLOYED = "77296acf1d2b4e5a6c7d8e9f0a1b2c3d4e5f6a7b"
 AN_EARLIER_COMMIT = "3f1b9d2c8a7e6f5d4c3b2a1908f7e6d5c4b3a291"
@@ -53,7 +53,7 @@ DONT_CARE_DESCRIPTION = "something the service does"
 SOME_VECTOR = [0.1, 0.2, 0.3]
 
 SOME_INDEX_SETTINGS = IndexReadSettings(qdrant_url="http://qdrant.invalid",
-                                        code_index_collection="dont-care-collection",
+                                        repository_index_collection="dont-care-collection",
                                         code_search=CodeSearch.MEANING)
 
 _THE_DIVISION = "def average_spend(purchases):\n    return total(purchases) / len(purchases)"
@@ -850,7 +850,7 @@ def an_index_holding(*passages: Found) -> Any:
     """A stand-in for the store's ranked answer.
 
     The seam is the query rather than the client underneath it: what Qdrant does
-    with a vector belongs to `code_index` and is asserted there against a real
+    with a vector belongs to `repository_index` and is asserted there against a real
     one. What belongs here is what this module does with the passages once it
     has them - rank, scope, threshold, locate, and say what is stale.
     """

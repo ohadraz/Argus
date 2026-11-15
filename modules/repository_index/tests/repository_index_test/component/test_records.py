@@ -21,7 +21,7 @@ from __future__ import annotations
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from code_index.records import RepositoryIndex, get, record_indexed, record_pushed
+from repository_index.records import RepositoryIndex, get, record_indexed, record_pushed
 
 SOME_REPOSITORY = "owner/some-service"
 ANOTHER_REPOSITORY = "owner/another-service"

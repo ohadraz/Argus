@@ -30,7 +30,7 @@ from uuid import UUID
 from core.embedding import Embedder
 from core.source_scope import belongs_to_the_service
 
-from code_index.chunking import Chunk, chunks_of
+from repository_index.chunking import Chunk, chunks_of
 
 __all__ = [
     "Candidate",

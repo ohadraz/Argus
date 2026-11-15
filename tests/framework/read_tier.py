@@ -81,7 +81,7 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
                                github_read_token="dont-care-token",
                                github_source_paths="src"),
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
-                          code_index_collection="dont-care-collection",
+                          repository_index_collection="dont-care-collection",
                           code_search=mode),
         AlertRuleReadSettings(grafana_base_url="http://grafana.invalid",
                               grafana_auth_token="dont-care-token"),

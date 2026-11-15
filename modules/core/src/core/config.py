@@ -198,14 +198,14 @@ class Settings(BaseSettings):
     # One collection per deployment, named for what it holds rather than for
     # the repository: the index describes the Target Service's source, and a
     # deployment pointed at a different repository is a different index.
-    code_index_collection: str = Field(default="target_service_source")
+    repository_index_collection: str = Field(default="target_service_source")
     # How often the catch-up loop looks. A bound on how long the index may
     # describe yesterday's code while nobody is telling it otherwise, rather
     # than a performance knob: where a push delivery arrives the gap closes on
     # the next pass anyway, and where none ever arrives - no tunnel, a webhook
     # nobody configured - this interval is the whole of what keeps the index
     # honest.
-    code_index_interval_seconds: float = Field(default=60.0, gt=0.0)
+    repository_index_interval_seconds: float = Field(default=60.0, gt=0.0)
     # Which model turns a passage of code - and a question about it - into the
     # vector whose closeness is the whole of what "found by meaning" means.
     # Configured rather than fixed because it is the one hypothesis the §21
@@ -217,7 +217,7 @@ class Settings(BaseSettings):
     # the meaning of every stored vector both follow from the model, so points
     # embedded by the old one answer nothing sensible to a query embedded by the
     # new.
-    code_index_embedding_model: str = Field(default="BAAI/bge-small-en-v1.5")
+    repository_index_embedding_model: str = Field(default="BAAI/bge-small-en-v1.5")
     # How a file whose structure nothing here understands is cut into passages,
     # in lines, and how many lines of each window the next one repeats. The
     # overlap is what keeps a fault straddling a cut whole inside one passage.
@@ -225,8 +225,8 @@ class Settings(BaseSettings):
     # These govern the fallback only. Python is cut at its own definitions,
     # because a function is as long as it is and one truncated to fit a window
     # is a passage that stops mid-statement.
-    code_index_max_lines: int = Field(default=60, gt=0)
-    code_index_chunk_overlap: int = Field(default=10, ge=0)
+    repository_index_max_lines: int = Field(default=60, gt=0)
+    repository_index_chunk_overlap: int = Field(default=10, ge=0)
 
     # Long-term memory: what earlier incidents were done about (spec §11.2).
     # The same Qdrant as the index above, in a collection of its own - two
@@ -872,11 +872,11 @@ class Settings(BaseSettings):
         # the chunker would cut the same lines forever. Caught here rather than
         # defended against where the cutting happens: it is a contradiction
         # between two settings, and the process should refuse to start on it.
-        if self.code_index_chunk_overlap >= self.code_index_max_lines:
+        if self.repository_index_chunk_overlap >= self.repository_index_max_lines:
             raise ValueError(
-                f"code_index_chunk_overlap ({self.code_index_chunk_overlap}) must be "
-                f"smaller than code_index_max_lines ({self.code_index_max_lines}), or a "
-                f"window repeats everything it was meant to advance past"
+                f"repository_index_chunk_overlap ({self.repository_index_chunk_overlap}) must be "
+                f"smaller than repository_index_max_lines ({self.repository_index_max_lines}), "
+                f"or a window repeats everything it was meant to advance past"
             )
 
         return self

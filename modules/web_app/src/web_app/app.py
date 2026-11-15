@@ -9,7 +9,6 @@ from typing import Annotated, Any, Final
 import psycopg
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from chat_platform.slack import ChatSettings, slack_from
-from code_index.records import record_pushed
 from core import (
     Connections,
     DatabaseSettings,
@@ -55,6 +54,7 @@ from postmortem_rendering import (
     synopsis_as_pdf,
     the_person_who_resolved,
 )
+from repository_index.records import record_pushed
 
 from web_app import reads
 from web_app.chat import receive_chat_delivery
@@ -498,7 +498,7 @@ def _the_watermark_kept_by(connections: Connections) -> Watermark:
     """Where a verified push is written down.
 
     The only line in this process that names the index at all, and it names
-    the row rather than the store: `code_index.records` is Postgres and
+    the row rather than the store: `repository_index.records` is Postgres and
     nothing else, which is what lets the web process record a push without
     installing a vector store or an embedding model to do it.
     """

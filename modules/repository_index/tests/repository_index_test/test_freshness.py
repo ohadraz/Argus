@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from code_index.freshness import Freshness
+from repository_index.freshness import Freshness
 
 # Real shas, because a sha that reads as a word invites a reader to think the
 # comparison knows something about its contents. It knows only whether two

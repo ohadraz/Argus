@@ -1,5 +1,5 @@
 [project]
-name = "argus-code_index"
+name = "argus-repository_index"
 version = "0.1.0"
 requires-python = ">=3.14"
 
@@ -16,8 +16,8 @@ dependencies = [
 # in `web_app`, and anything else asking whether the index is current -
 # would otherwise install an ONNX runtime to write one string in one row.
 #
-# Every caller that searches or builds declares `argus-code_index[store]`, and
-# reaching `code_index.store` or `code_index.embedding` without it is a broken
+# Every caller that searches or builds declares `argus-repository_index[store]`, and
+# reaching `repository_index.store` or `repository_index.embedding` without it is a broken
 # layering contract here rather than an ImportError in a live incident.
 [project.optional-dependencies]
 store = [
@@ -52,7 +52,7 @@ dev = [
     # suite declares it rather than relying on a developer's `.venv` happening
     # to hold it from an `--all-packages` sync. Without this the module passes
     # locally and fails on a clean runner, which is the worst way round.
-    "argus-code_index[store]",
+    "argus-repository_index[store]",
 ]
 
 
@@ -69,4 +69,4 @@ build-backend = "hatchling.build"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/code_index"]
+packages = ["src/repository_index"]

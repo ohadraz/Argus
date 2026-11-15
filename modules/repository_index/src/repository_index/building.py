@@ -25,9 +25,9 @@ from core import SettingsSlice
 from qdrant_client import QdrantClient
 from repository_source import RepositorySourceSettings, the_source_at
 
-from code_index.indexing import Candidate, Embedder, candidates_for, points_of
-from code_index.records import record_indexed
-from code_index.store import forget, ids_held_for, store_points
+from repository_index.indexing import Candidate, Embedder, candidates_for, points_of
+from repository_index.records import record_indexed
+from repository_index.store import forget, ids_held_for, store_points
 
 
 class SourceReader(Protocol):
@@ -62,14 +62,14 @@ class IndexSettings(SettingsSlice):
     # nobody is running, which every later search answers from without ever
     # saying so.
     github_base_branch: str
-    code_index_collection: str
+    repository_index_collection: str
     # How a file this cannot parse is cut into passages. Here rather than left
     # to the chunker's own defaults because a pass has to cut the way every
     # other pass over the same store cut: an id is derived from what a passage
     # says, so the same file under different bounds is a second set of points
     # beside the first rather than a replacement for it.
-    code_index_max_lines: int
-    code_index_chunk_overlap: int
+    repository_index_max_lines: int
+    repository_index_chunk_overlap: int
 
 
 def index_repository(repository: str,
@@ -107,13 +107,13 @@ def _bring_one_file_up_to_date(path: str,
     and it reaches here as a file that yields no passages. Nothing else would
     ever forget it: the file is gone, so no later pass considers it.
     """
-    held = ids_held_for(store, settings.code_index_collection, path)
+    held = ids_held_for(store, settings.repository_index_collection, path)
     wanted = _the_passages_of(path, source, settings)
 
     _put_in_what_is_missing(wanted, held, settings, store, embed)
     forget(
         store,
-        settings.code_index_collection,
+        settings.repository_index_collection,
         [one for one in held if one not in {candidate.id for candidate in wanted}]
     )
 
@@ -135,8 +135,8 @@ def _the_passages_of(path: str,
     return candidates_for(
         {path: said},
         settings.github_source_paths,
-        max_lines=settings.code_index_max_lines,
-        overlap=settings.code_index_chunk_overlap
+        max_lines=settings.repository_index_max_lines,
+        overlap=settings.repository_index_chunk_overlap
     )
 
 
@@ -158,7 +158,7 @@ def _put_in_what_is_missing(wanted: list[Candidate],
 
     store_points(
         store,
-        settings.code_index_collection,
+        settings.repository_index_collection,
         points,
         width=len(points[0].vector)
     )

@@ -37,10 +37,10 @@ import httpx2
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, eventually
-from code_index.records import RepositoryIndex
-from code_index.records import get as the_index_recorded_for
 from core import get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
+from repository_index.records import RepositoryIndex
+from repository_index.records import get as the_index_recorded_for
 from web_app.pushes import (
     AFTER_FIELD,
     BRANCH_REF_PREFIX,
@@ -73,7 +73,7 @@ SOME_SOURCE: Final = (
 # own intervals plus room for the pass itself: a push can arrive the moment a
 # pass went to sleep, so one interval is the wait before it even looks.
 THE_INDEX_CATCHES_UP_SECONDS: Final = int(
-    get_settings().code_index_interval_seconds * 3 + 60
+    get_settings().repository_index_interval_seconds * 3 + 60
 )
 
 
@@ -174,7 +174,7 @@ def _the_stored_passages_describe(sha: str) -> Assertion[Any]:
     """The index caught up with what it was told, by its own account.
 
     `indexed_sha` rather than a search for the new file: what a passage says is
-    `code_index`'s own suite's subject, asserted there against a real store. What
+    `repository_index`'s own suite's subject, asserted there against a real store. What
     this case is about is the pair converging - a notification the catch-up pass
     acted on, rather than one it recorded and left.
     """

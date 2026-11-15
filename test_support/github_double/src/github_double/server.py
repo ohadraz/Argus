@@ -193,7 +193,7 @@ def read_the_commit_a_ref_points_at(owner: str, repo: str, ref: str) -> JSONResp
 def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
     """What changed between two commits - the index's question, not a fix's.
 
-    The one endpoint here that exists for `code_index` rather than for Code-Fix.
+    The one endpoint here that exists for `repository_index` rather than for Code-Fix.
     A catch-up pass with an index already asks what moved since the commit it was
     built from and reconsiders only that, so without this the incremental half
     of spec §11 can never run against a stack - every pass would either backfill

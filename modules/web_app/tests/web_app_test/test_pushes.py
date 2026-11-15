@@ -384,7 +384,7 @@ def a_watermark() -> Any:
     """A stand-in for the row this writes.
 
     The seam is the write rather than the connection under it: what the row
-    does is `code_index`'s and is asserted there against a real database, and
+    does is `repository_index`'s and is asserted there against a real database, and
     what belongs here is which pushes reach it at all.
     """
     return create_autospec(Watermark, instance=True)

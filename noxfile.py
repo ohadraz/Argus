@@ -398,7 +398,7 @@ def index(session: nox.Session) -> None:
     bringing a stack up.
     """
     session.run(
-        "uv", "run", "python", "-m", "code_index.catching_up", external=True
+        "uv", "run", "python", "-m", "repository_index.catching_up", external=True
     )
 
 @_a_session()
@@ -1644,7 +1644,7 @@ _E2E_SETTINGS = {
     # *not* do is make the index arrive sooner than a suite can observe: a
     # pass costs what it costs, and this only stops the wait being mostly
     # sleep.
-    "CODE_INDEX_INTERVAL_SECONDS": "5",
+    "REPOSITORY_INDEX_INTERVAL_SECONDS": "5",
     # How long the intent reader waits after finding nothing new in the log. Short,
     # for the relay's reason: a case that writes in a thread waits on the offer
     # that understanding leads to, and the pause is paid on every look that
@@ -1882,7 +1882,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # a row in the database rather than a port. The pass that mattered was
         # the one before the services.
         "index-catch-up",
-        ["-m", "code_index.catching_up"],
+        ["-m", "repository_index.catching_up"],
         None
     ),
     (
@@ -2140,7 +2140,7 @@ def _run_against_the_stack(
         # completion here; the loop among the services keeps it current after
         # that.
         session.run(
-            "uv", "run", "python", "-m", "code_index.catching_up", "--once",
+            "uv", "run", "python", "-m", "repository_index.catching_up", "--once",
             external=True
         )
         _start_each_of(

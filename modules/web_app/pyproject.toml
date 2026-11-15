@@ -10,7 +10,7 @@ dependencies = [
     # Without `[store]`, deliberately. The push webhook writes one row of the
     # index's watermark and indexes nothing, so this process installs neither
     # a vector store nor an embedding model to serve a page.
-    "argus-code_index",
+    "argus-repository_index",
     # The on-call platform's port and its PagerDuty adapter. A person resolving
     # an incident there is delivered here, and only the adapter can tell a
     # person's resolution from anything else the platform sends.
@@ -47,7 +47,7 @@ argus-core = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
 argus-telemetry = { workspace = true }
-argus-code_index = { workspace = true }
+argus-repository_index = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-chat_platform = { workspace = true }
 argus-postmortem_rendering = { workspace = true }

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
-from code_index.embedding import an_embedder
+from repository_index.embedding import an_embedder
 
 SOME_TEXT = "def summary() -> None:\n    return None\n"
 ANOTHER_TEXT = "class Accounts:\n    pass\n"
@@ -96,7 +96,7 @@ def test_code_is_nearer_a_description_of_what_it_does_than_unrelated_code() -> N
 
 @pytest.mark.component
 def test_a_model_nobody_has_is_refused_rather_than_quietly_replaced() -> None:
-    # What makes `CODE_INDEX_EMBEDDING_MODEL` a setting rather than a comment:
+    # What makes `REPOSITORY_INDEX_EMBEDDING_MODEL` a setting rather than a comment:
     # the name is carried to the library and used. A named model that fell back
     # to the built-in one would leave a benchmark comparing two models that were
     # the same model, and every figure it produced would be about nothing.

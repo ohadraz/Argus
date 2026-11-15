@@ -394,7 +394,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.0.1  # installs `uv` onto the runner
 
-      # The embedding model is 130MB and `code_index`'s component tests load
+      # The embedding model is 130MB and `repository_index`'s component tests load
       # the real one - they are about whether code comes back nearer a
       # description of what it does than unrelated code, which a stand-in
       # cannot answer. Downloaded on every run that touches the module, that

@@ -30,8 +30,8 @@ from qdrant_client.models import (
     Record,
 )
 
-from code_index.chunking import Chunk
-from code_index.indexing import Point
+from repository_index.chunking import Chunk
+from repository_index.indexing import Point
 
 # What a point carries beside its vector. Ours rather than the store's, and
 # named because the same four strings are written on the way in and matched on

@@ -1530,7 +1530,7 @@ argus/
 │   ├── incident_record/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
 │   ├── orchestrator/                # LangGraph graph, FSM, tier-gate node
 │   ├── narration/                   # the event-to-sentence renderer every destination reads
-│   ├── code_index/                   # the repository index: chunking, embedding, the store, the watermark, the catch-up loop
+│   ├── repository_index/            # the repository index: chunking, embedding, the store, the watermark, the catch-up loop
 │   ├── incident_memory/              # what earlier incidents were done about: the record, the text it is found by, the row it is filed in, the deliverer, the store, and the ordering it informs
 │   ├── repository_source/            # reading a repository at a commit: its source, what changed between two, where a branch points
 │   ├── deployment_platform/          # the deployment platform's port, split by tier, and its one adapter (Argo CD)

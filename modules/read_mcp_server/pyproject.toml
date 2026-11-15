@@ -5,7 +5,7 @@ requires-python = ">=3.14"
 dependencies = [
     "argus-core",
     "argus-telemetry",
-    "argus-code_index[store]",
+    "argus-repository_index[store]",
     "argus-deployment_platform",
     "argus-metrics_source",
     "argus-repository_source",
@@ -21,7 +21,7 @@ dev = [
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-telemetry = { workspace = true }
-argus-code_index = { workspace = true }
+argus-repository_index = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-metrics_source = { workspace = true }
 argus-repository_source = { workspace = true }

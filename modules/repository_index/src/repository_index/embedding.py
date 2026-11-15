@@ -25,4 +25,4 @@ def an_embedder(model_name: str | None = None) -> Embedder:
     is evaluated at import, which would have this module read the environment to
     be imported at all.
     """
-    return a_model_named(model_name or get_settings().code_index_embedding_model)
+    return a_model_named(model_name or get_settings().repository_index_embedding_model)

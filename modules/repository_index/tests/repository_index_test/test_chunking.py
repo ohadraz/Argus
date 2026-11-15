@@ -23,7 +23,7 @@ from math import ceil
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
-from code_index.chunking import Chunk, chunks_of
+from repository_index.chunking import Chunk, chunks_of
 
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_TEXT_PATH = "README.md"
@@ -263,7 +263,7 @@ def test_python_that_will_not_parse_is_logged_as_a_warning(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "code_index.chunking", logging.WARNING,
+            one_record_was_logged(caplog, "repository_index.chunking", logging.WARNING,
                                   "file did not parse, cut by lines",
                                   values={"path": SOME_PATH})
         )

@@ -135,7 +135,6 @@ markers = [
 [tool.importlinter]
 root_packages = [
     "chat_platform",
-    "code_index",
     "codefix_agent",
     "communication",
     "core",
@@ -154,6 +153,7 @@ root_packages = [
     "postmortem_writing",
     "read_mcp_client",
     "read_mcp_server",
+    "repository_index",
     "repository_source",
     "responder_rate_source",
     "revenue_source",
@@ -284,7 +284,7 @@ ignore_imports = [
     # by the two modules that hold a corpus and by nobody else. A module
     # reaching it without declaring the extra would work in the workspace venv
     # and fail wherever that module is resolved on its own.
-    "code_index.** -> core.embedding",
+    "repository_index.** -> core.embedding",
     "incident_memory.** -> core.embedding",
     # The walk is the third, and reaches it for a different reason than the two
     # above: it holds no corpus of its own, it builds the model long-term memory
@@ -295,7 +295,7 @@ ignore_imports = [
     # modules that keep a corpus, and nobody else. The walk is not among
     # them - it builds the embedder, and the collection is made by whoever
     # writes into one.
-    "code_index.** -> core.vector_store",
+    "repository_index.** -> core.vector_store",
     "incident_memory.** -> core.vector_store",
     "codefix_agent.** -> core.llm",
     "investigation_agent.** -> core.llm",
@@ -419,13 +419,13 @@ ignore_imports = [
     "web_app.** -> incident_record.**",
     "web_app.** -> narration",
     "web_app.** -> postmortem_rendering",
-    # The watermark, and nothing else of the index. `code_index.records` is
+    # The watermark, and nothing else of the index. `repository_index.records` is
     # Postgres alone - one row saying where the repository is - where
-    # `code_index.store` and `code_index.embedding` are a vector store and an
+    # `repository_index.store` and `repository_index.embedding` are a vector store and an
     # ONNX runtime. Named by module rather than as a package so that the day
     # somebody reaches for the other half, the contract says so instead of
     # this process quietly growing an embedding model to serve a page.
-    "web_app.** -> code_index.records",
+    "web_app.** -> repository_index.records",
     # The on-call platform's port, which a person's resolution there arrives
     # through - and its PagerDuty adapter, built in the app's lifespan and
     # nowhere else, so every other module holds the port and none knows the

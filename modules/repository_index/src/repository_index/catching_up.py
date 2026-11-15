@@ -52,9 +52,9 @@ from repository_source import (
 )
 from telemetry import start_telemetry
 
-from code_index.building import IndexSettings, index_repository
-from code_index.embedding import an_embedder
-from code_index.records import RepositoryIndex, get
+from repository_index.building import IndexSettings, index_repository
+from repository_index.embedding import an_embedder
+from repository_index.records import RepositoryIndex, get
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class CatchUpSettings(SettingsSlice):
     """
 
     qdrant_url: str
-    code_index_interval_seconds: float
+    repository_index_interval_seconds: float
     # Whether this deployment keeps an index at all. A run set to grep alone
     # exits rather than building one nobody can search: the read tier
     # registers no tool for it, so every passage embedded here would be
@@ -323,7 +323,7 @@ def main(argv: list[str] | None = None) -> None:
                     pass_over()
                 else:
                     catch_up_forever(
-                        catch_up_settings.code_index_interval_seconds, pass_over
+                        catch_up_settings.repository_index_interval_seconds, pass_over
                     )
             finally:
                 store.close()

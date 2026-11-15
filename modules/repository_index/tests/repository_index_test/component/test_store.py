@@ -22,9 +22,11 @@ from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from code_index.chunking import Chunk
-from code_index.indexing import Point
-from code_index.store import (
+from qdrant_client import QdrantClient
+from qdrant_client.models import CollectionInfo, PayloadSchemaType
+from repository_index.chunking import Chunk
+from repository_index.indexing import Point
+from repository_index.store import (
     PATH_FIELD,
     Found,
     chunks_held_for,
@@ -33,10 +35,8 @@ from code_index.store import (
     nearest,
     store_points,
 )
-from qdrant_client import QdrantClient
-from qdrant_client.models import CollectionInfo, PayloadSchemaType
 
-SOME_COLLECTION = "code_index_component_test"
+SOME_COLLECTION = "repository_index_component_test"
 
 SOME_PATH = "src/shop/summary.py"
 ANOTHER_PATH = "src/shop/accounts.py"

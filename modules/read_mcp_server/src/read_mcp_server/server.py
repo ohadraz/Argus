@@ -18,7 +18,6 @@ from datetime import datetime
 from functools import partial
 from typing import Annotated, Any, Final
 
-from code_index.embedding import an_embedder
 from core import (
     Connections,
     DatabaseSettings,
@@ -44,6 +43,7 @@ from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 from pydantic import Field
+from repository_index.embedding import an_embedder
 from repository_source import the_branch_contains, the_head_of
 from telemetry import start_telemetry
 

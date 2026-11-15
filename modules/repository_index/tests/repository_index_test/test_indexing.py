@@ -30,7 +30,7 @@ from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from code_index.indexing import (
+from repository_index.indexing import (
     Candidate,
     Embedder,
     Point,
@@ -365,7 +365,7 @@ def test_an_empty_store_means_everything_is_embedded() -> None:
 def test_the_bounds_a_pass_is_given_are_what_the_fallback_cuts_by() -> None:
     # The configured pair arriving where it is used. Nothing else here would
     # notice if it did not: a pass that quietly cut by some default of its own
-    # would index the repository perfectly well, and `CODE_INDEX_MAX_LINES`
+    # would index the repository perfectly well, and `REPOSITORY_INDEX_MAX_LINES`
     # would be a line in `.env` that changes nothing.
     #
     # A file with no structure this understands, because that is the only case

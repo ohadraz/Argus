@@ -8,7 +8,7 @@ count that can be zero" and no file in the repository says `discount` anywhere.
 
 Passages rather than files, because passages are what the index holds: a cut of
 source with the lines it spans. Nothing here reads a repository - the passages
-were embedded ahead of time by `code_index`, off any incident's path, and what
+were embedded ahead of time by `repository_index`, off any incident's path, and what
 this module does is ask which of them are near what was described.
 
 Still a read, and still one this process could not turn into a write: the store
@@ -31,14 +31,14 @@ import threading
 from collections.abc import Callable
 from typing import Final, Protocol
 
-from code_index import records
-from code_index.freshness import Freshness
-from code_index.indexing import Embedder
-from code_index.store import Found, nearest
 from core import Connections, SettingsSlice
 from core.models import CodeSearch
 from core.source_scope import belongs_to_the_service
 from qdrant_client import QdrantClient
+from repository_index import records
+from repository_index.freshness import Freshness
+from repository_index.indexing import Embedder
+from repository_index.store import Found, nearest
 
 from read_mcp_server.repository import RepositoryReadSettings
 
@@ -120,7 +120,7 @@ class IndexReadSettings(SettingsSlice):
     """
 
     qdrant_url: str
-    code_index_collection: str
+    repository_index_collection: str
     code_search: CodeSearch
 
     @property
@@ -142,7 +142,7 @@ class NearestPassages(Protocol):
     """How this module asks the store what is near a vector.
 
     The seam is the query rather than the client under it: what Qdrant does with
-    a vector belongs to `code_index` and is asserted there against a real one.
+    a vector belongs to `repository_index` and is asserted there against a real one.
     The collection and the connection are bound where the server is built, so
     what arrives here is the question and nothing about where it is asked.
     """
@@ -208,7 +208,7 @@ def the_index_at(settings: IndexReadSettings,
             return built[0]
 
     def find(vector: list[float], limit: int, /) -> list[Found]:
-        return nearest(the_client(), settings.code_index_collection, vector, limit)
+        return nearest(the_client(), settings.repository_index_collection, vector, limit)
 
     return find
 

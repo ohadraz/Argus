@@ -57,7 +57,7 @@ def the_store_at(url: str) -> Generator[MemoryStore]:
     """One client onto the store, for as long as the block runs.
 
     Not a `with` around the client itself: `QdrantClient` closes but is not a
-    context manager, which is the same bargain `code_index`'s catch-up makes.
+    context manager, which is the same bargain `repository_index`'s catch-up makes.
     """
     store = QdrantClient(url=url)
 

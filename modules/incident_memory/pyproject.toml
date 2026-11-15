@@ -11,12 +11,12 @@ dependencies = [
 
 
 # The store and the model, for whoever reaches them. An extra rather than a
-# hard dependency, in the shape `code_index` uses: behind it are a Qdrant
+# hard dependency, in the shape `repository_index` uses: behind it are a Qdrant
 # client and an ONNX runtime, and naming a memory record is not a reason to
 # install either.
 #
-# Unlike `code_index`'s, this extra narrows nothing that is actually installed,
-# and that is worth stating rather than leaving to be discovered. `code_index`
+# Unlike `repository_index`'s, this extra narrows nothing that is actually installed,
+# and that is worth stating rather than leaving to be discovered. `repository_index`
 # has a dependant that takes it bare - `web_app` writes the watermark row and
 # never searches - where the only distribution depending on this one is
 # `orchestrator`, with `[store]`. It has no choice: whether memory is searched
@@ -40,7 +40,7 @@ dependencies = [
 [project.optional-dependencies]
 store = [
     # Pinned to the minor the server is pinned to in `docker-compose.yml`, and
-    # to the same minor `code_index` pins: one Qdrant serves both collections,
+    # to the same minor `repository_index` pins: one Qdrant serves both collections,
     # and two clients a minor apart against one server is a mismatch nobody
     # sees until a payload field is refused.
     "qdrant-client>=1.19,<1.20",
@@ -64,7 +64,7 @@ dev = [
     # came up with.
     "argus-core[migrations]",
     "argus-argus_testkit",
-    # Its own store extra, for the reason `code_index` declares its: the
+    # Its own store extra, for the reason `repository_index` declares its: the
     # component tests write to a real Qdrant and embed with the real model,
     # which is the only way to answer whether a record written can be found.
     "argus-incident_memory[store]",

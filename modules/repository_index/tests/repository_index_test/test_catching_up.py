@@ -29,8 +29,8 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
-from code_index.building import IndexSettings
-from code_index.catching_up import (
+from repository_index.building import IndexSettings
+from repository_index.catching_up import (
     BranchHead,
     ChangedPaths,
     Indexer,
@@ -39,7 +39,7 @@ from code_index.catching_up import (
     catch_up,
     catch_up_forever,
 )
-from code_index.records import RepositoryIndex
+from repository_index.records import RepositoryIndex
 from repository_source import RepositoryUnreadable
 
 THE_REPOSITORY = "ohadraz/Argus-Demo-Target-App"
@@ -246,7 +246,7 @@ def test_an_index_brought_up_to_date_is_logged(caplog: pytest.LogCaptureFixture)
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "code_index.catching_up", logging.INFO,
+            one_record_was_logged(caplog, "repository_index.catching_up", logging.INFO,
                                   "index brought up to date",
                                   values={"from_sha": WHAT_IS_INDEXED,
                                           "to_sha": WHAT_IS_DEPLOYED})
@@ -273,7 +273,7 @@ def test_an_index_built_whole_is_logged_before_it_starts(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "code_index.catching_up", logging.INFO,
+            one_record_was_logged(caplog, "repository_index.catching_up", logging.INFO,
                                   "whole index build started",
                                   values={"to_sha": WHAT_IS_DEPLOYED})
         )
@@ -296,7 +296,7 @@ def test_a_comparison_that_cannot_say_is_logged_as_a_warning(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "code_index.catching_up", logging.WARNING,
+            one_record_was_logged(caplog, "repository_index.catching_up", logging.WARNING,
                                   "comparison incomplete, considering everything",
                                   values={"from_sha": WHAT_IS_INDEXED,
                                           "to_sha": WHAT_IS_DEPLOYED})
@@ -320,7 +320,7 @@ def test_a_pass_that_failed_is_logged_as_a_warning_and_slept_off(
             )
         ) \
         .then(
-            one_record_was_logged(caplog, "code_index.catching_up", logging.WARNING,
+            one_record_was_logged(caplog, "repository_index.catching_up", logging.WARNING,
                                   "catch-up pass failed",
                                   failure=RepositoryUnreadable)
         )
@@ -469,7 +469,7 @@ def some_settings(repository: str = THE_REPOSITORY,
         github_read_token="ghp_dont-care-read-token",
         github_source_paths="",
         github_base_branch=base_branch,
-        code_index_collection="dont-care-collection",
-        code_index_max_lines=DONT_CARE_MAX_LINES,
-        code_index_chunk_overlap=DONT_CARE_OVERLAP
+        repository_index_collection="dont-care-collection",
+        repository_index_max_lines=DONT_CARE_MAX_LINES,
+        repository_index_chunk_overlap=DONT_CARE_OVERLAP
     )

@@ -28,8 +28,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from code_index.embedding import an_embedder  # noqa: E402
-from code_index.indexing import Embedder  # noqa: E402
 from core import get_settings  # noqa: E402
 from qdrant_client import QdrantClient  # noqa: E402
 from read_mcp_server.meaning import (  # noqa: E402
@@ -39,6 +37,8 @@ from read_mcp_server.meaning import (  # noqa: E402
     NearestPassages,
     the_index_at,
 )
+from repository_index.embedding import an_embedder  # noqa: E402
+from repository_index.indexing import Embedder  # noqa: E402
 
 from tests.framework.measuring import the_measurement_of  # noqa: E402
 
@@ -226,7 +226,7 @@ def main() -> None:
     # separates anything is a question about this corpus, and the figure that
     # moves when somebody indexes a second repository is this one.
     passages = QdrantClient(url=settings.qdrant_url).count(
-        settings.code_index_collection
+        settings.repository_index_collection
     ).count
 
     _swept(
