@@ -219,7 +219,7 @@ SAID_OFF = "OFF"
 # Whom each line is credited to, as every destination names them.
 ARGUS = "Argus"
 INVESTIGATOR_AGENT = "Investigator Agent"
-INTENT_AGENT = "Intent Agent"
+INTENT_READER = "Intent Reader"
 CODE_FIX_AGENT = "Code-Fix Agent"
 POSTMORTEM_WRITER = "Postmortem Writer"
 COMMUNICATOR = "Communicator"
@@ -2348,7 +2348,7 @@ def test_a_message_that_ended_the_incident_is_said_as_the_report_it_was(meaning:
 @pytest.mark.unit
 @pytest.mark.parametrize("meaning", [Meaning.QUESTION, Meaning.INFORMATION, Meaning.OTHER])
 def test_a_message_that_ended_nothing_is_said_as_written(meaning: Meaning) -> None:
-    # What came of it is its own line, in the intent agent's voice.
+    # What came of it is its own line, in the intent reader's voice.
     dont_care_who_wrote_it = "dont care"
     some_line = build_narration([_a_person_writing()])[0]
 
@@ -2376,7 +2376,7 @@ def test_a_report_from_somebody_the_platform_could_not_name_is_said_by_a_person(
     (Meaning.WITHDRAW, "a request to stand down"),
     (Meaning.OTHER, "nothing to act on")
 ])
-def test_what_a_message_was_classified_as_is_said_by_the_intent_agent(meaning: Meaning,
+def test_what_a_message_was_classified_as_is_said_by_the_intent_reader(meaning: Meaning,
                                                                       said_as: str) -> None:
     # Every message gets a line saying what Argus made of it, including that it
     # made nothing of it - the person who wrote "thanks" can see it was understood.
@@ -2386,7 +2386,7 @@ def test_what_a_message_was_classified_as_is_said_by_the_intent_agent(meaning: M
         .given(some_reading) \
         .when(lambda: build_narration([some_reading])) \
         .then(all_of(_the_only_line_marks(said_as),
-                     _the_lines_are_credited_to([INTENT_AGENT])))
+                     _the_lines_are_credited_to([INTENT_READER])))
 
 
 @pytest.mark.unit
@@ -2405,7 +2405,7 @@ def test_an_offer_to_resolve_names_who_was_asked(person_name: str | None,
         .given(some_offer) \
         .when(lambda: build_narration([some_offer])) \
         .then(all_of(_the_only_line_marks(asked),
-                     _the_lines_are_credited_to([INTENT_AGENT])))
+                     _the_lines_are_credited_to([INTENT_READER])))
 
 
 @pytest.mark.unit
@@ -2424,7 +2424,7 @@ def test_an_offer_to_withdraw_names_who_was_asked_and_what_confirming_does(
         .when(lambda: build_narration([some_offer])) \
         .then(all_of(_the_only_line_marks(asked),
                      _the_only_line_says("stand down", "put back"),
-                     _the_lines_are_credited_to([INTENT_AGENT])))
+                     _the_lines_are_credited_to([INTENT_READER])))
 
 
 @pytest.mark.unit
@@ -2569,7 +2569,7 @@ def test_a_lead_weighed_is_said_by_the_investigator_with_its_standing_and_why(
 
 
 @pytest.mark.unit
-def test_an_answer_to_a_question_is_said_whole_by_the_intent_agent() -> None:
+def test_an_answer_to_a_question_is_said_whole_by_the_intent_reader() -> None:
     # The reply the person who asked is owed, in the thread they asked it in:
     # the answer itself, set apart and never shortened - a line that sends a
     # reader elsewhere for the rest is no answer.
@@ -2581,7 +2581,7 @@ def test_an_answer_to_a_question_is_said_whole_by_the_intent_agent() -> None:
         .given(some_answering) \
         .when(lambda: build_narration([some_answering])) \
         .then(all_of(_the_only_line_marks(some_answer),
-                     _the_lines_are_credited_to([INTENT_AGENT])))
+                     _the_lines_are_credited_to([INTENT_READER])))
 
 
 @pytest.mark.unit

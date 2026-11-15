@@ -9,7 +9,7 @@ The system SHALL reach the chat platform's inbound deliveries and its people,
 and SHALL post and rewrite what it says there, through a port named for the
 role and split by direction, returning Argus's own values. Only the platform's
 adapter SHALL know the platform's envelopes, headers, field names, blocks or
-methods, and only the composition roots of the web application, the intent agent
+methods, and only the composition roots of the web application, the intent reader
 and the Communicator SHALL build it.
 Without a configured platform, no adapter SHALL be built.
 

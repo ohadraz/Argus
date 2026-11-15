@@ -135,7 +135,6 @@ markers = [
 [tool.importlinter]
 root_packages = [
     "agent_codefix",
-    "agent_intent",
     "agent_investigator",
     "argus_core",
     "argus_incidents",
@@ -148,6 +147,7 @@ root_packages = [
     "deployment_platform",
     "exchange_rate_source",
     "incident_memory",
+    "message_intent",
     "metrics_source",
     "mitigation",
     "oncall_source",
@@ -202,7 +202,7 @@ unmatched_ignore_imports_alerting = "warn"
 [[tool.importlinter.contracts]]
 name = "the chat platform is known by its port, and only each process's wiring knows the vendor"
 type = "forbidden"
-source_modules = ["agent_intent", "argus_web", "communication"]
+source_modules = ["argus_web", "communication", "message_intent"]
 forbidden_modules = [
     "chat_platform.slack",
     "chat_platform.slack_deliveries",
@@ -215,7 +215,7 @@ forbidden_modules = [
 # Slack.
 ignore_imports = [
     "communication.watching -> chat_platform.slack",
-    "agent_intent.watching -> chat_platform.slack",
+    "message_intent.watching -> chat_platform.slack",
     "argus_web.app -> chat_platform.slack",
 ]
 unmatched_ignore_imports_alerting = "warn"
@@ -298,8 +298,8 @@ ignore_imports = [
     "code_index.** -> argus_core.vector_store",
     "incident_memory.** -> argus_core.vector_store",
     "agent_codefix.** -> argus_core.llm",
-    "agent_intent.** -> argus_core.llm",
     "agent_investigator.** -> argus_core.llm",
+    "message_intent.** -> argus_core.llm",
     "orchestrator.** -> argus_core.llm",
     "postmortem_writing.** -> argus_core.llm",
     "agent_codefix.** -> argus_core.mcp_transport",
@@ -461,8 +461,8 @@ unmatched_ignore_imports_alerting = "warn"
 [[tool.importlinter.contracts]]
 name = "an agent knows the kernel and its own sources, never another agent"
 type = "independence"
-# The five delegates of the multi-agent system, and the Intent Agent, which no walk
-# delegates to but which is an agent all the same. What they share is the
+# The five delegates of the multi-agent system, and the Intent Reader, which no walk
+# delegates to but which is a part of Argus all the same. What they share is the
 # kernel and the incident record, and anything two of them both need belongs
 # there - which is the rule `CLAUDE.md` has stated all along and nothing
 # enforced, so the first agent-to-agent edge arrived and no build failed. A
@@ -474,9 +474,9 @@ type = "independence"
 # per agent, which is a list saying "except for the one case this is about".
 modules = [
     "agent_codefix",
-    "agent_intent",
     "agent_investigator",
     "communication",
+    "message_intent",
     "mitigation",
     "postmortem_writing",
 ]

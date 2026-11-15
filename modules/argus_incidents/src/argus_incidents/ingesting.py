@@ -3,7 +3,7 @@ what they meant.
 
 The resolution's sibling, and in this package for its reason: `argus_web` calls
 this, and anything `argus_web` can import must reach nothing that walks a graph.
-What the words meant is classified later, by the intent agent; the chat
+What the words meant is classified later, by the intent reader; the chat
 platform waits three seconds for an answer, and a model takes longer than that.
 
 A message is ingested once. The platform retries a delivery it believes went

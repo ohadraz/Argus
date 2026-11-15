@@ -1,6 +1,6 @@
-"""One look at the messages nobody has understood, from the intent agent's side.
+"""One look at the messages nobody has understood, from the intent reader's side.
 
-The intent agent finds its work on the incident record rather than in the event
+The intent reader finds its work on the incident record rather than in the event
 log: a message is the agent's to understand until the record says what it
 meant, so the record is what it asks. Each look takes the oldest first, because
 a message understood out of order can be offered after a later one that changed
@@ -21,10 +21,10 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
-from agent_intent.watching import watch_once
 from argus_core import new_id
 from argus_core.models import ReportChannel, ThreadMessage, a_chat_message
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
+from message_intent.watching import watch_once
 
 SOME_INCIDENT = new_id()
 SOME_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
@@ -54,7 +54,7 @@ def test_a_message_that_could_not_be_understood_stops_the_look_in_front_of_it(
         .when(lambda: watch_once(_not_understood(first, second), understanding_fails)) \
         .then(all_of(
             _it_understood(tried, [first]),
-            one_record_was_logged(caplog, "agent_intent.watching", logging.WARNING,
+            one_record_was_logged(caplog, "message_intent.watching", logging.WARNING,
                                   "message not understood", failure=ConnectionError)
         ))
 

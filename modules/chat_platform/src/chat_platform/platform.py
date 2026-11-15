@@ -8,7 +8,7 @@ adapter knows an envelope, a header, a field or a method name.
 
 Split by direction, as the deployment platform is split by tier. What Argus
 reads - a delivery, a person's name - is `ChatPlatformReads`, held by the web
-application and the intent agent; what Argus writes - a message, a rewrite of one -
+application and the intent reader; what Argus writes - a message, a rewrite of one -
 is `ChatPlatformWrites`, held by the Communicator. One adapter answers both, so
 a button the Communicator posts and the press the web application reads are
 spelled in one place.

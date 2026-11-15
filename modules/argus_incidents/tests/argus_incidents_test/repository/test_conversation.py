@@ -296,7 +296,7 @@ def test_an_incidents_leads_are_what_it_was_told_as_information_in_the_order_wri
 
 @pytest.mark.integration
 def test_the_messages_nobody_has_understood_are_found_oldest_first_in_every_incident() -> None:
-    # What the intent agent works through: in the order people wrote, because
+    # What the intent reader works through: in the order people wrote, because
     # a message understood out of order can be offered after a later one that
     # changed it - and across incidents, because it is one reader of them all.
     with connect_from_env() as conn:

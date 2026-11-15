@@ -70,7 +70,7 @@ from tests.e2e.framework.chat import (
     THE_WORDS_CLASSIFIED_AS_RESOLVED,
     a_person_writes,
     the_chat_platform_knows,
-    the_intent_agent_answers_from,
+    the_intent_reader_answers_from,
     the_offer_made_in,
     the_offer_now_names,
     the_person_presses,
@@ -192,7 +192,7 @@ def test_an_incident_resolved_from_its_slack_thread_is_written_up_and_nothing_mo
             calling(a_scenario_was_seeded("feature-flag-toggle",
                                           as_recorded_in=RECORDED_RESOLVED_FROM_SLACK)),
             calling(the_model_is_held()),
-            calling(the_intent_agent_answers_from(RECORDED_INTENT_RESOLVE)),
+            calling(the_intent_reader_answers_from(RECORDED_INTENT_RESOLVE)),
             calling(the_chat_platform_knows(some_person_id, some_person))
         ) \
         .when(

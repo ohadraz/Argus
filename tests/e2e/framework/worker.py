@@ -6,7 +6,7 @@ and the Investigator's opening, so a person writing in the incident's thread
 "before the walk" races the walk unless the walk is kept from starting. The
 case stops the process rather than the walk: suspended, the worker claims
 nothing, and everything else in the stack - the thread, the ingestion, the
-intent agent - carries on without it.
+intent reader - carries on without it.
 
 Suspended as a tree. On Windows a venv's `python.exe` is a launcher whose child
 is the interpreter, and suspending only the pid the stack started leaves the

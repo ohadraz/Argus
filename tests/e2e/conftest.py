@@ -135,7 +135,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
       in. It goes last because every step above is itself a change the provider
       records.
     - and then every double that is the suite's alone is emptied - the walk's
-      model, its judge's, the intent agent's, Slack and GitHub. They are the
+      model, its judge's, the intent reader's, Slack and GitHub. They are the
       parties here that are neither Argus nor the Target Environment, and each
       keeps what a case left in it: answers seeded and never asked for, a call
       held, record mode, messages posted, people staged, the branches a fix
@@ -297,17 +297,17 @@ def _the_synopses_given_up() -> list[str]:
 
 def _every_reader_caught_up() -> None:
     """Waits until every reader of the event log - the relay and the
-    intent agent - has nothing left to do about this case.
+    intent reader - has nothing left to do about this case.
 
     The wait above covers the worker, which is not the only long-lived process
-    writing here. The relay and the intent agent each read the same incident on
+    writing here. The relay and the intent reader each read the same incident on
     a poll loop of their own: a line the relay has read but not yet said is an
-    `incident_reference` insert, and a message the intent agent has read but not
+    `incident_reference` insert, and a message the intent reader has read but not
     yet understood is an event, that lands after the tables are emptied,
     against an incident that no longer exists. That is a foreign key violation.
     `watch_forever` is designed to fail the relay on one - so it does not merely
     lose a message, it takes the relay down for the rest of the run, and every
-    later case waits for messages nobody is left to post - and the intent agent
+    later case waits for messages nobody is left to post - and the intent reader
     keeps its place in front of one and tries it again on every look, so every
     later case waits behind a message that can never be understood.
 
@@ -431,7 +431,7 @@ def _every_double_was_emptied() -> None:
 
     A double cleared only by the next case that seeds it is never cleared for
     a case that does not - which is every case reading Slack, and every case
-    that leaves the judge or the intent agent alone.
+    that leaves the judge or the intent reader alone.
 
     A double nothing is listening for is passed over: a run that reaches the
     real model, Slack or GitHub never started that one, and a double that never

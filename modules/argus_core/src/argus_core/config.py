@@ -428,7 +428,7 @@ class Settings(BaseSettings):
     judge_effort: Effort = Field(default="medium")
 
     # The model that classifies what a person wrote in an incident's thread, and
-    # how often the intent agent looks for something new to understand. One short
+    # how often the intent reader looks for something new to understand. One short
     # question with five answers; the pause is the delay between a person
     # writing and Argus offering to resolve, paid only when there was nothing
     # new.

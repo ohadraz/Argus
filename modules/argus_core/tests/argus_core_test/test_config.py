@@ -404,8 +404,8 @@ def test_a_fresh_checkout_believes_no_delivery_from_slack() -> None:
 
 
 @pytest.mark.unit
-def test_a_non_positive_intent_agent_pause_is_rejected() -> None:
-    # A pause of nothing is an intent agent asking the log for new messages as fast
+def test_a_non_positive_intent_reader_pause_is_rejected() -> None:
+    # A pause of nothing is an intent reader asking the log for new messages as fast
     # as the database will answer, for as long as nobody writes anything.
     Scenario() \
         .given(

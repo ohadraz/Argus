@@ -1396,13 +1396,13 @@ _READ_MCP_PORT = "8090"
 _WRITE_MCP_PORT = "8092"
 _STACK_POSTGRES_PORT = "5432"
 _STACK_QDRANT_PORT = "6333"
-# The intent agent's own model double, beside the walk's. A second process rather
+# The intent reader's own model double, beside the walk's. A second process rather
 # than a second queue in the first: that double answers in the order it was
 # seeded, and a person's message classified between two of a walk's turns would hand
-# the walk the intent agent's answer and the intent agent the walk's.
+# the walk the intent reader's answer and the intent reader the walk's.
 _INTENT_ANTHROPIC_DOUBLE_PORT = "8098"
 _INTENT_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTENT_ANTHROPIC_DOUBLE_PORT}"
-# The grounding judge's model double, for the intent agent's reason: the judge
+# The grounding judge's model double, for the intent reader's reason: the judge
 # reads each write-up between the writer's own calls, and one queue serving
 # both would hand each the other's answers.
 _JUDGE_ANTHROPIC_DOUBLE_PORT = "8088"
@@ -1495,7 +1495,7 @@ _TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_POR
 # that reads one from the environment. Stated rather than defaulted, the way
 # the other stacks above state theirs - a party left on its default listens
 # wherever the environment it inherited says, and that is not only this
-# stack's to say. The judge's and the intent agent's doubles are given their
+# stack's to say. The judge's and the intent reader's doubles are given their
 # ports on the command line instead, which is why they are not here.
 _THE_STACKS_OWN_PLACES: Final = _a_database_of_its_own("argus", _STACK_POSTGRES_PORT) | {
     "ARGUS_QDRANT_PORT": _STACK_QDRANT_PORT,
@@ -1645,7 +1645,7 @@ _E2E_SETTINGS = {
     # pass costs what it costs, and this only stops the wait being mostly
     # sleep.
     "CODE_INDEX_INTERVAL_SECONDS": "5",
-    # How long the intent agent waits after finding nothing new in the log. Short,
+    # How long the intent reader waits after finding nothing new in the log. Short,
     # for the relay's reason: a case that writes in a thread waits on the offer
     # that understanding leads to, and the pause is paid on every look that
     # found nothing.
@@ -1908,13 +1908,13 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # No readiness URL, for the relay's reason: what it is ready for shows
         # up in Slack, as an offer.
         "intent",
-        ["-m", "agent_intent.watching"],
+        ["-m", "message_intent.watching"],
         None
     )
 ]
 
 # Where each process that asks a model anything is pointed, when the model is a
-# double: the walk at one, its grounding judge at another, the intent agent at
+# double: the walk at one, its grounding judge at another, the intent reader at
 # its own. A map rather than entries written out at each session, so that the
 # sessions which replay and the one that records cannot come to point a process
 # at different places.
@@ -1958,7 +1958,7 @@ def _the_services_for(slack_stands_in: bool,
         *([] if github_stands_in else [_GITHUB_DOUBLE]),
         *([] if pagerduty_stands_in else [_PAGERDUTY_DOUBLE]),
         # The model's doubles are wanted by whoever points the worker and the
-        # intent agent at them, and by nobody else. A run that reaches the real API
+        # intent reader at them, and by nobody else. A run that reaches the real API
         # started them, never addressed them, and left them listening - which
         # is the leftover this function exists to avoid, and the most
         # misleading kind: a process answering `/v1/messages` on a port, beside
@@ -2384,7 +2384,7 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
 
     Selecting the double is one setting (`anthropic_base_url`), passed to the
     two processes that talk to a model and to nobody else: the **worker**, which
-    walks the graph, and the **intent agent**, which understands what a person wrote -
+    walks the graph, and the **intent reader**, which understands what a person wrote -
     each at a double of its own (`_THE_MODEL_AT_ITS_DOUBLES`), so that neither
     is handed the other's answers. `argus_web` receives alerts and makes no
     model call, so aiming it at a double aims nothing: the walk would reach the
@@ -2539,7 +2539,7 @@ def record(session: nox.Session, mode: str) -> None:
 
     The worker is pointed at the double exactly as in `e2e_replay` - which is
     what puts the double in the path at all - and the double forwards the call
-    upstream because it was told to record rather than seeded. The intent agent is
+    upstream because it was told to record rather than seeded. The intent reader is
     pointed at its own, as there, which nothing here records into:
     `scripts/record_classification.py` is what captures a classification.
 

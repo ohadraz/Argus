@@ -5,13 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import pytest
-from agent_intent.classifying import classify
-from agent_intent.prompting import SUBMIT_MEANING, opening_ask
 from argus_core import get_settings
 from argus_core.llm import build_llm_client
 from argus_core.models import Meaning, ModelPolicy
 from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
+from message_intent.classifying import classify
+from message_intent.prompting import SUBMIT_MEANING, opening_ask
 
 from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
 
@@ -118,7 +118,7 @@ def test_a_message_is_read_as_its_writer_meant_it(message: Labelled) -> None:
 
 def _the_real_model_reads_repeatedly(words: str) -> list[Meaning]:
     """Reads the same message `RUNS_PER_CASE` times, concurrently, as the
-    intent agent would: through `classify`, with the intent agent's own model and
+    intent reader would: through `classify`, with the intent reader's own model and
     effort, and its second ask included.
 
     Nothing is recorded. What an eval reads is the meaning, and a run that also
@@ -130,7 +130,7 @@ def _the_real_model_reads_repeatedly(words: str) -> list[Meaning]:
     )
 
     def read_once(_: int) -> Meaning:
-        # Unclassified counts as the intent agent counts it: nothing to act on.
+        # Unclassified counts as the intent reader counts it: nothing to act on.
         meaning = classify(words, llm)
 
         return meaning if meaning is not None else Meaning.OTHER

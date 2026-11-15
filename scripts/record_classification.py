@@ -1,5 +1,5 @@
 """Captures one real classification of a person's message, as a recording the
-intent agent's double replays.
+intent reader's double replays.
 
     uv run python -m scripts.record_classification <name> "<message>" [--incident <id>]
 
@@ -7,11 +7,11 @@ For example `intent-resolve "rolled the flag back by hand, we're fine"`.
 
 With `--incident`, the message is a question and is answered too, from that
 incident's timeline as the record holds it once the message is in it: the
-intent agent's second call, stored as the recording's second answer, which is
-the pair a question's case seeds. The intent agent answers a message the record
+intent reader's second call, stored as the recording's second answer, which is
+the pair a question's case seeds. The intent reader answers a message the record
 has already taken in, so its timeline ends with the person's own words; the
 message is added to the timeline here as it would be filed, and never written,
-so a held stack's own intent agent finds nothing new to understand. Postgres
+so a held stack's own intent reader finds nothing new to understand. Postgres
 has to be up and hold the incident - for free, a replayed walk held open:
 `nox -s "record(mode='both')" -- feature-flag-toggle --replay --hold` prints
 the incident it drove and keeps the stack up. The message has to be read
@@ -20,10 +20,10 @@ answered, and a case replaying it would wait on an answer that never comes.
 
 A walk's recordings are captured by driving a whole incident through a stack
 (`scripts/record_incident.py`). A classification needs none of that: the
-intent agent asks the model one question about one message and nothing about the
+intent reader asks the model one question about one message and nothing about the
 world, so this starts the Anthropic double on a port of its own, tells it to
-record, and asks the question through it with the intent agent's own classifier -
-the prompt, the tool and the adapter the intent agent sends, which is what makes
+record, and asks the question through it with the intent reader's own classifier -
+the prompt, the tool and the adapter the intent reader sends, which is what makes
 the stored answer one a replay can stand on.
 
 Stored under the name as given, with no mode in front of it. A mode is the set
@@ -47,8 +47,6 @@ from typing import Any, Final
 
 import httpx2
 import uvicorn
-from agent_intent.answering import answer
-from agent_intent.classifying import classify
 from anthropic_double.recordings import RECORDINGS_DIR
 from anthropic_double.server import app as the_double
 from argus_core import DatabaseSettings, Settings, get_settings, open_pool, utc_now
@@ -57,9 +55,11 @@ from argus_core.llm import build_llm_client
 from argus_core.models import Meaning, ModelPolicy, ReportChannel, a_chat_message
 from argus_incidents.repository import events
 from argus_narration import NarrationLine, build_narration
+from message_intent.answering import answer
+from message_intent.classifying import classify
 
 # A port of its own, so this can run while a stack is up: the walk's double and
-# the intent agent's are that stack's while it runs.
+# the intent reader's are that stack's while it runs.
 _PORT: Final = 8099
 _BASE_URL: Final = f"http://localhost:{_PORT}"
 
@@ -145,7 +145,7 @@ def _the_arguments() -> argparse.Namespace:
 
 
 def _the_timeline_of(incident_id: str, message: str, settings: Settings) -> list[NarrationLine]:
-    """The incident's timeline, read as the intent agent reads it when it
+    """The incident's timeline, read as the intent reader reads it when it
     answers: the record's events, then the message as it would be filed."""
     with open_pool(DatabaseSettings.of(settings)) as pool, pool.connection() as conn:
         recorded = events.get_by_incident(conn, incident_id)

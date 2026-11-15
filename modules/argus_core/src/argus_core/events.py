@@ -1095,7 +1095,7 @@ class WithdrawalOffered(_Event):
     said: str
 
 
-# An offer a person may confirm, whatever it offers - what the intent agent
+# An offer a person may confirm, whatever it offers - what the intent reader
 # publishes when it offers an ending.
 type Offered = ResolutionOffered | WithdrawalOffered
 

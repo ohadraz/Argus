@@ -11,7 +11,7 @@ is an answer.
 The answer is the one field of a tool the model must call, so a reply is never
 parsed out of prose. An answer that cannot be used - prose, a blank, no answer
 at all - is asked for once more, and after that there is none, for
-`classifying`'s reason: the intent agent takes every message in order. What the
+`classifying`'s reason: the intent reader takes every message in order. What the
 person is then told is `understanding`'s to say.
 """
 

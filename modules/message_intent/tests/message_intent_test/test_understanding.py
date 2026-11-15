@@ -1,4 +1,4 @@
-"""What the intent agent does with one thing a person wrote.
+"""What the intent reader does with one thing a person wrote.
 
 It keeps what the message was classified as, whatever that was, on the
 incident's record - and says so, so the timeline says Argus understood it,
@@ -33,7 +33,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
-from agent_intent.understanding import COULD_NOT_ANSWER, understand
 from argus_core import new_id
 from argus_core.events import (
     MessageUnderstood,
@@ -59,6 +58,7 @@ from argus_testkit import (
     nothing_was_collected,
     one_record_was_logged,
 )
+from message_intent.understanding import COULD_NOT_ANSWER, understand
 
 SOME_INCIDENT = new_id()
 SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
@@ -125,7 +125,7 @@ def test_a_message_the_model_could_not_classify_is_nothing_to_act_on_and_is_said
         .then(all_of(
             _it_was_classified_as(happened, Meaning.OTHER),
             _no_offer_was_made(happened),
-            one_record_was_logged(caplog, "agent_intent.understanding", logging.WARNING,
+            one_record_was_logged(caplog, "message_intent.understanding", logging.WARNING,
                                   "message not classified",
                                   values={"incident_id": SOME_INCIDENT,
                                           "chat_message": SOME_MESSAGE.value})
@@ -303,7 +303,7 @@ def test_a_question_the_model_could_not_answer_is_told_so_and_said(
                                  publisher=happened.append)) \
         .then(all_of(
             _it_was_answered(happened, COULD_NOT_ANSWER),
-            one_record_was_logged(caplog, "agent_intent.understanding", logging.WARNING,
+            one_record_was_logged(caplog, "message_intent.understanding", logging.WARNING,
                                   "question not answered",
                                   values={"incident_id": SOME_INCIDENT,
                                           "chat_message": SOME_MESSAGE.value})

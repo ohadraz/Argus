@@ -13,7 +13,7 @@ its turns, where a lead written since rides on the next result.
 Both are put in an order rather than raced. Nothing in Argus stands between an
 alert and the Investigator's opening, so for the first the case suspends the
 worker before the alert and resumes it once the lead is understood - the
-thread, the ingestion and the intent agent all run without it. For the second
+thread, the ingestion and the intent reader all run without it. For the second
 the walk's model holds its first call, so the person writes after the opening
 has gone out and before its answer has come back - and the lead rides on the
 results of that first turn.
@@ -56,7 +56,7 @@ from tests.e2e.framework.chat import (
     a_person_writes,
     posted_to_slack,
     the_chat_platform_knows,
-    the_intent_agent_answers_from,
+    the_intent_reader_answers_from,
     the_message_became_a_lead,
     the_thread_of,
 )
@@ -83,7 +83,7 @@ def test_a_lead_written_before_the_walk_is_in_the_investigations_opening() -> No
             calling(a_scenario_was_seeded(_THE_SCENARIO,
                                           as_recorded_in=RECORDED_LEAD_BEFORE_THE_WALK)),
             calling(the_model_answers_from(RECORDED_LEAD_BEFORE_THE_WALK)),
-            calling(the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)),
+            calling(the_intent_reader_answers_from(RECORDED_INTENT_INFORMATION)),
             calling(the_chat_platform_knows(some_person_id, some_name)),
             calling(the_worker_is_paused())
         ) \
@@ -121,7 +121,7 @@ def test_a_lead_written_mid_investigation_reaches_the_next_turn() -> None:
             calling(a_scenario_was_seeded(_THE_SCENARIO,
                                           as_recorded_in=RECORDED_LEAD_MID_INVESTIGATION)),
             calling(the_model_is_held()),
-            calling(the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)),
+            calling(the_intent_reader_answers_from(RECORDED_INTENT_INFORMATION)),
             calling(the_chat_platform_knows(some_person_id, some_name))
         ) \
         .when(

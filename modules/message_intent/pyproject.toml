@@ -1,5 +1,5 @@
 [project]
-name = "argus-agent_intent"
+name = "argus-message_intent"
 version = "0.1.0"
 requires-python = ">=3.14"
 
@@ -41,4 +41,4 @@ build-backend = "hatchling.build"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_intent"]
+packages = ["src/message_intent"]

@@ -1,4 +1,4 @@
-"""What the intent agent does with one thing a person wrote.
+"""What the intent reader does with one thing a person wrote.
 
 It keeps what the message was classified as, whatever that was, on the
 incident's record, and says so, so the timeline says Argus understood it -

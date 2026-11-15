@@ -46,7 +46,7 @@ DISPLAY_NAME: Final = "display_name"
 
 # How long one call may take. Well under the SDK's own thirty seconds, because
 # the cost is not the call but what waits behind it: a relay holding up every
-# later line of an incident, or an intent agent holding up an offer. A Slack that
+# later line of an incident, or an intent reader holding up an offer. A Slack that
 # refuses says so at once; one that accepts the connection and then goes quiet
 # would otherwise cost half a minute a message.
 _TIMEOUT_SECONDS: Final = 5

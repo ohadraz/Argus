@@ -3,7 +3,7 @@
 Beside the resolution and shaped like it, for the same reason: `argus_web`
 calls it, and anything `argus_web` can import must reach nothing that walks a
 graph. It ingests and decides nothing - what the words meant is classified
-later, by the intent agent.
+later, by the intent reader.
 
 What it owes its callers is that a message is ingested once. The chat platform
 retries a delivery it believes went unanswered, and a message ingested twice is

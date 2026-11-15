@@ -19,10 +19,10 @@ from collections.abc import Callable
 import httpx2
 import psycopg
 import pytest
-from agent_intent.understanding import COULD_NOT_ANSWER
 from argus_core.events import QuestionAnswered
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, calling, eventually
+from message_intent.understanding import COULD_NOT_ANSWER
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
@@ -40,12 +40,12 @@ from tests.e2e.framework.chat import (
     THE_WORDS_CLASSIFIED_AS_QUESTION,
     a_person_writes,
     posted_to_slack,
-    the_intent_agent_answers_from,
+    the_intent_reader_answers_from,
     the_thread_of,
 )
 from tests.e2e.framework.world import a_scenario_was_seeded
 
-# How long the intent agent has to read the question and answer it: two model
+# How long the intent reader has to read the question and answer it: two model
 # calls and a poll either side, with room for a loaded machine.
 _LONG_ENOUGH_TO_ANSWER = 60.0
 
@@ -66,7 +66,7 @@ def test_a_question_asked_after_the_incident_ended_is_answered_in_its_thread() -
             calling(a_scenario_was_seeded("feature-flag-toggle",
                                           as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE)),
-            calling(the_intent_agent_answers_from(RECORDED_INTENT_QUESTION))
+            calling(the_intent_reader_answers_from(RECORDED_INTENT_QUESTION))
         ) \
         .when(
             _a_question_is_asked_once_the_incident_has_ended(some_alert, some_person_id)

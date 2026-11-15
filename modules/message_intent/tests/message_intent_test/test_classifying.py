@@ -7,7 +7,7 @@ Argus deciding what they meant before asking.
 An answer that cannot be used - prose instead of a call, a call naming
 something other than the five, or no answer at all - is asked for once more,
 and after that the message is left unclassified. Never more than twice,
-because the intent agent takes every message in order and a message that is
+because the intent reader takes every message in order and a message that is
 never classified holds up every message behind it. What an unclassified
 message counts as, and who is told, is `understanding`'s to say: only it knows
 which incident and which message it was.
@@ -19,11 +19,11 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from agent_intent.classifying import classify
-from agent_intent.prompting import MEANING_FIELD, SUBMIT_TOOL_NAME
 from argus_core.llm import LLMClient, ModelDidNotAnswer
 from argus_core.models import Ask, Meaning, ToolCall, ToolDefinition, Transcript, Turn
 from argus_testkit import Assertion, Kept, Scenario
+from message_intent.classifying import classify
+from message_intent.prompting import MEANING_FIELD, SUBMIT_TOOL_NAME
 
 SOME_WORDS = "rolled the flag back by hand, we're fine now"
 

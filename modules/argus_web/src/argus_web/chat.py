@@ -3,7 +3,7 @@ talked about in.
 
 Two things, for two deliveries. A person writing in an incident's thread is
 ingested: recorded on that incident, once, and nothing more. What they meant is
-classified later and elsewhere, by the intent agent, because the platform waits
+classified later and elsewhere, by the intent reader, because the platform waits
 three seconds for an answer and a model takes longer than that. And a person pressing
 the button on an offer ends the incident the way the offer offered - resolved
 (spec §16: a person saying it is over is fact) or withdrawn - credited to them,

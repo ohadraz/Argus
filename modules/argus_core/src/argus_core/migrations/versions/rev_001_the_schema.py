@@ -556,9 +556,9 @@ CREATE TABLE IF NOT EXISTS thread_message (
     -- On the stack's clock, set by the writer rather than defaulted here: the
     -- wait counts a person's five minutes from it.
     written_at TIMESTAMPTZ NOT NULL,
-    -- What the intent agent understood the message to mean, one of
+    -- What the intent reader understood the message to mean, one of
     -- `argus_core.models.Meaning`. Null until it has, which is what the
-    -- intent agent finds its work by and what the wait holds a walk for.
+    -- intent reader finds its work by and what the wait holds a walk for.
     meaning TEXT,
     -- The ending offered back to the person, one of the incident statuses.
     -- Null is no offer.
@@ -588,7 +588,7 @@ CREATE INDEX IF NOT EXISTS thread_message_not_understood_idx
 -- One row per reader rather than one row, because two readers fall behind at
 -- different rates and a shared place would let the slower of them decide what
 -- the faster has already done. What people wrote is not followed here: the
--- intent agent finds it on `thread_message`, by what it has not yet understood.
+-- intent reader finds it on `thread_message`, by what it has not yet understood.
 --
 -- Hangs off no incident, like `exchange_rate`: it is a fact about a reader.
 -- Written and read by `argus_incidents`, beside the log it points into.

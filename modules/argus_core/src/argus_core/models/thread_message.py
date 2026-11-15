@@ -1,7 +1,7 @@
 """One message a person wrote in an incident's thread, as the incident keeps it.
 
 Here rather than beside the repository that stores it, for the reason
-`Reference` is here: the web application ingests it, the intent agent reads and
+`Reference` is here: the web application ingests it, the intent reader reads and
 classifies it, the walk waits on it, and the agents a lead reaches are handed
 it. A shape kept inside one of those parties is one the others read by
 comparing spellings.
@@ -90,7 +90,7 @@ class ThreadMessage(BaseModel):
     text: str
     # On the stack's clock, as every moment a wait is counted from is.
     written_at: datetime
-    # What the intent agent understood it to mean, once it has. `None` until
+    # What the intent reader understood it to mean, once it has. `None` until
     # then - which the wait reads as a message it must still hold a walk for.
     meaning: Meaning | None = None
     # The ending offered back to the person, where they asked for one the

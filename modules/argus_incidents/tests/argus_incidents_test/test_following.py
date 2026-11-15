@@ -1,7 +1,7 @@
 """A reader's two seams over the event log, against the database they are
 seams over.
 
-Every process that follows the log - the relay telling Slack, the intent agent
+Every process that follows the log - the relay telling Slack, the intent reader
 reading what people wrote - reads it through a backlog and keeps its place in a
 row, and neither knows the other exists. So these ask the one question their
 callers' unit tests cannot: that what was published really comes back, and

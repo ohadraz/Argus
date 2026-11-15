@@ -1,7 +1,7 @@
 """What a person meant by something they wrote about an incident.
 
 Here rather than beside the agent that classifies a message for it, for the
-reason `Report` is here: the intent agent decides it, the event that accounts for
+reason `Report` is here: the intent reader decides it, the event that accounts for
 the classification carries it, and the narration says it back. A vocabulary kept inside
 one of those parties is one the others read by comparing spellings.
 """

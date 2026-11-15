@@ -6,7 +6,7 @@ and it calls nothing in the walk - the two share a table and no code, as the
 relay and the walk do.
 
 It finds its work on the record rather than by following the event log: a
-message is the agent's to understand until the record says what it meant, and
+message is the Intent Reader's to understand until the record says what it meant, and
 an account that could decide what is done would be a participant
 (`argus_core.events`).
 
@@ -46,9 +46,9 @@ from argus_narration import build_narration
 from argus_telemetry import start_telemetry
 from chat_platform.slack import ChatSettings, slack_from
 
-from agent_intent.answering import answer
-from agent_intent.classifying import classify
-from agent_intent.understanding import AnswerOf, MeaningOf, understand
+from message_intent.answering import answer
+from message_intent.classifying import classify
+from message_intent.understanding import AnswerOf, MeaningOf, understand
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ def main() -> None:
     """The process itself: a pool, a model, a chat platform, then watch
     until killed.
 
-    An intent agent with no chat platform is not started at all: nothing would
+    An intent reader with no chat platform is not started at all: nothing would
     ever be written for it to understand, and a process idling on a record it
     can never act on is a process somebody has to wonder about.
     """
@@ -206,7 +206,7 @@ def main() -> None:
         with open_pool(DatabaseSettings.of(settings)) as pool:
             connections: Connections = pool.connection
 
-            logger.info("intent agent started")
+            logger.info("intent reader started")
 
             watch_forever(
                 _not_understood(connections),

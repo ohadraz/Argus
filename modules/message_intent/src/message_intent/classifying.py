@@ -3,7 +3,7 @@
 An answer that cannot be used - prose instead of a call, a call naming
 something other than the five meanings, or no answer at all - is asked for
 once more, and after that the message is left unclassified. Never more than
-twice: the intent agent takes every message in order, and a message that is
+twice: the intent reader takes every message in order, and a message that is
 never classified holds up every message behind it.
 
 What an unclassified message counts as, and who is told, is `understanding`'s
@@ -17,7 +17,7 @@ from typing import Final
 from argus_core.llm import LLMClient, ModelDidNotAnswer
 from argus_core.models import Meaning, Turn
 
-from agent_intent.prompting import (
+from message_intent.prompting import (
     MEANING_FIELD,
     SUBMIT_MEANING,
     SUBMIT_TOOL_NAME,

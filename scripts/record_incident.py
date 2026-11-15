@@ -135,7 +135,7 @@ from tests.e2e.framework.chat import (
     THE_WORDS_CLASSIFIED_AS_RESOLVED,
     a_person_writes,
     the_chat_platform_knows,
-    the_intent_agent_answers_from,
+    the_intent_reader_answers_from,
     the_message_became_a_lead,
     the_offer_made_in,
     the_person_presses,
@@ -414,7 +414,7 @@ _A_PERSON: Final = "Some Person"
 def _somebody_will_write_before_the_walk() -> None:
     """Readies the thread's side of the conversation, and pauses the worker so
     nothing walks the incident until the lead is understood."""
-    the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)()
+    the_intent_reader_answers_from(RECORDED_INTENT_INFORMATION)()
     the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()
     the_worker_is_paused()()
 
@@ -441,7 +441,7 @@ def _somebody_will_write_while_the_first_turn_is_held() -> None:
     which resets the double first: by now it is armed to record, and a reset
     would undo that.
     """
-    the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)()
+    the_intent_reader_answers_from(RECORDED_INTENT_INFORMATION)()
     the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()
     httpx2.post(f"{ANTHROPIC_DOUBLE_BASE_URL}/double-control/hold",
                 timeout=REQUEST_TIMEOUT_SECONDS).raise_for_status()
@@ -585,7 +585,7 @@ def _somebody_will_resolve_it_in_the_thread() -> None:
     """Readies the thread's side of a resolution, and has the walk's model hold
     its first call - for `_somebody_will_write_while_the_first_turn_is_held`'s
     reason, without the e2e framework's reset."""
-    the_intent_agent_answers_from(RECORDED_INTENT_RESOLVE)()
+    the_intent_reader_answers_from(RECORDED_INTENT_RESOLVE)()
     the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()
     httpx2.post(f"{ANTHROPIC_DOUBLE_BASE_URL}/double-control/hold",
                 timeout=REQUEST_TIMEOUT_SECONDS).raise_for_status()

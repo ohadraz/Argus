@@ -1,6 +1,6 @@
 """Where a reader of the event log got to, kept so that a restart resumes.
 
-A reader of the log - the relay telling Slack, the intent agent reading what people
+A reader of the log - the relay telling Slack, the intent reader reading what people
 wrote - asks the log what has happened since it last looked. The place it got
 to is the whole of its state: lose it and the reader either does everything
 again from the beginning of time or, worse, silently starts from now and drops

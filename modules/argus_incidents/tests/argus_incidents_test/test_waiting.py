@@ -319,7 +319,7 @@ def test_an_offer_that_already_expired_is_not_waited_on_again() -> None:
 
 @pytest.mark.unit
 def test_a_message_never_classified_in_time_is_carried_on_from_and_expires_nothing() -> None:
-    # The intent agent is down. There is no offer to take away, so nothing is
+    # The intent reader is down. There is no offer to take away, so nothing is
     # said to have expired - but the walk does not wait on it for ever.
     a_clock = _AClock(SOME_MOMENT)
     happened: list[object] = []

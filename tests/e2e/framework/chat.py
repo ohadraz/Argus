@@ -8,7 +8,7 @@ double holds what Argus posted and the people it can name; nothing in the stack
 plays Slack's side of the conversation, because a real workspace needs a public
 address and a suite has none.
 
-The intent agent asks a model of its own, through a double of its own, so that what
+The intent reader asks a model of its own, through a double of its own, so that what
 it was answering never takes a place in the walk's queue.
 """
 
@@ -62,12 +62,12 @@ from tests.e2e.framework.argus import (
     the_answers_recorded_for,
 )
 
-# Where the intent agent's model double listens. Kept in step with the noxfile's
+# Where the intent reader's model double listens. Kept in step with the noxfile's
 # `_INTENT_ANTHROPIC_DOUBLE_PORT` by hand, as the other addresses here are:
 # the noxfile is read before anything is installed, and is imported by nothing.
 INTENT_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://localhost:8098"
 
-# The intent agent's recorded readings: a person saying the incident is over,
+# The intent reader's recorded readings: a person saying the incident is over,
 # a person telling Argus to stand down, a person telling Argus something, and a
 # person asking - read, and then answered.
 RECORDED_INTENT_RESOLVE: Final = "intent-resolve"
@@ -86,13 +86,13 @@ THE_WORDS_CLASSIFIED_AS_INFORMATION: Final = (
 THE_WORDS_CLASSIFIED_AS_QUESTION: Final = "what has Argus done about this so far?"
 
 # How long a case waits for something the stack does without being asked - the
-# relay opening a thread, the intent agent reading a message and offering. Both
+# relay opening a thread, the intent reader reading a message and offering. Both
 # poll every half second; this is that, with room for a loaded machine.
 _LONG_ENOUGH_TO_HAPPEN: Final = 60.0
 
 
-def the_intent_agent_answers_from(recording: str) -> Callable[[], None]:
-    """A `given` step naming the stored answers the intent agent's model gives,
+def the_intent_reader_answers_from(recording: str) -> Callable[[], None]:
+    """A `given` step naming the stored answers the intent reader's model gives,
     each once, in the order they were given - one for a reading, and two for a
     question, which is read and then answered.
 
@@ -155,7 +155,7 @@ def a_person_writes(person_id: str, words: str, in_thread: tuple[str, str]) -> s
 
 
 def the_message_became_a_lead(incident_id: str) -> None:
-    """Waits until the intent agent has read a message in the incident's thread
+    """Waits until the intent reader has read a message in the incident's thread
     as something somebody is telling Argus.
 
     Read off the conversation rather than off the thread in Slack: a lead says

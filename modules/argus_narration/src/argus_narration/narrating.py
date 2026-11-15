@@ -156,7 +156,7 @@ _MITIGATION = "Mitigator"
 _CODEFIX = "Code-Fix Agent"
 _COMMUNICATOR = "Communicator"
 _POSTMORTEM = "Postmortem Writer"
-_INTENT = "Intent Agent"
+_INTENT = "Intent Reader"
 # Argus's own parts, as a line names whoever said it - the names a clause gives
 # "the" to, "the Mitigator restarted io-pricing", where Argus and a person go by
 # their names. Public because the postmortem goes on with a line mid-sentence,
@@ -898,7 +898,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         case PersonWrote():
             who = A_PERSON
             # Their words, untouched and set apart. What Argus made of them is
-            # the next line, in the intent agent's voice, so that the person and
+            # the next line, in the intent reader's voice, so that the person and
             # Argus's classification of them are never one sentence.
             emphasis = event.text
             text = f"Wrote in the incident's thread: {emphasis}"
@@ -923,7 +923,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                     f"and put back what it changed")
         case OfferExpired():
             who = _ARGUS
-            # Argus's line, not the intent agent's: carrying on is the walk's
+            # Argus's line, not the intent reader's: carrying on is the walk's
             # decision. It says why the next step came, so it does not read as
             # one taken over the head of a person who asked for an ending.
             # Whichever ending: the expiry names only the message.
@@ -1244,7 +1244,7 @@ def _outside_the_walk(event: IncidentEvent) -> bool:
     """Whether something other than the walk's own steps put this event in
     the account.
 
-    What a person wrote or reported, what the intent agent made of it, an offer
+    What a person wrote or reported, what the intent reader made of it, an offer
     and its expiry, and the relay failing to post. A status move is outside
     only when a person reported it; the walk's own moves are its steps. A lead
     weighed is not: it answers a person, at a step the walk takes either way.
