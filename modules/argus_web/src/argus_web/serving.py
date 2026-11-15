@@ -13,8 +13,8 @@ from argparse import ArgumentParser
 from typing import Final
 
 import uvicorn
-from argus_telemetry import start_telemetry
 from core import TelemetrySettings, get_settings
+from telemetry import start_telemetry
 
 from argus_web.app import app
 

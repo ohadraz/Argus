@@ -18,15 +18,15 @@ import sys
 from typing import Any
 
 import pytest
-from argus_telemetry import ConsoleFormatter, Redacted, StampedFromBaggage
 from argus_testkit import Assertion, Scenario, all_of
 from core.telemetry import ARGUS_AGENT, ARGUS_INCIDENT_ID, ARGUS_RUN_ID
+from telemetry import ConsoleFormatter, Redacted, StampedFromBaggage
 
 SOME_INCIDENT = "4f0c2a1e-5b6d-4c3e-9a8b-7d6e5f4c3b2a"
 SOME_RUN = "9b7d3c2e-1a0f-4e9d-8c7b-6a5f4e3d2c1b"
 SOME_AGENT = "investigator"
 
-SOME_LOGGER = "argus_telemetry_test.some_logger"
+SOME_LOGGER = "telemetry_test.some_logger"
 SOME_MESSAGE = "service scaled out"
 
 DONT_CARE_MESSAGE = "dont care"

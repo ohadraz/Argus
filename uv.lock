@@ -9,7 +9,6 @@ resolution-markers = [
 [manifest]
 members = [
     "argus-anthropic-double",
-    "argus-argus-telemetry",
     "argus-argus-testkit",
     "argus-argus-web",
     "argus-chat-platform",
@@ -39,6 +38,7 @@ members = [
     "argus-revenue-source",
     "argus-slack-double",
     "argus-target-service-double",
+    "argus-telemetry",
     "argus-workspace",
     "argus-write-mcp-client",
     "argus-write-mcp-server",
@@ -133,35 +133,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "argus-argus-telemetry"
-version = "0.1.0"
-source = { editable = "modules/argus_telemetry" }
-dependencies = [
-    { name = "argus-core" },
-    { name = "opentelemetry-exporter-otlp-json-file" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-instrumentation-logging" },
-    { name = "opentelemetry-sdk" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "argus-argus-testkit" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "argus-core", editable = "modules/core" },
-    { name = "opentelemetry-exporter-otlp-json-file", specifier = ">=0.66b1" },
-    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45" },
-    { name = "opentelemetry-instrumentation-logging", specifier = ">=0.66b1" },
-    { name = "opentelemetry-sdk", specifier = ">=1.45" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
-
-[[package]]
 name = "argus-argus-testkit"
 version = "0.1.0"
 source = { editable = "test_support/argus_testkit" }
@@ -171,7 +142,6 @@ name = "argus-argus-web"
 version = "0.1.0"
 source = { editable = "modules/argus_web" }
 dependencies = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-chat-platform" },
     { name = "argus-code-index" },
     { name = "argus-core" },
@@ -179,6 +149,7 @@ dependencies = [
     { name = "argus-narration" },
     { name = "argus-oncall-source" },
     { name = "argus-postmortem-rendering" },
+    { name = "argus-telemetry" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "markupsafe" },
@@ -194,7 +165,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-code-index", editable = "modules/code_index" },
     { name = "argus-core", editable = "modules/core" },
@@ -202,6 +172,7 @@ requires-dist = [
     { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },
+    { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "markupsafe", specifier = ">=3.0" },
@@ -255,8 +226,8 @@ dependencies = [
 
 [package.optional-dependencies]
 store = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-core", extra = ["embedding", "vector-store"] },
+    { name = "argus-telemetry" },
     { name = "qdrant-client" },
 ]
 
@@ -269,11 +240,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", marker = "extra == 'store'", editable = "modules/argus_telemetry" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/core" },
     { name = "argus-core", extras = ["vector-store"], marker = "extra == 'store'", editable = "modules/core" },
     { name = "argus-repository-source", editable = "modules/repository_source" },
+    { name = "argus-telemetry", marker = "extra == 'store'", editable = "modules/telemetry" },
     { name = "qdrant-client", marker = "extra == 'store'", specifier = ">=1.19,<1.20" },
 ]
 provides-extras = ["store"]
@@ -317,11 +288,11 @@ name = "argus-communication"
 version = "0.1.0"
 source = { editable = "modules/communication" }
 dependencies = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-chat-platform" },
     { name = "argus-core" },
     { name = "argus-incident-record" },
     { name = "argus-narration" },
+    { name = "argus-telemetry" },
     { name = "psycopg", extra = ["binary"] },
 ]
 
@@ -336,11 +307,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-narration", editable = "modules/narration" },
+    { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
 
@@ -489,8 +460,8 @@ dependencies = [
 
 [package.optional-dependencies]
 store = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-core", extra = ["embedding", "vector-store"] },
+    { name = "argus-telemetry" },
     { name = "qdrant-client" },
 ]
 
@@ -503,10 +474,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", marker = "extra == 'store'", editable = "modules/argus_telemetry" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/core" },
     { name = "argus-core", extras = ["vector-store"], marker = "extra == 'store'", editable = "modules/core" },
+    { name = "argus-telemetry", marker = "extra == 'store'", editable = "modules/telemetry" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "qdrant-client", marker = "extra == 'store'", specifier = ">=1.19,<1.20" },
 ]
@@ -580,11 +551,11 @@ name = "argus-message-intent"
 version = "0.1.0"
 source = { editable = "modules/message_intent" }
 dependencies = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-chat-platform" },
     { name = "argus-core", extra = ["llm"] },
     { name = "argus-incident-record" },
     { name = "argus-narration" },
+    { name = "argus-telemetry" },
     { name = "psycopg", extra = ["binary"] },
 ]
 
@@ -596,11 +567,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-core", extras = ["llm"], editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-narration", editable = "modules/narration" },
+    { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
 
@@ -709,7 +680,6 @@ name = "argus-orchestrator"
 version = "0.1.0"
 source = { editable = "modules/orchestrator" }
 dependencies = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-codefix-agent" },
     { name = "argus-core", extra = ["llm", "mcp"] },
     { name = "argus-exchange-rate-source" },
@@ -723,6 +693,7 @@ dependencies = [
     { name = "argus-postmortem-writing" },
     { name = "argus-responder-rate-source" },
     { name = "argus-revenue-source" },
+    { name = "argus-telemetry" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "opentelemetry-api" },
@@ -740,7 +711,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-codefix-agent", editable = "modules/codefix_agent" },
     { name = "argus-core", extras = ["llm", "mcp"], editable = "modules/core" },
     { name = "argus-exchange-rate-source", editable = "modules/exchange_rate_source" },
@@ -754,6 +724,7 @@ requires-dist = [
     { name = "argus-postmortem-writing", editable = "modules/postmortem_writing" },
     { name = "argus-responder-rate-source", editable = "modules/responder_rate_source" },
     { name = "argus-revenue-source", editable = "modules/revenue_source" },
+    { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "langgraph", specifier = ">=0.2" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0" },
     { name = "opentelemetry-api", specifier = ">=1.45" },
@@ -860,12 +831,12 @@ name = "argus-read-mcp-server"
 version = "0.1.0"
 source = { editable = "modules/read_mcp_server" }
 dependencies = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-code-index", extra = ["store"] },
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
     { name = "argus-metrics-source" },
     { name = "argus-repository-source" },
+    { name = "argus-telemetry" },
     { name = "httpx2" },
     { name = "mcp" },
 ]
@@ -877,12 +848,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-code-index", extras = ["store"], editable = "modules/code_index" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-metrics-source", editable = "modules/metrics_source" },
     { name = "argus-repository-source", editable = "modules/repository_source" },
+    { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
 ]
@@ -1000,6 +971,35 @@ requires-dist = [
 dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
+name = "argus-telemetry"
+version = "0.1.0"
+source = { editable = "modules/telemetry" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "opentelemetry-exporter-otlp-json-file" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-instrumentation-logging" },
+    { name = "opentelemetry-sdk" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "opentelemetry-exporter-otlp-json-file", specifier = ">=0.66b1" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45" },
+    { name = "opentelemetry-instrumentation-logging", specifier = ">=0.66b1" },
+    { name = "opentelemetry-sdk", specifier = ">=1.45" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
 name = "argus-workspace"
 version = "0.0.1"
 source = { virtual = "." }
@@ -1074,10 +1074,10 @@ name = "argus-write-mcp-server"
 version = "0.1.0"
 source = { editable = "modules/write_mcp_server" }
 dependencies = [
-    { name = "argus-argus-telemetry" },
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
     { name = "argus-incident-record" },
+    { name = "argus-telemetry" },
     { name = "httpx2" },
     { name = "mcp" },
     { name = "redis" },
@@ -1090,10 +1090,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
+    { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
     { name = "redis", specifier = ">=5.0" },

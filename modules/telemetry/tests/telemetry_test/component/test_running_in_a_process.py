@@ -38,7 +38,7 @@ SOME_DEBUG = "some diagnostic detail"
 _A_PROCESS = f"""
 import logging, sys, time
 from core import TelemetrySettings
-from argus_telemetry import start_telemetry
+from telemetry import start_telemetry
 from opentelemetry import trace
 
 with start_telemetry(TelemetrySettings(

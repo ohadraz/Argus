@@ -53,7 +53,7 @@ store = [
     "argus-core[embedding]",
     # For the deliverer's `main`, which installs the SDK for its process and
     # sits on this side of the extra already: it writes the store.
-    "argus-argus_telemetry",
+    "argus-telemetry",
 ]
 
 
@@ -73,7 +73,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
-argus-argus_telemetry = { workspace = true }
+argus-telemetry = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

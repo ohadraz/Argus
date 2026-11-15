@@ -104,7 +104,7 @@ class TracedLLMClient:
     client is built once and handed around, and was never told whose it is.
 
     `tracer` and `meter` default to the process's own, which is what makes the
-    decorator free to wrap unconditionally: until `argus_telemetry` installs an
+    decorator free to wrap unconditionally: until `telemetry` installs an
     SDK both are no-ops. A monotonic clock, not a wall clock, because what the
     duration metric measures is a duration.
     """

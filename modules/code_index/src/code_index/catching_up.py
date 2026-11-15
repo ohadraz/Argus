@@ -35,7 +35,6 @@ from collections.abc import Callable
 from functools import partial
 from typing import Final, Protocol
 
-from argus_telemetry import start_telemetry
 from core import (
     DatabaseSettings,
     SettingsSlice,
@@ -51,6 +50,7 @@ from repository_source import (
     paths_changed_between,
     the_head_of,
 )
+from telemetry import start_telemetry
 
 from code_index.building import IndexSettings, index_repository
 from code_index.embedding import an_embedder

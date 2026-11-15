@@ -87,4 +87,4 @@ dist/
 # Where every Argus process writes its traces, metrics and logs - local, and as
 # large as the prompts in it. `TELEMETRY_DIRECTORY` moves it; this ignores the
 # default.
-/telemetry/
+/.telemetry/

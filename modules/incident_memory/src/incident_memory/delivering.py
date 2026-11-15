@@ -26,7 +26,6 @@ from contextlib import contextmanager
 from typing import Final, Protocol
 
 import psycopg
-from argus_telemetry import start_telemetry
 from core import (
     DatabaseSettings,
     SettingsSlice,
@@ -36,6 +35,7 @@ from core import (
 )
 from core.embedding import an_embedder
 from core.schema import require_schema
+from telemetry import start_telemetry
 
 from incident_memory.filing import get_undelivered, record_delivered
 from incident_memory.keeping import Keeper, kept_in

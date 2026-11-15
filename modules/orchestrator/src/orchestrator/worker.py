@@ -23,7 +23,6 @@ from os import getpid
 from typing import Final
 
 import psycopg
-from argus_telemetry import start_telemetry
 from core import (
     Connections,
     DatabaseSettings,
@@ -60,6 +59,7 @@ from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel, ConfigDict
 from read_mcp_client import read_mcp
+from telemetry import start_telemetry
 from write_mcp_client import write_mcp
 
 from orchestrator.entrypoint import CHECKPOINTER_CONNECTIONS, graph_for, run_incident

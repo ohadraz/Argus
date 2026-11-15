@@ -49,9 +49,9 @@ from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from argus_telemetry.destinations import Destination, Signal, destinations_for
-from argus_telemetry.levels import apply_levels
-from argus_telemetry.records import ConsoleFormatter, Redacted, StampedFromBaggage
+from telemetry.destinations import Destination, Signal, destinations_for
+from telemetry.levels import apply_levels
+from telemetry.records import ConsoleFormatter, Redacted, StampedFromBaggage
 
 _logger = logging.getLogger(__name__)
 

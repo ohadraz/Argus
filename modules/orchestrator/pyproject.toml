@@ -6,7 +6,7 @@ dependencies = [
     "argus-core[llm,mcp]",
     "argus-incident_record",
     "argus-narration",
-    "argus-argus_telemetry",
+    "argus-telemetry",
     # With the store, because the walk is what writes a record and the walk
     # is what searches for one - and unconditionally, because whether it does
     # either is read at runtime while this is resolved at install. A worker
@@ -54,7 +54,7 @@ argus-core = { workspace = true }
 argus-incident_memory = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
-argus-argus_telemetry = { workspace = true }
+argus-telemetry = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-responder_rate_source = { workspace = true }
 argus-revenue_source = { workspace = true }

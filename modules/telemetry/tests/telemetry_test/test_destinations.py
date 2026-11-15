@@ -18,9 +18,9 @@ from __future__ import annotations
 import base64
 
 import pytest
-from argus_telemetry import Destination, Signal, destinations_for
 from argus_testkit import Scenario, the_answer_was
 from core import TelemetrySettings
+from telemetry import Destination, Signal, destinations_for
 
 DONT_CARE_DIRECTORY = "telemetry"
 

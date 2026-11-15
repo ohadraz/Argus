@@ -785,7 +785,7 @@ class Settings(BaseSettings):
     # remembered to stand up a collector would be empty the day it was needed.
     # Relative paths resolve against the process's working directory, which is
     # the repository root for everything nox starts; the repository ignores it.
-    telemetry_directory: str = Field(default="telemetry")
+    telemetry_directory: str = Field(default=".telemetry")
 
     # A general OTLP backend, which receives all three signals over HTTP beside
     # the files. Named as OTel names them everywhere else, so whoever configures
@@ -1007,7 +1007,7 @@ class TelemetrySettings(SettingsSlice):
 
     The directory every signal is written under, the two backends that may
     receive them as well, and the level below which nothing is logged. Handed
-    to `argus_telemetry` at the top of each process, which is the only reader:
+    to `telemetry` at the top of each process, which is the only reader:
     instrumented code speaks the OTel API and never learns where what it
     emitted ended up.
     """

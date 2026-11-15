@@ -153,7 +153,7 @@ def main() -> None:
     whose output nobody can paste into an issue.
 
     The one `main` that configures logging for itself. Every other process's
-    logging is set up by `argus_telemetry` as its telemetry starts, but the
+    logging is set up by `telemetry` as its telemetry starts, but the
     kernel depends on nothing in this workspace, so this job starts no
     telemetry and has nothing else to give it a console.
     """

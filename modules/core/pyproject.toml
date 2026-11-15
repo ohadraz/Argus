@@ -15,7 +15,7 @@ dependencies = [
     "psycopg-pool>=3.2",
     # The API alone, which is all instrumented code ever names: a span or a
     # metric through it is a no-op until a process installs an SDK, and only
-    # `argus_telemetry` does. Light and pure Python, which is why it is a
+    # `telemetry` does. Light and pure Python, which is why it is a
     # dependency of the kernel rather than an extra.
     "opentelemetry-api>=1.45",
 ]

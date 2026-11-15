@@ -7,7 +7,7 @@ dependencies = [
     # The run a change is made for, asked of its own row before the change is
     # made (`fencing`).
     "argus-incident_record",
-    "argus-argus_telemetry",
+    "argus-telemetry",
     "argus-deployment_platform",
     "httpx2",
     "mcp>=1.29.0",
@@ -25,7 +25,7 @@ dev = [
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-incident_record = { workspace = true }
-argus-argus_telemetry = { workspace = true }
+argus-telemetry = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

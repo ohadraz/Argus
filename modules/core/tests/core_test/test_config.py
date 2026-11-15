@@ -331,7 +331,7 @@ def test_a_slice_naming_a_setting_that_does_not_exist_is_refused() -> None:
 
 @pytest.mark.unit
 def test_the_telemetry_slice_carries_where_signals_go_and_the_log_level() -> None:
-    # What `argus_telemetry` is handed at the top of every process: the
+    # What `telemetry` is handed at the top of every process: the
     # directory every signal is written under, the general OTLP backend,
     # Langfuse and the level below which nothing is logged - and nothing else,
     # so that wiring the exporters names no credential of any other tier.
@@ -359,7 +359,7 @@ def test_the_telemetry_slice_carries_where_signals_go_and_the_log_level() -> Non
 
 
 @pytest.mark.unit
-def test_telemetry_is_written_under_telemetry_and_sent_nowhere_by_default() -> None:
+def test_telemetry_is_written_under_dot_telemetry_and_sent_nowhere_by_default() -> None:
     # The configuration a fresh checkout runs with: every signal on disk, in a
     # directory the repository ignores, and no backend - an empty endpoint is
     # what switches each one off. Read off the declared defaults rather than off
@@ -374,7 +374,7 @@ def test_telemetry_is_written_under_telemetry_and_sent_nowhere_by_default() -> N
         ) \
         .then(
             _it_is(TelemetrySettings(
-                telemetry_directory="telemetry",
+                telemetry_directory=".telemetry",
                 otel_exporter_otlp_endpoint="",
                 otel_exporter_otlp_headers="",
                 langfuse_base_url="",

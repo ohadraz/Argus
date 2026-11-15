@@ -15,8 +15,8 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_telemetry import apply_levels
 from argus_testkit import Assertion, Scenario
+from telemetry import apply_levels
 
 THE_ROOT = ""
 

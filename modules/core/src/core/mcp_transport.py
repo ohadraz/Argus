@@ -460,7 +460,7 @@ class McpClient:
     Each call is a span, opened on the calling thread rather than on the
     client's loop: the loop's thread has no idea which agent asked, and a span
     opened there would start a trace of its own. `tracer` and `meter` default to
-    the process's own, which are no-ops until `argus_telemetry` installs an SDK.
+    the process's own, which are no-ops until `telemetry` installs an SDK.
 
     Each call also says which claim of a run it is made for, where the process
     `holding` one holds it: the write tier makes a change only for the claim

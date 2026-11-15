@@ -12,7 +12,7 @@ Every Argus process SHALL write its traces, metrics and logs to files under a co
 
 #### Scenario: The directory is configurable
 - **WHEN** `TELEMETRY_DIRECTORY` names a directory
-- **THEN** the run directories are created under it rather than under the default `telemetry/`
+- **THEN** the run directories are created under it rather than under the default `.telemetry/`
 
 #### Scenario: Two processes do not share a file
 - **WHEN** two processes run at the same time

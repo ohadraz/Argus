@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from argus_telemetry import Telemetry, telemetry_for
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -36,6 +35,7 @@ from argus_testkit import (
 from core import TelemetrySettings
 from core.telemetry import ARGUS_INCIDENT_ID
 from opentelemetry import baggage, context
+from telemetry import Telemetry, telemetry_for
 
 SOME_SERVICE = "argus-worker"
 SOME_START = datetime(2026, 10, 8, 15, 14, 3, tzinfo=UTC)
@@ -111,7 +111,7 @@ def test_a_log_record_written_inside_a_span_carries_that_spans_trace(tmp_path: P
         ) \
         .when(
             lambda: _a_warning_logged_inside_a_span_and_closed(
-                a_telemetry, "argus_telemetry_test.some_logger", "some warning"
+                a_telemetry, "telemetry_test.some_logger", "some warning"
             )
         ) \
         .then(
@@ -332,7 +332,7 @@ def test_a_directory_that_cannot_be_written_leaves_the_process_working(
         ) \
         .then(
             one_record_was_logged(
-                caplog, "argus_telemetry.wiring", logging.WARNING,
+                caplog, "telemetry.wiring", logging.WARNING,
                 "telemetry not written to disk",
                 values={"directory": str(
                     a_file_where_the_directory_should_be / SOME_SERVICE / "20261008T151403Z-4242"
@@ -431,7 +431,7 @@ def _a_warning_logged_through_both_and_closed(telemetry: Telemetry,
 
     A logger of its own rather than the root, for the reason given above.
     """
-    logger = logging.getLogger("argus_telemetry_test.some_logger")
+    logger = logging.getLogger("telemetry_test.some_logger")
     logger.addHandler(telemetry.log_handler)
     logger.addHandler(telemetry.console_handler)
 
@@ -633,7 +633,7 @@ def _its_life_was(caplog: pytest.LogCaptureFixture,
                   expected: list[tuple[int, str]]) -> Assertion[Any]:
     """That the process's own records said exactly these, in order, each naming the service."""
     def assertion(_returned: Any) -> bool:
-        own = [record for record in caplog.records if record.name == "argus_telemetry.wiring"]
+        own = [record for record in caplog.records if record.name == "telemetry.wiring"]
         said = [(record.levelno, record.getMessage()) for record in own]
         services = {getattr(record, "service", None) for record in own}
 
