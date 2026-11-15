@@ -23,14 +23,6 @@ from os import getpid
 from typing import Final
 
 import psycopg
-from argus_incidents import (
-    EndedByAPerson,
-    ended_by_a_person_via,
-    events_into_connection,
-    inside_the_incidents_trace,
-)
-from argus_incidents.repository import incidents, runs, taken_actions
-from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
 from argus_telemetry import start_telemetry
 from core import (
     Connections,
@@ -52,6 +44,14 @@ from core.llm import ModelUnavailable
 from core.models import IncidentStatus
 from core.schema import require_schema
 from core.telemetry import ARGUS_RUN_ID
+from incident_record import (
+    EndedByAPerson,
+    ended_by_a_person_via,
+    events_into_connection,
+    inside_the_incidents_trace,
+)
+from incident_record.repository import incidents, runs, taken_actions
+from incident_record.repository.incidents import NO_TRACE_CONTEXT
 from mitigation import (
     MitigationSettings,
     an_undo_over,

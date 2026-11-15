@@ -19,13 +19,13 @@ from collections.abc import Callable
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from core import get_settings
 from core.embedding import an_embedder
 from core.events import SimilarIncidentsRecalled
 from core.models import IncidentStatus, Verdict
 from incident_memory.recalling import recalled
+from incident_record.repository import events
 from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import (

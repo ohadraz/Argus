@@ -29,7 +29,6 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import partial
 
-from argus_incidents.repository import exchange_rates, incidents, references
 from core import Connections, Settings, to_iso
 from core.anomaly import AnomalyThresholds
 from core.mcp_transport import McpClient, McpToolError, McpUnreachable
@@ -44,6 +43,7 @@ from exchange_rate_source.frankfurter import (
     ExchangeRateSettings,
     rates_published_for,
 )
+from incident_record.repository import exchange_rates, incidents, references
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
 from postmortem_writing import (

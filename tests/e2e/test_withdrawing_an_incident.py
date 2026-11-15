@@ -38,11 +38,11 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import events, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from core.events import ActionTaken, ChangeUndone, StatusChanged
 from core.models import IncidentStatus, Report, ReportChannel
 from deployment_platform.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
+from incident_record.repository import events, postmortems
 from mitigation import Undone
 
 from tests.e2e.framework.argus import (

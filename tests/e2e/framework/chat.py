@@ -24,7 +24,6 @@ from urllib.parse import urlencode
 
 import httpx2
 import psycopg
-from argus_incidents.repository import conversation, references
 from argus_testkit import Assertion
 from chat_platform.slack_deliveries import (
     ACTION_ID,
@@ -53,6 +52,7 @@ from chat_platform.slack_deliveries import (
 from chat_platform.slack_posting import ACTIONS_BLOCK, BLOCK_TYPE, BUTTON_ELEMENT, ELEMENTS
 from core import get_settings, utc_now
 from core.models import CHAT_THREAD, the_place_of
+from incident_record.repository import conversation, references
 
 from tests.e2e.framework.argus import (
     A_POLL_SECONDS,

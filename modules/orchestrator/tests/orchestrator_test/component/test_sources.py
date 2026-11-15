@@ -25,7 +25,6 @@ from typing import Any
 from unittest.mock import call, create_autospec
 
 import pytest
-from argus_incidents.repository import incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from core import connect_from_env, get_settings, utc_now
 from core.anomaly import AnomalyThresholds
@@ -38,6 +37,7 @@ from core.models import (
     Reference,
     ReportChannel,
 )
+from incident_record.repository import incidents, references
 from oncall_source import Acknowledgement, OnCallUnavailable, ReportedIncident
 from oncall_source.platform import OnCallPlatform, PagedIncident
 from orchestrator.sources import the_real_sources

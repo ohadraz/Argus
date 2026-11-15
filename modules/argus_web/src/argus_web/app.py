@@ -7,16 +7,6 @@ from pathlib import Path
 from typing import Annotated, Any, Final
 
 import psycopg
-from argus_incidents import (
-    events_into,
-    events_into_connection,
-    ingest_a_message,
-    inside_the_incidents_trace,
-    resolve_incident,
-    start_incident,
-    withdraw_incident,
-)
-from argus_incidents.repository import conversation, references
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from chat_platform.slack import ChatSettings, slack_from
 from code_index.records import record_pushed
@@ -42,6 +32,16 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from incident_record import (
+    events_into,
+    events_into_connection,
+    ingest_a_message,
+    inside_the_incidents_trace,
+    resolve_incident,
+    start_incident,
+    withdraw_incident,
+)
+from incident_record.repository import conversation, references
 from oncall_source import OnCallSettings, OnCallUnavailable
 from oncall_source.pagerduty_adapter import pagerduty_from
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform

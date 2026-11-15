@@ -1,0 +1,34 @@
+[project]
+name = "argus-incident_record"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "argus-core",
+    "psycopg[binary]>=3.1",
+    "pydantic>=2.0",
+]
+
+# `reset_schema` runs the migration chain, so this suite needs the extra the
+# kernel keeps it behind. Declared here rather than relied on from the
+# workspace venv: `test_module` resolves each module against its own
+# dependencies alone, and a suite that only passes locally is the failure that
+# arrangement exists to catch.
+[dependency-groups]
+dev = [
+    "argus-core[migrations]",
+    "argus-argus_testkit",
+    # What the trace an incident keeps is asserted through: an SDK's in-memory
+    # exporter. Never a runtime dependency.
+    "opentelemetry-sdk>=1.45",
+]
+
+[tool.uv.sources]
+argus-core = { workspace = true }
+argus-argus_testkit = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/incident_record"]

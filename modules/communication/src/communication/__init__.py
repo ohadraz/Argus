@@ -9,7 +9,7 @@ Underneath that: `policy` decides which lines a human hears and how loudly, and
 `saying` turns that into a message in the channel or a reply in the incident's
 thread, through the chat platform's port - which is where the platform itself,
 Slack today, is known. The log is followed through
-`argus_incidents.following`, which every reader of it shares. `watching` is the
+`incident_record.following`, which every reader of it shares. `watching` is the
 process that runs it.
 """
 

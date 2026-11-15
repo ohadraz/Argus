@@ -18,14 +18,6 @@ from http import HTTPStatus as HttpStatus
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import (
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    synopses,
-    taken_actions,
-)
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app
 from core import connect_from_env, new_id, to_iso, utc_now
@@ -89,6 +81,14 @@ from core.models import (
     WhyNoTrigger,
 )
 from fastapi.testclient import TestClient
+from incident_record.repository import (
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    synopses,
+    taken_actions,
+)
 
 from argus_web_test.framework.assertions import (
     POLLS_FOR_MORE,

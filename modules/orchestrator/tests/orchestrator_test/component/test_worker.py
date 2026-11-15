@@ -8,8 +8,6 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
-from argus_incidents.repository import events, hypotheses, incidents, runs, taken_actions
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -32,6 +30,8 @@ from core.events import StatusChanged
 from core.llm import ModelUnavailable
 from core.models import REVERT_FEATURE_FLAG, ActionProgress, Alert, IncidentStatus
 from core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
+from incident_record.ending import EndedByAPerson, ended_by_a_person_via
+from incident_record.repository import events, hypotheses, incidents, runs, taken_actions
 from opentelemetry import baggage
 from orchestrator import worker
 from psycopg.pq import TransactionStatus

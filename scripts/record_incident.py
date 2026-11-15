@@ -49,8 +49,6 @@ from typing import Any, Final, NamedTuple
 import httpx2
 import psycopg
 from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
-from argus_incidents.repository import runs, synopses
-from argus_incidents.repository.runs import RunState
 from core import get_settings, to_iso, utc_now
 from core.events import (
     ActionRecommended,
@@ -65,6 +63,8 @@ from core.events import (
 )
 from core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
 from incident_memory.filing import get_undelivered
+from incident_record.repository import runs, synopses
+from incident_record.repository.runs import RunState
 from investigation_agent.tools.answer import ANSWER_TOOL
 from postmortem_writing import WRITE_UP_TOOLS
 from postmortem_writing.grounding import (

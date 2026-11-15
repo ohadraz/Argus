@@ -1527,7 +1527,7 @@ argus/
 │   └── target_service_double/       # the shop a replay reads, its draws moved to the recording's minutes
 ├── modules/
 │   ├── core/                        # shared Pydantic models, tool schemas, config/LLM client factory
-│   ├── argus_incidents/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
+│   ├── incident_record/             # the incident record: its tables and repositories, intake, withdrawal, event publishing
 │   ├── orchestrator/                # LangGraph graph, FSM, tier-gate node
 │   ├── argus_narration/             # the event-to-sentence renderer every destination reads
 │   ├── code_index/                   # the repository index: chunking, embedding, the store, the watermark, the catch-up loop

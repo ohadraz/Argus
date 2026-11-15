@@ -19,9 +19,9 @@ from collections.abc import Callable
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, calling, eventually
 from core.events import QuestionAnswered
+from incident_record.repository import events
 from message_intent.understanding import COULD_NOT_ANSWER
 
 from tests.e2e.framework.argus import (

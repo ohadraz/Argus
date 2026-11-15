@@ -420,7 +420,7 @@ def guard_layering(session: nox.Session) -> None:
     an incident reaches a vendor's store the fence cannot reach.
 
     A guard rather than a note in `CLAUDE.md`, because the note was there while
-    `argus_incidents` depended on an agent - a documented invariant nothing
+    `incident_record` depended on an agent - a documented invariant nothing
     checks is one nobody finds out about.
 
     Then runs the guard's own suite, which builds the import graphs the SDK

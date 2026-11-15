@@ -112,7 +112,7 @@ markers = [
 # The arrow at the bottom of this system points one way: the kernel knows
 # nothing about anybody, the incident record knows only the kernel, and the page
 # knows only what it reads from. That claim has been written in `CLAUDE.md` since
-# before it was true - `argus_incidents` declared a dependency on an agent for
+# before it was true - `incident_record` declared a dependency on an agent for
 # months, which is precisely the failure a documented invariant nobody checks
 # produces. These contracts are the check.
 #
@@ -134,7 +134,6 @@ markers = [
 # be broken by it.
 [tool.importlinter]
 root_packages = [
-    "argus_incidents",
     "argus_narration",
     "argus_telemetry",
     "argus_web",
@@ -146,6 +145,7 @@ root_packages = [
     "deployment_platform",
     "exchange_rate_source",
     "incident_memory",
+    "incident_record",
     "investigation_agent",
     "message_intent",
     "metrics_source",
@@ -170,13 +170,13 @@ source_modules = ["core"]
 forbidden_modules = ["*"]
 
 [[tool.importlinter.contracts]]
-name = "argus_incidents is the incident record and knows only the kernel"
+name = "incident_record knows only the kernel"
 type = "forbidden"
-source_modules = ["argus_incidents"]
+source_modules = ["incident_record"]
 forbidden_modules = ["*"]
 ignore_imports = [
-    "argus_incidents.** -> core",
-    "argus_incidents.** -> core.**",
+    "incident_record.** -> core",
+    "incident_record.** -> core.**",
 ]
 # A layer that stops importing something it was allowed to import is not a
 # failure, and an allowance is written for a package rather than for whichever
@@ -335,7 +335,7 @@ name = "incident_memory holds records rather than reading the incident record"
 type = "forbidden"
 source_modules = ["incident_memory"]
 forbidden_modules = ["*"]
-# The kernel and nothing else - in particular not `argus_incidents`. What a
+# The kernel and nothing else - in particular not `incident_record`. What a
 # past incident tried is composed from actions handed to it, the way
 # `argus_narration` renders events handed to it: the walk already holds a
 # repository, and a second module opening its own connection to the same rows
@@ -415,8 +415,8 @@ forbidden_modules = ["*"]
 ignore_imports = [
     "argus_web.** -> core",
     "argus_web.** -> core.**",
-    "argus_web.** -> argus_incidents",
-    "argus_web.** -> argus_incidents.**",
+    "argus_web.** -> incident_record",
+    "argus_web.** -> incident_record.**",
     "argus_web.** -> argus_narration",
     "argus_web.** -> postmortem_rendering",
     # The watermark, and nothing else of the index. `code_index.records` is

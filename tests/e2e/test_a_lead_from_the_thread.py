@@ -31,9 +31,9 @@ from collections.abc import Callable
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import conversation, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from core.models import PostmortemLead, ThreadMessage
+from incident_record.repository import conversation, postmortems
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,

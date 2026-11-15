@@ -17,15 +17,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import pytest
-from argus_incidents.publishing import events_into_connection
-from argus_incidents.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    synopses,
-    taken_actions,
-)
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core import connect_from_env, utc_now
 from core.events import (
@@ -60,6 +51,15 @@ from core.models import (
 )
 from incident_memory.filing import get_undelivered
 from incident_memory.records import RememberedIncident
+from incident_record.publishing import events_into_connection
+from incident_record.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    synopses,
+    taken_actions,
+)
 from orchestrator.records import Records
 from orchestrator.walk.ports import ClaimedAction
 from postmortem_writing import said_off_the_page

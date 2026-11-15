@@ -25,7 +25,6 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from typing import Any, Final
 
-from argus_incidents.repository import runs
 from core import DatabaseSettings, Fence, open_pool
 from core.mcp_transport import (
     FENCE_META_KEY,
@@ -33,6 +32,7 @@ from core.mcp_transport import (
     a_lost_run,
     a_refusal_saying_what_it_left,
 )
+from incident_record.repository import runs
 from mcp.types import AnyFunction, ContentBlock
 
 logger = logging.getLogger(__name__)

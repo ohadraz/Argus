@@ -8,7 +8,7 @@ because somebody remembered to report it.
 
 The log and the place are seams, not a database: what is decided here is what
 gets said and in what order, and a test about that has no business waiting for
-a container. Where those seams reach postgres is `argus_incidents`', and the component
+a container. Where those seams reach postgres is `incident_record`', and the component
 test of this module is what says the wiring is real.
 
 Delivery is at-least-once. A line said twice is a nuisance; a line nobody ever
@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_incidents.repository import events
 from argus_narration import a_narration_line
 from argus_testkit import (
     Assertion,
@@ -38,6 +37,7 @@ from core.events import (
     RetrievalRequested,
 )
 from core.models import RetrievalChannel
+from incident_record.repository import events
 
 from communication_test.framework.assertions import it_said, the_lines_said_were
 from communication_test.framework.builders import (

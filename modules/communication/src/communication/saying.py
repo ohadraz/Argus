@@ -20,7 +20,6 @@ import logging
 from collections.abc import Mapping
 from typing import Final
 
-from argus_incidents.repository import events, references, synopses
 from argus_narration import (
     NarrationLine,
     ShownRevision,
@@ -44,6 +43,7 @@ from core.models import (
     a_chat_withdrawal_offer,
     the_place_of,
 )
+from incident_record.repository import events, references, synopses
 
 from communication.policy import Register
 from communication.relaying import Destination, Outcome

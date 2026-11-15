@@ -45,12 +45,12 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from core import utc_now
 from core.events import ActionTaken, FixAttempted
 from core.models import FailureMode, FixOutcome, IncidentStatus
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
+from incident_record.repository import events
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,

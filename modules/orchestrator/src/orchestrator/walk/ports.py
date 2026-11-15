@@ -167,7 +167,7 @@ class TakeAction(Protocol):
     # walk. A caller with none of the three takes the same action, tells nobody,
     # and is stopped by nothing.
     #
-    # `still_wanted` is the same question as `argus_incidents`' `IsStillWanted`,
+    # `still_wanted` is the same question as `incident_record`' `IsStillWanted`,
     # already bound to an incident. The walk holds both names because the walk is
     # what binds them: `mitigating` partials the incident id in before it calls
     # the agent, and the agent below asks without knowing which incident it is

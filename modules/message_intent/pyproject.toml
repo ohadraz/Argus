@@ -5,7 +5,7 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-core[llm]",
-    "argus-argus_incidents",
+    "argus-incident_record",
     # The incident's timeline said in words, for one question: what a person
     # asking about it is answered from.
     "argus-argus_narration",
@@ -28,7 +28,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
-argus-argus_incidents = { workspace = true }
+argus-incident_record = { workspace = true }
 argus-argus_narration = { workspace = true }
 argus-argus_telemetry = { workspace = true }
 argus-argus_testkit = { workspace = true }

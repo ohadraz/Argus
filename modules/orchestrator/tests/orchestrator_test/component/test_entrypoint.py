@@ -7,7 +7,6 @@ from unittest.mock import create_autospec
 import psycopg
 import psycopg.sql
 import pytest
-from argus_incidents.repository import events, incidents
 from argus_testkit import one_record_was_logged
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, attempting, calling
@@ -21,6 +20,7 @@ from core.telemetry import (
     ARGUS_INCIDENT_WALK_DURATION,
     ARGUS_INCIDENT_WALKS,
 )
+from incident_record.repository import events, incidents
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph

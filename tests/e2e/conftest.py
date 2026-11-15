@@ -12,11 +12,11 @@ from typing import Final
 import httpx2
 import pytest
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_incidents.repository import incidents
-from argus_incidents.repository.runs import RunState
 from core import connect_from_env, get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_memory.filing import get_undelivered
+from incident_record.repository import incidents
+from incident_record.repository.runs import RunState
 from psycopg import sql
 from qdrant_client import QdrantClient
 from slack_double.server import DEFAULT_BASE_URL as SLACK_DOUBLE_BASE_URL

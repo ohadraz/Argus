@@ -16,7 +16,6 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Final
 
-from argus_incidents import when_it_was_taken
 from argus_narration import (
     Finding,
     ShownRevision,
@@ -37,6 +36,7 @@ from core.models import (
     TakenAction,
     Undone,
 )
+from incident_record import when_it_was_taken
 from pydantic import BaseModel, Field
 
 # A walk shown with no revision the incident read to say short.

@@ -25,9 +25,9 @@ from decimal import Decimal
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually
+from incident_record.repository import postmortems
 from postmortem_writing import EXCHANGE_RATE_ASSUMPTION_LABEL
 
 from tests.e2e.framework.argus import (

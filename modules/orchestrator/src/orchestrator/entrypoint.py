@@ -1,4 +1,4 @@
-"""How an incident is walked. Starting one is `argus_incidents.intake`.
+"""How an incident is walked. Starting one is `incident_record.intake`.
 
 The two live apart because importing this builds the graph and everything
 under it: a process that can reach here can run an investigation, and the
@@ -16,8 +16,6 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import psycopg
-from argus_incidents import events_into_connection, publish_beside
-from argus_incidents.repository import incidents
 from core import Connections, Holding, get_settings
 from core.events import StatusChanged
 from core.mcp_transport import McpClient
@@ -31,6 +29,8 @@ from core.telemetry import (
     UNIT_SECONDS,
     UNIT_WALKS,
 )
+from incident_record import events_into_connection, publish_beside
+from incident_record.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import metrics, trace

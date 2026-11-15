@@ -2,7 +2,7 @@
 
 Not the module's only door to it, and not meant to be. A walk being started, a
 withdrawal undoing what a walk did, and a finished incident being read back for
-its postmortem all reach `argus_incidents.repository` directly - none of them
+its postmortem all reach `incident_record.repository` directly - none of them
 happens inside a node, and each says at its own site why it reads what it does.
 Two more siblings reach the repositories for things that are not the incident
 record at all: the run queue and the exchange-rate cache. One write here is not
@@ -18,15 +18,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from argus_incidents import PublisherFor, publish_beside
-from argus_incidents.repository import (
-    conversation,
-    hypotheses,
-    incidents,
-    postmortems,
-    synopses,
-    taken_actions,
-)
 from core import Connections
 from core.events import (
     ExecutiveSynopsisWithheld,
@@ -53,6 +44,15 @@ from core.models import (
 from incident_memory import filing
 from incident_memory.composing import VERDICTS_THAT_JUDGE_AN_ACTION
 from incident_memory.records import RememberedIncident
+from incident_record import PublisherFor, publish_beside
+from incident_record.repository import (
+    conversation,
+    hypotheses,
+    incidents,
+    postmortems,
+    synopses,
+    taken_actions,
+)
 from postmortem_writing import said_off_the_page
 
 from orchestrator.gathering import what_became_of

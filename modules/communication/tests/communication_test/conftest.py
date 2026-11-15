@@ -6,7 +6,7 @@ up by the `component` suite's own conftest - so an autouse fixture here would
 make every one of them wait for a container. The relay is the exception: it
 follows the event log, and a log needs somewhere to be.
 
-The same shape as `argus_incidents`' and the orchestrator's own conftests,
+The same shape as `incident_record`' and the orchestrator's own conftests,
 deliberately: each needs one database for a whole run and an empty one for each
 test, and several answers to that question would be several ways for a suite to
 be dirty. Not shared code, though. `argus_testkit` is where shared test support

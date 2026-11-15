@@ -14,7 +14,7 @@ older rate being reported as today's, which is why the day travels with the
 table rather than beside it.
 
 Where the rates are kept is not this module's business. The table belongs to
-`argus_incidents`, and reaching it takes a connection - so both directions are
+`incident_record`, and reaching it takes a connection - so both directions are
 taken as collaborators with that connection already bound in, and nothing here
 names a database.
 """

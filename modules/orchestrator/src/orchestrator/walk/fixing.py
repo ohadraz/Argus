@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from functools import partial
 
-from argus_incidents import IsStillWanted
 from codefix_agent import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
 from core import parse_iso, was_lost
 from core.events import FixAttempted, Narrator, Publisher, nobody
@@ -17,6 +16,7 @@ from core.models import (
     ThreadMessage,
     WhatArgusDid,
 )
+from incident_record import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn

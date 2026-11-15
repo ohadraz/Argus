@@ -1,13 +1,13 @@
 """The relay over the real log, which is the thing that actually runs.
 
 `relaying` decides what gets said and in what order and knows about no database
-at all, and the log and the place it reads through are `argus_incidents`' and
+at all, and the log and the place it reads through are `incident_record`' and
 tested there. What is left to ask here is the two together: that everything
 published is said once, and that a second look with nothing new says
 nothing.
 
 A component test rather than an integration one: what talks to postgres is
-`argus_incidents`' repositories, which have integration tests of their own.
+`incident_record`' repositories, which have integration tests of their own.
 This is one module through its own front door with the infrastructure it cannot
 fake behind it.
 """
@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_incidents.following import events_since, place_for
-from argus_incidents.repository import events, incidents
 from argus_testkit import Scenario, all_of, calling
 from communication.relaying import CHAT_RELAY, relay_once
 from core import connect_from_env, utc_now
 from core.events import IncidentEvent
 from core.models import Alert
+from incident_record.following import events_since, place_for
+from incident_record.repository import events, incidents
 
 from communication_test.framework.assertions import it_said, the_lines_said_were
 from communication_test.framework.builders import (

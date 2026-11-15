@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_incidents.repository import events, incidents
 from argus_testkit import Assertion, Scenario, all_of
 from core import connect_from_env, utc_now
 from core.events import (
@@ -31,6 +30,7 @@ from core.models import (
     MetricBucket,
     RuleReading,
 )
+from incident_record.repository import events, incidents
 
 from argus_web_test.framework.assertions import (
     the_page_keeps_asking,

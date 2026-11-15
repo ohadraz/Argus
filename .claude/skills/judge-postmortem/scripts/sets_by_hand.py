@@ -6,7 +6,7 @@ Usage:
 
 From db/: the act is the earliest performed action, dated by its last
 action-taken announcement (its row's taken_at where none was made), as
-argus_incidents.dating says it. The lines are every logs-retrieved read's. A
+incident_record.dating says it. The lines are every logs-retrieved read's. A
 group is keyed by its message with every number taken out, and labelled G plus
 the first four hex characters of the key's sha1, as log_groups documents. A
 group's set is the distinct minutes of the lines whose stamp names an instant

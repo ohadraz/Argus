@@ -2,7 +2,7 @@
 
 A record is filed against an incident, and a walk files it for the run it holds.
 This module knows neither the incident record nor the run queue - those are
-`argus_incidents`' - so the rows are written here in SQL, naming only the columns
+`incident_record`' - so the rows are written here in SQL, naming only the columns
 the schema requires. Spelled once, because a case that wrote its own would be a
 case about the spelling.
 """

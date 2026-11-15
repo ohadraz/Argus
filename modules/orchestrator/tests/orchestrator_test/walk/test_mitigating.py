@@ -22,7 +22,6 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from argus_incidents import IsStillWanted
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -68,6 +67,7 @@ from core.models import (
     the_actions_through,
     the_subject_of,
 )
+from incident_record import IsStillWanted
 from mitigation import ChangeMade
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta

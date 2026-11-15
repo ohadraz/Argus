@@ -13,7 +13,7 @@ polling, at-least-once, with a durable place of its own.
 
 What that place is kept in, and where the log is read from, are seams. This
 module decides what gets said and in what order and knows about no database at
-all; `argus_incidents.following` is where those seams meet postgres.
+all; `incident_record.following` is where those seams meet postgres.
 
 At-least-once rather than exactly-once, deliberately. A line said twice is a
 nuisance a reader forgives; a line nobody ever says is the failure this exists
@@ -26,9 +26,9 @@ import logging
 from enum import StrEnum
 from typing import Final, Protocol
 
-from argus_incidents import Backlog, Place
 from argus_narration import NarrationLine, a_narration_line
 from chat_platform import Link
+from incident_record import Backlog, Place
 
 from communication.policy import Register, how_it_is_said
 

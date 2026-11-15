@@ -5,7 +5,7 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-core",
-    "argus-argus_incidents",
+    "argus-incident_record",
     "argus-argus_narration",
     "argus-argus_telemetry",
     "argus-chat_platform",
@@ -30,7 +30,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
-argus-argus_incidents = { workspace = true }
+argus-incident_record = { workspace = true }
 argus-argus_narration = { workspace = true }
 argus-argus_telemetry = { workspace = true }
 argus-argus_testkit = { workspace = true }

@@ -17,10 +17,10 @@ from __future__ import annotations
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually
 from core.models import ActionItemStatus, Postmortem, TimelineMarker
+from incident_record.repository import postmortems
 from postmortem_writing import (
     ANALYSIS_COMPLETE,
     IMPACT_ASSESSED,

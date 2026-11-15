@@ -25,10 +25,10 @@ from typing import Any
 import httpx2
 import psycopg
 import pytest
-from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from core import get_settings, utc_now
 from core.models import said_as_money
+from incident_record.repository import postmortems
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,

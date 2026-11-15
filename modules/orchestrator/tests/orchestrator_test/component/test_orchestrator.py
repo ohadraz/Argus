@@ -22,7 +22,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from argus_incidents import EndedByAPerson, WaitForPeople
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core import RunLost, get_settings
 from core.budget import StillWanted, wanted_throughout
@@ -55,6 +54,7 @@ from core.models import (
 )
 from core.replay import Recorder
 from core.replay import nobody as records_nothing
+from incident_record import EndedByAPerson, WaitForPeople
 from investigation_agent import Findings
 from langgraph.checkpoint.memory import MemorySaver
 from mitigation import Action, ChangeMade, Outcome, Verdict

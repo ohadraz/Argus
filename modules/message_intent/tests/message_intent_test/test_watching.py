@@ -11,7 +11,7 @@ gone - stops the look where it is. The next look finds it again, because a
 person's words skipped are words Argus never took in, and the messages behind
 it wait rather than being understood out of order.
 
-The record is stood in for: it is `argus_incidents`' and tested there.
+The record is stood in for: it is `incident_record`' and tested there.
 """
 
 from __future__ import annotations

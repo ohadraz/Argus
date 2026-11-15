@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-core[llm,mcp]",
-    "argus-argus_incidents",
+    "argus-incident_record",
     "argus-argus_narration",
     "argus-argus_telemetry",
     # With the store, because the walk is what writes a record and the walk
@@ -52,7 +52,7 @@ dev = [
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-incident_memory = { workspace = true }
-argus-argus_incidents = { workspace = true }
+argus-incident_record = { workspace = true }
 argus-argus_narration = { workspace = true }
 argus-argus_telemetry = { workspace = true }
 argus-oncall_source = { workspace = true }

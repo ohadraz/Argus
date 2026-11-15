@@ -24,16 +24,6 @@ import psycopg
 from anthropic_double.clock import instants_in, moved_in
 from anthropic_double.recordings import RECORDINGS_DIR, load, load_arrival
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_incidents.repository import (
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    replay,
-    runs,
-    synopses,
-)
-from argus_incidents.repository.runs import RunState
 from argus_testkit import Assertion, all_of
 from codefix_agent.prompting import FILES_FIELD, SUBMIT_FIX
 from core import get_settings, parse_iso, to_iso, utc_now
@@ -45,6 +35,16 @@ from core.models import (
     IncidentStatus,
 )
 from core.replay import CallType
+from incident_record.repository import (
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    replay,
+    runs,
+    synopses,
+)
+from incident_record.repository.runs import RunState
 from investigation_agent.tools.answer import ANSWER_TOOL
 from investigation_agent.tools.changes import CHANGES_TOOL
 from investigation_agent.tools.logs import LOGS_TOOL

@@ -43,7 +43,6 @@ import httpx2
 import pytest
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
 from codefix_agent import FixSettings, SubmittedFix, propose_fix
 from core import (
@@ -63,6 +62,7 @@ from core.models import (
     ToolDefinition,
 )
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
+from incident_record.repository import incidents, runs
 from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
 
 # The two answers the model gives, each a real one. The first is a submission

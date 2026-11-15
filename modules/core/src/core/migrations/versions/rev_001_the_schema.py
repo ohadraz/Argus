@@ -493,7 +493,7 @@ CREATE INDEX IF NOT EXISTS incident_run_state_idx ON incident_run (state);
 -- Rows rather than columns on `incident`: an incident knows nothing about the
 -- tools around it, and a new tool is one more `source` here rather than one
 -- more column on the table every part of this system reads. Written and read
--- by `argus_incidents`.
+-- by `incident_record`.
 CREATE TABLE IF NOT EXISTS incident_reference (
     incident_id UUID NOT NULL REFERENCES incident(id),
     -- The tool, which of its names this is, and the name as that tool spells
@@ -537,7 +537,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS incident_reference_one_chat_thread_idx
 -- did not produce, and so a fact about the incident rather than an account of
 -- Argus's work: `incident_event` says it arrived, and everything that decides
 -- on it - the wait, the press, the agents a lead reaches - reads it here.
--- Written and read by `argus_incidents`.
+-- Written and read by `incident_record`.
 CREATE TABLE IF NOT EXISTS thread_message (
     incident_id UUID NOT NULL REFERENCES incident(id),
     -- The chat platform's own name for the message, spelt as a
@@ -591,7 +591,7 @@ CREATE INDEX IF NOT EXISTS thread_message_not_understood_idx
 -- intent reader finds it on `thread_message`, by what it has not yet understood.
 --
 -- Hangs off no incident, like `exchange_rate`: it is a fact about a reader.
--- Written and read by `argus_incidents`, beside the log it points into.
+-- Written and read by `incident_record`, beside the log it points into.
 CREATE TABLE IF NOT EXISTS event_cursor (
     reader TEXT PRIMARY KEY,
     -- A place in `incident_event.seq`, not a foreign key to it: the row a

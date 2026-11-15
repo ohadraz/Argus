@@ -28,17 +28,6 @@ from decimal import Decimal
 
 import psycopg
 import pytest
-from argus_incidents import calls_into
-from argus_incidents.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    references,
-    replay,
-    taken_actions,
-)
 from argus_narration import what_to_do
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from argus_testkit.assertions import an_error_was_raised
@@ -131,6 +120,17 @@ from core.models import (
     as_a_change,
 )
 from core.replay import CallType, Replay
+from incident_record import calls_into
+from incident_record.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    references,
+    replay,
+    taken_actions,
+)
 from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources

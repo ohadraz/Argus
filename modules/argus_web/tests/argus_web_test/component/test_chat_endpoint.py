@@ -26,7 +26,6 @@ from uuid import uuid4
 
 import httpx2
 import pytest
-from argus_incidents.repository import conversation, events, incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from argus_web.app import app, chat_platform_of
 from chat_platform import (
@@ -53,6 +52,7 @@ from core.models import (
 )
 from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi.testclient import TestClient
+from incident_record.repository import conversation, events, incidents, references
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from argus_web_test.framework.assertions import the_response_was

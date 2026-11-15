@@ -15,7 +15,6 @@ from datetime import datetime
 from functools import partial
 from typing import Final
 
-from argus_incidents import IsStillWanted
 from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
 from core import to_iso
 from core.events import (
@@ -48,6 +47,7 @@ from core.replay import Recorder
 from core.replay import nobody as records_nothing
 from incident_memory.describing import what_it_looked_like
 from incident_memory.ordering import demoting_what_was_refuted
+from incident_record import IsStillWanted
 
 from orchestrator.walk.candidates import (
     the_circumstances,

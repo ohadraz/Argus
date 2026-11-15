@@ -4,7 +4,6 @@ import random
 import string
 from datetime import UTC, datetime, timedelta
 
-from argus_incidents.ending import EndedByAPerson
 from core import new_id
 from core.models import (
     DISCARD_CACHE_ENTRIES,
@@ -29,6 +28,7 @@ from core.models import (
     Weighing,
     a_chat_message,
 )
+from incident_record.ending import EndedByAPerson
 from orchestrator.walk.state import IncidentState
 
 

@@ -24,9 +24,9 @@ from typing import Any, Final
 
 import httpx2
 import psycopg
-from argus_incidents.repository import events
 from argus_testkit import Assertion
 from deployment_platform.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
+from incident_record.repository import events
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,

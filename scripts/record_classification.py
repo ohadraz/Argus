@@ -49,12 +49,12 @@ import httpx2
 import uvicorn
 from anthropic_double.recordings import RECORDINGS_DIR
 from anthropic_double.server import app as the_double
-from argus_incidents.repository import events
 from argus_narration import NarrationLine, build_narration
 from core import DatabaseSettings, Settings, get_settings, open_pool, utc_now
 from core.events import PersonWrote
 from core.llm import build_llm_client
 from core.models import Meaning, ModelPolicy, ReportChannel, a_chat_message
+from incident_record.repository import events
 from message_intent.answering import answer
 from message_intent.classifying import classify
 

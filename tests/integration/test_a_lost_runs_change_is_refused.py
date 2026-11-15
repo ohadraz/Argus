@@ -20,7 +20,6 @@ from typing import Any, Final
 
 import httpx2
 import pytest
-from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core import (
     Fence,
@@ -34,6 +33,7 @@ from core import (
 from core.mcp_transport import McpClient
 from core.models import Alert
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
+from incident_record.repository import incidents, runs
 from write_mcp_client import commit_to_new_branch, write_mcp
 
 REQUEST_TIMEOUT_SECONDS: Final = 30.0

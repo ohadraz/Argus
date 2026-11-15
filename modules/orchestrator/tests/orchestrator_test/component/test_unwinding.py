@@ -10,12 +10,12 @@ written in a savepoint of its own: it commits with the row, and it fails alone.
 from __future__ import annotations
 
 import pytest
-from argus_incidents import events_into_connection
-from argus_incidents.repository import events, hypotheses, incidents, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
 from core import connect_from_env, utc_now
 from core.events import ChangeUndone, IncidentEvent, Publisher
 from core.models import REVERT_FEATURE_FLAG, Alert, FlagUndo, Undone, Verdict
+from incident_record import events_into_connection
+from incident_record.repository import events, hypotheses, incidents, taken_actions
 from orchestrator.unwinding import undone_recorded_through
 
 from orchestrator_test.framework.builders import a_determined_hypothesis

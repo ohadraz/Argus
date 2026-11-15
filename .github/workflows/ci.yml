@@ -373,7 +373,7 @@ jobs:
     # whole file before it looks at which service was asked for. With the
     # sibling missing, `docker compose up postgres` fails on a path that has
     # nothing to do with Postgres - and three modules' suites bring Postgres up
-    # for themselves (`argus_incidents`' whole suite, what is left of
+    # for themselves (`incident_record`' whole suite, what is left of
     # `orchestrator`'s, and `argus_web`'s component tests), so the failure lands
     # on whichever of them a push happens to touch.
     defaults:

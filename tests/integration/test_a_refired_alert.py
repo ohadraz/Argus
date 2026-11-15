@@ -33,12 +33,12 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_incidents.repository import incidents, references
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.app import app, oncall_platform_of
 from core import connect_from_env, utc_now
 from core.models import NOTIFICATION_KEY, IncidentStatus, ReportChannel
 from fastapi.testclient import TestClient
+from incident_record.repository import incidents, references
 from oncall_source import ReportedIncident
 from oncall_source.platform import OnCallPlatform, ResolvedByAPerson
 

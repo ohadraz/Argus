@@ -11,7 +11,7 @@ document cannot state, so every path that answers here answers with a day
 attached, and the one path that cannot answers nothing at all.
 
 Where those rates are kept is not this module's subject. The table belongs to
-`argus_incidents`, and what it does with a row is tested there; here it is two
+`incident_record`, and what it does with a row is tested there; here it is two
 injected collaborators, so these are the decisions and nothing else.
 """
 

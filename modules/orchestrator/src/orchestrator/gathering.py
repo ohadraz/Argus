@@ -1,7 +1,7 @@
 """Turning an incident's rows back into one incident (spec §7.6).
 
 The Postmortem Writer holds no connection and reads no rows; what it needs is
-scattered across the tables `argus_incidents` owns, and assembling it is the
+scattered across the tables `incident_record` owns, and assembling it is the
 Orchestrator's work. Keeping the gathering here is also what stops two readers
 of the same incident disagreeing: the page and the postmortem read the same
 account, through the same repositories.
@@ -20,17 +20,6 @@ from datetime import datetime
 from typing import Final, NamedTuple, get_args
 
 import psycopg
-from argus_incidents import when_it_was_taken
-from argus_incidents.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    references,
-    replay,
-    taken_actions,
-)
 from argus_narration import (
     NarrationLine,
     build_narration,
@@ -108,6 +97,17 @@ from core.models import (
 )
 from core.replay import Recorder, Replay
 from core.replay import nobody as records_nothing
+from incident_record import when_it_was_taken
+from incident_record.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    postmortems,
+    references,
+    replay,
+    taken_actions,
+)
 from postmortem_rendering import (
     as_text,
     render,

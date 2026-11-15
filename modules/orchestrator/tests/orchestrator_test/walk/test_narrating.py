@@ -25,11 +25,11 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from argus_incidents.ending import EndedByAPerson
-from argus_incidents.waiting import WaitForPeople
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from core.events import StatusChanged
 from core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus, Verdict
+from incident_record.ending import EndedByAPerson
+from incident_record.waiting import WaitForPeople
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.state import IncidentState

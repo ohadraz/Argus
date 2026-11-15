@@ -6,7 +6,7 @@ container to come up. A test that needs the database asks for it - the fence,
 which is a promise the database keeps, and the pool, which hands its connections
 out.
 
-The same shape as the orchestrator's, `argus_incidents`' and the integration
+The same shape as the orchestrator's, `incident_record`' and the integration
 suite's own conftests, deliberately: each needs one database for a whole run and
 an empty one for each test, and several answers to that question would be
 several ways for a suite to be dirty. Not shared code, though. `argus_testkit` is

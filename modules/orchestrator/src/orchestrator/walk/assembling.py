@@ -19,7 +19,16 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING
 
-from argus_incidents import (
+from codefix_agent import FixSettings, fixes_over
+from core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
+from core.anomaly import AnomalyThresholds
+from core.embedding import an_embedder
+from core.events import Publisher
+from core.llm import build_llm_client
+from core.mcp_transport import McpClient
+from core.replay import Recorder
+from incident_memory.records import RememberedIncident
+from incident_record import (
     EndedByAPerson,
     StillHeld,
     WaitForPeople,
@@ -30,15 +39,6 @@ from argus_incidents import (
     still_held_via,
     waiting_for_people_via,
 )
-from codefix_agent import FixSettings, fixes_over
-from core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
-from core.anomaly import AnomalyThresholds
-from core.embedding import an_embedder
-from core.events import Publisher
-from core.llm import build_llm_client
-from core.mcp_transport import McpClient
-from core.replay import Recorder
-from incident_memory.records import RememberedIncident
 from investigation_agent import (
     changes_over,
     dependencies_over,

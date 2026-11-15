@@ -32,7 +32,6 @@ from unittest.mock import MagicMock, create_autospec
 
 import investigation_agent
 import pytest
-from argus_incidents import IsStillWanted
 from argus_testkit import (
     Assertion,
     Kept,
@@ -77,6 +76,7 @@ from core.models import (
     WhatWasTried,
 )
 from incident_memory.records import RememberedIncident
+from incident_record import IsStillWanted
 from orchestrator.walk import ports
 from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta

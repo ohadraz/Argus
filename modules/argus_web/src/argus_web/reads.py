@@ -12,7 +12,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 
 import psycopg
-from argus_incidents.repository import (
+from argus_narration import ShownRevision
+from incident_record.repository import (
     events,
     hypotheses,
     incidents,
@@ -20,7 +21,6 @@ from argus_incidents.repository import (
     synopses,
     taken_actions,
 )
-from argus_narration import ShownRevision
 from postmortem_rendering import (
     RenderedPostmortem,
     ReportedResolution,

@@ -20,7 +20,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from argus_incidents import IsStillWanted
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -53,6 +52,7 @@ from core.models import (
     WhatArgusDid,
     no_leads,
 )
+from incident_record import IsStillWanted
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn

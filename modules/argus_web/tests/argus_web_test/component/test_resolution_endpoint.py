@@ -13,7 +13,6 @@ from http import HTTPStatus as HttpStatus
 
 import httpx2
 import pytest
-from argus_incidents.repository import events, incidents
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from argus_web.app import app
 from core import connect_from_env, utc_now
@@ -21,6 +20,7 @@ from core.events import StatusChanged
 from core.models import Alert, IncidentStatus, Report, ReportChannel
 from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi.testclient import TestClient
+from incident_record.repository import events, incidents
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from argus_web_test.framework.assertions import the_response_was
