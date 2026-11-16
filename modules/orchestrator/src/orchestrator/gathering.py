@@ -49,7 +49,7 @@ from core.events import (
     WithdrawalOffered,
     the_escalations,
 )
-from core.llm import ClientFor
+from core.llm import LLMClient
 from core.models import (
     CHAT_THREAD,
     AcceleratorPinUndo,
@@ -152,8 +152,8 @@ _AN_ENDING: Final = (Meaning.RESOLVE, Meaning.WITHDRAW)
 def write_postmortem_for(incident_id: str,
                          connections: Connections,
                          sources: Sources,
-                         client_for: ClientFor,
-                         judge_for: ClientFor,
+                         client_for: Callable[[Replay], LLMClient],
+                         judge_for: Callable[[Replay], LLMClient],
                          recorder: Recorder = records_nothing) -> PostmortemDocument:
     """The real postmortem for one incident: gather, then write.
 
@@ -200,8 +200,8 @@ def write_postmortem_for(incident_id: str,
 def write_synopsis_for(incident_id: str,
                        connections: Connections,
                        sources: Sources,
-                       client_for: ClientFor,
-                       judge_for: ClientFor,
+                       client_for: Callable[[Replay], LLMClient],
+                       judge_for: Callable[[Replay], LLMClient],
                        address_of: Callable[[str], str],
                        recorder: Recorder = records_nothing) -> ExecutiveSynopsisDocument:
     """The executive synopsis for one incident, from its stored postmortem.
