@@ -52,7 +52,7 @@ def _a_session(name: str | None = None) -> Callable[[Callable[..., None]], objec
                 os.environ.clear()
                 os.environ.update(found)
 
-        return nox.session(leaving_the_environment_as_it_found_it, name=name)
+        return nox.session(name=name)(leaving_the_environment_as_it_found_it)
 
     return register
 
@@ -1292,6 +1292,10 @@ def _refuse_a_stack_that_is_already_up() -> None:
             continue
 
         port = urllib.parse.urlparse(ready_url).port
+        if port is None:
+            raise ValueError(f"[{name}] is ready at {ready_url}, which names no port "
+                             f"to check before starting it")
+
         with socket.socket() as probe:
             probe.settimeout(1.0)
             if probe.connect_ex(("127.0.0.1", port)) != 0:

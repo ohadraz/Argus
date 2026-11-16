@@ -28,6 +28,12 @@ import signal
 import sys
 import time
 
+# Process groups are POSIX's, and Windows has the job object this stands in for:
+# nothing there starts this, and a run that did would be holding the wrong tool.
+# An assertion rather than an `if`, because it is the form a type checker reads
+# as the platform this file is checked for.
+assert sys.platform != "win32", "reap_orphans is POSIX's; Windows has the job object"
+
 # How long a service is given to end on its own before it is made to. It is
 # already parentless by the time this runs, so there is nothing left for it to
 # report to - but uvicorn closes its sockets on the way out, and a port

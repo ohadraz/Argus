@@ -70,7 +70,7 @@ def the_file_at(sha: str, path: str) -> bytes:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").strip().partition("\n")[0])
     parser.add_argument("--into", type=Path, default=COMMITTED)
     into: Path = parser.parse_args().into
 

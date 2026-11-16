@@ -135,7 +135,7 @@ def main() -> None:
 
 
 def _the_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").strip().partition("\n")[0])
     parser.add_argument("name", help="what the recording is stored as, e.g. intent-resolve")
     parser.add_argument("message", help="what the person wrote, exactly")
     parser.add_argument("--incident", help="the incident whose timeline answers the "
