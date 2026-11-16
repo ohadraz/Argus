@@ -19,6 +19,7 @@ from collections.abc import Iterable
 
 import psycopg
 from argus_testkit import Assertion
+from psycopg import sql
 
 
 def no_column_is_empty(conn: psycopg.Connection,
@@ -54,7 +55,11 @@ def no_column_is_empty(conn: psycopg.Connection,
                 )
 
             cursor.execute(
-                f"SELECT {', '.join(columns)} FROM {table} WHERE {found_by} = %s",
+                sql.SQL("SELECT {} FROM {} WHERE {} = %s").format(
+                    sql.SQL(", ").join(map(sql.Identifier, columns)),
+                    sql.Identifier(table),
+                    sql.Identifier(found_by)
+                ),
                 (value,)
             )
             rows = cursor.fetchall()

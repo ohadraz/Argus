@@ -380,6 +380,19 @@ def _sql_strings_of(tree: ast.Module, constants: _Constants) -> list[str]:
         for node in ast.walk(tree) if isinstance(node, ast.JoinedStr)
         for part in ast.walk(node) if isinstance(part, ast.Constant)
     }
+    # A composed statement's template is the same: `INSERT INTO postmortem ({})`
+    # read on its own writes a column called "{}". It is read whole, below, and
+    # so is every piece composed into it.
+    composed = [
+        (node, template)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and (template := _the_template_of(node)) is not None
+    ]
+    fragments |= {
+        id(part)
+        for node, _ in composed
+        for part in ast.walk(node) if isinstance(part, ast.Constant)
+    }
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -388,7 +401,78 @@ def _sql_strings_of(tree: ast.Module, constants: _Constants) -> list[str]:
         elif isinstance(node, ast.JoinedStr):
             strings.append(_rebuild(node, constants))
 
+    strings += [_compose(node, template, constants) for node, template in composed]
+
     return strings
+
+
+def _the_template_of(node: ast.Call) -> str | None:
+    """The template of `sql.SQL("...").format(...)`, or `None` where `node` is
+    any other call."""
+    if not (isinstance(node.func, ast.Attribute) and node.func.attr == "format"):
+        return None
+
+    template = node.func.value
+
+    if not (isinstance(template, ast.Call)
+            and _is_named(template.func, "SQL")
+            and len(template.args) == 1
+            and isinstance(template.args[0], ast.Constant)
+            and isinstance(template.args[0].value, str)):
+        return None
+
+    return template.args[0].value
+
+
+def _compose(node: ast.Call, template: str, constants: _Constants) -> str:
+    """A composed statement as the text it produces, each `{}` replaced by what
+    is composed into it - the columns where they can be read, a mark that says
+    they could not where they cannot."""
+    pieces = iter(node.args)
+
+    return re.sub(
+        r"\{\}",
+        lambda _: _quoted(next(pieces, None), constants) or _UNRESOLVED,
+        template
+    )
+
+
+def _quoted(expression: ast.expr | None, constants: _Constants) -> str | None:
+    """`sql.SQL(", ").join(map(sql.Identifier, NAME))` as the column list it
+    produces, where NAME is known."""
+    if not (isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Attribute)
+            and expression.func.attr == "join"
+            and len(expression.args) == 1):
+        return None
+
+    separator = expression.func.value
+
+    if not (isinstance(separator, ast.Call)
+            and _is_named(separator.func, "SQL")
+            and len(separator.args) == 1
+            and isinstance(separator.args[0], ast.Constant)
+            and isinstance(separator.args[0].value, str)):
+        return None
+
+    mapped = expression.args[0]
+
+    if not (isinstance(mapped, ast.Call)
+            and _is_named(mapped.func, "map")
+            and len(mapped.args) == 2
+            and _is_named(mapped.args[0], "Identifier")
+            and isinstance(mapped.args[1], ast.Name)):
+        return None
+
+    columns = constants.of(mapped.args[1].id)
+
+    return separator.args[0].value.join(columns) if columns is not None else None
+
+
+def _is_named(expression: ast.expr, name: str) -> bool:
+    """Whether `expression` is `name` or `<module>.name`."""
+    return ((isinstance(expression, ast.Name) and expression.id == name)
+            or (isinstance(expression, ast.Attribute) and expression.attr == name))
 
 
 def _rebuild(node: ast.JoinedStr, constants: _Constants) -> str:

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Final
 
 import psycopg
+from psycopg import sql
 
 from core.db import connect_from_env
 
@@ -132,7 +133,9 @@ def reset_schema(conn: psycopg.Connection) -> None:
     says which statement waited and for how long.
     """
     with conn.cursor() as cursor:
-        cursor.execute(f"SET LOCAL lock_timeout = '{_SECONDS_TO_WAIT_FOR_A_LOCK}s'")
+        cursor.execute(sql.SQL("SET LOCAL lock_timeout = {}").format(
+            sql.Literal(f"{_SECONDS_TO_WAIT_FOR_A_LOCK}s")
+        ))
         cursor.execute("DROP SCHEMA public CASCADE")
         cursor.execute("CREATE SCHEMA public")
     conn.commit()

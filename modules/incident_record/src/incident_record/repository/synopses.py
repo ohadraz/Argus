@@ -11,6 +11,7 @@ from typing import Final
 
 import psycopg
 from core.models import ExecutiveSynopsis, ExecutiveSynopsisDocument
+from psycopg import sql
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
@@ -19,12 +20,12 @@ _DOCUMENT_FIELDS: Final = tuple(ExecutiveSynopsisDocument.model_fields)
 _WRITTEN: Final = ("incident_id", "created_at", *_DOCUMENT_FIELDS)
 _READ: Final = tuple(ExecutiveSynopsis.model_fields)
 
-_INSERT: Final = (
-    f"INSERT INTO executive_synopsis ({', '.join(_WRITTEN)}) "
-    f"VALUES ({', '.join(['%s'] * len(_WRITTEN))})"
+_INSERT: Final = sql.SQL("INSERT INTO executive_synopsis ({}) VALUES ({})").format(
+    sql.SQL(", ").join(map(sql.Identifier, _WRITTEN)),
+    sql.SQL(", ").join(sql.Placeholder() * len(_WRITTEN))
 )
-_SELECT: Final = (
-    f"SELECT {', '.join(_READ)} FROM executive_synopsis WHERE incident_id = %s"
+_SELECT: Final = sql.SQL("SELECT {} FROM executive_synopsis WHERE incident_id = %s").format(
+    sql.SQL(", ").join(map(sql.Identifier, _READ))
 )
 
 

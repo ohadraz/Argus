@@ -5,6 +5,7 @@ from typing import Final
 
 import psycopg
 from core.models import Postmortem, PostmortemDocument
+from psycopg import sql
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
@@ -17,12 +18,12 @@ _DOCUMENT_FIELDS: Final = tuple(PostmortemDocument.model_fields)
 _WRITTEN: Final = ("incident_id", "created_at", *_DOCUMENT_FIELDS)
 _READ: Final = tuple(Postmortem.model_fields)
 
-_INSERT: Final = (
-    f"INSERT INTO postmortem ({', '.join(_WRITTEN)}) "
-    f"VALUES ({', '.join(['%s'] * len(_WRITTEN))})"
+_INSERT: Final = sql.SQL("INSERT INTO postmortem ({}) VALUES ({})").format(
+    sql.SQL(", ").join(map(sql.Identifier, _WRITTEN)),
+    sql.SQL(", ").join(sql.Placeholder() * len(_WRITTEN))
 )
-_SELECT: Final = (
-    f"SELECT {', '.join(_READ)} FROM postmortem WHERE incident_id = %s"
+_SELECT: Final = sql.SQL("SELECT {} FROM postmortem WHERE incident_id = %s").format(
+    sql.SQL(", ").join(map(sql.Identifier, _READ))
 )
 
 
