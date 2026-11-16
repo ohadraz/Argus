@@ -313,11 +313,20 @@ def _kept(flag: Flag,
         elif _LABEL_SHAPED.fullmatch(bare):
             return None
 
-    fields = tuple(field for field, text in answer.items() if quoted in _as_compared(text))
+    fields = tuple(field for field, text in answer.items() if is_quoted_in(flag.quote, text))
     if not fields:
         return None
 
     return flag.model_copy(update={"rows": tuple(cited), "fields": fields})
+
+
+def is_quoted_in(quote: str, text: str) -> bool:
+    """Whether `text` holds `quote`, matched as a reader would match it - case,
+    spacing, quote marks and dashes left out. A quote of nothing is in no text:
+    every text holds the empty string, so it would quote all of them."""
+    quoted = _as_compared(quote)
+
+    return bool(quoted) and quoted in _as_compared(text)
 
 
 def _as_compared(text: str) -> str:

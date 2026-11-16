@@ -61,6 +61,7 @@ COLUMNS = (
 SETTINGS_COLUMNS = ("settings", "name", "value")
 HELD = "held"
 MISSED = "missed"
+UNANSWERED = "unanswered"
 
 # Long enough that two different configurations will not collide in practice,
 # short enough to read a row without scrolling. It is an identity, not a
@@ -109,10 +110,13 @@ class Setup:
 
 @dataclass(frozen=True)
 class Outcome:
-    """One sample as an eval scored it: whether it held, and what it cost."""
+    """One sample as an eval scored it: whether it held, what it cost, and
+    whether the model answered at all - a sample that did not held nothing,
+    and is filed apart from one that answered wrongly."""
 
     held: bool
     spent: Spend
+    answered: bool = True
 
 
 @dataclass(frozen=True)
@@ -215,7 +219,7 @@ def the_samples_taken(eval_name: str,
                     taken_at,
                     commit,
                     case,
-                    HELD if outcome.held else MISSED,
+                    HELD if outcome.held else MISSED if outcome.answered else UNANSWERED,
                     configuration.model,
                     configuration.effort,
                     configuration.settings,

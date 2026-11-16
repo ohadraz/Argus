@@ -42,6 +42,7 @@ from postmortem_writing.grounding import (
     Flag,
     faults_of,
     flags_on,
+    is_quoted_in,
     judge_policy,
 )
 from postmortem_writing.prompting import WENT_WRONG_DESCRIPTION, WENT_WRONG_FIELD
@@ -256,6 +257,48 @@ def test_a_quote_differing_only_in_case_spacing_quotes_or_dashes_is_the_answer_s
         ) \
         .then(
             _flagged_once_quoting(quoted)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("quoted", [
+    SOME_CLAIM.upper(),
+    SOME_CLAIM.replace(" ", "  \n "),
+    "older flag changes were ‘not’ read",
+    "older flag changes — were not read"
+], ids=["case", "spacing", "curly-quotes", "dash"])
+def test_a_quote_differing_only_in_case_spacing_quotes_or_dashes_is_quoted_in_a_text(
+        quoted: str) -> None:
+    # Asked without a judge too: an eval telling a flag on a planted change
+    # from one on the sentence beside it matches a quote as this code does.
+    a_text_quoting = "The cause is settled, and older flag changes were 'not' read."
+
+    Scenario() \
+        .given(
+            a_text_quoting
+        ) \
+        .when(
+            lambda: is_quoted_in(quoted, a_text_quoting)
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("quoted", ["the flag was switched by hand", "", " \n "],
+                         ids=["other-words", "empty", "whitespace"])
+def test_words_a_text_does_not_hold_and_nothing_at_all_are_not_quoted_in_it(
+        quoted: str) -> None:
+    Scenario() \
+        .given(
+            SOME_ANSWER[SOME_FIELD]
+        ) \
+        .when(
+            lambda: is_quoted_in(quoted, SOME_ANSWER[SOME_FIELD])
+        ) \
+        .then(
+            the_answer_was(False)
         )
 
 
