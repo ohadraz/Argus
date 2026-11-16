@@ -23,11 +23,13 @@ around this script - which tools the read tier registers, and so which tools the
 walk is offered - so the session that brought that stack up is what decides it,
 and every name captured in a run is stored under that mode's prefix.
 
-Several names in one run share one stack, and `all` is every name. The stack is
-the slow part - a build, a compose up, four local services - and it is brought
-up once by the nox session around this script whether it captures one recording
-or five. What is *not* shared is the world: each recording is captured in the
-same reset environment the e2e suite arranges for the case that replays it.
+Several names in one run share one stack, and `all` is every name this mode's
+replay reads - the session passes the cases it leaves out, and what only those
+read is left out with them. The stack is the slow part - a build, a compose up,
+four local services - and it is brought up once by the nox session around this
+script whether it captures one recording or five. What is *not* shared is the
+world: each recording is captured in the same reset environment the e2e suite
+arranges for the case that replays it.
 
 Costs one real investigation per name, which is why it is a session nobody runs
 by accident and never part of a suite.
@@ -36,6 +38,7 @@ by accident and never part of a suite.
 from __future__ import annotations
 
 import argparse
+import ast
 import shutil
 import sys
 import time
@@ -79,6 +82,7 @@ from postmortem_writing.synopsis_prompting import OVERVIEW_TOOL_NAME
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
+import tests.e2e.framework.argus as the_e2e_suites_names
 from scripts.hold_the_stack import wait_until_told_to_stop
 from tests.e2e.framework.argus import (
     JUDGE_ANTHROPIC_DOUBLE_BASE_URL,
@@ -1128,6 +1132,11 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
 )
 
 EVERY_RECORDING_KEYWORD = "all"
+
+# Where the cases replaying these recordings are, and how a recording's name is
+# spelled in them: a constant of `tests.e2e.framework.argus` named this way.
+_THE_CASES: Final = Path(__file__).resolve().parents[1] / "tests" / "e2e"
+_A_RECORDINGS_NAME: Final = "RECORDED_"
 
 
 # The words each scenario's rule pages with, where that rule is not the shop's
@@ -2299,17 +2308,56 @@ def _what_went_well_in(answer: Path) -> list[Any]:
             for item in went_well]
 
 
-def _what_was_asked_for(names: list[str]) -> list[_Recording]:
-    """The recordings named, or every one of them.
+def _what_the_cases_read(leaving_out: list[str]) -> set[str]:
+    """The recordings the e2e cases replay, less those of the cases left out.
+
+    Read off the cases themselves - every recording's name a case file uses - so
+    that `all` is exactly what this mode's replay reads. Which cases a mode runs
+    is decided once, by the session that brings its stack up; the replay follows
+    that decision, and so does this, rather than a second list of names per mode
+    that could come to disagree with it.
+
+    A case left out that is not there is refused: the session naming a file
+    that was renamed would otherwise leave nothing out, and `all` would quietly
+    record every set the mode does not read, at a real investigation each.
+    """
+    spelled = {constant: name for constant, name in vars(the_e2e_suites_names).items()
+               if constant.startswith(_A_RECORDINGS_NAME) and isinstance(name, str)}
+    cases = {case.name: case for case in _THE_CASES.glob("test_*.py")}
+    left_out = {Path(case).name for case in leaving_out}
+
+    missing = sorted(left_out - cases.keys())
+    if missing:
+        raise SystemExit(f"cases to leave out that are not in {_THE_CASES}: "
+                         f"{', '.join(missing)}")
+
+    read: set[str] = set()
+
+    for name, case in cases.items():
+        if name in left_out:
+            continue
+
+        tree = ast.parse(case.read_text(encoding="utf-8"), filename=str(case))
+        read |= {spelled[node.id] for node in ast.walk(tree)
+                 if isinstance(node, ast.Name) and node.id in spelled}
+
+    return read
+
+
+def _what_was_asked_for(names: list[str], leaving_out: list[str]) -> list[_Recording]:
+    """The recordings named, or every one this mode's replay reads.
 
     An unknown name is refused rather than recorded under: the mapping is the
     whole point of taking names alone, and a typo would otherwise cost a real
-    investigation and store its answer where nothing reads it.
+    investigation and store its answer where nothing reads it. `all` is held to
+    the same rule - every recording the cases this mode runs read, and none that
+    only a case it leaves out does.
     """
     known = {recording.name: recording for recording in EVERY_RECORDING}
 
     if names == [EVERY_RECORDING_KEYWORD]:
-        return list(EVERY_RECORDING)
+        read = _what_the_cases_read(leaving_out)
+        return [recording for recording in EVERY_RECORDING if recording.name in read]
 
     unknown = [name for name in names if name not in known]
     if unknown:
@@ -2377,8 +2425,17 @@ def main() -> int:
     parser.add_argument(
         "names",
         nargs="+",
-        help=f"the recordings to capture, or '{EVERY_RECORDING_KEYWORD}' for all of "
-             f"them; each stages the scenario and fires the alert it belongs to",
+        help=f"the recordings to capture, or '{EVERY_RECORDING_KEYWORD}' for every one "
+             f"this mode's replay reads; each stages the scenario and fires the alert "
+             f"it belongs to",
+    )
+    parser.add_argument(
+        "--leaving-out",
+        action="append",
+        default=[],
+        help=f"an e2e case file this mode does not run, so that "
+             f"'{EVERY_RECORDING_KEYWORD}' leaves out what only it reads - passed by "
+             f"the record session, from the list the replay session runs by",
     )
     parser.add_argument("--service", default=THE_SERVICE_NAME)
     parser.add_argument(
@@ -2427,7 +2484,7 @@ def main() -> int:
 
     _the_two_declarations_of_a_fix_agree()
 
-    asked_for = _what_was_asked_for(arguments.names)
+    asked_for = _what_was_asked_for(arguments.names, arguments.leaving_out)
     failed: list[str] = []
     left_quiet = True
 

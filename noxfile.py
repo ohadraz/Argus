@@ -2463,23 +2463,37 @@ def _the_cases_for(mode: str) -> list[str]:
     platform that refuses an action ends that attempt without the model being asked
     anything, so its walk is one investigation like any other.
     """
+    left_out = [f"--ignore={case}" for case in _the_cases_left_out_of(mode)]
+
+    return [*_by_default("tests/e2e"), *left_out]
+
+
+def _the_cases_left_out_of(mode: str) -> list[str]:
+    """The case files `mode` does not run, for the reasons `_the_cases_for` gives.
+
+    A list of its own because two sessions read it: the replay leaves these
+    cases uncollected, and the recorder leaves out what only they replay, so
+    that `record -- all` captures exactly the sets the mode's replay reads.
+    """
     left_out = []
 
     if mode != _SEARCHING_BOTH_WAYS:
-        left_out.append(f"--ignore={_THE_SCALE_OUT_CASE}")
-        left_out.append(f"--ignore={_THE_PIN_CASE}")
-        left_out.append(f"--ignore={_THE_UNREACHABLE_PLATFORM_CASE}")
-        left_out.append(f"--ignore={_THE_UNDATED_FINDING_CASE}")
-        left_out.append(f"--ignore={_THE_CATEGORISER_CASE}")
-        left_out.append(f"--ignore={_THE_RESCHEDULED_SCORER_CASE}")
-        left_out.append(f"--ignore={_THE_ENDINGS_WITHOUT_A_CAUSE_CASES}")
-        left_out.append(f"--ignore={_THE_RESOLUTION_CASES}")
-        left_out.append(f"--ignore={_THE_SYNOPSIS_CASE}")
+        left_out += [
+            _THE_SCALE_OUT_CASE,
+            _THE_PIN_CASE,
+            _THE_UNREACHABLE_PLATFORM_CASE,
+            _THE_UNDATED_FINDING_CASE,
+            _THE_CATEGORISER_CASE,
+            _THE_RESCHEDULED_SCORER_CASE,
+            _THE_ENDINGS_WITHOUT_A_CAUSE_CASES,
+            _THE_RESOLUTION_CASES,
+            _THE_SYNOPSIS_CASE
+        ]
 
     if mode == _SEARCHING_BY_GREP_ALONE:
-        left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")
+        left_out.append(_CASES_ABOUT_THE_INDEX)
 
-    return [*_by_default("tests/e2e"), *left_out]
+    return left_out
 
 
 # The recorder's flag for a write-up captured over a walk already on disk.
@@ -2500,7 +2514,8 @@ def record(session: nox.Session, mode: str) -> None:
     code, i.e., runnable via
     `uv run python -m nox -s "record(mode='both')" -- <name> [<name> ...]` -
     for example `-- flag-toggle-red-herring`, or `-- all` for every recording
-    the offline suites rest on.
+    that mode's replay reads - and with no mode named, `-s record -- all` does
+    that for each mode in turn.
     Brings the same stack up as `e2e_replay`, but instead of running tests it
     drives **a real incident per name** through the Anthropic double in record
     mode, so the model's actual answers are stored as replayable recordings.
@@ -2539,7 +2554,8 @@ def record(session: nox.Session, mode: str) -> None:
         # `-m`, not the path: the script reuses the e2e suite's own world-reset
         # rather than keeping a second copy of it, and only the module form puts
         # the repo root on the path for `tests.` to resolve.
-        command=["uv", "run", "python", "-m", "scripts.record_incident"],
+        command=["uv", "run", "python", "-m", "scripts.record_incident",
+                 *(f"--leaving-out={case}" for case in _the_cases_left_out_of(mode))],
         # The double is the whole mechanism here: it forwards each call
         # upstream and saves what comes back, so a recording run needs it up
         # and pointed at even though every answer is the real model's.
