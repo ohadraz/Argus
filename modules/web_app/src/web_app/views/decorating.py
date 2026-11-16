@@ -85,7 +85,8 @@ def decorated(line: NarrationLine, *, held: RowsHeld) -> DecoratedLine:
     target, label = _where_to_look(line, held)
 
     return DecoratedLine(
-        **(line.model_dump() | {"links": line.links | _the_incident_it_leads_to(line)}),
+        **line.model_dump(exclude={"links"}),
+        links=line.links | _the_incident_it_leads_to(line),
         emphasis_class=_dressed_as(line),
         link_target=target,
         link_label=label,

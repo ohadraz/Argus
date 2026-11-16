@@ -1821,14 +1821,15 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     the_minute = "the alarm" if placement.against_the_alarm else "the onset"
     cards = {pod.accelerator for pod in placement.pods}
     card = next(iter(cards))
-    on_one_card = len(placement.pods) > 1 and len(cards) == 1 and card is not None
+    how_many = len(placement.pods)
+    on_one_card = how_many > 1 and len(cards) == 1 and card is not None
     if on_one_card and not placement.started_at_the_onset():
-        return "", f"Recorded where the {len(placement.pods)} replicas run - all on {card}"
+        return "", f"Recorded where the {how_many} replicas run - all on {card}"
 
     after = placement.started_after_the_onset()
-    if (on_one_card and len(after) == len(placement.pods)
+    if (on_one_card and len(after) == how_many
             and len({pod.started_at for pod in placement.pods}) == 1):
-        return "", (f"Recorded where the {len(placement.pods)} replicas run - all on {card}, "
+        return "", (f"Recorded where the {how_many} replicas run - all on {card}, "
                     f"started at "
                     f"{a_moment_with_its_day(to_iso(placement.pods[0].started_at))}, "
                     f"after {the_minute}")
