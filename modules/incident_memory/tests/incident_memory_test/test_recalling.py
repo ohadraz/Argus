@@ -144,6 +144,31 @@ def test_a_question_the_store_refused_is_not_asked_again() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_search_allowed_no_attempts_is_refused_before_the_store_is_asked() -> None:
+    # Zero attempts is not "ask nothing, find nothing": the setting it comes from
+    # refuses it, and a caller that got here some other way has a bug to hear of.
+    no_attempts = 0
+
+    Scenario() \
+        .given(
+            a_store := _a_store_answering(_the_points(a_remembered_incident()))
+        ) \
+        .when(
+            attempting(lambda: recalled(a_store, DONT_CARE_COLLECTION, DONT_CARE_VECTOR,
+                                        service=DONT_CARE_SERVICE, limit=DONT_CARE_LIMIT,
+                                        floor=DONT_CARE_FLOOR, attempts=no_attempts,
+                                        retry_seconds=DONT_CARE_RETRY_SECONDS,
+                                        sleep=dont_care_sleep))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValueError),
+                _the_store_was_asked(a_store, times=0)
+            )
+        )
+
+
 def _a_store_answering(*answers: object) -> Any:
     store = create_autospec(QdrantClient, instance=True)
     store.collection_exists.return_value = True

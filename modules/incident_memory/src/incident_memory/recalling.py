@@ -97,33 +97,44 @@ def recalled(client: QdrantClient,
     there. A refusal of the question (a 4xx) is raised at once, since the same
     question gets the same answer; and the last failure is raised, since the
     caller is the one who knows what to do without memory.
+
+    Fewer than one attempt is refused rather than read as asking nothing: a
+    search that never ran has no answer to give, and an empty one would read as
+    a memory holding nothing like this incident.
     """
+    if attempts < 1:
+        raise ValueError(f"a search needs at least one attempt, and was allowed {attempts}")
+
     if not client.collection_exists(collection):
         return []
 
-    for attempt in range(1, attempts + 1):
+    def searched() -> list[RememberedIncident]:
+        found = client.query_points(
+            collection_name=collection,
+            query=vector,
+            query_filter=Filter(
+                must=[FieldCondition(key=SERVICE_FIELD, match=MatchValue(value=service))]
+            ),
+            limit=limit,
+            score_threshold=floor,
+            with_payload=True
+        )
+        return [
+            RememberedIncident.model_validate((point.payload or {})[RECORD_FIELD])
+            for point in found.points
+        ]
+
+    # Every attempt but the last may be asked again; the last one's failure is
+    # the caller's, whatever it was.
+    for _ in range(attempts - 1):
         try:
-            found = client.query_points(
-                collection_name=collection,
-                query=vector,
-                query_filter=Filter(
-                    must=[FieldCondition(key=SERVICE_FIELD, match=MatchValue(value=service))]
-                ),
-                limit=limit,
-                score_threshold=floor,
-                with_payload=True
-            )
-            break
+            return searched()
         except UnexpectedResponse as failure:
-            failed_for_itself = (failure.status_code or 0) >= _THE_STORE_FAILED
-            if not failed_for_itself or attempt == attempts:
+            if (failure.status_code or 0) < _THE_STORE_FAILED:
                 raise
             sleep(retry_seconds)
 
-    return [
-        RememberedIncident.model_validate((point.payload or {})[RECORD_FIELD])
-        for point in found.points
-    ]
+    return searched()
 
 
 def recalling_from(client: QdrantClient,
