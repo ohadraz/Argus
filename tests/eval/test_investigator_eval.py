@@ -42,7 +42,8 @@ from tests.framework.investigating import (
     the_configured_thresholds,
     what_the_read_tier_offers_the_investigator,
 )
-from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
+from tests.framework.pooling import Outcome, Setup, the_samples_taken
+from tests.framework.spending import Spend, Tally
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
 # real API and spends tokens every run. Each run is now a whole investigation -
@@ -1341,6 +1342,7 @@ class Run:
 
     findings: Findings
     ran_out_of: list[Bound]
+    spent: Spend
 
 
 def an_incident_where_a_flag_was_toggled_on() -> Incident:
@@ -2430,13 +2432,16 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
     """
     client = build_llm_client()
 
-    def speak(transcript: Transcript, tools: list[ToolDefinition]) -> Turn:
-        return client.converse(transcript, tools)
-
     def investigate_once(_: int) -> Run:
         spend = Budget(
             max_tool_calls=MAX_TOOL_CALLS, max_tokens=MAX_TOKENS, max_seconds=MAX_SECONDS
         )
+        # Its own tally for the reason it has its own budget: what one run cost
+        # is its own, not whatever the runs beside it spent.
+        tally = Tally(client)
+
+        def speak(transcript: Transcript, tools: list[ToolDefinition]) -> Turn:
+            return tally.converse(transcript, tools)
         findings = investigate(
             incident.alert,
             new_id(),
@@ -2455,7 +2460,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             budget=spend
         )
 
-        return Run(findings=findings, ran_out_of=spend.bounds_reached())
+        return Run(findings=findings, ran_out_of=spend.bounds_reached(), spent=tally.spent())
 
     with ThreadPoolExecutor(max_workers=RUNS_PER_CASE) as pool:
         return list(pool.map(investigate_once, range(RUNS_PER_CASE)))
@@ -2531,8 +2536,8 @@ def _scored(case: str, passing: int, satisfy: Assertion[Run]) -> Assertion[list[
         the_samples_taken(
             THIS_EVAL,
             case,
-            [_it_held(satisfy, run) for run in runs],
-            the_configuration_under_test()
+            [Outcome(_it_held(satisfy, run), run.spent) for run in runs],
+            the_setup_under_test()
         )
 
         return at_least(passing, satisfy)(runs)
@@ -2540,46 +2545,43 @@ def _scored(case: str, passing: int, satisfy: Assertion[Run]) -> Assertion[list[
     return assertion
 
 
-def the_configuration_under_test() -> Configuration:
+def the_setup_under_test() -> Setup:
     """What this batch is measuring, as far as pooling is concerned.
 
     Read at scoring time from the same settings the runs were made with, rather
-    than stated here: a configuration this file named for itself would keep
-    saying `high` after somebody exported an effort of their own, which is the
-    one thing these columns exist to catch.
+    than stated here: a setup this file named for itself would keep saying
+    `high` after somebody exported an effort of their own, which is the one
+    thing these columns exist to catch.
 
-    The model and the effort are named because they are what gets tuned. The
-    rest is digested rather than listed - what belongs in a pool's identity is
-    everything the environment supplies, and a column per bound would be six
-    columns nobody reads to detect a change nobody makes often.
+    The bounds and thresholds are values, written as they are. The brief and
+    the tools are texts, kept whole once and named by their digest, because
+    they are what these rates are actually about: the two changes this file
+    asks to be re-measured after - the brief, and a tool description - split a
+    pool on their own. The cost is deliberate: rewording one line of the brief
+    abandons a pool that cost real money. A pool spanning two prompts is worth
+    less than no pool, because it reads as evidence.
     """
     settings = InvestigationSettings.of(get_settings())
+    thresholds = the_configured_thresholds()
 
-    return Configuration(
+    return Setup(
         model=settings.investigation_model,
         effort=settings.investigation_effort,
-        settings=a_digest_of({
+        values={
             "log_initial_lookback_minutes": settings.log_initial_lookback_minutes,
             "log_initial_lookahead_minutes": settings.log_initial_lookahead_minutes,
             "log_max_window_minutes": settings.log_max_window_minutes,
             "change_lookback_minutes": settings.change_lookback_minutes,
-            "thresholds": the_configured_thresholds(),
-            # The prompt, digested alongside the bounds, because it is the thing
-            # these rates are actually about. Left out, the two changes this file
-            # asks to be re-measured after - the brief, and a tool description -
-            # were the two that could not move the digest, so a re-measure pooled
-            # its samples with the old prompt's and reported the average as a rate
-            # for a configuration nothing ever ran. `since` exists to be told that
-            # boundary by hand; this is the boundary telling itself.
-            #
-            # The cost is deliberate: rewording one line of the brief abandons a
-            # pool that cost real money. A pool spanning two prompts is worth
-            # less than no pool, because it reads as evidence.
+            "deviations_from_baseline": thresholds.deviations_from_baseline,
+            "persistence_minutes": thresholds.persistence_minutes,
+            "recovery_fraction_of_the_rise": thresholds.recovery_fraction_of_the_rise
+        },
+        texts={
             "brief": BRIEF,
             # As the model is offered them, not as they are written: a tool's
             # description is part of the prompt, and `to_wire` is the only
             # rendering that carries every field the model actually sees. Sorted
-            # so the digest is about the content rather than about dictionary
+            # so the text is about the content rather than about dictionary
             # order.
             "tools": json.dumps(
                 [offered.to_wire() for offered in investigator_tools(
@@ -2587,7 +2589,7 @@ def the_configuration_under_test() -> Configuration:
                 )],
                 sort_keys=True
             )
-        })
+        }
     )
 
 

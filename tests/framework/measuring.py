@@ -13,9 +13,9 @@ memory of last time's numbers.
 
 Beside `pooling.py` because it is the same discipline with the same shape, and
 what separates the two is only who pays. A pooled sample costs a whole
-investigation against the real model and says whether an answer held; a
-measurement here is free - tokens counted off a turn, scores read out of the
-index - and says what something cost or how far apart two things sit. Neither is
+investigation against the real model and says whether an answer held and what
+it cost; a measurement here is free - scores read out of the index - and says
+how far apart two things sit. Neither is
 recoverable by re-reading the code, which is what makes both worth a row.
 
 The rows themselves live in `measurements/` at the root rather than under

@@ -13,7 +13,8 @@ from core.models import Meaning, ModelPolicy
 from message_intent.classifying import classify
 from message_intent.prompting import SUBMIT_MEANING, opening_ask
 
-from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
+from tests.framework.pooling import Outcome, Setup, the_samples_taken
+from tests.framework.spending import Spend, Tally
 
 # What the replay cannot say. `intent-resolve` proves a reading reaches the
 # thread as an offer; it replays one answer to one message, so it says nothing
@@ -50,6 +51,14 @@ class Labelled:
     case: str
     words: str
     meant: Meaning
+
+
+@dataclass(frozen=True)
+class Reading:
+    """One reading of a message, and what it cost."""
+
+    meaning: Meaning
+    spent: Spend
 
 
 # Two or three per meaning, and the near misses on purpose. Only `resolve` acts,
@@ -116,24 +125,29 @@ def test_a_message_is_read_as_its_writer_meant_it(message: Labelled) -> None:
         )
 
 
-def _the_real_model_reads_repeatedly(words: str) -> list[Meaning]:
+def _the_real_model_reads_repeatedly(words: str) -> list[Reading]:
     """Reads the same message `RUNS_PER_CASE` times, concurrently, as the
     intent reader would: through `classify`, with the intent reader's own model and
     effort, and its second ask included.
 
-    Nothing is recorded. What an eval reads is the meaning, and a run that also
-    filed receipts would be measuring the same model through more code.
+    Each reading is counted through a tally of its own, so what it cost is its
+    own and not whatever the readings beside it spent.
+
+    Nothing is recorded. What an eval reads is the meaning and what it cost, and
+    a run that also filed receipts would be measuring the same model through
+    more code.
     """
     settings = get_settings()
     llm = build_llm_client(
         policy=ModelPolicy(model=settings.intent_model, effort=settings.intent_effort)
     )
 
-    def read_once(_: int) -> Meaning:
+    def read_once(_: int) -> Reading:
+        tally = Tally(llm)
         # Unclassified counts as the intent reader counts it: nothing to act on.
-        meaning = classify(words, llm)
+        meaning = classify(words, tally)
 
-        return meaning if meaning is not None else Meaning.OTHER
+        return Reading(meaning if meaning is not None else Meaning.OTHER, tally.spent())
 
     with ThreadPoolExecutor(max_workers=RUNS_PER_CASE) as pool:
         return list(pool.map(read_once, range(RUNS_PER_CASE)))
@@ -141,18 +155,18 @@ def _the_real_model_reads_repeatedly(words: str) -> list[Meaning]:
 
 def _scored(case: str,
             passing: int,
-            satisfy: Assertion[Meaning]) -> Assertion[list[Meaning]]:
+            satisfy: Assertion[Reading]) -> Assertion[list[Reading]]:
     """Scores a batch against the bar, and files every sample it took.
 
     Wrapped around `at_least` rather than beside it, so a case cannot be scored
     without being recorded.
     """
-    def assertion(readings: list[Meaning]) -> bool:
+    def assertion(readings: list[Reading]) -> bool:
         the_samples_taken(
             THIS_EVAL,
             case,
-            [_it_held(satisfy, reading) for reading in readings],
-            the_configuration_under_test()
+            [Outcome(_it_held(satisfy, reading), reading.spent) for reading in readings],
+            the_setup_under_test()
         )
 
         return at_least(passing, satisfy)(readings)
@@ -160,26 +174,30 @@ def _scored(case: str,
     return assertion
 
 
-def the_configuration_under_test() -> Configuration:
+def the_setup_under_test() -> Setup:
     """What this batch is measuring, as far as pooling is concerned.
 
     The model and the effort are named because they are what gets tuned. The
-    prompt is digested, because it is what these rates are about: the tool as
+    prompt is kept whole, because it is what these rates are about: the tool as
     the model is offered it, and the ask with a stand-in where the message goes.
     """
     settings = get_settings()
 
-    return Configuration(
+    return Setup(
         model=settings.intent_model,
         effort=settings.intent_effort,
-        settings=a_digest_of({
+        values={},
+        texts={
             "tool": json.dumps(SUBMIT_MEANING.to_wire(), sort_keys=True),
-            "ask": opening_ask("<the message>")
-        })
+            "ask": json.dumps(
+                [said.model_dump(mode="json") for said in opening_ask("<the message>")],
+                sort_keys=True
+            )
+        }
     )
 
 
-def _it_held(satisfy: Assertion[Meaning], reading: Meaning) -> bool:
+def _it_held(satisfy: Assertion[Reading], reading: Reading) -> bool:
     """Whether one reading satisfied the claim, as a boolean rather than a raise."""
     try:
         satisfy(reading)
@@ -189,11 +207,12 @@ def _it_held(satisfy: Assertion[Meaning], reading: Meaning) -> bool:
     return True
 
 
-def _read_as(meant: Meaning) -> Assertion[Meaning]:
-    def assertion(read: Meaning) -> bool:
-        if read != meant:
+def _read_as(meant: Meaning) -> Assertion[Reading]:
+    def assertion(read: Reading) -> bool:
+        if read.meaning != meant:
             raise AssertionError(
-                f"Expected the message to be read as [{meant}]; it was read as [{read}]."
+                f"Expected the message to be read as [{meant}]; it was read as "
+                f"[{read.meaning}]."
             )
 
         return True

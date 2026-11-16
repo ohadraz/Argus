@@ -778,30 +778,6 @@ def eval_(session: nox.Session) -> None:
 
 
 @_a_session()
-def measure_spend(session: nox.Session) -> None:
-    """
-    Registers `measure_spend` as a nox session, i.e., runnable via
-    `uv run python -m nox -s measure_spend`, and with arms of its own as
-    `-s measure_spend -- claude-sonnet-5/high claude-haiku-4-5/low`.
-    Runs the six pinned eval incidents under each arm named - a model and an
-    effort - and appends what each investigation billed to
-    `measurements/what_an_investigation_bills.tsv`: turns and all four token
-    counts, one row per incident per arm, stamped with the commit.
-
-    Named no arms, it measures the three the current choice rests on. Reaches
-    the **real** API and spends tokens: one whole investigation per incident per
-    arm, so six arms is thirty-six investigations.
-
-    Answers what an arm costs, never whether it is right - a rate over what the
-    model concluded is the `eval` session's, and the two are read side by side.
-    """
-    session.run(
-        "uv", "run", "python", "scripts/measure_what_effort_costs.py",
-        *session.posargs, external=True
-    )
-
-
-@_a_session()
 def measure_retrieval(session: nox.Session) -> None:
     """
     Registers `measure_retrieval` as a nox session, i.e., runnable via

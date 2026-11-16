@@ -294,9 +294,10 @@ def to_turn(message: Message) -> Turn:
     nothing to refuse. The benefit is below the investigator eval's resolution,
     where five of six cases already sit at 50/50; and the cost is not linear, since every turn's
     reasoning would be resent by every turn after it - quadratic across a walk
-    of up to twelve rounds per investigation. `measure_spend` can price that
-    side exactly, which is the measurement to take when the eval grows a case
-    sharp enough to make the other side worth paying for.
+    of up to twelve rounds per investigation. The eval's own rows price that
+    side exactly, each carrying what its run was billed, which is the
+    measurement to take when the eval grows a case sharp enough to make the
+    other side worth paying for.
 
     Text is joined rather than taken first, because one turn's words arrive as
     however many blocks the API chose to break them into and they are one
