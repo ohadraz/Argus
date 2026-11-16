@@ -29,7 +29,7 @@ from langgraph.types import StateSnapshot
 from opentelemetry import trace
 from orchestrator import entrypoint
 from orchestrator.walk.state import IncidentState
-from psycopg.rows import dict_row
+from psycopg.rows import DictRow, dict_row
 
 from orchestrator_test.framework.observing import Observed, attributes_of, observing
 
@@ -360,9 +360,10 @@ def _the_checkpoint_tables_as_its_own_setup_leaves_them() -> dict[str, list[Any]
         conn.execute(f"CREATE SCHEMA {A_SCRATCH_SCHEMA}")
 
         try:
-            with psycopg.connect(get_settings().database_url, autocommit=True,
-                                 prepare_threshold=0, row_factory=dict_row,
-                                 options=f"-c search_path={A_SCRATCH_SCHEMA}") as its_own:
+            with psycopg.Connection[DictRow].connect(
+                get_settings().database_url, autocommit=True, prepare_threshold=0,
+                row_factory=dict_row, options=f"-c search_path={A_SCRATCH_SCHEMA}"
+            ) as its_own:
                 PostgresSaver(its_own).setup()
 
             return _the_checkpoint_tables_in(conn, A_SCRATCH_SCHEMA)
