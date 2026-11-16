@@ -29,6 +29,7 @@ from anthropic.types import (
     ToolResultBlockParam,
     ToolUseBlockParam,
 )
+from anthropic.types.message_create_params import MessageCreateParamsBase
 
 from core.config import LLMSettings
 from core.llm.client import (
@@ -606,16 +607,15 @@ class AnthropicLLMClient:
         """
         asked = self._request(transcript, offered, room)
 
-        # Cast because the arguments arrive as a mapping: built once so the
-        # two ways of asking cannot drift, which costs mypy the overload it
-        # would otherwise resolve. What comes back is a `Message` either way -
+        # What comes back is a `Message` either way - the stream assembles a
+        # `ParsedMessage`, which is one with nothing parsed into it here - and
         # that is the whole reason the rest of `converse` can be written once.
         try:
             if room <= LARGEST_UNSTREAMED_ANSWER:
-                return cast(Message, self._client.messages.create(**asked))
+                return self._client.messages.create(**asked)
 
             with self._client.messages.stream(**asked) as streamed:
-                return cast(Message, streamed.get_final_message())
+                return streamed.get_final_message()
         except _UNAVAILABLE_FOR_NOW as unavailable:
             if isinstance(unavailable, anthropic.APIStatusError) and _is_the_spend_cap(unavailable):
                 raise _rejected(unavailable) from unavailable
@@ -632,7 +632,7 @@ class AnthropicLLMClient:
     def _request(self,
                  transcript: Transcript,
                  offered: list[ToolParam],
-                 room: int) -> dict[str, Any]:
+                 room: int) -> MessageCreateParamsBase:
         """Everything one turn asks for, as the arguments both ways take.
 
         Built once rather than at each call so the two cannot drift: a
@@ -653,7 +653,7 @@ class AnthropicLLMClient:
         breakpoint on nothing is a write premium charged every incident against
         a prefix no later request can read.
         """
-        asked = dict(
+        asked = MessageCreateParamsBase(
             model=self._policy.model,
             max_tokens=room,
             # Asked for at the top level rather than pinned to a block: the API
