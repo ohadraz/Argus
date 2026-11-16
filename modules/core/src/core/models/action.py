@@ -575,8 +575,8 @@ _LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
 # and two literals maintained by hand is exactly how one gets entered. There is
 # no assertion anywhere that the one is a superset of the other, because the
 # union below is the only way either set can be written.
-_CHANGE_SOMETHING_PERSISTENT: Final[frozenset[ActionType]] = frozenset(
-    _LEAVE_SOMETHING_TO_PUT_BACK | {DISCARD_CACHE_ENTRIES}
+_CHANGE_SOMETHING_PERSISTENT: Final[frozenset[ActionType]] = (
+    _LEAVE_SOMETHING_TO_PUT_BACK.union({DISCARD_CACHE_ENTRIES})
 )
 
 
