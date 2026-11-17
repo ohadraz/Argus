@@ -9,7 +9,7 @@ a collaborator the first had, with every gate green and the failure waiting on
 the path nobody runs by accident.
 
 Separate from `tools` rather than beside the other `*_over` functions, because
-what it binds spans the package: `undo_change` lives in `undoing`, which imports
+what it binds spans the package: `undo_change` lives in `kinds`, which imports
 `tools`, so a binder living in `tools` would make the two import each other.
 """
 
@@ -19,16 +19,9 @@ from functools import partial
 
 from core.mcp_transport import McpClient
 
-from mitigation.tools import (
-    accelerator_pin_restorer_over,
-    autoscaling_restorer_over,
-    capacity_restorer_over,
-    deployment_restorer_over,
-    flag_setter_over,
-    somebody_else_changed_flag_since,
-)
+from mitigation.kinds import undo_change
+from mitigation.tools import putting_back_over
 from mitigation.trying import UndoChange
-from mitigation.undoing import undo_change
 
 __all__ = ["an_undo_over"]
 
@@ -36,22 +29,10 @@ __all__ = ["an_undo_over"]
 def an_undo_over(client: McpClient) -> UndoChange:
     """Putting one recorded change back, over one connection to the write tier.
 
-    Whole, which is the only property worth stating: an undo bound short is a
-    well-typed object that raises the first time somebody puts a change back,
-    and the two callers that want one reach it on paths - a refuted mitigation,
-    a withdrawn incident - that a green suite does not exercise.
-
-    `set_state` is bound here even though `take_action` passes its own. The
-    binding has to stand on its own for the caller that does not - a withdrawal
-    holds no flag setter of its own - and a keyword the caller supplies wins
-    over one bound here, so the two cannot disagree.
+    Whole, which is the only property worth stating: the two callers that want
+    one reach it on paths - a refuted mitigation, a withdrawn incident - that a
+    green suite does not exercise. `PuttingBack` is what holds it whole, since
+    a bundle missing a member is a type error rather than an undo that raises
+    the first time somebody puts a change back.
     """
-    return partial(
-        undo_change,
-        changed_from_outside=partial(somebody_else_changed_flag_since, client=client),
-        set_state=flag_setter_over(client),
-        restore_deployment=deployment_restorer_over(client),
-        restore_capacity=capacity_restorer_over(client),
-        restore_autoscaling=autoscaling_restorer_over(client),
-        restore_accelerator_pin=accelerator_pin_restorer_over(client)
-    )
+    return partial(undo_change, putting_back=putting_back_over(client))

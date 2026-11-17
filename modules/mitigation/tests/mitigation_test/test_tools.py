@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import NamedTuple, Protocol, cast
+from typing import NamedTuple, Protocol
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
@@ -19,26 +19,16 @@ from core import to_iso
 from core.mcp_transport import McpClient
 from core.models import (
     AcceleratorPinUndo,
-    Action,
     ChangeEvent,
     DeploymentRollbackUndo,
-    DiscardCacheEntries,
     FlagChange,
     FlagHistory,
-    PinAutoscaler,
-    PinToAccelerator,
-    RollBackDeployment,
-    RolloutProgress,
-    ScaleOut,
 )
 from mitigation.tools import (
-    Arrival,
     DeploymentsBetween,
     FlagChangesSince,
     MitigationSettings,
-    a_rollback_arriving_over,
     accelerator_pin_restorer_over,
-    added_capacity_arriving_over,
     argus_changed_flag_since,
     deployment_restorer_over,
     deployment_roller_over,
@@ -47,28 +37,22 @@ from mitigation.tools import (
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
-    how_a_change_arrives,
     performing_writes_over,
+    putting_back_over,
     recent_metrics_over,
+    rollout_progress_over,
     rules_read_over,
     somebody_else_changed_flag_since,
 )
 
 from mitigation_test.framework.builders import (
     a_deployment,
-    an_action_restarting,
-    an_action_setting,
 )
 
 SOME_FLAG = "kukibuki"
 SOME_ARGUS_USER = "Shuki Tuki"
 THE_MOMENT_IT_WAS_CLAIMED = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
 SOME_MOMENT = to_iso(THE_MOMENT_IT_WAS_CLAIMED)
-
-# Six replicas with three updated, which is the split this reads and also the
-# point at which an in-flight incompatibility fails the most requests.
-SOME_FLEET_SIZE = 6
-HALF_THE_FLEET = 3
 
 ROLLOUT_PROGRESS_TOOL = "get_rollout_progress"
 
@@ -585,332 +569,20 @@ def test_the_rule_that_paged_is_read_over_the_read_tier() -> None:
         ))
 
 
-@pytest.mark.unit
-def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
-    # The dispatch, and the reason there is one. Five of the seven actions have
-    # nothing to wait for: a flag is in force on the next request because the shop
-    # reads it fresh every time, a restart is answered with the new process's start
-    # time so the tier that performed it has already waited, an autoscaler's floor
-    # is a field on its own object rather than a state anything converges on, a
-    # discard is answered with how many entries went, and a pin to a card is in
-    # force once the platform holds the selector.
-    #
-    # The two that do are the two that change a Deployment, and they wait on
-    # different counts - a rollback for the revision reaching every replica, a
-    # scale-out for the replicas it asked for existing. Asserted together because
-    # the claim is that they *differ*: one check for all seven would either make
-    # five actions wait for a rollout that is not happening, or let the two that
-    # matter be judged on minutes their change was not in.
-    #
-    # The platform here reports a split fleet at the size it was told to be, which
-    # is the one window that tells the two apart - the rollback is still arriving
-    # and the capacity is already there.
-    a_split_fleet_at_full_size = _a_rollout_reporting(
-        wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE, updated=HALF_THE_FLEET
-    )
-
-    Scenario() \
-        .given(a_split_fleet_at_full_size) \
-        .when(lambda: {
-            kind: how_a_change_arrives(
-                action, client=a_split_fleet_at_full_size
-            )()
-            for kind, action in cast("dict[str, Action]", {
-                "a rollback": RollBackDeployment(application=SOME_APPLICATION),
-                "a scale-out": ScaleOut(application=SOME_APPLICATION),
-                "a flag": an_action_setting(SOME_FLAG, enabled=True),
-                "a restart": an_action_restarting(SOME_APPLICATION),
-                "an autoscaler pin": PinAutoscaler(application=SOME_APPLICATION),
-                "a pin to a card": PinToAccelerator(
-                    application=SOME_APPLICATION, accelerator=SOME_CARD
-                ),
-                "a discard": DiscardCacheEntries(
-                    service=SOME_APPLICATION, keys=("io-shop:summary:shopper-1",)
-                )
-            }).items()
-        }) \
-        .then(_each_kind_waits_for({
-            "a rollback": Arrival.STILL_ARRIVING,
-            "a scale-out": Arrival.ARRIVED,
-            "a flag": Arrival.ARRIVED,
-            "a restart": Arrival.ARRIVED,
-            "an autoscaler pin": Arrival.ARRIVED,
-            # A selector on the pod template, in force once the platform accepts
-            # it. The pods it moves are rescheduled by the platform afterwards,
-            # and whether that helped is what the verification watches - it is
-            # not a count anything here could wait on.
-            "a pin to a card": Arrival.ARRIVED,
-            # The keys are gone when the store says they are gone. Nothing
-            # converges on their absence and nothing has to be waited for, which
-            # is the same answer the flag gets and for the same reason: the
-            # change is complete at the moment it is accepted.
-            "a discard": Arrival.ARRIVED
-        }))
-
-
-def _each_kind_waits_for(expected: dict[str, Arrival]) -> Assertion[dict[str, Arrival]]:
-    """That every kind of action read this one window the way its own change
-    arrives.
-
-    All five in one assertion rather than one test each, because a function
-    answering `ARRIVED` for everything satisfies four of them and is the bug this
-    dispatch exists to avoid.
-    """
-    def each_kind_waits_for(measured: dict[str, Arrival]) -> bool:
-        if measured != expected:
-            disagreed = [
-                f"[{kind}] answered [{measured.get(kind)}] rather than [{arrival}]"
-                for kind, arrival in expected.items()
-                if measured.get(kind) is not arrival
-            ]
-            raise AssertionError(
-                "Expected each kind to wait for its own change, and "
-                + "; ".join(disagreed) + "."
-            )
-
-        return True
-
-    return each_kind_waits_for
-
-
-@pytest.mark.unit
-def test_a_rollback_has_arrived_once_every_replica_runs_the_revision() -> None:
-    # What the wait is waiting for. A rollback is accepted long before the pods
-    # turn over, so the minutes in between are minutes the revision being rolled
-    # back was still serving - and a verdict read off them is a verdict about the
-    # wrong code.
-    Scenario() \
-        .given(
-            every_replica_has_it := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE,
-                updated=SOME_FLEET_SIZE
-            )
-        ) \
-        .when(
-            lambda: a_rollback_arriving_over(
-                every_replica_has_it, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.ARRIVED)
-        )
-
-
-@pytest.mark.unit
-def test_a_rollback_is_still_arriving_while_the_fleet_is_split() -> None:
-    # The ordinary condition of every deployment for a minute or two, and not a
-    # fault. Nothing is judged yet and nothing is given up on.
-    Scenario() \
-        .given(
-            half_of_them_have_it := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE,
-                updated=HALF_THE_FLEET
-            )
-        ) \
-        .when(
-            lambda: a_rollback_arriving_over(
-                half_of_them_have_it, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.STILL_ARRIVING)
-        )
-
-
-@pytest.mark.unit
-def test_a_rolling_update_the_platform_holds_will_not_arrive() -> None:
-    # What ends the wait without anybody naming a length. A rolling update nobody
-    # is advancing satisfies no count ever, so a check that only answered "arrived
-    # or not" would have the loop poll until its lease expired and leave the
-    # change applied for another worker to find.
-    #
-    # Paused outranks the counts, and that is the whole point of reading it: the
-    # fleet below is split, so a caller without this answer would wait for a
-    # convergence that is not coming.
-    Scenario() \
-        .given(
-            the_platform_has_stopped := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE,
-                updated=HALF_THE_FLEET, paused=True
-            )
-        ) \
-        .when(
-            lambda: a_rollback_arriving_over(
-                the_platform_has_stopped, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.WILL_NOT_ARRIVE)
-        )
-
-
-@pytest.mark.unit
-def test_a_rolling_update_the_platform_reports_failed_will_not_arrive() -> None:
-    # The other way a rollback is held, and one a pause does not cover: a
-    # Deployment past the deadline it declares, or one whose pods cannot be
-    # created, is not converging either - and Kubernetes does not measure the
-    # deadline while paused, so a failed rollout is never also a paused one.
-    Scenario() \
-        .given(
-            the_platform_has_given_up := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE,
-                updated=HALF_THE_FLEET, failed=True
-            )
-        ) \
-        .when(
-            lambda: a_rollback_arriving_over(
-                the_platform_has_given_up, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.WILL_NOT_ARRIVE)
-        )
-
-
-@pytest.mark.unit
-def test_a_change_already_in_force_when_the_update_was_paused_has_arrived() -> None:
-    # The order the two questions are asked in, which shows only on a window where
-    # both answers are available. A rolling update can be stopped after it has
-    # finished - every replica already on the new revision, and the pause set on a
-    # deployment with nothing left to converge - and that pause says nothing about
-    # the change this action made, which is in force on every replica serving.
-    #
-    # Read pause-first, this window answers `WILL_NOT_ARRIVE`: Mitigation then
-    # reports that the change never applied and wakes somebody about a mitigation
-    # that applied completely. So landed is asked first, and the pause answers only
-    # for a fleet that has not finished - the case above, and the only one it is
-    # read for.
-    Scenario() \
-        .given(
-            the_whole_fleet_updated_then_held := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE,
-                updated=SOME_FLEET_SIZE, paused=True
-            )
-        ) \
-        .when(
-            lambda: a_rollback_arriving_over(
-                the_whole_fleet_updated_then_held, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.ARRIVED)
-        )
-
-
-@pytest.mark.unit
-def test_added_capacity_has_not_arrived_until_the_replicas_are_running() -> None:
-    # The other action with something to wait for, and the case that proves the two
-    # questions are different. Every replica that exists is on the right revision,
-    # so a rollback would be finished here - and the deployment is running half the
-    # replicas it was told to, so the capacity this action asked for is not there.
-    #
-    # Judging now would measure the shortage the scale-out was meant to end and
-    # refute the action for not having worked yet.
-    Scenario() \
-        .given(
-            half_the_capacity_asked_for := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=HALF_THE_FLEET,
-                updated=HALF_THE_FLEET
-            )
-        ) \
-        .when(
-            lambda: added_capacity_arriving_over(
-                half_the_capacity_asked_for, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.STILL_ARRIVING)
-        )
-
-
-@pytest.mark.unit
-def test_added_capacity_is_still_arriving_while_the_rollout_is_paused() -> None:
-    # A pause stops a new template rolling out, and nothing else. The deployment
-    # controller still scales a paused Deployment - `syncDeployment` hands it to
-    # `sync`, whose first act is `scale` - so the replicas a scale-out asked for
-    # are on their way whether or not the rollout is held.
-    #
-    # Read as a rollback reads it, this window answers `WILL_NOT_ARRIVE`, and the
-    # walk escalates a scale-out the platform is in the middle of applying.
-    Scenario() \
-        .given(
-            short_of_what_it_asked_for_and_paused := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=HALF_THE_FLEET,
-                updated=HALF_THE_FLEET, paused=True
-            )
-        ) \
-        .when(
-            lambda: added_capacity_arriving_over(
-                short_of_what_it_asked_for_and_paused, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.STILL_ARRIVING)
-        )
-
-
-@pytest.mark.unit
-def test_added_capacity_the_platform_reports_it_cannot_create_will_not_arrive() -> None:
-    # What does end a scale-out's wait, now that a pause does not. A namespace out
-    # of quota, or a Deployment past the deadline it declares, is what Kubernetes
-    # calls a failed Deployment, and the platform says so in a condition of its
-    # own - a state, not a figure anybody here chose. Without it, a scale-out the
-    # platform cannot satisfy polls until the lease expires.
-    Scenario() \
-        .given(
-            the_platform_cannot_create_them := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=HALF_THE_FLEET,
-                updated=HALF_THE_FLEET, failed=True
-            )
-        ) \
-        .when(
-            lambda: added_capacity_arriving_over(
-                the_platform_cannot_create_them, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.WILL_NOT_ARRIVE)
-        )
-
-
-@pytest.mark.unit
-def test_added_capacity_has_arrived_once_the_replicas_are_up() -> None:
-    # And the same window a rollback would call unfinished: the fleet is at the
-    # size it was told to be, and the replicas are not all on the newest revision.
-    # One answer for both actions would be wrong for one of them.
-    Scenario() \
-        .given(
-            the_capacity_is_there := _a_rollout_reporting(
-                wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE,
-                updated=HALF_THE_FLEET
-            )
-        ) \
-        .when(
-            lambda: added_capacity_arriving_over(
-                the_capacity_is_there, SOME_APPLICATION
-            )()
-        ) \
-        .then(
-            _the_arrival_is(Arrival.ARRIVED)
-        )
-
-
 @pytest.mark.integration
-def test_whether_a_change_arrived_is_asked_over_the_read_tier() -> None:
-    # Reading, so the read tier - the same reason the metrics are asked there.
-    # Asserted because the two clients are interchangeable at the type level and a
-    # seam bound to the wrong one fails at the moment the walk has already changed
-    # production, with the incident still happening.
+def test_how_far_a_rollout_has_got_is_asked_over_the_read_tier() -> None:
+    # What a change's arrival is read off, and a read - so the read tier, the
+    # same reason the metrics are asked there. Asserted because the two clients
+    # are interchangeable at the type level and a seam bound to the wrong one
+    # fails at the moment the walk has already changed production, with the
+    # incident still happening.
     Scenario() \
         .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(
-                read, write,
-                lambda: a_rollback_arriving_over(read, SOME_APPLICATION)()
-            )
+            _asking(read, write, lambda: rollout_progress_over(read)(SOME_APPLICATION))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(ROLLOUT_PROGRESS_TOOL),
@@ -982,6 +654,28 @@ def test_holding_a_deployment_to_a_card_goes_over_the_write_tier() -> None:
 
 
 @pytest.mark.integration
+def test_the_way_back_lets_a_deployment_off_its_card_over_the_write_tier() -> None:
+    # Asked of the bundle an undo puts changes back through, as the pin above is
+    # asked of the one a walk performs through - so a restorer bound to the read
+    # client, or left out of the bundle, fails here rather than at the moment a
+    # refuted pin or a withdrawn incident is putting production's pods back.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: putting_back_over(write).restore_accelerator_pin(
+                A_PIN_TO_PUT_BACK
+            ))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(RESTORE_ACCELERATOR_PIN_TOOL)
+        ))
+
+
+@pytest.mark.integration
 def test_letting_a_deployment_off_its_card_goes_over_the_write_tier() -> None:
     Scenario() \
         .given(
@@ -1015,42 +709,6 @@ def _a_session_that_remembers_what_it_was_asked() -> Mock:
     client: Mock = create_autospec(McpClient, instance=True)
 
     return client
-
-
-def _a_rollout_reporting(wanted: int,
-                         serving: int,
-                         updated: int,
-                         paused: bool = False,
-                         failed: bool = False) -> Mock:
-    """A read tier answering with one rollout's counts.
-
-    Specced against `McpClient` because that is what the seam is handed, and the
-    transport applies the validator itself - so a client standing in for it
-    answers the value directly rather than something to be parsed.
-    """
-    client: Mock = create_autospec(McpClient, instance=True)
-    client.call.return_value = RolloutProgress(
-        replicas_wanted=wanted,
-        replicas_serving=serving,
-        replicas_updated=updated,
-        is_paused=paused,
-        has_failed=failed
-    )
-
-    return client
-
-
-def _the_arrival_is(expected: Arrival) -> Assertion[Arrival]:
-    """That the seam read the counts as this state of arrival."""
-    def the_arrival_is(arrival: Arrival) -> bool:
-        if arrival is not expected:
-            raise AssertionError(
-                f"Expected [{expected}], and it answered [{arrival}]."
-            )
-
-        return True
-
-    return the_arrival_is
 
 
 def _a_session_that_answers_with(answer: object) -> Mock:

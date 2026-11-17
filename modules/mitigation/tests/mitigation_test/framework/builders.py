@@ -17,10 +17,10 @@ from core.models import (
     MetricBucket,
     RestartedService,
     RestartService,
-    UndoDescriptor,
     Undone,
 )
-from mitigation import Action, Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
+from mitigation import Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
+from mitigation.kinds import undo_change
 from mitigation.tools import (
     AcceleratorPinner,
     AcceleratorPinRestorer,
@@ -35,10 +35,10 @@ from mitigation.tools import (
     FlagSetter,
     MetricsFetcher,
     PerformingWrites,
+    PuttingBack,
     ServiceRestarter,
 )
 from mitigation.trying import UndoChange
-from mitigation.undoing import undo_change
 
 DONT_CARE_FLAG = "dont-care-flag"
 DONT_CARE_INCIDENT_ID = "3f0c6a8e-6f1e-4a9a-8c3d-2b7f9d1e5a44"
@@ -72,7 +72,7 @@ LEAKING_MEMORY_BYTES = CALM_MEMORY_BYTES * 3
 
 def an_undo_descriptor_for(flag: str,
                            was_enabled: bool = True,
-                           written_at: datetime = ACTION_TIME) -> UndoDescriptor:
+                           written_at: datetime = ACTION_TIME) -> FlagUndo:
     return FlagUndo(
         flag=flag,
         was_enabled=was_enabled,
@@ -128,7 +128,7 @@ def a_deployment(actor: str | None = None) -> ChangeEvent:
     )
 
 
-def an_action_setting(flag: str, enabled: bool) -> Action:
+def an_action_setting(flag: str, enabled: bool) -> RevertFeatureFlag:
     return RevertFeatureFlag(
         flag=flag,
         enabled=enabled,
@@ -136,7 +136,7 @@ def an_action_setting(flag: str, enabled: bool) -> Action:
     )
 
 
-def an_action_restarting(service: str) -> Action:
+def an_action_restarting(service: str) -> RestartService:
     """The other kind, which carries no way back and has no field for one."""
     return RestartService(service=service)
 
@@ -543,6 +543,43 @@ def the_writes(set_state: FlagSetter | None = None,
     )
 
 
+def the_way_back(set_state: FlagSetter | None = None,
+                 restore_deployment: DeploymentRestorer | None = None,
+                 restore_capacity: CapacityRestorer | None = None,
+                 restore_autoscaling: AutoscalingRestorer | None = None,
+                 restore_accelerator_pin: AcceleratorPinRestorer | None = None,
+                 changed_from_outside: ChangedFromOutside | None = None) -> PuttingBack:
+    """What puts a change back, with stand-ins for the unnamed parts.
+
+    `the_writes`, for the other moment: every member is required of the real
+    bundle, and a case about one kind of change still has to supply the rest -
+    so what is not named here is a spy nobody calls, and a case that quietly put
+    back the wrong kind of change fails on a call to a mock it never wired.
+
+    The one exception is `changed_from_outside`, which is a question rather than
+    a write and has to answer something: a spy's answer is a truthy mock, which
+    reads as somebody having changed the flag. Unnamed, it answers that nobody
+    did - the one answer under which a flag's undo goes on to write, so a case
+    about that write need not name the question it is not about.
+    """
+    return PuttingBack(
+        set_state=set_state if set_state is not None else create_autospec(
+            FlagSetter, instance=True
+        ),
+        restore_deployment=restore_deployment if restore_deployment is not None
+        else a_restorer_nobody_calls(),
+        restore_capacity=restore_capacity if restore_capacity is not None
+        else a_capacity_restorer_nobody_calls(),
+        restore_autoscaling=restore_autoscaling if restore_autoscaling is not None
+        else an_autoscaling_restorer_nobody_calls(),
+        restore_accelerator_pin=restore_accelerator_pin
+        if restore_accelerator_pin is not None
+        else an_accelerator_pin_restorer_nobody_calls(),
+        changed_from_outside=changed_from_outside if changed_from_outside is not None
+        else nobody_changed_it()
+    )
+
+
 def a_discard_removing(entries: int) -> MagicMock:
     """A store answering that this many of the keys it was named existed.
 
@@ -610,10 +647,7 @@ def an_undo_putting_flags_back(
     """
     return partial(
         undo_change,
-        changed_from_outside=changed_from_outside,
-        set_state=set_state,
-        restore_deployment=a_restorer_nobody_calls(),
-        restore_capacity=a_capacity_restorer_nobody_calls(),
-        restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
-        restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
+        putting_back=the_way_back(
+            set_state=set_state, changed_from_outside=changed_from_outside
+        )
     )

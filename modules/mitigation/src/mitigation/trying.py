@@ -41,21 +41,9 @@ from core.mcp_transport import (
     without_the_payload,
 )
 from core.models import (
-    AcceleratorPinUndo,
     ActionType,
     AlertRuleStanding,
-    AutoscalerUndo,
-    DeploymentRollbackUndo,
-    DiscardCacheEntries,
-    FlagUndo,
     MetricBucket,
-    PinAutoscaler,
-    PinToAccelerator,
-    ReplicaUndo,
-    RestartService,
-    RevertFeatureFlag,
-    RollBackDeployment,
-    ScaleOut,
     UndoDescriptor,
     changes_something_persistent,
     reports_what_it_changed,
@@ -67,8 +55,8 @@ from mitigation.actions import (
     UndoAttempt,
     Undone,
     Verdict,
-    state_name,
 )
+from mitigation.kinds import KindOf, Performed, UndoingKindOf, kind_of, kind_undoing
 from mitigation.tools import (
     Arrival,
     ArrivalFor,
@@ -98,25 +86,6 @@ type ChangeMade = Callable[[UndoDescriptor | None], None]
 _SECONDS_BETWEEN_METRIC_READS = 10.0
 
 logger = logging.getLogger(__name__)
-
-
-class Performed(NamedTuple):
-    """What performing one action produced, in the two forms everything after
-    it needs.
-
-    `said` is the action in words, and it is built where the action's own
-    fields are still in hand - every verdict below quotes it, and a detail
-    assembled from an action three branches later is one that has to re-derive
-    which kind it was.
-
-    `undo_descriptor` is `None` for an action that changed no persistent state.
-    Absent rather than empty: a restart leaves nothing behind, and there is no
-    honest descriptor for nothing. What tells that apart from a change nobody
-    accounted for is the kind, recorded on the row before the action ran.
-    """
-
-    said: str
-    undo_descriptor: UndoDescriptor | None
 
 
 class UndoChange(Protocol):
@@ -165,7 +134,9 @@ def take_action(action: Action,
                 read_rule: RuleReader | None = None,
                 writes: PerformingWrites,
                 undo: UndoChange,
-                change_made: ChangeMade = _nobody_told) -> Outcome:
+                change_made: ChangeMade = _nobody_told,
+                kinds: KindOf = kind_of,
+                undoing_kinds: UndoingKindOf = kind_undoing) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
     `rule` is the alert rule that paged, where the alert is about a series and
@@ -219,7 +190,8 @@ def take_action(action: Action,
     what puts one back. Two collaborations rather than one list, because they
     happen at different moments and because the alternative grew by a parameter
     per action kind: the restorers and the check that guards them live on
-    `undo_change`, which is where the production binding already assembles them.
+    `PuttingBack`, which `putting_back_over` builds and `an_undo_over` binds into
+    `undo_change`.
 
     `undo` is required. It used to be optional, composed here from a flag setter
     and a restorer when a caller supplied none - and no caller ever did: the
@@ -240,6 +212,12 @@ def take_action(action: Action,
     candidate as tried that never was. What a caller does with it is the
     caller's - this does not guard it, since whether a failure to record may
     be survived is the recorder's judgement and not the Mitigator's.
+
+    `kinds` says which kind an action is, and so whose write performs it and
+    whose words describe it; `undoing_kinds` says the same of a change that was
+    put back, for the words that end the sentence. Both default to the one
+    answer production has, and are here so that a case can say what a kind did
+    without performing it.
     """
     if not still_wanted():
         logger.info("action not taken, incident no longer wanted")
@@ -254,7 +232,7 @@ def take_action(action: Action,
         )
 
     try:
-        performed = _perform(action, writes)
+        performed = kinds(action).perform(action, writes)
     except ActionExhausted as exhausted:
         # Caught before the handler below, and the order is the whole of it: an
         # exhausted action is an `McpToolError` like any other, so a broader
@@ -276,7 +254,7 @@ def take_action(action: Action,
             verdict=Verdict.NOT_ATTEMPTED,
             left_behind_known=True,
             detail=(
-                f"did not {_what_it_would_have_done(action)} - "
+                f"did not {kinds(action).intent(action)} - "
                 f"{_without_the_marker(exhausted)}"
             ),
             not_performed_because=_without_the_marker(exhausted),
@@ -318,7 +296,7 @@ def take_action(action: Action,
             # changed more than it carries is never marked.
             left_behind_known=unreachable.left_behind_known,
             detail=(
-                f"did not {_what_it_would_have_done(action)} - "
+                f"did not {kinds(action).intent(action)} - "
                 f"{_without_the_platform_marker(unreachable)}"
             ),
             not_performed_because=_without_the_platform_marker(unreachable),
@@ -349,7 +327,7 @@ def take_action(action: Action,
         return Outcome(
             verdict=Verdict.ESCALATED,
             left_behind_known=told.left_behind_known if told is not None else False,
-            detail=f"could not {_what_it_would_have_done(action)}: {_in_its_own_words(error)}",
+            detail=f"could not {kinds(action).intent(action)}: {_in_its_own_words(error)}",
             not_performed_because=_in_its_own_words(error),
             undo_descriptor=told.undo_descriptor if told is not None else None,
             # Nothing was performed and so nothing was watched. This is the
@@ -431,202 +409,7 @@ def take_action(action: Action,
             judged=False,
         )
 
-    return _undone(performed, undo, action.action_type, settled.because)
-
-
-def _perform(action: Action, writes: PerformingWrites) -> Performed:
-    """Does the one thing this action is, and says what it did.
-
-    The only place the kinds part company. Each branch names its own write and
-    phrases its own account of it, because the two are one decision: the words
-    a verdict quotes have to describe the call that was actually made.
-
-    `assert_never` on the remaining branch, so that a further kind of action is
-    a type error here rather than an action performed by falling through to
-    whichever branch happened to be last.
-    """
-    match action:
-        case RevertFeatureFlag():
-            return Performed(
-                said=f"set flag [{action.flag}] {state_name(action.enabled)}",
-                undo_descriptor=writes.set_state(action.flag, action.enabled)
-            )
-        case RestartService():
-            restarted = writes.restart(action.service)
-
-            return Performed(
-                said=f"restarted [{restarted.service}]",
-                # Nothing to put back. A restart changes no persistent state,
-                # so there is no prior value to record and no descriptor that
-                # would be true.
-                undo_descriptor=None
-            )
-        case RollBackDeployment():
-            rolled_back = writes.roll_back(action.application)
-
-            return Performed(
-                said=(
-                    # The revision it came *from*, which is what the descriptor
-                    # records and what a reader needs to know was undone - by
-                    # its commit, which a reader can look up, and not by the
-                    # platform's entry for it, which is an address nobody can
-                    # read once the history moves on. Where it went is "the
-                    # one before", by construction.
-                    f"rolled [{action.application}] back off revision "
-                    f"[{rolled_back.was_on_revision}]"
-                ),
-                undo_descriptor=rolled_back
-            )
-        case ScaleOut():
-            scaled = writes.scale_out(action.application)
-
-            return Performed(
-                said=(
-                    # The count it came *from*, which is what the descriptor
-                    # records and what a reader needs to know was undone. Where
-                    # it went is the tier's to have decided, and it reports that
-                    # figure nowhere a verdict can quote it.
-                    f"scaled [{action.application}] out from "
-                    f"[{scaled.was_replicas}] {_replicas(scaled.was_replicas)}"
-                ),
-                undo_descriptor=scaled
-            )
-        case PinAutoscaler():
-            pinned = writes.pin(action.application)
-
-            return Performed(
-                said=(
-                    # The floor it came *from*, named as the floor it came from
-                    # rather than as the floor it is now - which is the whole care
-                    # of this line. The descriptor records the prior floor, and a
-                    # sentence that used it to assert a present state would be
-                    # false the moment the pin succeeded: "scaling below three"
-                    # was already true before Argus acted.
-                    #
-                    # Where it went, by its number and not by the name of a
-                    # bound. The tier asks for whichever is smaller of the
-                    # autoscaler's declared ceiling and the most replicas Argus
-                    # may hold a deployment at - so "to its ceiling" is false
-                    # exactly where Argus's own cap was the binding one, and names
-                    # a figure belonging to somebody else's declaration rather
-                    # than to anything Argus wrote. The tier records what it
-                    # asked for, which is why this can say it.
-                    f"raised [{action.application}]'s autoscaler floor from "
-                    f"[{pinned.was_min_replicas}] {_replicas(pinned.was_min_replicas)} to "
-                    f"[{pinned.min_replicas_asked_for}]"
-                ),
-                undo_descriptor=pinned
-            )
-        case PinToAccelerator():
-            held = writes.pin_to_accelerator(action.application, action.accelerator)
-
-            return Performed(
-                said=(
-                    # Where the pods were held before, because that is what a
-                    # withdrawal puts back - and "held to the V100" alone reads
-                    # as though they had been held to something else.
-                    f"held [{action.application}]'s pods to [{action.accelerator}], "
-                    f"where they had been held to "
-                    f"{_the_card_in_words(held.was_pinned_to)}"
-                ),
-                undo_descriptor=held
-            )
-        case DiscardCacheEntries():
-            discarded = writes.discard(action.keys)
-
-            return Performed(
-                said=(
-                    # The store's figure and never the number of keys asked for.
-                    # This is the one action confirmed from its own answer, so a
-                    # sentence quoting what was requested would report a discard
-                    # that removed nothing as one that removed everything - and
-                    # nothing downstream watches a series that could contradict
-                    # it.
-                    f"discarded [{discarded.discarded}] of "
-                    f"[{action.service}]'s stale cached figures"
-                ),
-                # The one action that changes something persistent and still
-                # records no way back. A restart records none because it changed
-                # nothing to record; this changed something and there is nothing
-                # to restore, because the figures were a copy of records it never
-                # touched. A descriptor here would promise to write the stale
-                # values back, which is a promise to recreate the incident.
-                undo_descriptor=None
-            )
-        case _:
-            assert_never(action)
-
-
-def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
-    """How the sentence ends when a refuted change really was put back.
-
-    Per kind, because the kinds end the sentence differently: a flag was put
-    back *on* or *off*, and a deployment was put back *to* a revision. One
-    phrasing covering both would have to be vague enough to say neither.
-    """
-    match undo_descriptor:
-        case FlagUndo():
-            return state_name(undo_descriptor.was_enabled)
-        case DeploymentRollbackUndo():
-            return f"to revision [{undo_descriptor.was_on_revision}]"
-        case AutoscalerUndo():
-            return (
-                f"to an autoscaler floor of "
-                f"[{undo_descriptor.was_min_replicas}] "
-                f"{_replicas(undo_descriptor.was_min_replicas)}"
-            )
-        case ReplicaUndo():
-            return (f"to [{undo_descriptor.was_replicas}] "
-                    f"{_replicas(undo_descriptor.was_replicas)}")
-        case AcceleratorPinUndo():
-            # Two endings, and a sentence saying "let go" for both would report
-            # a pin somebody else had set as one removed.
-            if undo_descriptor.was_pinned_to is None:
-                return "to letting its pods run on any card"
-
-            return f"to holding its pods to [{undo_descriptor.was_pinned_to}]"
-        case _:
-            assert_never(undo_descriptor)
-
-
-def _replicas(count: int) -> str:
-    return "replica" if count == 1 else "replicas"
-
-
-def _the_card_in_words(card: str | None) -> str:
-    return "no card" if card is None else f"[{card}]"
-
-
-def _what_it_would_have_done(action: Action) -> str:
-    """The action in words, for a failure that happened before it did anything.
-
-    Separate from `Performed.said`, which reports what *was* done. The two
-    differ in tense and in what they may claim: this one is quoted by an
-    escalation, where nothing happened and a sentence saying it did would be a
-    record of a change nobody made.
-    """
-    match action:
-        case RevertFeatureFlag():
-            return f"set flag [{action.flag}] {state_name(action.enabled)}"
-        case RestartService():
-            return f"restart [{action.service}]"
-        case RollBackDeployment():
-            return f"roll [{action.application}] back to its previous revision"
-        case ScaleOut():
-            return f"scale [{action.application}] out"
-        case PinAutoscaler():
-            return f"stop [{action.application}]'s autoscaler scaling it down"
-        case PinToAccelerator():
-            return f"hold [{action.application}]'s pods to [{action.accelerator}]"
-        case DiscardCacheEntries():
-            # Figures thrown away, never data deleted or a cache cleared. What
-            # goes is a copy and the records behind it are untouched, so a verb
-            # suggesting otherwise would describe an action a reader should be
-            # alarmed by - in a line that exists to explain why Argus is *not*
-            # doing it again.
-            return f"discard [{action.service}]'s stale cached figures"
-        case _:
-            assert_never(action)
+    return _undone(performed, undo, undoing_kinds, action.action_type, settled.because)
 
 
 def _without_the_marker(exhausted: ActionExhausted) -> str:
@@ -1463,6 +1246,7 @@ def _why_nothing_was_put_back(action_type: ActionType) -> str:
 
 def _undone(performed: Performed,
             undo: UndoChange,
+            undoing_kinds: UndoingKindOf,
             action_type: ActionType,
             because: str) -> Outcome:
     """Puts a refuted action back, and says so as a verdict.
@@ -1482,6 +1266,9 @@ def _undone(performed: Performed,
     nothing back. Taken as a parameter rather than carried on `Performed`,
     which says deliberately that the kind lives on the row the action was
     written to.
+
+    `undoing_kinds` is which kind ends the sentence for a change that really
+    was put back, since a flag is put back *on* and a deployment *to* a revision.
 
     The undo itself is `undo_change`; what this adds is what a *verdict* is
     made of. A change left as found is still a refutation - the wait found
@@ -1549,7 +1336,7 @@ def _undone(performed: Performed,
                 because=because,
                 detail=(
                     f"{taken}, but {because}, so it was put back "
-                    f"{_how_it_was_put_back(undo_descriptor)}"
+                    f"{undoing_kinds(undo_descriptor).put_back_as(undo_descriptor)}"
                 ),
                 undo_descriptor=undo_descriptor,
                 undone=attempt.outcome,

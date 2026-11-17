@@ -23,7 +23,7 @@ in `postmortem_writing/writing.py` and is re-exported, exactly as `PostmortemDoc
 lives in `document.py` and is re-exported.
 
 Name the module for the work, following whatever the package already does -
-gerunds (`writing.py`, `checking.py`, `mitigating.py`, `undoing.py`) where the
+gerunds (`writing.py`, `checking.py`, `mitigating.py`, `trying.py`) where the
 module is an activity, plain nouns (`document.py`, `sources.py`, `estimate.py`)
 where it is a thing.
 

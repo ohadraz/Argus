@@ -55,14 +55,15 @@ from mitigation import (
     MitigationSettings,
     an_undo_over,
     argus_changed_flag_since,
+    arrival_of,
     deployments_over,
     fetch_recent_deployments,
     fetch_recent_flag_changes,
     flag_changes_over,
-    how_a_change_arrives,
     is_a_generic_mitigation,
     performing_writes_over,
     recent_metrics_over,
+    rollout_progress_over,
     rules_read_over,
     take_action,
 )
@@ -360,7 +361,7 @@ def against(connections: Connections,
             # minutes describe the code it was meant to replace, and a verdict read
             # off them is a verdict about the wrong deployment. Over the read tier,
             # since it is a read.
-            arrivals=partial(how_a_change_arrives, client=read),
+            arrivals=partial(arrival_of, rollouts=rollout_progress_over(read)),
             # Every write that performs a mitigation, assembled once over the
             # one connection they all use. Separately was a value taken apart for
             # the journey and put back together by the callee, and it grew by a

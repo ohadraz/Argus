@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import partial
-from typing import Protocol, assert_never
+from typing import Protocol
 
 from core import SettingsSlice, parse_iso, to_iso, utc_now
 from core.anomaly import the_end_of_the_onset
@@ -23,18 +23,12 @@ from core.models import (
     ChangeEvent,
     DeploymentRestored,
     DeploymentRollbackUndo,
-    DiscardCacheEntries,
     FlagChange,
     FlagHistory,
     MetricBucket,
-    PinAutoscaler,
-    PinToAccelerator,
     ReplicaUndo,
     RestartedService,
-    RestartService,
-    RevertFeatureFlag,
-    RollBackDeployment,
-    ScaleOut,
+    RolloutProgress,
     UndoDescriptor,
 )
 from read_mcp_client import (
@@ -356,7 +350,7 @@ class PerformingWrites:
     `changed_from_outside` in, which is a *read*, and the restorers with it - and
     those belong to putting a change back rather than to making one, which is a
     different moment with a different caller. What performs an action and what
-    undoes one are two collaborations, and `undo_change` holds the second.
+    undoes one are two collaborations, and `PuttingBack` holds the second.
     """
 
     set_state: FlagSetter
@@ -366,6 +360,29 @@ class PerformingWrites:
     pin: AutoscalerPinner
     discard: CacheEntryDiscarder
     pin_to_accelerator: AcceleratorPinner
+
+
+@dataclass(frozen=True)
+class PuttingBack:
+    """The collaborations that put a change back - one restorer per kind that
+    leaves one, and the check that guards a flag's.
+
+    Apart from `PerformingWrites` because they happen at a different moment and
+    for a different caller: a refuted action puts its own change back after the
+    wait, and a withdrawal puts back every change an incident made, long after
+    the writes that made them.
+
+    Each member is bound over the tier that serves it. Today all of them are the
+    write tier, because the restorers are writes and the provider serves its
+    audit log - which `changed_from_outside` reads - to write credentials alone.
+    """
+
+    set_state: FlagSetter
+    restore_deployment: DeploymentRestorer
+    restore_capacity: CapacityRestorer
+    restore_autoscaling: AutoscalingRestorer
+    restore_accelerator_pin: AcceleratorPinRestorer
+    changed_from_outside: ChangedFromOutside
 
 
 Clock = Callable[[], datetime]
@@ -446,124 +463,27 @@ def nothing_to_wait_for(action: Action) -> HasArrived:
     return an_action_in_force_at_once
 
 
-def how_a_change_arrives(action: Action, *, client: McpClient) -> HasArrived:
-    """Which arrival this action has to wait for, chosen by what it changes.
+class RolloutReader(Protocol):
+    """How far a service's rollout has got, as counts.
 
-    Five of the seven kinds have nothing to wait for, and for five reasons that
-    come to the same thing: the target service reads its flags fresh on every
-    request, a restart is answered with the new process's start time so the tier
-    that performed it has already waited, an autoscaler's floor is a field on its
-    own object rather than a state anything converges on, a discard is answered
-    with how many entries went - the store has already done it by the time it
-    says so, and nothing converges on an absence - and a pin to a card is in
-    force once the platform holds the selector, with no count of replicas to
-    reach: the pods moving off the card is what the rule that paged is watched
-    for. Those are `an_action_in_force_at_once`.
-
-    The two that change a Deployment's size or revision wait on different counts -
-    the revision reaching every replica, and the replicas asked for existing -
-    which is why this dispatches rather than handing one check to all seven. A
-    single check would either make five actions wait for a rollout nobody
-    started, or let the two that matter be judged on minutes their change was not
-    in force for.
-
-    Here rather than at the caller that assembles the walk, because the caller
-    holds a bound `take_action` and not the action - the kind is only known at the
-    moment one is taken. `assert_never` on the remaining branch, so a further kind
-    of action is a type error here rather than an action silently judged as though
-    it had arrived.
+    What an action that changes a Deployment waits on: the revision reaching
+    every replica, or the replicas asked for existing. Which of the two counts
+    answers is the kind's to say; this only reads them.
     """
-    match action:
-        case RollBackDeployment():
-            return a_rollback_arriving_over(client, action.application)
-        case ScaleOut():
-            return added_capacity_arriving_over(client, action.application)
-        case (
-            RevertFeatureFlag() | RestartService() | PinAutoscaler()
-            | DiscardCacheEntries() | PinToAccelerator()
-        ):
-            return an_action_in_force_at_once
-        case _:
-            assert_never(action)
+
+    def __call__(self, service: str, /) -> RolloutProgress: ...
 
 
-def a_rollback_arriving_over(client: McpClient, service: str) -> HasArrived:
-    """Whether the revision a rollback returned to has reached every replica,
-    asked over one connection to the read tier.
+def rollout_progress_over(client: McpClient) -> RolloutReader:
+    """How far a service's rollout has got, asked over one connection to the read
+    tier.
 
     The read tier because this is a read, which is the same reason the metrics are
     asked there. The two clients are interchangeable at the type level, so a seam
     bound to the wrong one fails at the moment the walk has already changed
     production and the incident is still happening.
     """
-    return partial(_how_the_revision_is_arriving, client=client, service=service)
-
-
-def added_capacity_arriving_over(client: McpClient, service: str) -> HasArrived:
-    """Whether the replicas a scale-out asked for are running, asked over one
-    connection to the read tier.
-
-    A different question from the rollback's and not a spelling of it. Every
-    replica that exists can be on the right revision while half the replicas asked
-    for have yet to start, so one answer would be wrong for one of the two actions
-    - see `RolloutProgress`.
-    """
-    return partial(_how_the_capacity_is_arriving, client=client, service=service)
-
-
-def _how_the_revision_is_arriving(*, client: McpClient, service: str) -> Arrival:
-    """The revision's counts read as a state of arrival.
-
-    Landed is asked first, and the order is the whole of it. A rolling update can
-    be stopped after it has finished - every replica already on the new revision,
-    nothing left to converge - and a pause read ahead of the counts would answer
-    that such a change will never arrive, so Mitigation would report a mitigation
-    that is in force on every replica as one that never applied, and wake somebody
-    about it.
-
-    The pause answers for a fleet that has *not* finished, which is the case it is
-    read for. A rolling update nobody is advancing satisfies no count it has not
-    already satisfied, so a caller told only "not yet" would wait for a
-    convergence that is not coming - until its lease expired, leaving the change
-    applied for another worker to find. Reported as a state rather than judged as a
-    duration, which is what makes it readable here at all rather than a judgement
-    §16 keeps out of this side.
-
-    A platform reporting the Deployment failed - past the deadline it declares,
-    or unable to create its pods - is not converging it either, and ends the
-    wait the same way.
-    """
-    progress = get_rollout_progress(service, client=client)
-
-    if progress.has_converged:
-        return Arrival.ARRIVED
-
-    if progress.is_paused or progress.has_failed:
-        return Arrival.WILL_NOT_ARRIVE
-
-    return Arrival.STILL_ARRIVING
-
-
-def _how_the_capacity_is_arriving(*, client: McpClient, service: str) -> Arrival:
-    """The replica count read as a state of arrival, with no regard to a pause.
-
-    A pause stops a new template rolling out, and nothing else: the deployment
-    controller still scales a paused Deployment, across both sides of the split.
-    So a held rollout says nothing about whether the replicas asked for are
-    coming, and reading it here would escalate a scale-out the platform is in the
-    middle of applying.
-
-    A failure is what ends this wait instead: the platform saying it cannot
-    create the pods, or has made no progress within the Deployment's deadline.
-    Counts first here too, so replicas that all arrived before something else
-    went wrong are an arrival.
-    """
-    progress = get_rollout_progress(service, client=client)
-
-    if progress.has_every_replica_it_asked_for:
-        return Arrival.ARRIVED
-
-    return Arrival.WILL_NOT_ARRIVE if progress.has_failed else Arrival.STILL_ARRIVING
+    return partial(get_rollout_progress, client=client)
 
 
 def flag_setter_over(client: McpClient) -> FlagSetter:
@@ -610,6 +530,23 @@ def performing_writes_over(client: McpClient) -> PerformingWrites:
         pin=autoscaler_pinner_over(client),
         discard=cache_entry_discarder_over(client),
         pin_to_accelerator=accelerator_pinner_over(client)
+    )
+
+
+def putting_back_over(client: McpClient) -> PuttingBack:
+    """Everything that puts a change back, over one connection to the write tier.
+
+    Here rather than at the one caller that binds it, for the reason
+    `performing_writes_over` is: the bundle and the connection are the same fact
+    said twice.
+    """
+    return PuttingBack(
+        set_state=flag_setter_over(client),
+        restore_deployment=deployment_restorer_over(client),
+        restore_capacity=capacity_restorer_over(client),
+        restore_autoscaling=autoscaling_restorer_over(client),
+        restore_accelerator_pin=accelerator_pin_restorer_over(client),
+        changed_from_outside=partial(somebody_else_changed_flag_since, client=client)
     )
 
 

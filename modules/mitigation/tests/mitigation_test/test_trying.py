@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
-from unittest.mock import MagicMock, create_autospec
+from unittest.mock import MagicMock, call, create_autospec
 
 import pytest
 from argus_testkit import (
@@ -17,7 +17,7 @@ from argus_testkit import (
     dont_care_sleep,
     one_record_was_logged,
 )
-from core import RunLost, new_id
+from core import RunLost, new_id, to_iso_minute
 from core.anomaly import AnomalyThresholds
 from core.budget import StillWanted, wanted_throughout
 from core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
@@ -36,15 +36,11 @@ from core.mcp_transport import (
 )
 from core.models import (
     DEPLOYMENT_PLATFORM,
-    AcceleratorPinUndo,
     AlertRuleStanding,
-    AutoscalerUndo,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     MetricBucket,
     PinAutoscaler,
-    PinToAccelerator,
-    ReplicaUndo,
     RestartedService,
     RollBackDeployment,
     ScaleOut,
@@ -59,13 +55,11 @@ from mitigation import (
     Verdict,
     take_action,
 )
+from mitigation.kinds import ActionKind, KindOf, Performed, UndoableKind, UndoingKindOf
 from mitigation.tools import (
-    AcceleratorPinner,
     Arrival,
     AutoscalerPinner,
-    CacheEntryDiscarder,
     DeploymentRoller,
-    DeploymentScaler,
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
@@ -118,9 +112,29 @@ from mitigation_test.framework.builders import (
 )
 
 _SOME_INCIDENT_ID = new_id()
-# ACTION_TIME falls at 11:10:30, so the first minute that wholly follows it is
-# 11:11 - the earliest one a verdict may be read off.
-_THE_FIRST_WHOLE_MINUTE_AFTER = "2026-08-20T11:11:00Z"
+_A_MINUTE = timedelta(minutes=1)
+_A_MINUTE_IN_SECONDS = int(_A_MINUTE.total_seconds())
+# An hour, in seconds.
+_AN_HOUR_IN_SECONDS = int(timedelta(hours=1).total_seconds())
+# The minute ACTION_TIME falls inside, and the first that wholly follows it - the
+# earliest one a verdict may be read off.
+_THE_ACTIONS_MINUTE = ACTION_TIME.replace(second=0)
+_THE_FIRST_WHOLE_MINUTE = _THE_ACTIONS_MINUTE + _A_MINUTE
+_THE_FIRST_WHOLE_MINUTE_AFTER = to_iso_minute(_THE_FIRST_WHOLE_MINUTE)
+# Where a rule evaluation ends, for the cases that read one. The rule ticks on
+# whole minutes, and over the one-minute range those cases read, an evaluation
+# ending as the first whole minute begins covers the minute the action fell
+# inside, one ending a minute later covers the first minute wholly after the
+# change, and the one after that the minute after it.
+_AN_EVALUATION_OVER_THE_ACTIONS_MINUTE = _THE_FIRST_WHOLE_MINUTE
+_AN_EVALUATION_SINCE_THE_CHANGE = _AN_EVALUATION_OVER_THE_ACTIONS_MINUTE + _A_MINUTE
+_THE_EVALUATION_AFTER_THAT = _AN_EVALUATION_SINCE_THE_CHANGE + _A_MINUTE
+
+# Words nothing reads: what a kind said it did, why a tier refused, and why a
+# rule could not be read.
+DONT_CARE_WHAT_IT_DID = "dont care what it did"
+DONT_CARE_REFUSAL = "dont care why it refused"
+DONT_CARE_RULE_FAILURE = "the rule could not be read"
 
 # Where the incident's own minutes begin in
 # `_a_window_that_flapped_before_the_incident` - after the calm, the earlier
@@ -130,7 +144,6 @@ _ACTED_IN_THE_INCIDENTS_LAST_MINUTE = WINDOW_START + timedelta(
     minutes=_THE_INCIDENTS_FIRST_MINUTE + 2, seconds=30
 )
 
-SOME_COUNT_IT_WAS_RUNNING = 3
 SOME_APPLICATION = "io-shop"
 THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 
@@ -154,15 +167,6 @@ THE_AUTOSCALER_HAS_NO_ROOM_LEFT = (
     f"[6], and the highest floor Argus may ask for is [6] - so there is no room "
     f"left between the two and nothing here for a pin to stop"
 )
-# Where the store this tier writes to answers. A URL rather than a service name,
-# because that is the only address the write tier has: it dials a store, and a
-# service name passed down just to word a refusal would be the agent's
-# vocabulary leaking into the tier.
-SOME_CACHE_ENDPOINT = "redis://localhost:6379"
-THE_ENTRIES_ARE_ALREADY_GONE = (
-    f"none of the [1] entries named at [{SOME_CACHE_ENDPOINT}] are in the "
-    f"store, so there is nothing here for a discard to remove"
-)
 THE_PATCH_WAS_REFUSED = (
     f"the platform would not patch [{SOME_APPLICATION}]'s autoscaler"
 )
@@ -185,27 +189,13 @@ WHAT_THE_ROLLBACK_LEFT = DeploymentRollbackUndo(
     was_syncing_itself=True
 )
 
-# The two floors a pin moves between. Named separately from the replica counts
-# above because they are a different claim: those are how large the deployment is,
-# these are how small it is allowed to become.
-SOME_FLOOR_IT_COULD_FALL_TO = 3
-THE_FLOOR_IT_WAS_HELD_AT = 6
-
-# The card a pin holds the deployment to, and one somebody else had held it to
-# before - the case where letting go is putting a pin back rather than removing
-# one.
-THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
-A_CARD_SOMEBODY_ELSE_CHOSE = "Tesla-T4"
-# The tier's refusal for a deployment already held to the card, in its words.
-THE_DEPLOYMENT_IS_ALREADY_THERE = (
-    f"[{SOME_APPLICATION}] is already held to [{THE_FLEETS_CARD}], so there is "
-    f"nothing here for a pin to move"
-)
-
 # How long the verification waits. Short, because every test here would
 # otherwise sit through it - the clock and the sleeper are injected, so what
 # this bounds is the arithmetic rather than any real wait.
 A_SHORT_WAIT_IN_SECONDS = 180.0
+# A look past the configured wait and inside the one a rule asks for. Twenty
+# seconds past is not a relation: any moment between the two would do.
+_A_LOOK_PAST_THE_CONFIGURED_WAIT = A_SHORT_WAIT_IN_SECONDS + 20
 
 # The rule that paged, for an alert about a series. What an action on one is
 # judged by: the rule defines what "acceptable" is for the service, as it would
@@ -216,32 +206,6 @@ SOME_RULE = "some-rule"
 # What a case putting a change and the looks after it in order keeps of each.
 _MADE = "made"
 _LOOKED = "looked"
-
-
-@pytest.mark.unit
-def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
-    some_flag = "monthly-spend-feature"
-
-    Scenario() \
-        .given(
-            some_old_state := False,
-            set_state := _a_flag_setter_changing_from(some_flag, was_enabled=some_old_state)
-        ) \
-        .when(
-            lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(set_state=set_state),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(
-            _the_flag_was_set_to(set_state, some_flag, enabled=(not some_old_state))
-        )
 
 
 @pytest.mark.unit
@@ -449,7 +413,7 @@ def test_the_change_is_told_as_made_before_the_service_is_first_looked_at() -> N
                      id="platform-unreachable"),
         pytest.param(lambda: (an_action_setting(DONT_CARE_FLAG, enabled=True),
                               the_writes(set_state=_a_flag_setter_that_cannot_write(
-                                  "dont care")),
+                                  DONT_CARE_REFUSAL)),
                               wanted_throughout),
                      id="write-refused")
     ]
@@ -637,7 +601,7 @@ def test_a_wait_withdrawn_while_the_rule_is_being_read_says_nothing_about_the_wa
                 undo=an_undo_nobody_calls(),
                 rule=SOME_RULE,
                 read_rule=the_stop.while_reading_the_rule(_a_rule_standing(
-                    is_normal=False, evaluated_at=ACTION_TIME + timedelta(minutes=1)
+                    is_normal=False, evaluated_at=ACTION_TIME + _A_MINUTE
                 )),
                 publisher=published.append
             )
@@ -804,7 +768,7 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
     # what a human needs paging for - and the page has to say both what was
     # changed and that putting it back did not work.
     some_flag = "monthly-spend-feature"
-    some_undo_failure = "flag [monthly-spend-feature] was accepted as on but still reads off"
+    some_undo_failure = f"flag [{some_flag}] was accepted as on but still reads off"
 
     Scenario() \
         .given(
@@ -928,9 +892,11 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
 def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None:
     # Nothing was changed, so there is nothing to judge and nothing to undo. A
     # verdict formed here would describe an experiment that never ran.
+    dont_care_failure = "the provider could not be reached"
+
     Scenario() \
         .given(
-            set_state := _a_flag_setter_that_cannot_write("the provider could not be reached")
+            set_state := _a_flag_setter_that_cannot_write(dont_care_failure)
         ) \
         .when(
             lambda: take_action(
@@ -983,6 +949,131 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
             the_verdict_is(Verdict.REFUTED),
             _putting_it_back_is_carried_as(Undone.RESTORED,
                                            f"flag [{some_flag}] was put back")
+        ))
+
+
+@pytest.mark.unit
+def test_a_confirmed_action_is_said_as_its_kind_said_it() -> None:
+    # Which write an action makes, and the words for what it did, are its kind's.
+    # What taking it owes is to hand the kind this action and these writes, and
+    # to open the account of a confirmed attempt with the kind's own sentence -
+    # so the sentence here is a stand-in, and any other would do.
+    some_said = "did some-thing to [some-service]"
+    some_action = an_action_setting(DONT_CARE_FLAG, enabled=True)
+    some_writes = the_writes()
+
+    Scenario() \
+        .given(
+            the_kind := _a_kind_that_did(some_said, an_undo_descriptor_for(DONT_CARE_FLAG))
+        ) \
+        .when(
+            lambda: take_action(
+                some_action,
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=some_writes,
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                kinds=_every_action_is(the_kind)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_kind_performed(the_kind, some_action, some_writes),
+            _the_detail_opens_with(f"{some_said} and ")
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_change_put_back_ends_as_its_kind_says_it_was_put_back() -> None:
+    # A flag is put back *on*, a deployment *to* a revision, and the kind that
+    # puts the change back knows which. What taking the action owes is to ask
+    # that kind about the change the action left, and end the sentence with its
+    # answer.
+    some_ending = "to some-state it was in"
+    what_it_left = an_undo_descriptor_for(DONT_CARE_FLAG)
+
+    Scenario() \
+        .given(
+            the_kind_undoing_it := _a_kind_putting_it_back_as(some_ending)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG),
+                kinds=_every_action_is(
+                    _a_kind_that_did(DONT_CARE_WHAT_IT_DID, what_it_left)
+                ),
+                undoing_kinds=_every_change_is(the_kind_undoing_it)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_kind_was_asked_how_it_put_back(the_kind_undoing_it, what_it_left),
+            _the_detail_closes_with(f"so it was put back {some_ending}")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("a_window", "a_clock", "an_undo", "verdict"),
+    [
+        pytest.param(a_recovered_window, a_clock_frozen_at, an_undo_nobody_calls,
+                     Verdict.CONFIRMED, id="confirmed"),
+        pytest.param(a_still_failing_window, a_clock_that_runs_out_after_one_look,
+                     an_undo_that_put_it_back, Verdict.REFUTED, id="refuted-and-put-back"),
+        pytest.param(a_still_failing_window, a_clock_that_runs_out_after_one_look,
+                     lambda: _an_undo_answering(Undone.LEFT_AS_FOUND), Verdict.REFUTED,
+                     id="refuted-and-left-as-found"),
+        pytest.param(a_still_failing_window, a_clock_that_runs_out_after_one_look,
+                     lambda: _an_undo_answering(Undone.NOT_ESTABLISHED), Verdict.ESCALATED,
+                     id="escalated-after-the-undo-failed")
+    ]
+)
+def test_the_change_s_way_back_travels_on_the_outcome_whatever_the_verdict(
+    a_window: Callable[[], list[MetricBucket]],
+    a_clock: Callable[[datetime], Callable[[], datetime]],
+    an_undo: Callable[[], MagicMock],
+    verdict: Verdict
+) -> None:
+    # The walk writes this descriptor to the action's row, and a withdrawal
+    # hours later puts the change back from it. Carried whether the change was
+    # kept, put back, left as somebody else found it, or could not be put back:
+    # what the row records is what was changed, not what became of it, and an
+    # outcome that dropped it on any one verdict is a change nobody can find.
+    #
+    # The verdict is asserted too, so each case is the branch it is named for.
+    Scenario() \
+        .given(
+            the_kind := _a_kind_that_did(
+                DONT_CARE_WHAT_IT_DID,
+                what_it_left := an_undo_descriptor_for(DONT_CARE_FLAG)
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(),
+                fetch_metrics=metrics_reading(a_window()),
+                now=a_clock(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo(),
+                kinds=_every_action_is(the_kind)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(verdict),
+            _the_undo_carried_is(what_it_left)
         ))
 
 
@@ -1429,7 +1520,9 @@ def test_the_minute_a_verdict_is_read_from_follows_the_change_arriving() -> None
         ) \
         .then(all_of(
             the_verdict_is(Verdict.CONFIRMED),
-            _the_wait_will_judge_from(published, "2026-08-20T11:12:00Z")
+            _the_wait_will_judge_from(published, to_iso_minute(
+                ACTION_TIME + timedelta(seconds=the_change_lands_in_the_minute_after) + _A_MINUTE
+            ))
         ))
 
 
@@ -1501,7 +1594,9 @@ def test_a_service_that_came_back_before_the_action_is_recorded_at_that_minute()
     # came back at 11:08 on its own and the action followed at 11:10:30, so a
     # record reading 11:11 would credit the action with a recovery that preceded
     # it - the false attribution nothing in the account can show today.
-    the_minute_it_came_back = "2026-08-20T11:08:00Z"
+    the_minute_it_came_back = _the_first_calm_minute_after_the_failure(
+        a_window_recovered_before_the_action()
+    )
 
     Scenario() \
         .given(
@@ -1564,7 +1659,9 @@ def test_a_recovery_the_rule_confirmed_is_recorded_after_the_minute_the_incident
     window = _a_window_that_flapped_before_the_incident()
     the_incident_began = window[_THE_INCIDENTS_FIRST_MINUTE].bucket_id
     the_minute_it_came_back = window[_THE_INCIDENTS_FIRST_MINUTE + 3].bucket_id
-    the_rule_was_normal_at = _ACTED_IN_THE_INCIDENTS_LAST_MINUTE + timedelta(minutes=3)
+    # Any span long enough for a one-minute evaluation to follow the change.
+    some_time_later = 3 * _A_MINUTE
+    the_rule_was_normal_at = _ACTED_IN_THE_INCIDENTS_LAST_MINUTE + some_time_later
 
     Scenario() \
         .given(
@@ -1595,6 +1692,18 @@ def test_a_recovery_the_rule_confirmed_is_recorded_after_the_minute_the_incident
             the_verdict_is(Verdict.CONFIRMED),
             _the_recovery_was_recorded_at(published, the_minute_it_came_back)
         ))
+
+
+def _the_first_calm_minute_after_the_failure(window: list[MetricBucket]) -> str:
+    """The minute a window's service came back: the first back at the calm rate
+    once it had left it."""
+    failing_from = next(
+        offset for offset, bucket in enumerate(window) if bucket.error_rate != CALM_RATE
+    )
+
+    return next(
+        bucket.bucket_id for bucket in window[failing_from:] if bucket.error_rate == CALM_RATE
+    )
 
 
 def _a_window_that_flapped_before_the_incident() -> list[MetricBucket]:
@@ -1649,29 +1758,6 @@ def test_the_verdict_is_the_same_whether_or_not_anybody_is_listening() -> None:
 
 
 @pytest.mark.unit
-def test_taking_a_restart_asks_for_the_service_the_action_names() -> None:
-    some_leaking_service = "kuki-service"
-
-    Scenario() \
-        .given(restart := _a_restarter_bringing_up(some_leaking_service)) \
-        .when(
-            lambda: take_action(
-                an_action_restarting(some_leaking_service),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(restart=restart),
-                fetch_metrics=metrics_reading(a_window_where_memory_was_reclaimed()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(
-            _the_service_restarted_was(restart, some_leaking_service)
-        )
-
-
-@pytest.mark.unit
 def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
     # Both halves of the answer. Either alone is ambiguous: traffic moving on
     # eases the symptoms of a service nothing was done to, and a heap that fell
@@ -1696,10 +1782,9 @@ def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
                 undo=an_undo_nobody_calls()
             )
         ) \
-        .then(all_of(
-            the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions(f"restarted [{some_leaking_service}]")
-        ))
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
 
 
 @pytest.mark.unit
@@ -1738,28 +1823,33 @@ def test_a_restart_that_could_not_be_taken_escalates_without_a_verdict() -> None
     # Nothing was done to the service, so there is nothing to judge. A verdict
     # here would read a leak still climbing as evidence that restarting a
     # leaking service does not work.
-    some_leaking_service = "kuki-service"
+    # The words for what it would have done are the kind's, and stood in here:
+    # what this case is about is that they and the failure both reach the page.
+    some_intent = "restart [kuki-service]"
     some_failure = "the platform refused the action"
 
     Scenario() \
         .given(
-            restart_could_not_be_taken := _a_restarter_that_cannot(some_failure)
+            restart_could_not_be_taken := _a_kind_that_cannot(
+                RuntimeError(some_failure), intent=some_intent
+            )
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(some_leaking_service),
+                an_action_restarting(SOME_APPLICATION),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                writes=the_writes(restart=restart_could_not_be_taken),
+                writes=the_writes(),
                 fetch_metrics=metrics_reading(a_window_where_memory_was_reclaimed()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
+                undo=an_undo_nobody_calls(),
+                kinds=_every_action_is(restart_could_not_be_taken)
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _the_detail_mentions(f"restart [{some_leaking_service}]"),
+            _the_detail_mentions(f"could not {some_intent}"),
             _the_detail_mentions(some_failure)
         ))
 
@@ -1800,65 +1890,9 @@ def test_a_refuted_restart_puts_nothing_back_and_says_so() -> None:
 
 
 @pytest.mark.unit
-def test_a_confirmed_restart_carries_no_way_back_either() -> None:
-    # A withdrawal hours later reads the outcome and does what it says. There
-    # is no prior value a restart could name, so the field is absent rather
-    # than empty - and absent is the only state that cannot be misread.
-    some_leaking_service = "kuki-service"
-
-    Scenario() \
-        .given(
-            the_heap_came_back_down := a_window_where_memory_was_reclaimed()
-        ) \
-        .when(
-            lambda: take_action(
-                an_action_restarting(some_leaking_service),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    restart=_a_restarter_bringing_up(some_leaking_service)
-                ),
-                fetch_metrics=metrics_reading(the_heap_came_back_down),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.CONFIRMED),
-            _there_is_nothing_to_put_back()
-        ))
-
-
-@pytest.mark.unit
-def test_taking_a_rollback_asks_for_the_application_and_the_entry() -> None:
-    # The entry rather than a commit. A commit found in a diff is not
-    # necessarily a revision this application ever ran, and rolling onto one
-    # would be shipping an untested state under the name of a rollback.
-    Scenario() \
-        .given(roll_back := _a_roller_returning(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    restart=_a_restarter_bringing_up("dont-care-service"),
-                    roll_back=roll_back
-                ),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(
-            _the_rollback_asked_for(roll_back, SOME_APPLICATION)
-        )
-
-
-@pytest.mark.unit
 def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
+    dont_care_service = "dont-care-service"
+
     Scenario() \
         .given(_a_roller_returning(SOME_APPLICATION)) \
         .when(
@@ -1867,7 +1901,7 @@ def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 writes=the_writes(
-                    restart=_a_restarter_bringing_up("dont-care-service"),
+                    restart=_a_restarter_bringing_up(dont_care_service),
                     roll_back=_a_roller_returning(SOME_APPLICATION)
                 ),
                 fetch_metrics=metrics_reading(a_recovered_window()),
@@ -1882,148 +1916,18 @@ def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
 
 
 @pytest.mark.unit
-def test_a_rollback_names_the_revision_it_rolled_off_rather_than_the_platform_s_entry() -> None:
-    # The entry is the platform's address for a revision, and means nothing to
-    # a reader once the history has moved on; the commit is what they look up.
-    Scenario() \
-        .given(roll_back := _a_roller_returning(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    restart=_a_restarter_bringing_up("dont-care-service"),
-                    roll_back=roll_back
-                ),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions(f"[{THE_REVISION_IT_WAS_ON}]"),
-            _the_detail_does_not_mention("history entry")
-        ))
-
-
-@pytest.mark.unit
-def test_a_refuted_rollback_says_the_revision_it_was_put_back_to() -> None:
-    Scenario() \
-        .given(undo := an_undo_that_put_it_back(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    restart=_a_restarter_bringing_up("dont-care-service"),
-                    roll_back=_a_roller_returning(SOME_APPLICATION)
-                ),
-                fetch_metrics=metrics_reading(a_still_failing_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=undo
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.REFUTED),
-            _the_detail_mentions(f"to revision [{THE_REVISION_IT_WAS_ON}]"),
-            _the_detail_does_not_mention("history entry")
-        ))
-
-
-@pytest.mark.unit
-def test_a_rollback_carries_a_way_back_where_a_restart_carries_none() -> None:
-    # The difference the record has to keep. A restart leaves nothing behind
-    # and says so by carrying no descriptor; a rollback changed two things,
-    # and a withdrawal hours later has to be able to put both of them back.
-    Scenario() \
-        .given(_a_roller_returning(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    restart=_a_restarter_bringing_up("dont-care-service"),
-                    roll_back=_a_roller_returning(SOME_APPLICATION)
-                ),
-                fetch_metrics=metrics_reading(a_still_failing_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=_an_undo_that_restores(SOME_APPLICATION)
-            )
-        ) \
-        .then(
-            _it_carries_a_way_back()
-        )
-
-
-@pytest.mark.unit
-def test_taking_a_scale_out_asks_the_platform_for_the_application_alone() -> None:
-    # No count goes with it. What to scale to is the tier's to resolve from what
-    # is actually running, and a figure named here would be this layer asserting
-    # a fact about live state it has no way to read.
-    Scenario() \
-        .given(scale_out := _a_scaler_returning(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(scale_out=scale_out),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(
-            _the_scale_out_asked_for(scale_out, SOME_APPLICATION)
-        )
-
-
-@pytest.mark.unit
-def test_a_deployment_that_recovered_after_a_scale_out_confirms_it() -> None:
-    # Judged by the same rule every other kind is: the service returned to its
-    # baseline in the minutes after the action. Nothing about capacity is
-    # special here, which is the point - a fourth kind of action does not bring
-    # a fourth way of being right.
-    Scenario() \
-        .given(the_latency_came_back_down := a_recovered_window()) \
-        .when(
-            lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(scale_out=_a_scaler_returning(SOME_APPLICATION)),
-                fetch_metrics=metrics_reading(the_latency_came_back_down),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions(f"[{SOME_COUNT_IT_WAS_RUNNING}] replicas"),
-            _it_carries_the_count_to_put_back(SOME_COUNT_IT_WAS_RUNNING)
-        ))
-
-
-@pytest.mark.unit
 def test_a_scale_out_at_the_ceiling_reaches_the_walk_as_the_refusal_it_is() -> None:
     # An escalation with the bound's own sentence on it. Nothing was changed, so
     # there is no verdict to reach - but the reason matters more here than for
     # any other failure to act: "Argus has run out of room to grow this
     # deployment" is a sentence somebody can do something about, where a bare
     # escalation reads as a platform that could not be reached.
+    some_intent = f"scale [{SOME_APPLICATION}] out"
+
     Scenario() \
         .given(
-            the_deployment_is_as_large_as_it_may_get := _a_scaler_that_cannot(
-                THE_CEILING_REFUSED
+            the_deployment_is_as_large_as_it_may_get := _a_kind_that_cannot(
+                RuntimeError(THE_CEILING_REFUSED), intent=some_intent
             )
         ) \
         .when(
@@ -2031,77 +1935,20 @@ def test_a_scale_out_at_the_ceiling_reaches_the_walk_as_the_refusal_it_is() -> N
                 _a_scale_out_of(SOME_APPLICATION),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                writes=the_writes(
-                    scale_out=the_deployment_is_as_large_as_it_may_get
-                ),
+                writes=the_writes(),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
+                undo=an_undo_nobody_calls(),
+                kinds=_every_action_is(the_deployment_is_as_large_as_it_may_get)
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _the_detail_mentions(f"scale [{SOME_APPLICATION}] out"),
+            _the_detail_mentions(f"could not {some_intent}"),
             _the_detail_mentions(THE_CEILING_REFUSED),
             _there_is_nothing_to_put_back(),
             _why_it_was_not_performed_is(THE_CEILING_REFUSED)
-        ))
-
-
-@pytest.mark.unit
-def test_a_refuted_scale_out_says_which_count_it_was_put_back_to() -> None:
-    # The count, not "the previous size". A reader picking the incident up has to
-    # be able to tell what the deployment is running now without going to the
-    # platform to ask, and the figure the tier read is the only honest one -
-    # nothing else here ever knew it.
-    Scenario() \
-        .given(undo := _an_undo_that_puts_the_count_back(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(scale_out=_a_scaler_returning(SOME_APPLICATION)),
-                fetch_metrics=metrics_reading(a_still_failing_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=undo
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.REFUTED),
-            _the_detail_mentions(f"to [{SOME_COUNT_IT_WAS_RUNNING}] replicas"),
-            _it_carries_the_count_to_put_back(SOME_COUNT_IT_WAS_RUNNING)
-        ))
-
-
-@pytest.mark.unit
-def test_a_refuted_scale_out_from_one_replica_says_one_replica() -> None:
-    # Both places the count is said - where it was scaled out from and what it
-    # was put back to - agree with it: "[1] replicas" is the line a reader
-    # stops at.
-    Scenario() \
-        .given(undo := _an_undo_that_puts_the_count_back(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    scale_out=_a_scaler_returning(SOME_APPLICATION, was_replicas=1)
-                ),
-                fetch_metrics=metrics_reading(a_still_failing_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=undo
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.REFUTED),
-            _the_detail_mentions("from [1] replica,"),
-            _the_detail_mentions("to [1] replica"),
-            _the_detail_does_not_mention("[1] replicas")
         ))
 
 
@@ -2117,10 +1964,13 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
     # about: `REFUTED` says an explanation was tested and did not hold, where
     # nothing was tested - a record carrying it would have the postmortem report
     # that the evidence ruled a cause out when nothing ruled it out.
+    some_intent = f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
+
     Scenario() \
         .given(
-            the_autoscaler_is_already_held_still := _a_pinner_with_no_room_left(
-                THE_AUTOSCALER_HAS_NO_ROOM_LEFT
+            the_autoscaler_is_already_held_still := _a_kind_that_cannot(
+                ActionExhausted(an_exhausted_action(THE_AUTOSCALER_HAS_NO_ROOM_LEFT)),
+                intent=some_intent
             )
         ) \
         .when(
@@ -2128,20 +1978,19 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
                 _a_pin_of(SOME_APPLICATION),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                writes=the_writes(pin=the_autoscaler_is_already_held_still),
+                writes=the_writes(),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
+                undo=an_undo_nobody_calls(),
+                kinds=_every_action_is(the_autoscaler_is_already_held_still)
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.NOT_ATTEMPTED),
             _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
-            _the_detail_mentions(
-                f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
-            ),
+            _the_detail_mentions(f"did not {some_intent} - "),
             _the_detail_mentions(THE_AUTOSCALER_HAS_NO_ROOM_LEFT),
             _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
             _there_is_nothing_to_put_back(),
@@ -2163,10 +2012,12 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
     # already suspended, so the estate is in a state nobody can name and a human
     # has to look. Reading that as "nothing left to do" would move the walk on
     # from a deployment it has half-changed.
+    some_intent = f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
+
     Scenario() \
         .given(
-            the_platform_would_not_patch_it := _a_pinner_that_cannot(
-                THE_PATCH_WAS_REFUSED
+            the_platform_would_not_patch_it := _a_kind_that_cannot(
+                McpToolError(THE_PATCH_WAS_REFUSED), intent=some_intent
             )
         ) \
         .when(
@@ -2174,20 +2025,19 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
                 _a_pin_of(SOME_APPLICATION),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                writes=the_writes(pin=the_platform_would_not_patch_it),
+                writes=the_writes(),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
                 sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
+                undo=an_undo_nobody_calls(),
+                kinds=_every_action_is(the_platform_would_not_patch_it)
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
             _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
-            _the_detail_mentions(
-                f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
-            ),
+            _the_detail_mentions(f"could not {some_intent}: "),
             _the_detail_mentions(THE_PATCH_WAS_REFUSED),
             _there_is_nothing_to_put_back()
         ))
@@ -2370,8 +2220,9 @@ def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_is_not_know
 def test_a_write_that_failed_outside_the_tier_is_not_known_to_have_changed_nothing() -> None:
     # Not a tool's answer at all - a failure between the agent and the tier -
     # so nobody said what the estate was left as.
+    dont_care_failure = "the session dropped"
     roll_back = create_autospec(DeploymentRoller, instance=True)
-    roll_back.side_effect = RuntimeError("the session dropped")
+    roll_back.side_effect = RuntimeError(dont_care_failure)
 
     Scenario() \
         .given(roll_back) \
@@ -2489,226 +2340,6 @@ def test_what_a_person_reads_of_a_lost_platform_is_not_the_payload() -> None:
         .then(all_of(
             _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
             _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
-        ))
-
-
-@pytest.mark.unit
-def test_a_confirmed_pin_says_which_floor_it_raised_and_to_what() -> None:
-    # Both numbers, because an account of a pin is a transition and one of them is
-    # half of it. The floor it came from is what a withdrawal puts back. The floor
-    # it went to is the one a reader cannot reconstruct: the tier asks for whichever
-    # is smaller of the declared ceiling and Argus's own cap, so a line naming the
-    # destination as "its ceiling" is false in exactly the case nobody checks - and
-    # names a number that belongs to somebody else's declaration rather than to
-    # anything Argus wrote.
-    Scenario() \
-        .given(the_latency_came_back_down := a_recovered_window()) \
-        .when(
-            lambda: take_action(
-                _a_pin_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    pin=_a_pinner_holding_it_at(
-                        SOME_APPLICATION, THE_FLOOR_IT_WAS_HELD_AT
-                    )
-                ),
-                fetch_metrics=metrics_reading(the_latency_came_back_down),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions(f"from [{SOME_FLOOR_IT_COULD_FALL_TO}] replicas"),
-            _the_detail_mentions(f"to [{THE_FLOOR_IT_WAS_HELD_AT}]"),
-            _the_detail_does_not_mention("its ceiling")
-        ))
-
-
-@pytest.mark.unit
-def test_a_refuted_pin_from_a_floor_of_one_replica_says_one_replica() -> None:
-    # Both places the floor is said - where it was raised from and what it was
-    # put back to - agree with the count: "[1] replicas" is the line a reader
-    # stops at.
-    Scenario() \
-        .given(undo := an_undo_that_put_it_back(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_pin_of(SOME_APPLICATION),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    pin=_a_pinner_holding_it_at(
-                        SOME_APPLICATION, THE_FLOOR_IT_WAS_HELD_AT, was_min_replicas=1
-                    )
-                ),
-                fetch_metrics=metrics_reading(a_still_failing_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=undo
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.REFUTED),
-            _the_detail_mentions("from [1] replica to"),
-            _the_detail_mentions("an autoscaler floor of [1] replica"),
-            _the_detail_does_not_mention("[1] replicas")
-        ))
-
-
-@pytest.mark.unit
-def test_taking_a_pin_to_a_card_asks_the_platform_for_that_card() -> None:
-    # The caller names the card as well as the application. Which card was worked
-    # out from where the replicas started before the onset, which the tier never
-    # saw - so a pin that arrived without it would be the tier guessing.
-    Scenario() \
-        .given(pin_to_accelerator := _a_card_pinner_moving(was_pinned_to=None)) \
-        .when(
-            lambda: take_action(
-                _a_pin_to(THE_FLEETS_CARD),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(pin_to_accelerator=pin_to_accelerator),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(
-            _the_card_pin_asked_for(pin_to_accelerator, SOME_APPLICATION, THE_FLEETS_CARD)
-        )
-
-
-@pytest.mark.unit
-def test_a_confirmed_pin_to_a_card_says_which_card_and_what_it_replaced() -> None:
-    # Both ends, because an account of a pin is a transition. "Held to the V100"
-    # alone reads as though the pods had been held to something else; what it
-    # replaced is what a withdrawal puts back.
-    Scenario() \
-        .given(the_answers_came_back := a_recovered_window()) \
-        .when(
-            lambda: take_action(
-                _a_pin_to(THE_FLEETS_CARD),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    pin_to_accelerator=_a_card_pinner_moving(was_pinned_to=None)
-                ),
-                fetch_metrics=metrics_reading(the_answers_came_back),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions(f"[{SOME_APPLICATION}]'s pods to [{THE_FLEETS_CARD}]"),
-            _the_detail_mentions("no card")
-        ))
-
-
-@pytest.mark.unit
-def test_a_confirmed_pin_over_another_card_names_the_card_it_replaced() -> None:
-    # The other end of the transition, where somebody had already held the pods
-    # to a card. Named rather than said as "a card", because that card is what a
-    # withdrawal holds them to again.
-    Scenario() \
-        .given(the_answers_came_back := a_recovered_window()) \
-        .when(
-            lambda: take_action(
-                _a_pin_to(THE_FLEETS_CARD),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    pin_to_accelerator=_a_card_pinner_moving(
-                        was_pinned_to=A_CARD_SOMEBODY_ELSE_CHOSE
-                    )
-                ),
-                fetch_metrics=metrics_reading(the_answers_came_back),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions(f"[{A_CARD_SOMEBODY_ELSE_CHOSE}]")
-        ))
-
-
-@pytest.mark.unit
-def test_a_deployment_already_held_to_the_card_is_not_attempted_rather_than_escalated() -> None:
-    # Nothing to move, nothing changed, and the walk has other candidates - the
-    # autoscaler pin's case, for the other pin.
-    Scenario() \
-        .given(
-            the_deployment_is_already_there := _a_card_pinner_with_nothing_to_move(
-                THE_DEPLOYMENT_IS_ALREADY_THERE
-            )
-        ) \
-        .when(
-            lambda: take_action(
-                _a_pin_to(THE_FLEETS_CARD),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(pin_to_accelerator=the_deployment_is_already_there),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.NOT_ATTEMPTED),
-            _it_says_nothing_was_judged(),
-            _it_says_it_was_performed(False),
-            _the_detail_mentions(
-                f"hold [{SOME_APPLICATION}]'s pods to [{THE_FLEETS_CARD}]"
-            ),
-            _the_detail_mentions(THE_DEPLOYMENT_IS_ALREADY_THERE),
-            _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
-            _there_is_nothing_to_put_back()
-        ))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("was_pinned_to", "put_back_as"),
-    [
-        (None, "any card"),
-        (A_CARD_SOMEBODY_ELSE_CHOSE, f"[{A_CARD_SOMEBODY_ELSE_CHOSE}]")
-    ],
-    ids=["held-to-no-card-before", "held-to-another-card-before"]
-)
-def test_a_refuted_pin_to_a_card_says_what_it_was_put_back_to(
-    was_pinned_to: str | None, put_back_as: str
-) -> None:
-    # Two different endings and both have to be said. A deployment held to no
-    # card before is let go, and its pods may land anywhere again; one somebody
-    # else had held to a card is held to that card again - which a sentence
-    # saying "let go" would misreport as a pin removed.
-    Scenario() \
-        .given(undo := an_undo_that_put_it_back(SOME_APPLICATION)) \
-        .when(
-            lambda: take_action(
-                _a_pin_to(THE_FLEETS_CARD),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(
-                    pin_to_accelerator=_a_card_pinner_moving(was_pinned_to=was_pinned_to)
-                ),
-                fetch_metrics=metrics_reading(a_still_failing_window()),
-                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=undo
-            )
-        ) \
-        .then(all_of(
-            the_verdict_is(Verdict.REFUTED),
-            _the_detail_mentions(put_back_as)
         ))
 
 
@@ -2841,12 +2472,14 @@ def test_a_read_failing_after_the_deadline_it_was_asked_before_is_not_the_last_l
     # one the wait was owed. Judged by when the failure came back, a read that
     # timed out across the deadline ended the wait, and the look after it was
     # never taken.
+    dont_care_failure = "the service could not be read"
+
     Scenario() \
         .given(
             some_old_state := False,
             the_reads := _ReadsThatTakeAnHour(ACTION_TIME),
             the_first_read_fails_slowly := the_reads.reading_the_service(
-                McpToolError("the service could not be read"),
+                McpToolError(dont_care_failure),
                 a_recovered_window()
             )
         ) \
@@ -2928,7 +2561,7 @@ def test_the_look_that_sees_a_blind_spot_read_again_is_said_with_when_its_rows_r
     # Dated by the first row after the onset, which is 11:10, the minute the
     # rollback fell inside, and not 11:11, the minute the verdict is read from:
     # when the rows returned is a fact about the service.
-    the_minute_the_rows_resumed = "2026-08-20T11:10:00Z"
+    the_minute_the_rows_resumed = to_iso_minute(ACTION_TIME)
 
     Scenario() \
         .given(
@@ -3195,13 +2828,6 @@ def _a_restarter_bringing_up(service: str) -> MagicMock:
     return restart
 
 
-def _a_restarter_that_cannot(failure: str) -> MagicMock:
-    restart: MagicMock = create_autospec(ServiceRestarter, instance=True)
-    restart.side_effect = RuntimeError(failure)
-
-    return restart
-
-
 def _a_flag_setter_changing_from(flag: str, was_enabled: bool) -> MagicMock:
     """Answers as the real `set_flag` does - with the descriptor that would put
     the change back."""
@@ -3239,6 +2865,16 @@ def _an_undo_that_restores(flag: str) -> MagicMock:
     undo: MagicMock = create_autospec(UndoChange, instance=True)
     undo.return_value = UndoAttempt(
         subject=flag, outcome=Undone.RESTORED, detail=f"flag [{flag}] was put back"
+    )
+
+    return undo
+
+
+def _an_undo_answering(outcome: Undone) -> MagicMock:
+    """An undo that found this, about a change whose subject nothing reads."""
+    undo: MagicMock = create_autospec(UndoChange, instance=True)
+    undo.return_value = UndoAttempt(
+        subject=DONT_CARE_FLAG, outcome=outcome, detail="dont care what it found"
     )
 
     return undo
@@ -3335,119 +2971,6 @@ def _the_verdict_matches(other: Outcome) -> Assertion[Outcome]:
     return assertion
 
 
-def _the_service_restarted_was(restart: MagicMock, service: str) -> Assertion[Outcome]:
-    def assertion(dont_care_outcome: Outcome) -> bool:
-        restarted = restart.call_args.args[0] if restart.call_args else None
-        if restarted != service:
-            raise AssertionError(
-                f"Expected [{service}] to be restarted, and [{restarted}] was."
-            )
-
-        return True
-
-    return assertion
-
-
-@pytest.mark.unit
-def test_a_discard_reports_the_count_the_store_gave_back() -> None:
-    # The figure is the store's, and that is the whole reason this action can be
-    # judged by its own answer. Three keys were named and the store found two of
-    # them: an entry something else had already discarded is an entry absent,
-    # which is what the incident needed - so two is honest and three would be a
-    # number Argus made up about a world it had not looked at.
-    #
-    # Bracketed, as every figure a detail quotes is, so the assertion cannot be
-    # satisfied by a digit that happens to fall in some other part of the line.
-    some_keys = (
-        "io-shop:summary:shopper-3",
-        "io-shop:summary:shopper-7",
-        "io-shop:summary:shopper-9"
-    )
-
-    Scenario() \
-        .given(
-            the_store_found_two_of_them := a_discard_removing(2)
-        ) \
-        .when(
-            lambda: take_action(
-                _a_discard_of(SOME_APPLICATION, some_keys),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(discard=the_store_found_two_of_them),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(all_of(
-            _the_detail_mentions("[2]"),
-            _the_detail_does_not_mention("[3]")
-        ))
-
-
-@pytest.mark.unit
-def test_a_discard_leaves_nothing_to_put_back() -> None:
-    # The only action here that changes something persistent and still owes no
-    # undo, and the distinction is worth pinning because the other two silences
-    # mean different things. A restart records no descriptor because it changed
-    # nothing to record; a rollback records one because what it replaced is
-    # worth restoring. This changed something and there is nothing to restore:
-    # the entries were a copy of records it never touched, so writing the old
-    # figures back would be recreating the incident.
-    Scenario() \
-        .given(
-            the_store_found_them_all := a_discard_removing(1)
-        ) \
-        .when(
-            lambda: take_action(
-                _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(discard=the_store_found_them_all),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(
-            _there_is_nothing_to_put_back()
-        )
-
-
-@pytest.mark.unit
-def test_a_discard_argus_declines_to_repeat_is_named_as_a_discard() -> None:
-    # What the walk says it would have done, for an action it will not take
-    # again. Said as discarding stale cached figures rather than as deleting or
-    # clearing anything: what is removed is a copy, the records behind it are
-    # untouched, and a verb suggesting otherwise would describe an action a
-    # reader should be alarmed by.
-    Scenario() \
-        .given(
-            nothing_is_left_to_remove := _a_discarder_with_nothing_left_to_remove(
-                THE_ENTRIES_ARE_ALREADY_GONE
-            )
-        ) \
-        .when(
-            lambda: take_action(
-                _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
-                settings=_some_mitigation_settings(),
-                thresholds=_some_thresholds(),
-                writes=the_writes(discard=nothing_is_left_to_remove),
-                fetch_metrics=metrics_reading(a_recovered_window()),
-                now=a_clock_frozen_at(ACTION_TIME),
-                sleep=dont_care_sleep,
-                undo=an_undo_nobody_calls()
-            )
-        ) \
-        .then(
-            _the_detail_mentions(
-                f"discard [{SOME_APPLICATION}]'s stale cached figures"
-            )
-        )
-
-
 @pytest.mark.unit
 def test_a_discard_is_confirmed_by_its_receipt_where_no_series_ever_moved() -> None:
     # The third way an attempt is settled, and the only one available here. No
@@ -3462,7 +2985,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_no_series_ever_moved() -> N
 
     Scenario() \
         .given(
-            the_store_found_both_of_them := a_discard_removing(2)
+            the_store_found_both_of_them := a_discard_removing(len(some_keys))
         ) \
         .when(
             lambda: take_action(
@@ -3501,7 +3024,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_nothing_is_published() -> N
 
     Scenario() \
         .given(
-            the_store_found_both_of_them := a_discard_removing(2)
+            the_store_found_both_of_them := a_discard_removing(len(some_keys))
         ) \
         .when(
             lambda: take_action(
@@ -3582,6 +3105,8 @@ def test_a_refuted_discard_puts_nothing_back_and_says_no_undo_was_owed() -> None
     # departed. A discard is settled by its own answer only where no series ever
     # moved; where one moved and did not come back, the discard is an
     # explanation the evidence has not borne out, like any other.
+    dont_care_count = 1
+
     Scenario() \
         .given(
             nothing_was_put_back := an_undo_nobody_calls()
@@ -3591,7 +3116,7 @@ def test_a_refuted_discard_puts_nothing_back_and_says_no_undo_was_owed() -> None
                 _a_discard_of(SOME_APPLICATION, ("io-shop:summary:shopper-3",)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
-                writes=the_writes(discard=a_discard_removing(1)),
+                writes=the_writes(discard=a_discard_removing(dont_care_count)),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
@@ -3645,6 +3170,8 @@ def test_a_verdict_reached_on_the_actions_own_receipt_announces_no_wait() -> Non
     # reads no minute to do it. Announced, the page said it was waiting "from
     # 15:04 - up to 104s" and gave the verdict 44 ms later, judged from no minute
     # at all.
+    dont_care_count = 1
+
     Scenario() \
         .given(
             published := _a_page_listening()
@@ -3655,7 +3182,7 @@ def test_a_verdict_reached_on_the_actions_own_receipt_announces_no_wait() -> Non
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
-                writes=the_writes(discard=a_discard_removing(1)),
+                writes=the_writes(discard=a_discard_removing(dont_care_count)),
                 fetch_metrics=metrics_reading([]),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
                 sleep=dont_care_sleep,
@@ -3726,6 +3253,104 @@ def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
             _the_detail_does_not_mention("baseline"),
             _the_reason_is("the service was no longer at the incident's level")
         ))
+
+
+def _every_action_is(kind: ActionKind[Any]) -> KindOf:
+    """Whichever action is taken, this kind takes it - so a case about what
+    taking an action does with a kind need not depend on how a real one words
+    anything."""
+    def kinds(action: Action, /) -> ActionKind[Any]:
+        return kind
+
+    return kinds
+
+
+def _every_change_is(kind: UndoableKind[Any]) -> UndoingKindOf:
+    """Whichever change was made, this kind puts it back - `_every_action_is`,
+    for the other seam."""
+    def undoing_kinds(descriptor: UndoDescriptor, /) -> UndoableKind[Any]:
+        return kind
+
+    return undoing_kinds
+
+
+def _a_kind_that_did(said: str, undo_descriptor: UndoDescriptor | None) -> MagicMock:
+    """A kind whose write went through, answering with these words for it."""
+    kind: MagicMock = create_autospec(ActionKind, instance=True)
+    kind.perform.return_value = Performed(said=said, undo_descriptor=undo_descriptor)
+
+    return kind
+
+
+def _a_kind_putting_it_back_as(ending: str) -> MagicMock:
+    """A kind that ends the sentence of a change put back with these words."""
+    kind: MagicMock = create_autospec(UndoableKind, instance=True)
+    kind.put_back_as.return_value = ending
+
+    return kind
+
+
+def _a_kind_that_cannot(failure: Exception, intent: str) -> MagicMock:
+    """A kind whose write raised `failure`, as the tier raised it, and these words
+    for what it would have done."""
+    kind: MagicMock = create_autospec(ActionKind, instance=True)
+    kind.perform.side_effect = failure
+    kind.intent.return_value = intent
+
+    return kind
+
+
+def _the_kind_performed(kind: MagicMock,
+                        action: Action,
+                        writes: PerformingWrites) -> Assertion[Outcome]:
+    def assertion(dont_care_outcome: Outcome) -> bool:
+        if kind.perform.call_args_list != [call(action, writes)]:
+            raise AssertionError(
+                f"Expected the kind to perform [{action}] once over the writes it "
+                f"was handed, got {kind.perform.call_args_list}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_kind_was_asked_how_it_put_back(kind: MagicMock,
+                                        undo_descriptor: UndoDescriptor) -> Assertion[Outcome]:
+    def assertion(dont_care_outcome: Outcome) -> bool:
+        if kind.put_back_as.call_args_list != [call(undo_descriptor)]:
+            raise AssertionError(
+                f"Expected the kind to be asked once how [{undo_descriptor}] was put "
+                f"back, got {kind.put_back_as.call_args_list}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_detail_opens_with(expected: str) -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if not outcome.detail.startswith(expected):
+            raise AssertionError(
+                f"Expected the detail to open with [{expected}], got [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_detail_closes_with(expected: str) -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if not outcome.detail.endswith(expected):
+            raise AssertionError(
+                f"Expected the detail to close with [{expected}], got [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _there_is_nothing_to_put_back() -> Assertion[Outcome]:
@@ -4217,19 +3842,6 @@ def _a_rollback_descriptor_for(application: str,
     )
 
 
-def _a_roller_nobody_calls() -> MagicMock:
-    """The third write, wired but not exercised.
-
-    Every case here has to supply one because the collaborator is required -
-    an agent that could be built without a way to perform an action it may
-    propose is an agent that discovers it at the worst moment - and most cases
-    are about a different kind of action entirely.
-    """
-    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
-
-    return roll_back
-
-
 def _a_roller_returning(application: str) -> MagicMock:
     """Answers as the real roller does - with the descriptor recording both
     things it changed.
@@ -4284,124 +3896,8 @@ def _a_pinner_that_cannot_reach_the_platform(failure: str) -> MagicMock:
     return pin
 
 
-def _the_scale_out_asked_for(scale_out: MagicMock,
-                             application: str) -> Assertion[Outcome]:
-    def assertion(dont_care_outcome: Outcome) -> bool:
-        asked = scale_out.call_args.args if scale_out.call_args else ()
-
-        if asked != (application,):
-            raise AssertionError(
-                f"Expected a scale-out of [{application}] and nothing else, and "
-                f"it asked for {asked}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_carries_the_count_to_put_back(replicas: int) -> Assertion[Outcome]:
-    def assertion(outcome: Outcome) -> bool:
-        descriptor = outcome.undo_descriptor
-
-        if not isinstance(descriptor, ReplicaUndo):
-            raise AssertionError(
-                f"Expected the outcome to carry the count a withdrawal would put "
-                f"back, and it carried [{descriptor}]."
-            )
-
-        if descriptor.was_replicas != replicas:
-            raise AssertionError(
-                f"Expected the way back to name [{replicas}] replicas, and it "
-                f"named [{descriptor.was_replicas}]."
-            )
-
-        return True
-
-    return assertion
-
-
 def _a_scale_out_of(application: str) -> ScaleOut:
     return ScaleOut(application=application)
-
-
-def _a_replica_descriptor_for(
-    application: str,
-    was_replicas: int = SOME_COUNT_IT_WAS_RUNNING
-) -> ReplicaUndo:
-    return ReplicaUndo(
-        application=application,
-        was_replicas=was_replicas,
-        was_syncing_itself=True
-    )
-
-
-def _a_scaler_returning(application: str,
-                        was_replicas: int = SOME_COUNT_IT_WAS_RUNNING) -> MagicMock:
-    """Answers as the real scaler does - with the descriptor recording both
-    things it changed.
-
-    Both, because making a deployment larger means suspending the platform's own
-    reconciliation first: it would otherwise put the count back to whatever the
-    repository holds at its next sync, which is the size that was too small.
-    """
-    scale_out: MagicMock = create_autospec(DeploymentScaler, instance=True)
-    scale_out.return_value = _a_replica_descriptor_for(application, was_replicas)
-
-    return scale_out
-
-
-def _a_scaler_that_cannot(failure: str) -> MagicMock:
-    scale_out: MagicMock = create_autospec(DeploymentScaler, instance=True)
-    scale_out.side_effect = RuntimeError(failure)
-
-    return scale_out
-
-
-def _an_undo_that_puts_the_count_back(application: str) -> MagicMock:
-    undo: MagicMock = create_autospec(UndoChange, instance=True)
-    undo.return_value = UndoAttempt(
-        subject=application,
-        outcome=Undone.RESTORED,
-        detail=f"[{application}] was put back to its size and its sync policy"
-    )
-
-    return undo
-
-
-def _the_rollback_asked_for(roll_back: MagicMock,
-                            application: str) -> Assertion[Outcome]:
-    """Named by application alone.
-
-    Which entry to return to is the platform's to resolve - the immediately
-    preceding deployment - because nothing here holds a deployment history to
-    choose from.
-    """
-    def assertion(dont_care_outcome: Outcome) -> bool:
-        asked = roll_back.call_args.args if roll_back.call_args else ()
-
-        if asked != (application,):
-            raise AssertionError(
-                f"Expected a rollback of [{application}], and it asked for "
-                f"{asked}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_carries_a_way_back() -> Assertion[Outcome]:
-    def assertion(outcome: Outcome) -> bool:
-        if outcome.undo_descriptor is None:
-            raise AssertionError(
-                "Expected the outcome to carry the way back the rollback left, "
-                "and it carried none."
-            )
-
-        return True
-
-    return assertion
 
 
 def _it_carries_nothing_to_put_back() -> Assertion[Outcome]:
@@ -4447,84 +3943,6 @@ def _a_pinner_with_no_room_left(refusal: str) -> MagicMock:
     pin.side_effect = ActionExhausted(an_exhausted_action(refusal))
 
     return pin
-
-
-def _a_pinner_that_cannot(failure: str) -> MagicMock:
-    """Answers as the tier does when the patch itself was refused.
-
-    Unmarked, which is the whole of what it stands for: the same tier raises both,
-    and only the refusal that changed nothing carries the marker. This one can fire
-    after reconciliation was already suspended, so nobody can say what state the
-    estate is in.
-    """
-    pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
-    pin.side_effect = McpToolError(failure)
-
-    return pin
-
-
-def _a_pinner_holding_it_at(application: str, floor_asked_for: int,
-                            was_min_replicas: int = SOME_FLOOR_IT_COULD_FALL_TO) -> MagicMock:
-    """Answers as the tier does when the pin went through.
-
-    Both floors on the descriptor, because both are what the tier knew: the one the
-    controller had, and the one it was actually asked for - which is the smaller of
-    the declared ceiling and Argus's own cap, and so is not reconstructible from
-    either.
-    """
-    pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
-    pin.return_value = AutoscalerUndo(
-        application=application,
-        was_min_replicas=was_min_replicas,
-        min_replicas_asked_for=floor_asked_for,
-        was_syncing_itself=True
-    )
-
-    return pin
-
-
-def _a_pin_to(card: str) -> PinToAccelerator:
-    return PinToAccelerator(application=SOME_APPLICATION, accelerator=card)
-
-
-def _a_card_pinner_moving(was_pinned_to: str | None) -> MagicMock:
-    """Answers as the tier does when the pin went through, recording the card
-    the pods were held to before - `None` where they were held to none."""
-    pin: MagicMock = create_autospec(AcceleratorPinner, instance=True)
-    pin.return_value = AcceleratorPinUndo(
-        application=SOME_APPLICATION,
-        was_pinned_to=was_pinned_to,
-        pinned_to=THE_FLEETS_CARD,
-        was_syncing_itself=True
-    )
-
-    return pin
-
-
-def _a_card_pinner_with_nothing_to_move(refusal: str) -> MagicMock:
-    """Answers as the tier does when the deployment is already on the card -
-    marked the way the tier marks it, as `_a_pinner_with_no_room_left` is."""
-    pin: MagicMock = create_autospec(AcceleratorPinner, instance=True)
-    pin.side_effect = ActionExhausted(an_exhausted_action(refusal))
-
-    return pin
-
-
-def _the_card_pin_asked_for(pin: MagicMock,
-                            application: str,
-                            card: str) -> Assertion[Outcome]:
-    def assertion(dont_care_outcome: Outcome) -> bool:
-        asked = pin.call_args.args if pin.call_args else ()
-
-        if asked != (application, card):
-            raise AssertionError(
-                f"Expected [{application}] to be held to [{card}], and the tier "
-                f"was asked {asked}."
-            )
-
-        return True
-
-    return assertion
 
 
 def _a_roller_that_lost_the_platform_mid_action(failure: str) -> MagicMock:
@@ -4795,19 +4213,6 @@ def _a_discard_of(service: str, keys: tuple[str, ...]) -> DiscardCacheEntries:
     return DiscardCacheEntries(service=service, keys=keys)
 
 
-def _a_discarder_with_nothing_left_to_remove(refusal: str) -> MagicMock:
-    """Answers as the tier does when the action has nothing further to do.
-
-    `ActionExhausted` for the reason the pin's stand-in raises it: that is what
-    the transport raises when a tool's refusal carries the marker, and a case
-    raising anything else would exercise a failure production cannot produce.
-    """
-    discard: MagicMock = create_autospec(CacheEntryDiscarder, instance=True)
-    discard.side_effect = ActionExhausted(an_exhausted_action(refusal))
-
-    return discard
-
-
 def _the_verdict_is_not(forbidden: Verdict) -> Assertion[Outcome]:
     """Any verdict but this one.
 
@@ -4837,7 +4242,7 @@ def test_a_rule_that_stopped_firing_after_the_action_confirms_it() -> None:
     Scenario() \
         .given(
             the_rule_resolved := _a_rule_reading(_a_rule_standing(
-                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
             ))
         ) \
         .when(
@@ -4864,7 +4269,7 @@ def test_a_rule_still_firing_when_the_time_runs_out_refutes_the_action() -> None
     Scenario() \
         .given(
             the_rule_still_fires := _a_rule_reading(_a_rule_standing(
-                is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                is_normal=False, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
             ))
         ) \
         .when(
@@ -4894,7 +4299,7 @@ def test_a_rule_evaluated_only_over_minutes_before_the_action_reaches_no_verdict
     Scenario() \
         .given(
             the_rule_judged_nothing_since := _a_rule_reading(_a_rule_standing(
-                is_normal=is_normal, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+                is_normal=is_normal, evaluated_at=_AN_EVALUATION_OVER_THE_ACTIONS_MINUTE
             ))
         ) \
         .when(
@@ -4918,29 +4323,40 @@ def test_the_wait_is_read_off_the_rule() -> None:
     # so the wait runs to the next one, 330 seconds. Watched that long rather than
     # for the configured wait - still firing at 200 seconds is looked at again,
     # and refuted at 330.
+    some_range_seconds = 2 * _A_MINUTE_IN_SECONDS
+    some_keep_firing_for_seconds = _A_MINUTE_IN_SECONDS // 2
+    some_lag_minutes = 1
+    # The four terms land on 11:15:00, which is itself an evaluation, so the wait
+    # runs to the one after it.
+    the_terms_end_at = ACTION_TIME + timedelta(
+        seconds=some_range_seconds + _A_MINUTE_IN_SECONDS + some_keep_firing_for_seconds,
+        minutes=some_lag_minutes
+    )
+    the_wait = (the_terms_end_at + _A_MINUTE - ACTION_TIME).total_seconds()
+
     Scenario() \
         .given(
             published := _a_page_listening(),
             the_rule_still_fires := _a_rule_reading(_a_rule_standing(
                 is_normal=False,
-                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
-                range_seconds=120,
-                interval_seconds=60,
-                keep_firing_for_seconds=30
+                evaluated_at=_THE_EVALUATION_AFTER_THAT,
+                range_seconds=some_range_seconds,
+                interval_seconds=_A_MINUTE_IN_SECONDS,
+                keep_firing_for_seconds=some_keep_firing_for_seconds
             ))
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
                 the_rule_still_fires,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 200, 330),
+                clock=a_clock_reading_at(ACTION_TIME, _A_LOOK_PAST_THE_CONFIGURED_WAIT, the_wait),
                 publisher=published.append,
-                reporting_lag_minutes=1
+                reporting_lag_minutes=some_lag_minutes
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
-            _the_wait_allowed(published, 330),
+            _the_wait_allowed(published, the_wait),
             _each_look_reported(published, False, False)
         ))
 
@@ -4950,53 +4366,62 @@ def test_the_wait_ends_at_the_rules_next_evaluation_after_it() -> None:
     # The range and one evaluation take an action at 11:10:30 to 11:13:30, and the
     # rule evaluates on whole minutes - so the wait runs to 11:14:00, 210 seconds.
     # Still firing at 200 seconds is looked at again, and refuted at 210.
+    some_range_seconds = 2 * _A_MINUTE_IN_SECONDS
+    # The range and one evaluation end half way through a minute, so the wait
+    # runs to the whole minute after.
+    the_terms_end_at = ACTION_TIME + timedelta(seconds=some_range_seconds + _A_MINUTE_IN_SECONDS)
+    the_wait = (the_terms_end_at.replace(second=0) + _A_MINUTE - ACTION_TIME).total_seconds()
+
     Scenario() \
         .given(
             published := _a_page_listening(),
             the_rule_still_fires := _a_rule_reading(_a_rule_standing(
                 is_normal=False,
-                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
-                range_seconds=120
+                evaluated_at=_THE_EVALUATION_AFTER_THAT,
+                range_seconds=some_range_seconds
             ))
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
                 the_rule_still_fires,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 200, 210),
+                clock=a_clock_reading_at(ACTION_TIME, _A_LOOK_PAST_THE_CONFIGURED_WAIT, the_wait),
                 publisher=published.append
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
-            _the_wait_allowed(published, 210)
+            _the_wait_allowed(published, the_wait)
         ))
 
 
 @pytest.mark.unit
 def test_a_rule_with_no_interval_is_waited_on_without_being_carried_to_an_evaluation() -> None:
     # Nothing to carry the wait to, and no evaluation to add: the range alone, 120 seconds.
+    some_range_seconds = 2 * _A_MINUTE_IN_SECONDS
+    no_interval = 0
+
     Scenario() \
         .given(
             published := _a_page_listening(),
             the_rule_still_fires := _a_rule_reading(_a_rule_standing(
                 is_normal=False,
-                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
-                range_seconds=120,
-                interval_seconds=0
+                evaluated_at=_THE_EVALUATION_AFTER_THAT,
+                range_seconds=some_range_seconds,
+                interval_seconds=no_interval
             ))
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
                 the_rule_still_fires,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 120),
+                clock=a_clock_reading_at(ACTION_TIME, some_range_seconds),
                 publisher=published.append
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
-            _the_wait_allowed(published, 120)
+            _the_wait_allowed(published, some_range_seconds)
         ))
 
 
@@ -5004,13 +4429,15 @@ def test_a_rule_with_no_interval_is_waited_on_without_being_carried_to_an_evalua
 def test_a_rule_confirming_the_action_still_records_the_minute_the_metrics_date() -> None:
     # The rule decides the verdict, not the minute. When the service came back is
     # a fact the metrics hold, and the write-up reads it.
-    the_minute_it_came_back = "2026-08-20T11:08:00Z"
+    the_minute_it_came_back = _the_first_calm_minute_after_the_failure(
+        a_window_recovered_before_the_action()
+    )
 
     Scenario() \
         .given(
             published := _a_page_listening(),
             the_rule_resolved := _a_rule_reading(_a_rule_standing(
-                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
             ))
         ) \
         .when(
@@ -5058,7 +4485,7 @@ def test_a_window_that_never_departed_does_not_refute_an_action_the_rule_judges(
     Scenario() \
         .given(
             the_rule_resolved := _a_rule_reading(_a_rule_standing(
-                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
             ))
         ) \
         .when(
@@ -5081,7 +4508,7 @@ def test_metrics_that_cannot_be_read_do_not_keep_the_rule_from_judging() -> None
     Scenario() \
         .given(
             the_rule_resolved := _a_rule_reading(_a_rule_standing(
-                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
             ))
         ) \
         .when(
@@ -5119,7 +4546,7 @@ def test_the_service_is_re_read_for_the_rule_that_paged() -> None:
     Scenario() \
         .given(
             the_rule_resolved := _a_rule_reading(_a_rule_standing(
-                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
             ))
         ) \
         .when(
@@ -5153,18 +4580,17 @@ def test_a_rule_still_firing_is_read_again_until_it_stops() -> None:
             published := _a_page_listening(),
             the_rule_stops_firing := _a_rule_reading_in_turn(
                 _a_rule_standing(
-                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                    is_normal=False, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
                 ),
-                _a_rule_standing(
-                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC)
-                )
+                _a_rule_standing(is_normal=True, evaluated_at=_THE_EVALUATION_AFTER_THAT)
             )
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
                 the_rule_stops_firing,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 60, 120),
+                clock=a_clock_reading_at(ACTION_TIME, _A_MINUTE_IN_SECONDS,
+                                         2 * _A_MINUTE_IN_SECONDS),
                 publisher=published.append
             )
         ) \
@@ -5187,10 +4613,10 @@ def test_a_rule_evaluated_over_minutes_before_the_change_is_said_to_have_read_no
             published := _a_page_listening(),
             the_rule_stops_firing := _a_rule_reading_in_turn(
                 _a_rule_standing(
-                    is_normal=is_normal, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+                    is_normal=is_normal, evaluated_at=_AN_EVALUATION_OVER_THE_ACTIONS_MINUTE
                 ),
                 _a_rule_standing(
-                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                    is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
                 )
             )
         ) \
@@ -5198,7 +4624,8 @@ def test_a_rule_evaluated_over_minutes_before_the_change_is_said_to_have_read_no
             lambda: _an_action_judged_by_the_rule(
                 the_rule_stops_firing,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 60, 120),
+                clock=a_clock_reading_at(ACTION_TIME, _A_MINUTE_IN_SECONDS,
+                                         2 * _A_MINUTE_IN_SECONDS),
                 publisher=published.append
             )
         ) \
@@ -5241,20 +4668,32 @@ def test_a_change_arriving_as_a_minute_turns_is_watched_past_the_first_evaluatio
     # range has passed. A wait ending there left its looks a tenth of a second to
     # read that evaluation, the one look left read the evaluation before, and a
     # revert that had worked was put back.
-    just_after_a_minute = datetime(2026, 8, 20, 11, 10, 0, 100000, tzinfo=UTC)
+    a_tenth_of_a_second = timedelta(milliseconds=100)
+    just_after_a_minute = _THE_ACTIONS_MINUTE + a_tenth_of_a_second
+    some_range_seconds = 2 * _A_MINUTE_IN_SECONDS
+    # The evaluation whose range began a tenth of a second too early, and the
+    # first whose whole range followed the change - one interval later.
+    the_evaluation_that_just_misses_it = _THE_ACTIONS_MINUTE + timedelta(seconds=some_range_seconds)
+    the_first_evaluation_of_it = the_evaluation_that_just_misses_it + _A_MINUTE
+    # The first look lands two tenths after the range and one interval have
+    # passed since the change - the moment a wait ending there would have
+    # ended; two tenths is not a relation, only "just after".
+    a_look_just_after_the_old_deadline = (
+        some_range_seconds + _A_MINUTE_IN_SECONDS + 2 * a_tenth_of_a_second.total_seconds()
+    )
 
     Scenario() \
         .given(
             the_rule_judges_it_late := _a_rule_reading_in_turn(
                 _a_rule_standing(
                     is_normal=False,
-                    evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
-                    range_seconds=120
+                    evaluated_at=the_evaluation_that_just_misses_it,
+                    range_seconds=some_range_seconds
                 ),
                 _a_rule_standing(
                     is_normal=True,
-                    evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
-                    range_seconds=120
+                    evaluated_at=the_first_evaluation_of_it,
+                    range_seconds=some_range_seconds
                 )
             )
         ) \
@@ -5262,7 +4701,8 @@ def test_a_change_arriving_as_a_minute_turns_is_watched_past_the_first_evaluatio
             lambda: _an_action_judged_by_the_rule(
                 the_rule_judges_it_late,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(just_after_a_minute, 180.2, 200)
+                clock=a_clock_reading_at(just_after_a_minute, a_look_just_after_the_old_deadline,
+                                         _A_LOOK_PAST_THE_CONFIGURED_WAIT)
             )
         ) \
         .then(
@@ -5272,20 +4712,23 @@ def test_a_change_arriving_as_a_minute_turns_is_watched_past_the_first_evaluatio
 
 @pytest.mark.unit
 def test_a_rule_unreadable_at_first_is_judged_once_it_can_be_read() -> None:
+    # Two looks well inside the wait, the second reading the rule again.
+    some_seconds_between_looks = 10
+
     Scenario() \
         .given(
             the_rule_answers_late := _a_rule_reading_in_turn(
-                McpToolError("the rule could not be read"),
-                _a_rule_standing(
-                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
-                )
+                McpToolError(DONT_CARE_RULE_FAILURE),
+                _a_rule_standing(is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE)
             )
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
                 the_rule_answers_late,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 10, 20)
+                clock=a_clock_reading_at(
+                    ACTION_TIME, some_seconds_between_looks, 2 * some_seconds_between_looks
+                )
             )
         ) \
         .then(
@@ -5297,20 +4740,20 @@ def test_a_rule_unreadable_at_first_is_judged_once_it_can_be_read() -> None:
 def test_a_rule_read_firing_and_unreadable_at_its_deadline_refutes() -> None:
     # Unlike a rule never read: the last thing it said was that it was firing,
     # and the deadline it set has passed.
+    some_seconds_in = 10
+
     Scenario() \
         .given(
             the_rule_goes_quiet_firing := _a_rule_reading_in_turn(
-                _a_rule_standing(
-                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
-                ),
-                McpToolError("the rule could not be read")
+                _a_rule_standing(is_normal=False, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE),
+                McpToolError(DONT_CARE_RULE_FAILURE)
             )
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
                 the_rule_goes_quiet_firing,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 10, 3600)
+                clock=a_clock_reading_at(ACTION_TIME, some_seconds_in, _AN_HOUR_IN_SECONDS)
             )
         ) \
         .then(
@@ -5322,20 +4765,22 @@ def test_a_rule_read_firing_and_unreadable_at_its_deadline_refutes() -> None:
 def test_a_rule_unreadable_at_its_deadline_and_never_read_since_the_change_escalates() -> None:
     # Unlike a rule read firing since the change: the last thing it said was
     # about minutes from before it, so it never said the change had not helped.
+    some_seconds_in = 10
+
     Scenario() \
         .given(
             the_rule_goes_quiet_unjudged := _a_rule_reading_in_turn(
                 _a_rule_standing(
-                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+                    is_normal=False, evaluated_at=_AN_EVALUATION_OVER_THE_ACTIONS_MINUTE
                 ),
-                McpToolError("the rule could not be read")
+                McpToolError(DONT_CARE_RULE_FAILURE)
             )
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
                 the_rule_goes_quiet_unjudged,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 10, 3600)
+                clock=a_clock_reading_at(ACTION_TIME, some_seconds_in, _AN_HOUR_IN_SECONDS)
             )
         ) \
         .then(all_of(
@@ -5354,11 +4799,9 @@ def test_a_rule_read_answering_after_the_deadline_it_was_asked_before_is_read_ag
             the_reads := _ReadsThatTakeAnHour(ACTION_TIME),
             the_rule_answers_slowly := the_reads.reading_the_rule(
                 _a_rule_standing(
-                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                    is_normal=False, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
                 ),
-                _a_rule_standing(
-                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC)
-                )
+                _a_rule_standing(is_normal=True, evaluated_at=_THE_EVALUATION_AFTER_THAT)
             )
         ) \
         .when(
@@ -5379,10 +4822,8 @@ def test_a_rule_read_failing_after_the_deadline_it_was_asked_before_is_not_the_l
         .given(
             the_reads := _ReadsThatTakeAnHour(ACTION_TIME),
             the_rule_fails_slowly := the_reads.reading_the_rule(
-                McpToolError("the rule could not be read"),
-                _a_rule_standing(
-                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
-                )
+                McpToolError(DONT_CARE_RULE_FAILURE),
+                _a_rule_standing(is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE)
             )
         ) \
         .when(
@@ -5422,7 +4863,7 @@ def test_an_incident_withdrawn_while_its_rule_is_watched_is_withdrawn() -> None:
     Scenario() \
         .given(
             the_rule_still_fires := _a_rule_reading(_a_rule_standing(
-                is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                is_normal=False, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE
             ))
         ) \
         .when(
@@ -5483,19 +4924,25 @@ def test_an_action_on_an_alert_naming_no_rule_reads_no_rule() -> None:
 def test_the_rules_deadline_is_read_off_its_first_reading() -> None:
     # Read once, as the levels' deadline is: a rule whose range a later read
     # reported wider does not move the time the action was given.
+    some_seconds_in = 10
+    # Past the 150 seconds the first reading allows and inside what the wider
+    # one would; forty seconds past is not a relation, only "past it".
+    a_look_past_the_first_readings_deadline = 190
+    long_after_either_deadline = 2 * _AN_HOUR_IN_SECONDS
+
     Scenario() \
         .given(
             published := _a_page_listening(),
             the_rule_widens := _a_rule_reading_in_turn(
                 _a_rule_standing(
                     is_normal=False,
-                    evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
-                    range_seconds=60
+                    evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE,
+                    range_seconds=_A_MINUTE_IN_SECONDS
                 ),
                 _a_rule_standing(
                     is_normal=False,
-                    evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
-                    range_seconds=3600
+                    evaluated_at=_THE_EVALUATION_AFTER_THAT,
+                    range_seconds=_AN_HOUR_IN_SECONDS
                 )
             )
         ) \
@@ -5503,7 +4950,9 @@ def test_the_rules_deadline_is_read_off_its_first_reading() -> None:
             lambda: _an_action_judged_by_the_rule(
                 the_rule_widens,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 10, 190, 7200),
+                clock=a_clock_reading_at(ACTION_TIME, some_seconds_in,
+                                         a_look_past_the_first_readings_deadline,
+                                         long_after_either_deadline),
                 publisher=published.append
             )
         ) \
@@ -5556,8 +5005,8 @@ def _an_action_judged_by_the_rule(read_rule: RuleReader,
 
 def _a_rule_standing(is_normal: bool,
                      evaluated_at: datetime,
-                     range_seconds: int = 60,
-                     interval_seconds: int = 60,
+                     range_seconds: int = _A_MINUTE_IN_SECONDS,
+                     interval_seconds: int = _A_MINUTE_IN_SECONDS,
                      keep_firing_for_seconds: int = 0) -> AlertRuleStanding:
     return AlertRuleStanding(
         rule=SOME_RULE,
@@ -5579,7 +5028,7 @@ def _a_rule_reading(standing: AlertRuleStanding) -> RuleReader:
 
 def _a_rule_nobody_can_read() -> RuleReader:
     read = create_autospec(RuleReader)
-    read.side_effect = McpToolError("the rule could not be read")
+    read.side_effect = McpToolError(DONT_CARE_RULE_FAILURE)
 
     return cast(RuleReader, read)
 
@@ -5712,6 +5161,8 @@ def test_an_action_that_could_not_be_taken_is_logged_as_a_warning(
 ) -> None:
     # The broadest of the three refusals and the one most likely to be reached
     # by something nobody foresaw, so it carries the traceback.
+    dont_care_failure = "the provider could not be reached"
+
     Scenario() \
         .given(
             an_action := an_action_setting(DONT_CARE_FLAG, enabled=False)
@@ -5722,7 +5173,7 @@ def test_an_action_that_could_not_be_taken_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 writes=the_writes(set_state=_a_flag_setter_that_cannot_write(
-                    "the provider could not be reached"
+                    dont_care_failure
                 )),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -5907,13 +5358,12 @@ def test_an_undo_that_failed_is_logged_as_an_error(caplog: pytest.LogCaptureFixt
     # Production left changed for a cause that was not the cause, and somebody
     # has to go and put it back by hand.
     some_flag = "monthly-spend-feature"
+    dont_care_failure = "the provider refused the write"
 
     Scenario() \
         .given(
             an_action := an_action_setting(some_flag, enabled=False),
-            set_state := _a_flag_setter_that_cannot_put_it_back(
-                some_flag, "the provider refused the write"
-            )
+            set_state := _a_flag_setter_that_cannot_put_it_back(some_flag, dont_care_failure)
         ) \
         .when(
             lambda: take_action(

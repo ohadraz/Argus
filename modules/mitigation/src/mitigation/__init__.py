@@ -3,9 +3,10 @@
 Five modules carry the Mitigator behind one public name. `strategies.py` says which
 action answers which cause, `admitting.py` says which kinds Argus may take
 unasked, `actions.py` chooses one without touching anything, `trying.py`
-performs one and judges what the service did, and `undoing.py` puts a recorded
-change back. The split follows §13's gate: the Orchestrator has to be able to
-reach the choice, and the question of admission, without reaching the write.
+performs one and judges what the service did, and `kinds.py` holds what differs
+between kinds of action - the write, the words, the wait and the way back. The
+split follows §13's gate: the Orchestrator has to be able to reach the choice,
+and the question of admission, without reaching the write.
 `accelerators.py`, `attribution.py` and `binding.py` are what those five work
 with - which card a pin holds a deployment to, how Argus tells its own
 deployments from everybody else's, and where those capabilities are bound to the
@@ -16,10 +17,10 @@ What a caller running the Mitigator has to supply - the settings slice it behave
 by, the flag history it reads, whether the walk is still wanted - is named here;
 how those reach the provider is not, and stays inside.
 
-Three of those are built from a connection, and the three builders are doors for
+Several are built from a connection, and their `*_over` builders are doors for
 that reason: a caller hands over the client it holds to a tier and gets back the
-flag history, the metrics or the one write, without ever learning which tool
-answers or where that server is.
+flag history, the metrics, a rollout's progress or the writes, without ever
+learning which tool answers or where that server is.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from mitigation.admitting import (
     is_within_reach,
 )
 from mitigation.binding import an_undo_over
+from mitigation.kinds import arrival_of
 from mitigation.strategies import (
     MitigationStrategy,
     PinToAcceleratorStrategy,
@@ -68,13 +70,12 @@ from mitigation.tools import (
     fetch_recent_flag_changes,
     flag_changes_over,
     flag_setter_over,
-    how_a_change_arrives,
     performing_writes_over,
     recent_metrics_over,
+    rollout_progress_over,
     rules_read_over,
 )
 from mitigation.trying import ChangeMade, UndoChange, take_action
-from mitigation.undoing import undo_change
 
 __all__ = [
     "GENERIC_MITIGATIONS",
@@ -103,6 +104,7 @@ __all__ = [
     "Verdict",
     "an_undo_over",
     "argus_changed_flag_since",
+    "arrival_of",
     "deployment_restorer_over",
     "deployment_roller_over",
     "deployments_over",
@@ -110,15 +112,14 @@ __all__ = [
     "fetch_recent_flag_changes",
     "flag_changes_over",
     "flag_setter_over",
-    "how_a_change_arrives",
     "is_a_generic_mitigation",
     "is_within_reach",
     "performing_writes_over",
     "recent_metrics_over",
+    "rollout_progress_over",
     "rules_read_over",
     "propose_action",
     "take_action",
-    "undo_change",
     "why_no_mitigation_answers",
     "why_nothing_was_proposed"
 ]
