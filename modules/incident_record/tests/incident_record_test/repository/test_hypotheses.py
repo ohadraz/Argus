@@ -6,12 +6,12 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core import connect_from_env
 from core.models import Alert, Evidence, FailureMode, Hypothesis
 from incident_record.repository import hypotheses
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
 
@@ -265,7 +265,11 @@ def test_the_latest_hypothesis_for_an_incident_is_the_one_returned() -> None:
 
         Scenario() \
             .given(
-                calling(a_hypothesis_was_recorded(the_first_hypothesis))
+                calling(a_hypothesis_was_recorded(the_first_hypothesis)),
+                # Each round ends before the next begins, as it does in a walk:
+                # two rows from one transaction share their moment, and
+                # nothing then says which came later.
+                calling(conn.commit)
             ) \
             .when(
                 lambda: hypotheses.record(conn, the_second_hypothesis)
@@ -454,6 +458,57 @@ def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> Non
             ) \
             .then(
                 no_column_is_empty(conn, "hypothesis", "incident_id", incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_a_hypothesis_rolled_back_by_its_caller_leaves_none_recorded() -> None:
+    # Committing is the caller's. A candidate that committed on its own would
+    # stand after its caller rolled back, and a later walk would try what no
+    # investigation kept.
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        dont_care_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
+
+        Scenario() \
+            .given(
+                calling(written_and_rolled_back(
+                    conn, lambda: hypotheses.record(conn, dont_care_candidate)
+                ))
+            ) \
+            .when(
+                lambda: hypotheses.get_latest_by_incident(conn, incident_id)
+            ) \
+            .then(
+                _no_hypothesis_came_back()
+            )
+
+
+@pytest.mark.integration
+def test_an_outcome_rolled_back_by_its_caller_leaves_the_candidate_as_it_was() -> None:
+    # Committing is the caller's. An outcome that committed on its own would
+    # stand after its caller rolled back, and the candidate would read as tried
+    # by a walk that rolled its trying back.
+    dont_care_result = "refuted"
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        the_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
+
+        Scenario() \
+            .given(
+                calling(_a_hypothesis_was_recorded(conn, the_candidate)),
+                calling(written_and_rolled_back(
+                    conn, lambda: hypotheses.record_outcome(
+                        conn, the_candidate.id, tested=True, result=dont_care_result
+                    )
+                ))
+            ) \
+            .when(
+                lambda: hypotheses.get_latest_by_incident(conn, incident_id)
+            ) \
+            .then(
+                the_answer_was(the_candidate)
             )
 
 

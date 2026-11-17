@@ -1,11 +1,14 @@
-"""Where a connection to Argus's own database comes from, for a process that
-walks runs.
+"""Where a connection to Argus's own database comes from, and the transaction a
+caller holds on one.
 
 A worker's pool hands out connections to whatever inside a walk asks - a node, a
 repository, the checkpointer, a thread LangGraph started - and none of them knows
 which run it is writing for. The pool does: it fences every connection as it is
 handed out with the run the process holds at that moment, so a connection that
 held one run's fence and went back to the pool never carries it into the next.
+
+A unit of work is one connection and one transaction on it, committed once at
+its end by whoever opened it - or not at all, where anything inside it failed.
 """
 
 from __future__ import annotations
@@ -14,7 +17,15 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, calling
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    the_same_error_reached_the_caller,
+)
 from core import (
     DatabaseSettings,
     Fence,
@@ -22,6 +33,7 @@ from core import (
     connect_from_env,
     get_settings,
     open_pool,
+    unit_of_work,
 )
 from psycopg_pool import ConnectionPool
 
@@ -112,6 +124,70 @@ def test_a_pool_opened_for_a_caller_with_wants_of_its_own_meets_them(
             .then(
                 _the_answer_is(True)
             )
+
+
+@pytest.mark.integration
+def test_what_a_unit_of_work_wrote_is_seen_by_every_connection_once_it_ends(
+    a_clean_database: None
+) -> None:
+    # One commit, at the end, by whoever opened the unit - which is what lets
+    # everything written inside it leave committing alone.
+    some_reader = "some-reader"
+
+    def a_cursor_kept_in_one() -> None:
+        with unit_of_work(connect_from_env) as conn:
+            _a_cursor_kept_by(conn, some_reader)
+
+    Scenario() \
+        .when(
+            a_cursor_kept_in_one
+        ) \
+        .then(
+            _the_readers_seen_from_another_connection_are([some_reader])
+        )
+
+
+@pytest.mark.integration
+def test_a_unit_of_work_that_failed_leaves_nothing_it_wrote(a_clean_database: None) -> None:
+    # Whole or not at all: a failure part-way through rolls back every row
+    # written before it, and still reaches whoever opened the unit.
+    dont_care_reader = "dont-care-reader"
+    some_failure = RuntimeError("dont care")
+
+    def a_cursor_kept_and_then_a_failure() -> None:
+        with unit_of_work(connect_from_env) as conn:
+            _a_cursor_kept_by(conn, dont_care_reader)
+            raise some_failure
+
+    Scenario() \
+        .when(
+            attempting(a_cursor_kept_and_then_a_failure)
+        ) \
+        .then(all_of(
+            the_same_error_reached_the_caller(some_failure),
+            _the_readers_seen_from_another_connection_are([])
+        ))
+
+
+@pytest.mark.integration
+def test_a_unit_of_work_refuses_a_commit_made_inside_it(a_clean_database: None) -> None:
+    # The unit commits once, at its end. Something inside it committing on its
+    # own would make part of the unit permanent whatever became of the rest.
+    dont_care_reader = "dont-care-reader"
+
+    def a_cursor_kept_and_committed_inside_one() -> None:
+        with unit_of_work(connect_from_env) as conn:
+            _a_cursor_kept_by(conn, dont_care_reader)
+            conn.commit()
+
+    Scenario() \
+        .when(
+            attempting(a_cursor_kept_and_committed_inside_one)
+        ) \
+        .then(all_of(
+            an_error_was_raised(psycopg.ProgrammingError),
+            _the_readers_seen_from_another_connection_are([])
+        ))
 
 
 def _a_run_held_at(epoch: int) -> Fence:
@@ -242,6 +318,31 @@ def _the_answer_is(expected: bool) -> Assertion[Any]:
     def assertion(answer: Any) -> bool:
         if answer is not expected:
             raise AssertionError(f"Expected [{expected}], got [{answer}].")
+
+        return True
+
+    return assertion
+
+
+def _a_cursor_kept_by(conn: psycopg.Connection, reader: str) -> None:
+    """A row in a table nothing else in these tests writes, as `_a_write_on`'s
+    is - and left uncommitted, which is the unit of work's to do."""
+    conn.execute("INSERT INTO event_cursor (reader, seq) VALUES (%s, 0)", (reader,))
+
+
+def _the_readers_seen_from_another_connection_are(expected: list[str]) -> Assertion[Any]:
+    """Who keeps a cursor, asked on a connection of its own - so only what was
+    committed can be seen."""
+    def assertion(_result: Any) -> bool:
+        with connect_from_env() as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT reader FROM event_cursor ORDER BY reader")
+            seen = [reader for (reader,) in cursor.fetchall()]
+
+        if seen != expected:
+            raise AssertionError(
+                f"Expected the cursors seen from another connection to be kept by "
+                f"{expected}, got {seen}."
+            )
 
         return True
 

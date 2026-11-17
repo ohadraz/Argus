@@ -75,9 +75,8 @@ _A_RUN: Final = ("id, incident_id, state, claimed_by, leased_until, epoch, failu
 def enqueue(conn: psycopg.Connection, incident_id: str) -> str:
     """Puts one incident in line to be walked, and returns the run's id.
 
-    Committed here rather than left to the caller: the endpoint's whole promise
-    is that the run outlives the request, and a run still sitting in an
-    uncommitted transaction is a promise kept only until the process ends.
+    Committing is the caller's. The endpoint's whole promise is that the run
+    outlives the request, so it commits the run before it answers.
     """
     with conn.cursor() as cursor:
         cursor.execute(
@@ -86,7 +85,6 @@ def enqueue(conn: psycopg.Connection, incident_id: str) -> str:
         )
         row = cursor.fetchone()
         assert row is not None
-    conn.commit()
 
     return str(row[0])
 
@@ -134,7 +132,6 @@ def claim(conn: psycopg.Connection,
              RunState.RUNNING)
         )
         claimed = cursor.fetchone()
-    conn.commit()
 
     return claimed
 
@@ -160,7 +157,6 @@ def renew(conn: psycopg.Connection, held: Run, lease: timedelta) -> bool:
             (lease, held.id, held.epoch, RunState.RUNNING)
         )
         still_held = cursor.fetchone() is not None
-    conn.commit()
 
     return still_held
 

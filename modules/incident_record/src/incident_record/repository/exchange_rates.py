@@ -37,7 +37,6 @@ def record(conn: psycopg.Connection, rates: PublishedRates) -> None:
                 for currency, per_unit in rates.per_unit.items()
             ]
         )
-    conn.commit()
 
 
 def get_latest_for(conn: psycopg.Connection, base: str) -> PublishedRates | None:

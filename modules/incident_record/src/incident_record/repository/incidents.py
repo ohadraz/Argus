@@ -174,7 +174,6 @@ def withdraw(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> boo
             (IncidentStatus.WITHDRAWN, at, incident_id, withdrawable)
         )
         withdrawn = cursor.rowcount == 1
-    conn.commit()
 
     return withdrawn
 
@@ -201,8 +200,7 @@ def resolve(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool
     rewritten, and an end restamped here would put the document out of step
     with its own durations. An incident still running ends now.
 
-    Commits, as `withdraw` does: the caller is a door outside the walk, with no
-    transaction of its own for this to join.
+    Committing is the caller's, as `transition`'s is.
     """
     resolvable = [status for status in IncidentStatus if status.accepts_resolution()]
 
@@ -213,7 +211,6 @@ def resolve(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool
             (IncidentStatus.RESOLVED, at, incident_id, resolvable)
         )
         resolved = cursor.rowcount == 1
-    conn.commit()
 
     return resolved
 

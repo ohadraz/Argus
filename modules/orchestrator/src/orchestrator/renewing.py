@@ -14,7 +14,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import Final
 
-from core import Connections, in_real_time
+from core import Connections, in_real_time, unit_of_work
 from incident_record.repository import runs
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def keep_renewing(held: runs.Run,
 
     while not stopped(every):
         try:
-            with connections() as renewing_conn:
+            with unit_of_work(connections) as renewing_conn:
                 still_held = runs.renew(renewing_conn, held, lease)
         except Exception:
             # A thread of its own, outside the run's context, so the run is

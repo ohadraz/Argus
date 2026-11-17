@@ -23,7 +23,7 @@ from core import connect_from_env
 from core.models import PublishedRates
 from incident_record.repository import exchange_rates
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 
 SOME_BASE_CURRENCY = "usd"
 ANOTHER_BASE_CURRENCY = "gbp"
@@ -153,6 +153,25 @@ def test_a_days_rates_leave_no_column_of_their_rows_empty() -> None:
             .then(
                 no_column_is_empty(conn, "exchange_rate", "base", SOME_BASE_CURRENCY)
             )
+
+
+@pytest.mark.integration
+def test_a_days_rates_rolled_back_by_their_caller_leave_nothing_held() -> None:
+    # Committing is the caller's. A table that committed on its own would stand
+    # after its caller rolled back, and every conversion that day would read it.
+    what_was_published = _rates(SOME_BASE_CURRENCY,
+                                on=date.today(),
+                                per_unit={"eur": Decimal("0.85")})
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                calling(written_and_rolled_back(
+                    conn, lambda: exchange_rates.record(conn, what_was_published)
+                ))
+            ) \
+            .when(lambda: exchange_rates.get_latest_for(conn, SOME_BASE_CURRENCY)) \
+            .then(_no_rates_are_held())
 
 
 def _rates(base: str, on: date, per_unit: dict[str, Decimal]) -> PublishedRates:

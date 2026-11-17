@@ -6,12 +6,12 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core import connect_from_env, utc_now
 from core.models import Alert, ChannelReading, PostmortemLead, Standing
 from incident_record.repository import postmortems
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import (
     a_lead_weighed_as,
     a_postmortem_document,
@@ -189,6 +189,29 @@ def test_what_came_of_each_read_comes_back_as_it_was_written() -> None:
                 _the_stored_postmortem_read(conn, incident_id, (some_deploys_reading,
                                                                 some_flags_reading,
                                                                 some_logs_reading))
+            )
+
+
+@pytest.mark.integration
+def test_a_document_rolled_back_by_its_caller_leaves_none_recorded() -> None:
+    # Committing is the caller's. A document that committed on its own would
+    # stand after its caller rolled back, and the page would show a write-up no
+    # account says was written.
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(written_and_rolled_back(
+                    conn, lambda: postmortems.record(conn, incident_id, a_postmortem_document(),
+                                                     at=utc_now())
+                ))
+            ) \
+            .when(
+                lambda: postmortems.get_by_incident(conn, incident_id)
+            ) \
+            .then(
+                the_answer_was(None)
             )
 
 

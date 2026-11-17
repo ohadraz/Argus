@@ -226,6 +226,11 @@ def take_one_run(conn: psycopg.Connection,
     connections are fenced by it, and nobody's otherwise.
     """
     claimed = runs.claim(conn, claimed_by, lease)
+    # At once, and whether or not there was a run to take: a claim nobody else
+    # can see yet is a run a second worker takes as well, and an empty claim
+    # left open would hold this connection's transaction across the wait for
+    # the next one.
+    conn.commit()
 
     if claimed is None:
         return False

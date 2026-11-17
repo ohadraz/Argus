@@ -18,7 +18,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 import psycopg
-from core import Connections
+from core import Connections, unit_of_work
 from core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
 from core.models import Alert
 from core.replay import Recorder, ReplayEntry
@@ -105,7 +105,7 @@ def calls_into(connections: Connections) -> Recorder:
     """
 
     def record_call(entry: ReplayEntry) -> None:
-        with connections() as conn:
+        with unit_of_work(connections) as conn:
             replay.record(conn, entry)
 
     return record_call

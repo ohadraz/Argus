@@ -108,20 +108,24 @@ def test_renewing_stops_once_the_run_is_no_longer_held(
 
 
 def _a_run_claimed_with(conn: psycopg.Connection, lease: timedelta) -> runs.Run:
-    """An incident's run, claimed for `lease`."""
+    """An incident's run, claimed for `lease` - and committed, as a worker
+    commits its claim the moment it makes it."""
     incident_id = incidents.create(conn, Alert(service="kuki-service",
                                                alert_name="HighErrorRate"), at=utc_now())
     runs.enqueue(conn, incident_id)
     claimed = runs.claim(conn, "worker-holding-it", lease)
     assert claimed is not None
+    conn.commit()
 
     return claimed
 
 
 def _the_run_taken_back(conn: psycopg.Connection) -> runs.Run:
-    """The run claimed again by another worker, its lease having run out."""
+    """The run claimed again by another worker, its lease having run out - and
+    committed, as a worker commits its claim the moment it makes it."""
     claimed = runs.claim(conn, "worker-that-came-after", A_GENEROUS_LEASE)
     assert claimed is not None
+    conn.commit()
 
     return claimed
 

@@ -15,8 +15,8 @@ to write a row.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
 import psycopg
@@ -68,6 +68,26 @@ def open_pool(settings: DatabaseSettings,
         return ConnectionPool(settings.database_url, **pool)
 
     return FencedPool(settings.database_url, holding, **pool)
+
+
+@contextmanager
+def unit_of_work(connections: Connections) -> Iterator[psycopg.Connection]:
+    """One connection holding one transaction, committed when the block ends
+    and rolled back if it raises.
+
+    The caller's, never a repository's. A repository function writes and
+    leaves committing alone, so several of them can be one operation - an
+    incident and the run that walks it, a status and the line saying so - and
+    a failure part-way through undoes all of it rather than the half that came
+    after the last commit.
+
+    A transaction rather than the connection's own commit on leaving the block,
+    because inside one a `commit()` is refused: a write that tried to commit on
+    its own would make part of the unit permanent whatever became of the rest,
+    and the refusal says so at the first call rather than in production.
+    """
+    with connections() as conn, conn.transaction():
+        yield conn
 
 
 def connect(settings: DatabaseSettings) -> psycopg.Connection:

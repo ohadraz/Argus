@@ -45,7 +45,6 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                 hypothesis.result,
             ),
         )
-    conn.commit()
 
 
 def record_outcome(
@@ -70,7 +69,6 @@ def record_outcome(
             " WHERE id = %s",
             (tested, result, hypothesis_id),
         )
-    conn.commit()
 
 
 def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypothesis]:

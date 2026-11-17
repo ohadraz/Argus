@@ -90,7 +90,8 @@ def test_a_walk_withdrawn_before_it_started_announces_no_investigation(
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
-        incidents.withdraw(conn, incident_id, at=utc_now())  # commits, so the walk reads it back
+        incidents.withdraw(conn, incident_id, at=utc_now())
+        conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \
             .given(

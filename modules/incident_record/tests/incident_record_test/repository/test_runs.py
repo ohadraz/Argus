@@ -6,12 +6,12 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, attempting, calling
+from argus_testkit import Assertion, Scenario, all_of, attempting, calling, the_answer_was
 from core import Fence, connect_from_env, fence, utc_now, was_lost
 from core.models import Alert
 from incident_record.repository import incidents, runs
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 
 # Long enough that nothing in this test expires on its own: what is being
 # measured here is who gets the run, not what happens when a holder goes quiet.
@@ -361,7 +361,7 @@ def test_a_run_taken_back_once_its_claims_write_ended_refuses_that_claims_next_o
                 calling(the_holders_conn.commit)
             ) \
             .when(
-                lambda: (runs.claim(conn, "worker-that-came-after", A_GENEROUS_LEASE),
+                lambda: (_taken_back_by(conn, "worker-that-came-after"),
                          attempting(lambda: _a_write_on(the_holders_conn, held))())
             ) \
             .then(all_of(
@@ -774,6 +774,16 @@ def _a_write_left_open_for(conn: psycopg.Connection, held: runs.Run) -> None:
     _a_write_on(conn, held)
 
 
+def _taken_back_by(conn: psycopg.Connection, worker: str) -> runs.Run | None:
+    """The run claimed by `worker`, and committed at once, as a worker commits
+    its claim. Left open, the claim would make the paused holder's next write
+    wait on it instead of meeting it."""
+    claimed = runs.claim(conn, worker, A_GENEROUS_LEASE)
+    conn.commit()
+
+    return claimed
+
+
 def _a_write_on(conn: psycopg.Connection, held: runs.Run) -> None:
     conn.execute("UPDATE incident SET status = status WHERE id = %s", (held.incident_id,))
 
@@ -1105,6 +1115,79 @@ def test_a_failed_run_leaves_no_column_of_its_row_empty_but_its_lease() -> None:
             )
 
 
+@pytest.mark.integration
+def test_an_enqueueing_rolled_back_by_its_caller_leaves_nothing_in_line() -> None:
+    # Committing is the caller's. A run that committed on its own would stand
+    # after its caller rolled back, and a worker would walk an incident nothing
+    # asked it to.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := incidents.create(conn, dont_care_alert, at=utc_now()),
+                calling(written_and_rolled_back(
+                    conn, lambda: runs.enqueue(conn, incident_id)
+                ))
+            ) \
+            .when(
+                lambda: runs.get_unsettled_runs(conn)
+            ) \
+            .then(
+                _the_runs_are_for(set())
+            )
+
+
+@pytest.mark.integration
+def test_a_claim_rolled_back_by_its_caller_leaves_the_run_waiting() -> None:
+    # Committing is the caller's. A claim that committed on its own would stand
+    # after its caller rolled back: a run held by a worker that never took it,
+    # and kept from every other until its lease ran out.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_enqueued_run_for(conn, dont_care_alert),
+                the_waiting_run := runs.get_run_for_incident(conn, incident_id),
+                calling(written_and_rolled_back(
+                    conn, lambda: runs.claim(conn, "worker-whose-claim-was-rolled-back",
+                                             A_GENEROUS_LEASE)
+                ))
+            ) \
+            .when(
+                lambda: runs.get_run_for_incident(conn, incident_id)
+            ) \
+            .then(
+                the_answer_was(the_waiting_run)
+            )
+
+
+@pytest.mark.integration
+def test_a_renewal_rolled_back_by_its_caller_leaves_the_run_as_it_was() -> None:
+    # Committing is the caller's. A renewal that committed on its own would
+    # stand after its caller rolled back, and keep the run from the next worker
+    # on a lease its holder rolled back. Claimed with a lease already over, so a
+    # renewal that stood shows.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-still-walking-it", A_LEASE_ALREADY_OVER),
+                calling(written_and_rolled_back(
+                    conn, lambda: runs.renew(conn, held, A_GENEROUS_LEASE)
+                ))
+            ) \
+            .when(
+                lambda: runs.get(conn, held.id)
+            ) \
+            .then(
+                the_answer_was(held)
+            )
+
+
 def _an_enqueued_run_for(conn: psycopg.Connection, alert: Alert) -> str:
     """An incident with a run waiting to be walked - the state the webhook
     leaves behind, and the only state a worker has anything to do in."""
@@ -1115,18 +1198,22 @@ def _an_enqueued_run_for(conn: psycopg.Connection, alert: Alert) -> str:
 
 
 def _a_claimed_run_for(conn: psycopg.Connection, alert: Alert) -> runs.Run:
-    """An incident whose run a worker has taken and is walking."""
+    """An incident whose run a worker has taken and is walking - committed, as
+    a worker commits its claim the moment it makes it."""
     _an_enqueued_run_for(conn, alert)
     claimed = runs.claim(conn, "worker-that-took-it", A_GENEROUS_LEASE)
     assert claimed is not None
+    conn.commit()
 
     return claimed
 
 
 def _a_claim_by(conn: psycopg.Connection, worker: str, lease: timedelta) -> runs.Run:
-    """The oldest run waiting, claimed by `worker` for `lease`."""
+    """The oldest run waiting, claimed by `worker` for `lease` - and committed,
+    as a worker commits its claim the moment it makes it."""
     claimed = runs.claim(conn, worker, lease)
     assert claimed is not None
+    conn.commit()
 
     return claimed
 

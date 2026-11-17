@@ -99,7 +99,6 @@ def claim(
             ),
         )
         claimed = cursor.rowcount == 1
-    conn.commit()
 
     return claimed
 

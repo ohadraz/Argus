@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-from core import Connections, utc_now
+from core import Connections, unit_of_work, utc_now
 from core.models import ALERT_FIRING, Alert, IncidentStatus
 from core.telemetry import ARGUS_INCIDENT_ID
 
@@ -113,13 +113,12 @@ def start_incident(alert: Alert,
     # One instant for the row and the sentence opening its account, taken once.
     opened_at = utc_now()
 
-    with connections() as conn:
+    with unit_of_work(connections) as conn:
         incident_id = incidents.create(conn, alert, trace_context, at=opened_at)
         references.add(conn, incident_id, alert.references)
         acknowledge_alert(conn, incident_id, alert, publisher_for, at=opened_at)
-        conn.commit()
 
-    with connections() as conn:
+    with unit_of_work(connections) as conn:
         runs.enqueue(conn, incident_id)
 
     logger.info("incident opened", extra={

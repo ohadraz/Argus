@@ -6,12 +6,12 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, calling
 from core import connect_from_env, utc_now
 from core.models import Alert, ExecutiveSynopsisDocument, TitleCost
 from incident_record.repository import synopses
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
 
@@ -115,6 +115,28 @@ def test_an_incident_with_no_synopsis_has_none() -> None:
         incident_id = an_incident_created_for(conn, _an_alert())
 
         Scenario() \
+            .when(
+                lambda: synopses.get_by_incident(conn, incident_id)
+            ) \
+            .then(
+                _nothing()
+            )
+
+
+@pytest.mark.integration
+def test_a_synopsis_rolled_back_by_its_caller_leaves_none_recorded() -> None:
+    # Committing is the caller's. A synopsis that committed on its own would
+    # stand after its caller rolled back, and the incident would hold an
+    # overview no account says was written.
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(written_and_rolled_back(
+                    conn, lambda: synopses.record(conn, incident_id, _a_synopsis(), at=utc_now())
+                ))
+            ) \
             .when(
                 lambda: synopses.get_by_incident(conn, incident_id)
             ) \

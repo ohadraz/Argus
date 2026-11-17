@@ -34,7 +34,7 @@ from core.config import (
     get_settings,
 )
 from core.days import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
-from core.db import Connections, connect, connect_from_env, open_pool
+from core.db import Connections, connect, connect_from_env, open_pool, unit_of_work
 from core.fencing import Fence, Holding, RunLost, fence, was_lost
 from core.ids import UuidStr, new_id
 from core.levels import (
@@ -97,6 +97,7 @@ __all__ = [
     "the_revision_named",
     "to_iso",
     "to_iso_minute",
+    "unit_of_work",
     "utc_now",
     "was_lost"
 ]

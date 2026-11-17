@@ -6,12 +6,12 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core import connect_from_env, utc_now
 from core.models import ALERT_FIRING, Alert, Incident, IncidentStatus, Reference
 from incident_record.repository import incidents, references
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
 
@@ -916,6 +916,54 @@ def test_a_name_no_incident_holds_finds_nothing() -> None:
             ) \
             .then(
                 _nothing_came_back()
+            )
+
+
+@pytest.mark.integration
+def test_a_withdrawal_rolled_back_by_its_caller_leaves_the_incident_as_it_was() -> None:
+    # Committing is the caller's. A withdrawal that committed on its own would
+    # stand after its caller rolled back: an incident ended, and no account of
+    # it saying so.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, dont_care_alert),
+                as_it_was := incidents.get(conn, incident_id),
+                calling(written_and_rolled_back(
+                    conn, lambda: incidents.withdraw(conn, incident_id, at=utc_now())
+                ))
+            ) \
+            .when(
+                lambda: incidents.get(conn, incident_id)
+            ) \
+            .then(
+                the_answer_was(as_it_was)
+            )
+
+
+@pytest.mark.integration
+def test_a_resolution_rolled_back_by_its_caller_leaves_the_incident_as_it_was() -> None:
+    # Committing is the caller's. A resolution that committed on its own would
+    # stand after its caller rolled back: an incident reported over, and no
+    # account of it saying so.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, dont_care_alert),
+                as_it_was := incidents.get(conn, incident_id),
+                calling(written_and_rolled_back(
+                    conn, lambda: incidents.resolve(conn, incident_id, at=utc_now())
+                ))
+            ) \
+            .when(
+                lambda: incidents.get(conn, incident_id)
+            ) \
+            .then(
+                the_answer_was(as_it_was)
             )
 
 

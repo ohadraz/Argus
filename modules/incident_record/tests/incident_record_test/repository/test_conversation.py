@@ -36,6 +36,7 @@ from core.models import (
 from incident_record.repository import conversation
 from pydantic import ValidationError
 
+from incident_record_test.framework import written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
 SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
@@ -332,6 +333,117 @@ def test_no_more_messages_nobody_has_understood_are_found_than_were_asked_for() 
             ) \
             .when(lambda: conversation.get_not_understood(conn, 1)) \
             .then(_the_messages_found_are([the_earliest]))
+
+
+@pytest.mark.integration
+def test_a_meaning_rolled_back_by_its_caller_leaves_the_message_as_it_was() -> None:
+    # Committing is the caller's. A meaning that committed on its own would
+    # stand after its caller rolled back, and a message that has a meaning is
+    # one the intent reader never reads again.
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+        written = _a_message_in(some_incident, SOME_WORDS)
+
+        Scenario() \
+            .given(
+                calling(lambda: conversation.write(conn, written)),
+                calling(written_and_rolled_back(
+                    conn, lambda: conversation.understood(conn, SOME_MESSAGE, Meaning.INFORMATION)
+                ))
+            ) \
+            .when(lambda: conversation.get(conn, SOME_MESSAGE)) \
+            .then(_the_message_found_is(written))
+
+
+@pytest.mark.integration
+def test_a_name_rolled_back_by_its_caller_leaves_the_message_as_it_was() -> None:
+    # Committing is the caller's. A name that committed on its own would stand
+    # after its caller rolled back, and an ending could be credited under it.
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+        written = _a_message_in(some_incident, SOME_WORDS)
+
+        Scenario() \
+            .given(
+                calling(lambda: conversation.write(conn, written)),
+                calling(written_and_rolled_back(
+                    conn, lambda: conversation.named(conn, SOME_MESSAGE, SOME_NAME)
+                ))
+            ) \
+            .when(lambda: conversation.get(conn, SOME_MESSAGE)) \
+            .then(_the_message_found_is(written))
+
+
+@pytest.mark.integration
+def test_an_offer_rolled_back_by_its_caller_leaves_the_message_as_it_was() -> None:
+    # Committing is the caller's. An offer that committed on its own would
+    # stand after its caller rolled back, and a press could confirm an ending
+    # the caller rolled back.
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+        written = _a_message_in(some_incident, SOME_WORDS)
+
+        Scenario() \
+            .given(
+                calling(lambda: conversation.write(conn, written)),
+                calling(lambda: conversation.understood(conn, SOME_MESSAGE, Meaning.RESOLVE)),
+                calling(written_and_rolled_back(
+                    conn, lambda: conversation.offered(conn, SOME_MESSAGE, IncidentStatus.RESOLVED)
+                ))
+            ) \
+            .when(lambda: conversation.get(conn, SOME_MESSAGE)) \
+            .then(_the_message_found_is(written.model_copy(update={
+                "meaning": Meaning.RESOLVE
+            })))
+
+
+@pytest.mark.integration
+def test_an_expiry_rolled_back_by_its_caller_leaves_the_message_as_it_was() -> None:
+    # Committing is the caller's. An expiry that committed on its own would
+    # stand after its caller rolled back, and refuse a press on an offer the
+    # caller left open.
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+        written = _a_message_in(some_incident, SOME_WORDS)
+
+        Scenario() \
+            .given(
+                calling(lambda: conversation.write(conn, written)),
+                calling(lambda: conversation.understood(conn, SOME_MESSAGE, Meaning.RESOLVE)),
+                calling(lambda: conversation.offered(conn, SOME_MESSAGE, IncidentStatus.RESOLVED)),
+                calling(written_and_rolled_back(
+                    conn, lambda: conversation.expired(conn, SOME_MESSAGE)
+                ))
+            ) \
+            .when(lambda: conversation.get(conn, SOME_MESSAGE)) \
+            .then(_the_message_found_is(written.model_copy(update={
+                "meaning": Meaning.RESOLVE,
+                "offer": Offer(ending=IncidentStatus.RESOLVED)
+            })))
+
+
+@pytest.mark.integration
+def test_a_weighing_rolled_back_by_its_caller_leaves_the_message_as_it_was() -> None:
+    # Committing is the caller's. A weighing that committed on its own would
+    # stand after its caller rolled back, and Code-Fix and the postmortem would
+    # be handed a standing the walk rolled back.
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+        written = _a_message_in(some_incident, SOME_WORDS)
+        dont_care_weighing = Weighing(standing=Standing.SUPPORTED, reason="dont care")
+
+        Scenario() \
+            .given(
+                calling(lambda: conversation.write(conn, written)),
+                calling(lambda: conversation.understood(conn, SOME_MESSAGE, Meaning.INFORMATION)),
+                calling(written_and_rolled_back(
+                    conn, lambda: conversation.weighed(conn, SOME_MESSAGE, dont_care_weighing)
+                ))
+            ) \
+            .when(lambda: conversation.get(conn, SOME_MESSAGE)) \
+            .then(_the_message_found_is(written.model_copy(update={
+                "meaning": Meaning.INFORMATION
+            })))
 
 
 def _an_alert() -> Alert:

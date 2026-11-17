@@ -460,9 +460,52 @@ def _the_suites_use_the_front_doors(doors: dict[str, set[str]]) -> None:
         sys.exit(1)
 
 
+def _the_commits_in(path: Path) -> list[int]:
+    """The line of every `.commit(` call in this file."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return []  # not this guard's complaint; ruff and mypy both say so first
+
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "commit"
+    ]
+
+
+def _no_repository_commits() -> None:
+    """Refuses a repository function that commits.
+
+    A transaction belongs to whoever opened it (`core.unit_of_work`). A
+    repository that commits ends its caller's unit part-way through, so a
+    failure after it undoes only the half that came later - and inside a
+    transaction block the commit is refused outright, so the function can
+    never be part of a larger operation at all.
+    """
+    commits = [
+        (path, lineno)
+        for path in sorted(MODULES.glob("*/src/**/repository/**/*.py"))
+        for lineno in _the_commits_in(path)
+    ]
+
+    if commits:
+        print(
+            "these repository functions commit, which is their caller's to do:\n"
+            + "\n".join(
+                f"  {path.relative_to(REPOSITORY).as_posix()}:{lineno}"
+                for path, lineno in commits
+            ),
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
 def main() -> None:
-    """Checks the graph is whole, the suites behave and the walk reaches no
-    unfenced store, then runs every contract.
+    """Checks the graph is whole, the suites behave, no repository commits and
+    the walk reaches no unfenced store, then runs every contract.
 
     Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
@@ -476,6 +519,7 @@ def main() -> None:
     _every_module_is_analyzed()
     _the_suites_use_the_front_doors(_the_front_doors())
     _the_suites_keep_the_agents_apart(_the_independent_modules())
+    _no_repository_commits()
     _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
     sys.exit(lint_imports_command())
 

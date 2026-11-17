@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 
-from core import Connections
+from core import Connections, unit_of_work
 from core.events import Publisher, StatusChanged, publish
 from core.models import IncidentStatus, Report
 
@@ -47,7 +47,7 @@ def withdraw_incident(incident_id: str,
                               to_status=IncidentStatus.WITHDRAWN,
                               reported=reported)
 
-    with connections() as conn:
+    with unit_of_work(connections) as conn:
         withdrawn = incidents.withdraw(conn, incident_id, at=narrating.at)
 
     if withdrawn:

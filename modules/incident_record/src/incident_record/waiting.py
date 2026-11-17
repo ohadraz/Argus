@@ -20,7 +20,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Final, Protocol
 
-from core import Connections, sleep_on_the_clock, utc_now
+from core import Connections, sleep_on_the_clock, unit_of_work, utc_now
 from core.events import OfferExpired, Publisher, publish
 from core.models import IncidentStatus, Reference, ThreadMessage
 
@@ -116,7 +116,7 @@ def waiting_for_people_via(connections: Connections,
             return conversation.get_all_by_incident(conn, incident_id)
 
     def expire(message: Reference) -> None:
-        with connections() as conn:
+        with unit_of_work(connections) as conn:
             conversation.expired(conn, message)
 
     def status_of(incident_id: str) -> IncidentStatus:

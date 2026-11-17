@@ -55,11 +55,9 @@ def write(conn: psycopg.Connection, written: ThreadMessage) -> bool:
 
 
 def understood(conn: psycopg.Connection, message: Reference, meaning: Meaning) -> None:
-    """Records what the message was understood to mean, and commits.
+    """Records what the message was understood to mean.
 
-    Committed here, unlike the write: nothing is written with it, and the
-    account of it is published after, where a failure costs the timeline a
-    line and the record nothing.
+    Committing is the caller's, as in every repository here.
     """
     with conn.cursor() as cursor:
         cursor.execute(
@@ -68,12 +66,10 @@ def understood(conn: psycopg.Connection, message: Reference, meaning: Meaning) -
             (meaning, message.source, message.kind, message.value)
         )
 
-    conn.commit()
-
 
 def named(conn: psycopg.Connection, message: Reference, person_name: str | None) -> None:
     """Records what the chat platform calls the message's writer, or that it
-    could not say, and commits - for `understood`'s reason."""
+    could not say."""
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE thread_message SET person_name = %s "
@@ -81,12 +77,9 @@ def named(conn: psycopg.Connection, message: Reference, person_name: str | None)
             (person_name, message.source, message.kind, message.value)
         )
 
-    conn.commit()
-
 
 def offered(conn: psycopg.Connection, message: Reference, ending: OfferedEnding) -> None:
-    """Records that the message's writer was offered this ending, and commits -
-    for `understood`'s reason."""
+    """Records that the message's writer was offered this ending."""
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE thread_message SET offered_ending = %s "
@@ -94,12 +87,9 @@ def offered(conn: psycopg.Connection, message: Reference, ending: OfferedEnding)
             (ending, message.source, message.kind, message.value)
         )
 
-    conn.commit()
-
 
 def expired(conn: psycopg.Connection, message: Reference) -> None:
-    """Records that the offer made on this message has expired, and commits -
-    for `understood`'s reason."""
+    """Records that the offer made on this message has expired."""
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE thread_message SET offer_expired = true "
@@ -107,12 +97,10 @@ def expired(conn: psycopg.Connection, message: Reference) -> None:
             (message.source, message.kind, message.value)
         )
 
-    conn.commit()
-
 
 def weighed(conn: psycopg.Connection, message: Reference, weighing: Weighing) -> None:
     """Records what the Investigator made of a lead, in place of anything it
-    made of it before, and commits - for `understood`'s reason."""
+    made of it before."""
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE thread_message SET standing = %s, standing_reason = %s "
@@ -120,8 +108,6 @@ def weighed(conn: psycopg.Connection, message: Reference, weighing: Weighing) ->
             (weighing.standing, weighing.reason,
              message.source, message.kind, message.value)
         )
-
-    conn.commit()
 
 
 def get(conn: psycopg.Connection, message: Reference) -> ThreadMessage | None:

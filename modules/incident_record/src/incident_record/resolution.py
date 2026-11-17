@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 
-from core import Connections
+from core import Connections, unit_of_work
 from core.events import Publisher, StatusChanged, publish
 from core.models import IncidentStatus, Report
 
@@ -49,7 +49,7 @@ def resolve_incident(incident_id: str,
                               to_status=IncidentStatus.RESOLVED,
                               reported=reported)
 
-    with connections() as conn:
+    with unit_of_work(connections) as conn:
         resolved = incidents.resolve(conn, incident_id, at=narrating.at)
 
     if resolved:

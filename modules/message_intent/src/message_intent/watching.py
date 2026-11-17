@@ -30,6 +30,7 @@ from core import (
     TelemetrySettings,
     get_settings,
     open_pool,
+    unit_of_work,
 )
 from core.llm import build_llm_client
 from core.models import (
@@ -120,15 +121,15 @@ class _TheRecord:
         self._connections = connections
 
     def understood(self, message: Reference, meaning: Meaning) -> None:
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             conversation.understood(conn, message, meaning)
 
     def named(self, message: Reference, person_name: str | None) -> None:
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             conversation.named(conn, message, person_name)
 
     def offered(self, message: Reference, ending: OfferedEnding) -> None:
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             conversation.offered(conn, message, ending)
 
 

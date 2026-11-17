@@ -42,7 +42,6 @@ def record(conn: psycopg.Connection, entry: ReplayEntry) -> None:
                 entry.at
             ),
         )
-    conn.commit()
 
 
 def get_tokens_spent(conn: psycopg.Connection, incident_id: str) -> int:

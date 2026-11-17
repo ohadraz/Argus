@@ -29,7 +29,7 @@ from core.models import Alert
 from core.replay import CallType, ReplayEntry
 from incident_record.repository import incidents, replay
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
 SOME_MODEL = "claude-opus-5"
@@ -279,6 +279,28 @@ def test_a_recorded_call_leaves_no_column_of_its_row_empty() -> None:
             ) \
             .then(
                 no_column_is_empty(conn, "replay_log", "incident_id", incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_a_call_rolled_back_by_its_caller_leaves_none_recorded() -> None:
+    # Committing is the caller's. A call that committed on its own would stand
+    # after its caller rolled back, and the incident's spending would count a
+    # call its caller rolled back.
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(written_and_rolled_back(
+                    conn, lambda: replay.record(conn, _an_entry_for(incident_id))
+                ))
+            ) \
+            .when(
+                lambda: replay.get_by_incident(conn, incident_id)
+            ) \
+            .then(
+                _no_calls_were_recorded()
             )
 
 

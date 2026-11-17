@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core import connect_from_env
 from core.models import (
     ActionProgress,
@@ -22,7 +22,7 @@ from core.models import (
 )
 from incident_record.repository import hypotheses, taken_actions
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
 SOME_INSTANT = datetime(2026, 10, 26, 18, 4, 49, 35000, tzinfo=UTC)
@@ -872,6 +872,41 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
             ) \
             .then(
                 no_column_is_empty(conn, "action", "incident_id", incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_a_claim_rolled_back_by_its_caller_leaves_the_candidate_unclaimed() -> None:
+    # Committing is the caller's. A claim that committed on its own would stand
+    # after its caller rolled back, and every later walk would be refused the
+    # candidate, for an action nobody took.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, dont_care_alert)
+            ) \
+            .given(
+                hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .given(
+                calling(written_and_rolled_back(conn, lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="dont-care-flag",
+                    at=DONT_CARE_INSTANT
+                )))
+            ) \
+            .when(
+                lambda: taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+            ) \
+            .then(
+                the_answer_was(None)
             )
 
 

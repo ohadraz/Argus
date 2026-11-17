@@ -24,6 +24,7 @@ from core import (
     connect_from_env,
     fence,
     get_settings,
+    unit_of_work,
     utc_now,
 )
 from core.events import StatusChanged
@@ -462,7 +463,7 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_withdrawn_partway(withdrawn_id: str) -> None:
-            incidents.withdraw(conn, withdrawn_id, at=utc_now())
+            _withdrawn_by_a_person(withdrawn_id)
 
         Scenario() \
             .given(
@@ -499,7 +500,7 @@ def test_a_withdrawn_incident_whose_walk_then_failed_is_not_announced_escalated(
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_withdrawn_and_then_fails(withdrawn_id: str) -> None:
-            incidents.withdraw(conn, withdrawn_id, at=utc_now())
+            _withdrawn_by_a_person(withdrawn_id)
             raise RuntimeError("a bug in a node nobody has written yet")
 
         Scenario() \
@@ -577,7 +578,7 @@ def test_an_incident_resolved_while_it_was_walked_is_not_unwound(
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_resolved_partway(resolved_id: str) -> None:
-            incidents.resolve(conn, resolved_id, at=utc_now())
+            _resolved_by_a_person(resolved_id)
 
         Scenario() \
             .given(
@@ -617,7 +618,7 @@ def test_a_resolved_incident_whose_walk_then_failed_is_not_unwound(
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_resolved_and_then_fails(resolved_id: str) -> None:
-            incidents.resolve(conn, resolved_id, at=utc_now())
+            _resolved_by_a_person(resolved_id)
             raise RuntimeError(what_went_wrong)
 
         Scenario() \
@@ -1292,7 +1293,7 @@ def test_a_failed_run_left_alone_because_a_person_resolved_it_is_logged(
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_resolved_and_then_fails(resolved_id: str) -> None:
-            incidents.resolve(conn, resolved_id, at=utc_now())
+            _resolved_by_a_person(resolved_id)
             raise RuntimeError("some failure nobody planned for")
 
         Scenario() \
@@ -1487,7 +1488,7 @@ def test_a_withdrawn_incident_is_logged_as_it_is_unwound(
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_withdrawn_partway(withdrawn_id: str) -> None:
-            incidents.withdraw(conn, withdrawn_id, at=utc_now())
+            _withdrawn_by_a_person(withdrawn_id)
 
         if not walked:
             incidents.withdraw(conn, incident_id, at=utc_now())
@@ -1841,6 +1842,7 @@ def test_the_workers_own_connection_writes_for_no_run_once_its_run_is_over(
     ):
         incident_id = incidents.create(setting_up, dont_care_alert, at=utc_now())
         runs.enqueue(setting_up, incident_id)
+        setting_up.commit()  # the worker claims it on a connection of its own
 
         Scenario() \
             .given(
@@ -1976,6 +1978,20 @@ def _the_run_taken_from_under_it(incident_id: str) -> None:
 
         claimed = runs.claim(conn, THE_WORKER_THAT_TOOK_IT_BACK, A_GENEROUS_LEASE)
         assert claimed is not None
+
+
+def _withdrawn_by_a_person(incident_id: str) -> None:
+    """Withdrawn as a person withdraws one: on a connection of their own, and
+    committed before the worker next asks how the incident stands."""
+    with unit_of_work(connect_from_env) as withdrawing:
+        incidents.withdraw(withdrawing, incident_id, at=utc_now())
+
+
+def _resolved_by_a_person(incident_id: str) -> None:
+    """Resolved as a person resolves one: on a connection of their own, and
+    committed before the worker next asks how the incident stands."""
+    with unit_of_work(connect_from_env) as resolving:
+        incidents.resolve(resolving, incident_id, at=utc_now())
 
 
 def _nothing_was_put_back(unwound: list[str]) -> Assertion[bool]:

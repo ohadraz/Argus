@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from core import Connections
+from core import Connections, unit_of_work
 from core.events import (
     ExecutiveSynopsisWithheld,
     ExecutiveSynopsisWritten,
@@ -85,11 +85,11 @@ class Records:
         self._publisher_for = publisher_for
 
     def hypothesis(self, hypothesis: Hypothesis, /) -> None:
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             hypotheses.record(conn, hypothesis)
 
     def outcome(self, hypothesis_id: str, tested: bool, result: str) -> None:
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             hypotheses.record_outcome(conn, hypothesis_id, tested=tested, result=result)
 
     def transition(
@@ -120,7 +120,7 @@ class Records:
         status the node would have written is the account contradicting the
         row it accounts for.
         """
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             moved = incidents.transition(conn, incident_id, to_status, at=narrating.at)
 
             if moved:
@@ -136,7 +136,7 @@ class Records:
         subject: str | None,
         at: datetime
     ) -> bool:
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             return taken_actions.claim(
                 conn,
                 incident_id,
@@ -166,7 +166,7 @@ class Records:
         *first* - a walk that stopped in between announced a verdict that was
         never recorded against the action it was about.
         """
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             taken_actions.complete(
                 conn,
                 incident_id,
@@ -192,7 +192,7 @@ class Records:
         before it is taken, and a resumed walk's answer is narrated by the walk
         that reached it. This is the row catching up.
         """
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             taken_actions.advance(
                 conn,
                 incident_id,
@@ -254,7 +254,7 @@ class Records:
             engineer_minutes=document.engineer_minutes
         )
 
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             postmortems.record(conn, incident_id, document, at=written.at)
             publish_beside(conn, written, self._publisher_for(conn))
 
@@ -270,7 +270,7 @@ class Records:
             else ExecutiveSynopsisWithheld(incident_id=incident_id,
                                            reason=synopsis.withheld_because or ""))
 
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             synopses.record(conn, incident_id, synopsis, at=said.at)
             publish_beside(conn, said, self._publisher_for(conn))
 
@@ -288,8 +288,7 @@ class Records:
     def weighing(self, lead: ThreadMessage, /) -> None:
         """Keeps what the Investigator made of a lead, then says so.
 
-        Not one write, unlike the pairs above. The standing is committed on its
-        own, as every write to a person's message is, and the line is written
+        One write, as the pairs above are: the standing first, and the line
         after it inside a savepoint - so a sentence nobody could write costs
         the timeline a line, and never the standing the next round, Code-Fix
         and the postmortem read.
@@ -301,7 +300,7 @@ class Records:
         if lead.weighing is None:
             raise ValueError(f"lead {lead.message} carries no weighing to keep")
 
-        with self._connections() as conn:
+        with unit_of_work(self._connections) as conn:
             conversation.weighed(conn, lead.message, lead.weighing)
             publish_beside(conn, LeadWeighed(
                 incident_id=lead.incident_id,

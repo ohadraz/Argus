@@ -53,7 +53,6 @@ def record(conn: psycopg.Connection,
             _INSERT,
             (incident_id, at, *(_written(synopsis, field) for field in _DOCUMENT_FIELDS))
         )
-    conn.commit()
 
 
 def get_by_incident(conn: psycopg.Connection, incident_id: str) -> ExecutiveSynopsis | None:

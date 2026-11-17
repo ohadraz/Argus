@@ -3723,7 +3723,11 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
                               subject: str,
                               rank: int,
                               evidence: list[str] | None = None,
-                              number: int = 1) -> str:
+                              number: int | None = None) -> str:
+    """A candidate recorded for `incident_id`, numbered by its rank unless told
+    otherwise - as a walk's first round numbers its candidates. Two left on one
+    number tie in the order the page reads them in, and rows written in one
+    transaction tie on when they were written too."""
     hypothesis = Hypothesis(
         incident_id=incident_id,
         summary=f"{DONT_CARE_WORDS} - {subject}",
@@ -3732,7 +3736,7 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
         supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence or []],
         subject=subject,
         rank=rank,
-        number=number
+        number=number if number is not None else rank
     )
     hypotheses.record(conn, hypothesis)
 
