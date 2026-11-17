@@ -13,9 +13,10 @@ def some_repository_settings(api_url: str = "https://api.github.invalid",
     """The same slice the pull request tool writes under - one repository, one
     credential, and both halves of Code-Fix's act reaching it.
 
-    Named for the repository rather than called `some_settings`, because this
-    module also has a flag-writing slice and a flag-reading one. Three settings
-    builders under one name is three call sites nobody can tell apart.
+    Named for the repository rather than called `some_settings`, because the
+    tier acts under more than one thing - the repository, the platform, the
+    flag provider - and a builder named for none of them is a call site nobody
+    can tell apart from the next.
 
     No retries unless a test asks for them, so a test about a refusal or an
     unreachable repository makes the one request it is about - and a test that

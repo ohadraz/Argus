@@ -93,10 +93,10 @@ def as_a_change(toggle: FlagChange) -> ChangeEvent:
     identifies the change to everything downstream, and something acts on that
     name afterwards; a name Argus invented identifies nothing.
 
-    The actor is carried across because it is load-bearing rather than
-    decorative: Argus writes under a credential of its own, and this is what
-    tells its own revert from a human's - which is what stops it offering its
-    own action as a cause of the incident it was acting on.
+    The actor is carried across because it is evidence: who made a change is
+    part of what the change was. Whether that was Argus (`made_by_argus`) is
+    not carried - it is a fact code acts on, and a model told it would weigh
+    Argus's own revert as a cause, or rule one out on Argus's say-so.
 
     Here rather than with either reader, because two read a toggle as a change:
     the Investigator's change channel, and the postmortem's list of what changed.

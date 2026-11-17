@@ -28,7 +28,7 @@ from argus_testkit import (
     attempting,
     the_error_mentioned,
 )
-from core.models.change_event import ChangeEvent, ChangeKind
+from core.models import ChangeEvent, ChangeKind, FlagChange, as_a_change
 from core.timestamps import to_iso_minute
 from pydantic import ValidationError
 
@@ -152,6 +152,34 @@ def test_a_kind_outside_the_taxonomy_is_rejected() -> None:
                 an_error_was_raised(ValidationError),
                 the_error_mentioned("kind")
             )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("made_by_argus", [True, False, None],
+                         ids=["argus", "somebody else", "nobody can say"])
+def test_a_flag_toggle_offered_as_a_change_never_says_whether_argus_made_it(
+    made_by_argus: bool | None
+) -> None:
+    # A change is evidence put to a model, and whether Argus made a toggle is a
+    # fact code acts on - a model told it would weigh Argus's own revert as a
+    # cause, or rule one out on Argus's say-so. The author is evidence; the
+    # verdict on it is not.
+    Scenario() \
+        .given(
+            some_toggle := FlagChange(
+                flag=DONT_CARE_REFERENCE,
+                enabled=True,
+                occurred_at=an_iso_minute(),
+                actor="some-actor",
+                made_by_argus=made_by_argus
+            )
+        ) \
+        .when(
+            lambda: as_a_change(some_toggle).model_dump()
+        ) \
+        .then(
+            _it_carries_no("made_by_argus")
         )
 
 

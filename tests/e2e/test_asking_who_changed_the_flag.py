@@ -24,8 +24,7 @@ from core import Fence, Holding, WriteMcpEndpoint, connect_from_env, get_setting
 from core.mcp_transport import McpClient
 from core.models import Alert
 from incident_record.repository import incidents, runs
-from mitigation import flag_changes_over
-from mitigation.tools import MitigationSettings, argus_changed_flag_since, set_flag
+from mitigation.tools import argus_changed_flag_since, set_flag
 from write_mcp_client import write_mcp
 
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG
@@ -114,12 +113,7 @@ def _argus_changed(flag: str, client: McpClient) -> Callable[[], bool]:
 
 def _did_argus_change(flag: str, since: datetime, client: McpClient) -> bool | None:
     """The question a resumed walk asks, over the session it already holds."""
-    return argus_changed_flag_since(
-        flag,
-        since,
-        MitigationSettings.of(get_settings()),
-        flag_changes_over(client)
-    )
+    return argus_changed_flag_since(flag, since, client=client)
 
 
 def _the_answer_is(expected: bool) -> Assertion[Any]:
@@ -127,8 +121,9 @@ def _the_answer_is(expected: bool) -> Assertion[Any]:
         if answered is not expected:
             raise AssertionError(
                 f"Expected the provider's log to answer [{expected}] for a flag "
-                f"Argus changed, got [{answered!r}]. `None` means the actor "
-                f"Argus is configured with is not the one the provider records."
+                f"Argus changed, got [{answered!r}]. `False` means the actor the "
+                f"write tier is configured with is not the one the provider "
+                f"records; `None` that it has none, or could not read the log."
             )
 
         return True

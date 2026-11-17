@@ -17,6 +17,7 @@ from argus_testkit import (
     all_of,
     an_error_was_raised,
     attempting,
+    the_answer_was,
 )
 from core.config import (
     DatabaseSettings,
@@ -245,13 +246,13 @@ def test_a_change_lookback_no_wider_than_the_log_ceiling_is_rejected() -> None:
 
 @pytest.mark.unit
 def test_a_slice_carries_only_the_fields_it_declares() -> None:
-    # The whole point of slicing. A process that cannot change a flag does not
-    # name the credential that could - not because the environment withheld it,
-    # but because the type has no field to put it in.
+    # The whole point of slicing. A process that cannot change the platform does
+    # not name the credential that could - not because the environment withheld
+    # it, but because the type has no field to put it in.
     Scenario() \
         .given(
             settings_holding_every_credential := Settings(
-                unleash_admin_token="an-admin-token-the-read-tier-must-not-name",
+                argocd_auth_token="a-platform-token-the-read-tier-must-not-name",
                 anthropic_api_key="dont-care-key"
             )
         ) \
@@ -260,6 +261,20 @@ def test_a_slice_carries_only_the_fields_it_declares() -> None:
         ) \
         .then(
             _it_carries_exactly({"read_mcp_host", "read_mcp_port", "read_mcp_url"})
+        )
+
+
+@pytest.mark.unit
+def test_the_kernel_names_nothing_of_the_flag_provider() -> None:
+    # The provider's settings are its adapter's, read under the same variable
+    # names. A field left here as well would be a second place to configure the
+    # provider, and every slice could reach the admin credential through it.
+    Scenario() \
+        .when(
+            lambda: sorted(name for name in Settings.model_fields if name.startswith("unleash_"))
+        ) \
+        .then(
+            the_answer_was([])
         )
 
 
@@ -338,7 +353,7 @@ def test_the_telemetry_slice_carries_where_signals_go_and_the_log_level() -> Non
     Scenario() \
         .given(
             settings_holding_every_credential := Settings(
-                unleash_admin_token="an-admin-token-telemetry-must-not-name",
+                argocd_auth_token="a-platform-token-telemetry-must-not-name",
                 anthropic_api_key="dont-care-key"
             )
         ) \

@@ -11,24 +11,36 @@ model reads as a fact about the code - so where a deployment keeps no store
 the tool is not offered at all. Everything above that line is offered by every
 deployment, and the register is one of those: whose a dependency is has nothing
 to do with how anybody finds source.
+
+And one tool's answer, because no module beside this one holds it: which flags
+are on is the flag provider's port's to say, and the tool that says it is
+registration and nothing else.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from unittest.mock import create_autospec
+from unittest.mock import Mock, create_autospec
 
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    calling,
+    one_record_was_logged,
+    the_answer_was,
+)
 from core import Connections, ReadMcpEndpoint
 from core.models import CodeSearch
 from deployment_platform import DeploymentPlatformReads
+from flag_provider import FlagProviderReads, FlagProviderUnavailable
 from mcp.server.fastmcp import FastMCP
-from mcp.types import Tool
+from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import CallToolResult, Tool
 from metrics_source import MetricsSettings
 from read_mcp_server.alert_rules import AlertRuleReadSettings
-from read_mcp_server.flags import FlagReadSettings
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
@@ -51,6 +63,11 @@ THE_ALERT_RULE = "get_alert_rule"
 # Where each replica runs, which the Investigator reads on every incident before
 # its model is asked anything.
 THE_PLACEMENT = "get_placements"
+# The flags evaluating true now, which is how an agent learns which flag an
+# incident is about without Argus's configuration naming it.
+THE_ENABLED_FLAGS = "get_enabled_flags"
+SOME_FLAG = "monthly-spend-feature"
+SOME_OTHER_FLAG = "recommendations-v2"
 # Whether the branch Code-Fix reads contains the revision that ran, which Code-Fix
 # is told before it reads anything.
 THE_BRANCH_CONTAINING = "branch_contains_revision"
@@ -242,6 +259,48 @@ def test_the_file_reader_tells_a_model_to_read_several_files_in_one_turn() -> No
         .then(_its_description_says("several files"))
 
 
+@pytest.mark.unit
+def test_the_enabled_flags_are_the_providers_answer_in_its_order() -> None:
+    # Registration and nothing else: what is on, and in what order, is the
+    # provider's to say through the port this tier is handed.
+    flags = _a_flag_provider()
+    flags.enabled.return_value = [SOME_OTHER_FLAG, SOME_FLAG]
+
+    Scenario() \
+        .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, flags)) \
+        .when(lambda: _asked(read_tier, THE_ENABLED_FLAGS).structuredContent) \
+        .then(the_answer_was({"result": [SOME_OTHER_FLAG, SOME_FLAG]}))
+
+
+@pytest.mark.unit
+def test_a_provider_that_could_not_be_asked_is_an_error_rather_than_nothing_enabled() -> None:
+    # "Could not ask" and "nothing is on" are opposite facts, and an outage
+    # answered as an empty list would look like an environment with no flag to
+    # revert at all.
+    flags = _a_flag_provider()
+    flags.enabled.side_effect = FlagProviderUnavailable("dont-care")
+
+    Scenario() \
+        .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, flags)) \
+        .when(lambda: _asked(read_tier, THE_ENABLED_FLAGS).isError) \
+        .then(the_answer_was(True))
+
+
+def _a_flag_provider() -> Mock:
+    flags: Mock = create_autospec(FlagProviderReads, instance=True)
+
+    return flags
+
+
+def _asked(server: FastMCP, tool: str) -> CallToolResult:
+    """One call over a real MCP session held in memory."""
+    async def over_a_session() -> CallToolResult:
+        async with create_connected_server_and_client_session(server) as session:
+            return await session.call_tool(tool, {})
+
+    return asyncio.run(over_a_session())
+
+
 def _the_tool_listed(mode: CodeSearch, name: str) -> Tool:
     """One tool as one deployment's read tier lists it."""
     found = [tool for tool in asyncio.run(_a_read_tier(mode).list_tools())
@@ -342,8 +401,9 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
     return [tool.name for tool in asyncio.run(_a_read_tier(mode).list_tools())]
 
 
-def _a_read_tier(mode: CodeSearch) -> FastMCP:
-    """One deployment's read tier, reaching nothing."""
+def _a_read_tier(mode: CodeSearch, flags: Mock | None = None) -> FastMCP:
+    """One deployment's read tier, reaching nothing - its flags answered by
+    `flags` where a case gives one."""
     return build_server(
         ReadMcpEndpoint(read_mcp_host="127.0.0.1",
                         read_mcp_port=8090,
@@ -354,8 +414,7 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
                           metrics_window_minutes=60),
         TargetServiceSettings(target_service_url="http://target.invalid"),
         MetricsSettings(prometheus_base_url="http://prometheus.invalid"),
-        FlagReadSettings(unleash_base_url="http://flags.invalid",
-                         unleash_frontend_token="dont-care-token"),
+        flags if flags is not None else _a_flag_provider(),
         create_autospec(DeploymentPlatformReads, instance=True),
         ServiceRegistrySettings(
             service_registry_base_url="http://registry.invalid",

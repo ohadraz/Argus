@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import NamedTuple, cast
+from typing import NamedTuple, Protocol, cast
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
@@ -75,6 +75,8 @@ ROLLOUT_PROGRESS_TOOL = "get_rollout_progress"
 METRICS_TOOL = "get_metrics_summary"
 ALERT_RULE_TOOL = "get_alert_rule"
 FLAG_CHANGES_TOOL = "get_recent_flag_changes"
+ARGUS_CHANGED_FLAG_TOOL = "was_flag_changed_by_argus_since"
+OTHERS_CHANGED_FLAG_TOOL = "was_flag_changed_by_others_since"
 SET_FLAG_TOOL = "set_feature_flag"
 ROLL_BACK_TOOL = "roll_back_deployment"
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
@@ -100,87 +102,77 @@ A_PIN_TO_PUT_BACK = AcceleratorPinUndo(
 )
 
 
-@pytest.mark.unit
-def test_a_provider_that_cannot_be_reached_answers_nothing() -> None:
-    # The case that must not read as "no change was made": an unreachable
-    # provider would then send the walk off to act a second time on an action
-    # that may already have been taken.
+class _AboutAFlag(Protocol):
+    """Either question asked about one flag's history over the write tier."""
+
+    def __call__(self, flag: str, since: datetime, *, client: McpClient) -> bool | None: ...
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("ask", "tool"), [
+    (argus_changed_flag_since, ARGUS_CHANGED_FLAG_TOOL),
+    (somebody_else_changed_flag_since, OTHERS_CHANGED_FLAG_TOOL)
+], ids=["whether argus changed it", "whether anybody else did"])
+def test_whose_change_a_flag_was_is_asked_over_the_write_tier(
+    ask: _AboutAFlag, tool: str
+) -> None:
+    # The provider serves its event log to admin credentials alone, so the two
+    # questions about it are the write tier's. Bound to the read tier they would
+    # not error; they would be refused as tools that do not exist, at the moment
+    # a resumed walk or an undo needed the answer.
     Scenario() \
         .given(
-            the_provider_is_down := _a_fetch_that_fails()
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_answers_with(None)
         ) \
         .when(
-            lambda: argus_changed_flag_since(
-                SOME_FLAG,
-                THE_MOMENT_IT_WAS_CLAIMED,
-                _some_mitigation_settings(),
-                fetch=the_provider_is_down
-            )
+            _asking(read, write, lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=write))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(tool)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ask", [argus_changed_flag_since, somebody_else_changed_flag_since],
+                         ids=["whether argus changed it", "whether anybody else did"])
+@pytest.mark.parametrize("answer", [True, False, None],
+                         ids=["yes", "no", "nobody can say"])
+def test_what_the_write_tier_answers_about_a_flag_is_the_answer(
+    ask: _AboutAFlag, answer: bool | None
+) -> None:
+    # The provider's adapter decides each, from who the provider says made each
+    # change; this side carries the answer and adds nothing - least of all a
+    # `False` where the tier said nobody can say.
+    Scenario() \
+        .given(
+            write := _a_session_that_answers_with(answer)
+        ) \
+        .when(
+            lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=write)
         ) \
         .then(
-            _it_answers_nothing()
+            _it_answers(answer)
         )
 
 
 @pytest.mark.unit
-def test_the_provider_is_asked_from_the_moment_the_action_was_claimed() -> None:
-    # A change to the same flag before the claim belongs to whoever caused the
-    # incident. Only one after it can be the attempt that stopped halfway.
+@pytest.mark.parametrize("ask", [argus_changed_flag_since, somebody_else_changed_flag_since],
+                         ids=["whether argus changed it", "whether anybody else did"])
+def test_a_write_tier_that_cannot_be_reached_answers_nothing(ask: _AboutAFlag) -> None:
+    # The case that must not read as "no change was made": a resumed walk would
+    # then act a second time on an action that may already have been taken, and
+    # an undo would overwrite whatever somebody did since.
     Scenario() \
         .given(
-            fetch := _a_provider_reporting()
+            the_write_tier_is_down := _a_session_that_fails()
         ) \
         .when(
-            lambda: argus_changed_flag_since(
-                SOME_FLAG,
-                THE_MOMENT_IT_WAS_CLAIMED,
-                _some_mitigation_settings(),
-                fetch=fetch
-            )
+            lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=the_write_tier_is_down)
         ) \
         .then(
-            _it_asked_from(fetch, to_iso(THE_MOMENT_IT_WAS_CLAIMED))
-        )
-
-
-@pytest.mark.unit
-def test_a_change_the_provider_attributes_to_argus_is_argus_own() -> None:
-    # The answer a resumed walk acts on: the action it claimed did land, so
-    # taking it again would be a second production write for one decision.
-    Scenario() \
-        .given(
-            argus_changed_it := _a_provider_reporting(_a_change_by(SOME_ARGUS_USER))
-        ) \
-        .when(
-            lambda: argus_changed_flag_since(SOME_FLAG,
-                                             THE_MOMENT_IT_WAS_CLAIMED,
-                                             _some_mitigation_settings(),
-                                             fetch=argus_changed_it
-            )
-        ) \
-        .then(
-            _it_answers(True)
-        )
-
-
-@pytest.mark.unit
-def test_a_change_the_provider_attributes_to_somebody_else_is_not_argus_own() -> None:
-    # Somebody else moved the same flag in the same window. The claimed action
-    # still did not land, and the walk has to be free to take it.
-    Scenario() \
-        .given(
-            somebody_else_changed_it := _a_provider_reporting(
-                _a_change_by("some-human"))
-        ) \
-        .when(
-            lambda: argus_changed_flag_since(SOME_FLAG,
-                                             THE_MOMENT_IT_WAS_CLAIMED,
-                                             _some_mitigation_settings(),
-                                             fetch=somebody_else_changed_it
-            )
-        ) \
-        .then(
-            _it_answers(False)
+            _it_answers(None)
         )
 
 
@@ -297,12 +289,12 @@ def test_changes_argus_made_itself_are_left_out() -> None:
     # Once Argus can act more than once on an incident its own revert lands in
     # this window, and a window carrying it turns the unambiguous case - one
     # flag changed, so that is the one to revert - into two, and refuses.
-    somebody_elses = _a_change_by("some-human")
+    somebody_elses = _a_change(made_by_argus=False)
 
     Scenario() \
         .given(
             fetch := _a_provider_reporting(
-                _a_change_by(SOME_ARGUS_USER), somebody_elses
+                _a_change(made_by_argus=True), somebody_elses
             )
         ) \
         .when(
@@ -314,6 +306,29 @@ def test_changes_argus_made_itself_are_left_out() -> None:
         ) \
         .then(
             _it_returned_only(somebody_elses)
+        )
+
+
+@pytest.mark.unit
+def test_a_change_nobody_can_say_was_argus_own_is_kept() -> None:
+    # Where Argus and its operators share one credential the provider cannot
+    # tell whose a change was. Dropping it would act on a guess, and the costly
+    # mistake is discarding a human's change - the real evidence.
+    a_change_nobody_can_attribute = _a_change(made_by_argus=None)
+
+    Scenario() \
+        .given(
+            fetch := _a_provider_reporting(a_change_nobody_can_attribute)
+        ) \
+        .when(
+            lambda: fetch_recent_flag_changes(
+                _some_mitigation_settings(),
+                fetch=fetch,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED
+            ).changes
+        ) \
+        .then(
+            _it_returned_only(a_change_nobody_can_attribute)
         )
 
 
@@ -1114,28 +1129,16 @@ def _the_write_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
     return assertion
 
 
-def _a_fetch_that_fails() -> MagicMock:
-    """The provider cannot be reached at all."""
-    fetch: MagicMock = create_autospec(FlagChangesSince)
-    fetch.side_effect = ConnectionError("the write tier is down")
+def _a_session_that_fails() -> Mock:
+    """The write tier cannot be reached at all."""
+    client: Mock = create_autospec(McpClient, instance=True)
+    client.call.side_effect = ConnectionError("the write tier is down")
 
-    return fetch
-
-
-def _it_answers_nothing() -> Assertion[bool | None]:
-    def assertion(answer: bool | None) -> bool:
-        if answer is not None:
-            raise AssertionError(
-                f"Expected no answer about the flag, got [{answer}]."
-            )
-
-        return True
-
-    return assertion
+    return client
 
 
-def _it_asked_from(fetch: MagicMock, moment: str) -> Assertion[bool | None]:
-    def assertion(_answer: bool | None) -> bool:
+def _it_asked_from(fetch: MagicMock, moment: str) -> Assertion[object]:
+    def assertion(_answer: object) -> bool:
         if fetch.call_args.kwargs != {"since": moment}:
             raise AssertionError(
                 f"Expected the provider to be asked from [{moment}], "
@@ -1147,23 +1150,30 @@ def _it_asked_from(fetch: MagicMock, moment: str) -> Assertion[bool | None]:
     return assertion
 
 
-def _a_change_by(actor: str) -> FlagChange:
+def _a_change(made_by_argus: bool | None) -> FlagChange:
+    """A change whose only interesting property is whether the provider's
+    adapter said Argus made it. The actor it was read off is the adapter's
+    business, and nothing here reads it."""
+    dont_care_actor = "dont-care-actor"
+
     return FlagChange(
         flag=SOME_FLAG, enabled=True,
-        occurred_at=to_iso(THE_MOMENT_IT_WAS_CLAIMED), actor=actor
+        occurred_at=to_iso(THE_MOMENT_IT_WAS_CLAIMED), actor=dont_care_actor,
+        made_by_argus=made_by_argus
     )
 
 
 def _a_change_at(moment: datetime) -> FlagChange:
     """A change by somebody other than Argus, at a moment that matters.
 
-    Separate from `_a_change_by` because the two tests care about different
+    Separate from `_a_change` because the two tests care about different
     halves of the same record: that one is about who moved the flag, this is
     about when - and a builder taking both would make every call site state a
     fact it does not care about.
     """
     return FlagChange(
-        flag=SOME_FLAG, enabled=True, occurred_at=to_iso(moment), actor="some-human"
+        flag=SOME_FLAG, enabled=True, occurred_at=to_iso(moment), actor="some-human",
+        made_by_argus=False
     )
 
 
@@ -1174,7 +1184,8 @@ def _a_provider_reporting(*changes: FlagChange) -> MagicMock:
     return fetch
 
 
-def _it_answers(expected: bool) -> Assertion[bool | None]:
+def _it_answers(expected: bool | None) -> Assertion[bool | None]:
+    """`is` rather than `==`: `None` and `False` are the whole distinction here."""
     def assertion(answer: bool | None) -> bool:
         if answer is not expected:
             raise AssertionError(
@@ -1204,16 +1215,16 @@ def _some_mitigation_settings(
 ) -> MitigationSettings:
     """How Mitigation behaves, as this suite sets it.
 
-    The actor and the lookback are what these tests are about - who a change is
-    attributed to, and how far back the window reaches. The wait is never
-    reached here, since nothing in this file takes an action, and neither is
-    the cap - nothing here proposes a second attempt on anything.
+    The actor and the lookback are what these tests are about - who a
+    deployment is attributed to, and how far back the window reaches. Whose a
+    flag change was is not here: the provider's adapter says so on the change.
+    The wait is never reached here, since nothing in this file takes an action,
+    and neither is the cap - nothing here proposes a second attempt on anything.
     """
     a_wait_nothing_here_reaches = 180.0
 
     return MitigationSettings(
         mitigation_change_lookback_minutes=int(lookback.total_seconds() // 60),
-        unleash_actor=actor,
         argocd_actor=actor,
         mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches,
         metrics_reporting_lag_minutes=0,
@@ -1268,45 +1279,19 @@ def _it_returned_the_deployments(
 
 
 @pytest.mark.unit
-def test_a_provider_that_cannot_say_whether_argus_changed_a_flag_is_logged(
-    caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize("ask", [argus_changed_flag_since, somebody_else_changed_flag_since],
+                         ids=["whether argus changed it", "whether anybody else did"])
+def test_a_write_tier_that_cannot_say_whose_change_a_flag_was_is_logged(
+    ask: _AboutAFlag, caplog: pytest.LogCaptureFixture
 ) -> None:
     # Answered as nobody-can-say, which is right, and which loses the reason -
     # so the reason is logged here, where the exception still is.
     Scenario() \
         .given(
-            the_provider_is_down := _a_fetch_that_fails()
+            the_write_tier_is_down := _a_session_that_fails()
         ) \
         .when(
-            lambda: argus_changed_flag_since(
-                SOME_FLAG,
-                THE_MOMENT_IT_WAS_CLAIMED,
-                _some_mitigation_settings(),
-                fetch=the_provider_is_down
-            )
-        ) \
-        .then(
-            one_record_was_logged(caplog, "mitigation.tools", logging.WARNING,
-                                  "flag history could not be read",
-                                  values={"flag": SOME_FLAG}, failure=ConnectionError)
-        )
-
-
-@pytest.mark.unit
-def test_a_provider_that_cannot_say_whether_anybody_else_changed_a_flag_is_logged(
-    caplog: pytest.LogCaptureFixture
-) -> None:
-    Scenario() \
-        .given(
-            the_provider_is_down := _a_fetch_that_fails()
-        ) \
-        .when(
-            lambda: somebody_else_changed_flag_since(
-                SOME_FLAG,
-                THE_MOMENT_IT_WAS_CLAIMED,
-                _some_mitigation_settings(),
-                fetch=the_provider_is_down
-            )
+            lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=the_write_tier_is_down)
         ) \
         .then(
             one_record_was_logged(caplog, "mitigation.tools", logging.WARNING,

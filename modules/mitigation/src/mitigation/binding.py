@@ -9,9 +9,8 @@ a collaborator the first had, with every gate green and the failure waiting on
 the path nobody runs by accident.
 
 Separate from `tools` rather than beside the other `*_over` functions, because
-what it binds spans the package: `undo_change` needs the seams `tools` declares
-*and* the provider check `attribution` computes, so a binder living in `tools`
-would make `tools` import `undoing`, which already imports `tools`.
+what it binds spans the package: `undo_change` lives in `undoing`, which imports
+`tools`, so a binder living in `tools` would make the two import each other.
 """
 
 from __future__ import annotations
@@ -21,12 +20,10 @@ from functools import partial
 from core.mcp_transport import McpClient
 
 from mitigation.tools import (
-    MitigationSettings,
     accelerator_pin_restorer_over,
     autoscaling_restorer_over,
     capacity_restorer_over,
     deployment_restorer_over,
-    flag_changes_over,
     flag_setter_over,
     somebody_else_changed_flag_since,
 )
@@ -36,7 +33,7 @@ from mitigation.undoing import undo_change
 __all__ = ["an_undo_over"]
 
 
-def an_undo_over(client: McpClient, settings: MitigationSettings) -> UndoChange:
+def an_undo_over(client: McpClient) -> UndoChange:
     """Putting one recorded change back, over one connection to the write tier.
 
     Whole, which is the only property worth stating: an undo bound short is a
@@ -51,11 +48,7 @@ def an_undo_over(client: McpClient, settings: MitigationSettings) -> UndoChange:
     """
     return partial(
         undo_change,
-        changed_from_outside=partial(
-            somebody_else_changed_flag_since,
-            settings=settings,
-            fetch=flag_changes_over(client)
-        ),
+        changed_from_outside=partial(somebody_else_changed_flag_since, client=client),
         set_state=flag_setter_over(client),
         restore_deployment=deployment_restorer_over(client),
         restore_capacity=capacity_restorer_over(client),

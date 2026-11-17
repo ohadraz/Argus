@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings
+from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings, parse_iso
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -41,13 +41,14 @@ from core.models import (
 )
 from deployment_platform import DeploymentPlatformWrites
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
+from flag_provider import FlagProviderWrites
+from flag_provider.unleash import Unleash, UnleashSettings
 from telemetry import start_telemetry
 
 from write_mcp_server import (
     accelerators,
     branching,
     discarding,
-    flag_history,
     flag_state,
     pinning,
     pull_requests,
@@ -62,7 +63,6 @@ from write_mcp_server.fencing import (
     OpensHolds,
     holds_in_the_database,
 )
-from write_mcp_server.flag_state import FlagWriteSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 
 # What this process is called in its telemetry, and the directory its runs are
@@ -71,31 +71,31 @@ _SERVICE: Final = "argus-write-mcp"
 
 
 def build_server(endpoint: WriteMcpEndpoint,
-                 flag_settings: FlagWriteSettings,
+                 flags: FlagProviderWrites,
                  repository_settings: RepositoryWriteSettings,
                  platform: DeploymentPlatformWrites,
                  discard_settings: DiscardSettings,
                  hold_for_a_change: HoldForAChange) -> FencedFastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Three slices and a port. The flag tools speak to the provider, the code tool
-    speaks to the repository, and the discard speaks to the store a service keeps
-    its derived copies in. The restart, the rollback, the scale-out, the
-    autoscaler pin and the pin to a card all speak to the deployment platform,
-    and are handed it rather than a slice:
-    where it is, under what credential and by which routes is the adapter's,
+    Two slices and two ports. The code tool speaks to the repository, and the
+    discard speaks to the store a service keeps its derived copies in. The flag
+    tools speak to the flag provider, and the restart, the rollback, the
+    scale-out, the autoscaler pin and the pin to a card all speak to the
+    deployment platform - and both are handed their port rather than a slice:
+    where each is, under what credential and by which routes is its adapter's,
     built once in `main`. Every credential named belongs to this tier, and none
     of them belongs in another's calls. What keeps the *tiers* apart is what each
-    server is handed - the read server gets the platform's reads port, and no
-    slice with a field any of these could arrive in - not a check made here.
+    server is handed - the read server gets each reads port, and no slice with a
+    field any of these could arrive in - not a check made here.
 
     The tool bodies stay registration only; the behaviour, and the seams a
     decorated function cannot carry, live in a module per route beside this one.
 
     Every tool that changes something is registered as a change, and made only
     for the claim that holds the run it is for - asked of `hold_for_a_change`
-    (`fencing`). The one read is not: a stale walk reading the provider's
-    history gets nothing wrong.
+    (`fencing`). The three reads are not: a stale walk reading the provider's
+    history, or asking whose a change in it was, gets nothing wrong.
     """
     mcp = FencedFastMCP(
         "argus-write-mcp",
@@ -103,9 +103,6 @@ def build_server(endpoint: WriteMcpEndpoint,
         host=endpoint.write_mcp_host,
         port=endpoint.write_mcp_port,
     )
-
-    def confirm_the_change_landed() -> list[str]:
-        return flag_state.evaluated_flags(flag_settings)
 
     @mcp.change()
     def set_feature_flag(flag: str, enabled: bool) -> FlagUndo:
@@ -127,9 +124,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         judge whether the service recovered has to know the service was
         actually changed. The behavior lives in `flag_state.set_flag`; this is
         registration only."""
-        return flag_state.set_flag(
-            flag, enabled, flag_settings, evaluate=confirm_the_change_landed
-        )
+        return flag_state.set_flag(flag, enabled, flags)
 
     @mcp.change()
     def restart_service(service: str) -> RestartedService:
@@ -387,9 +382,39 @@ def build_server(endpoint: WriteMcpEndpoint,
 
         It answers the question current state cannot - which flag changed, and
         in which direction - so that a flag switched *off* into an incident is
-        distinguishable from one that was off all along. The behavior lives in
-        `flag_history.recent_flag_changes`; this is registration only."""
-        return flag_history.recent_flag_changes(since, flag_settings)
+        distinguishable from one that was off all along. The behavior lives
+        behind the flag provider's port; this is registration only."""
+        return flags.changes_since(parse_iso(since))
+
+    @mcp.tool()
+    def was_flag_changed_by_argus_since(flag: str, since: str) -> bool | None:
+        """Answers whether Argus's own change to `flag` was recorded at or after
+        `since`, or nothing where nobody can say.
+
+        The question a walk asks when it is resumed after its worker died with
+        an action claimed: only the provider's history knows whether the change
+        it was making landed, and the history is served to this tier's
+        credential alone.
+
+        No answer is an answer of its own, and never "no": the history could not
+        be read, or the provider cannot tell Argus's changes from anybody's. The
+        behavior lives behind the flag provider's port; this is registration
+        only."""
+        return flags.argus_changed_since(flag, parse_iso(since))
+
+    @mcp.tool()
+    def was_flag_changed_by_others_since(flag: str, since: str) -> bool | None:
+        """Answers whether anybody but Argus changed `flag` at or after `since`,
+        or nothing where nobody can say.
+
+        What an undo asks before it writes: a change made after Argus's own is
+        somebody's deliberate decision, and putting the flag back would
+        overwrite it.
+
+        No answer is never "nobody": the two are the difference between putting
+        a change back and overwriting a person. The behavior lives behind the
+        flag provider's port; this is registration only."""
+        return flags.others_changed_since(flag, parse_iso(since))
 
     @mcp.change()
     def commit_to_new_branch(branch: str,
@@ -462,7 +487,9 @@ def main(holds: OpensHolds = holds_in_the_database) -> None:
     ):
         build_server(
             WriteMcpEndpoint.of(settings),
-            FlagWriteSettings.of(settings),
+            # The flag provider's adapter, built here and nowhere else in this
+            # tier and handed on as the writes port, for the platform's reason.
+            Unleash(UnleashSettings()),
             RepositoryWriteSettings.of(settings),
             # The adapter is built here and nowhere else in this tier, and handed
             # on as the writes port: no action below names a route.

@@ -7,13 +7,14 @@ those changes: it sets a flag, the provider records it, and the next look at
 An agent that then blames it is investigating itself.
 
 The provider answers this by recording an author on every change, which is only
-useful if Argus writes under a name of its own - see `Settings.unleash_actor`
-and the credential the Target Environment seeds for it.
+useful if Argus writes under a name of its own - the provider's adapter compares
+the two and says so on each change (`FlagChange.made_by_argus`), which is what
+Mitigation's window of flag changes reads.
 
 The platform's deploy history is the same problem a second time: a rollback is
 recorded as a deployment, attributed to the account that asked for it - see
-`Settings.argocd_actor`. So the filter is asked of anything a source records an
-author on, not of flags alone.
+`Settings.argocd_actor`. No adapter says so on a deployment yet, so this filter
+is asked of the deployment history here, by the author it records.
 """
 
 from __future__ import annotations
@@ -21,11 +22,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from core.models import FlagChange
-
 
 class Attributed(Protocol):
-    """Anything its source records an author on - a flag change, a deployment."""
+    """Anything its source records an author on - a deployment, today."""
 
     @property
     def actor(self) -> str | None: ...
@@ -62,49 +61,3 @@ def changes_not_made_by[C: Attributed](actor: str, changes: Sequence[C]) -> list
         if change.actor is None or change.actor.casefold() != actor.casefold()
     ]
 
-
-def change_by_actor_to(flag: str,
-                       actor: str,
-                       changes: Sequence[FlagChange]) -> bool | None:
-    """Whether `actor` is recorded as having changed `flag`, or `None` if that
-    cannot be known.
-
-    The question asked about Argus itself, which is the opposite of what the
-    rest of this module is for: not "what did somebody else do" but "did what I
-    was doing actually happen". A walk resumed after its worker died asks it,
-    because the provider's log is the only record of an action taken by a
-    process that is gone.
-
-    `None` where no actor is configured. That deployment cannot attribute
-    anything to Argus, so the honest answer is that the question is
-    unanswerable - and a caller told `False` there would go and act again on
-    something that may already have been done.
-    """
-    if not actor:
-        return None
-
-    return any(change.flag == flag for change in changes_made_by(actor, changes))
-
-
-def changes_made_by(actor: str, changes: Sequence[FlagChange]) -> list[FlagChange]:
-    """`changes` that `actor` made, in the order they arrived.
-
-    The mirror of the rule above and not its complement: a change with no
-    recorded author is left out of both. "The provider did not say" is not
-    "Argus did it" in either direction, and the question this answers - did the
-    change Argus was making actually land - has to be answered from what the
-    provider attributed, never from what it left blank.
-
-    An empty `actor` therefore answers nothing rather than everything. Where
-    Argus and its operators share one credential the provider cannot tell the
-    two apart, and a caller asking "did I do this" must be told that it cannot
-    be known.
-    """
-    if not actor:
-        return []
-
-    return [
-        change
-        for change in changes
-        if change.actor is not None and change.actor.casefold() == actor.casefold()
-    ]

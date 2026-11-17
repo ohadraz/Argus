@@ -11,14 +11,12 @@ from __future__ import annotations
 import pytest
 from argus_testkit import Assertion, Scenario
 from core.models import ChangeEvent, FlagChange
-from mitigation.attribution import change_by_actor_to, changes_not_made_by
+from mitigation.attribution import changes_not_made_by
 
 from mitigation_test.framework.builders import a_deployment
 
 AN_ACTOR = "Argus"
 A_HUMAN = "admin"
-
-SOME_FLAG = "monthly-spend-feature"
 
 
 @pytest.mark.unit
@@ -145,70 +143,6 @@ def test_a_deployment_argus_made_is_dropped_as_its_flag_changes_are() -> None:
         )
 
 
-@pytest.mark.unit
-def test_argus_own_change_to_the_flag_is_found() -> None:
-    # The question a resumed walk asks: did the change I was making land? Asked
-    # of the provider's log, which is the only place that knows.
-    Scenario() \
-        .given(
-            argus_own_change := a_flag_change(flag=SOME_FLAG, actor=AN_ACTOR)
-        ) \
-        .when(
-            lambda: change_by_actor_to(SOME_FLAG, AN_ACTOR, [argus_own_change])
-        ) \
-        .then(
-            _the_answer_was(True)
-        )
-
-
-@pytest.mark.unit
-def test_a_change_to_another_flag_is_not_this_one() -> None:
-    Scenario() \
-        .given(
-            argus_change_elsewhere := a_flag_change(flag="another-flag", actor=AN_ACTOR)
-        ) \
-        .when(
-            lambda: change_by_actor_to(SOME_FLAG, AN_ACTOR, [argus_change_elsewhere])
-        ) \
-        .then(
-            _the_answer_was(False)
-        )
-
-
-@pytest.mark.unit
-def test_somebody_elses_change_to_the_flag_is_not_argus_own() -> None:
-    # A human turning the same flag off is not evidence that Argus's action
-    # landed - and acting on it as though it were would leave the incident
-    # crediting itself with somebody else's fix.
-    Scenario() \
-        .given(
-            somebody_elses_change := a_flag_change(flag=SOME_FLAG, actor=A_HUMAN)
-        ) \
-        .when(
-            lambda: change_by_actor_to(SOME_FLAG, AN_ACTOR, [somebody_elses_change])
-        ) \
-        .then(
-            _the_answer_was(False)
-        )
-
-
-@pytest.mark.unit
-def test_an_unattributable_deployment_cannot_answer_at_all() -> None:
-    # Argus and its operators sharing one credential means the provider cannot
-    # say who acted. `None`, not `False`: "I could not have been told" is not
-    # "it did not happen", and the caller does different things with each.
-    Scenario() \
-        .given(
-            dont_care_change := a_flag_change(flag=SOME_FLAG, actor=None)
-        ) \
-        .when(
-            lambda: change_by_actor_to(SOME_FLAG, "", [dont_care_change])
-        ) \
-        .then(
-            _the_answer_was(None)
-        )
-
-
 def _the_changes_kept_are(*expected: FlagChange) -> Assertion[list[FlagChange]]:
     """Exactly these changes, in this order.
 
@@ -222,22 +156,6 @@ def _the_changes_kept_are(*expected: FlagChange) -> Assertion[list[FlagChange]]:
                 f"Expected the changes {[change.flag for change in expected]} to be "
                 f"kept, got {[change.flag for change in kept]}."
             )
-
-        return True
-
-    return assertion
-
-
-def _the_answer_was(expected: bool | None) -> Assertion[bool | None]:
-    """That the question was answered with this, identity and all.
-
-    `is` rather than `==`, because `None` and `False` are the whole distinction
-    here - "nobody can say" against "it did not happen" - and they compare equal
-    to nothing but themselves only under identity.
-    """
-    def assertion(answer: bool | None) -> bool:
-        if answer is not expected:
-            raise AssertionError(f"Expected [{expected}], got [{answer}].")
 
         return True
 

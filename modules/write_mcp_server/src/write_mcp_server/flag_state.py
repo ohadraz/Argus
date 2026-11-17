@@ -1,10 +1,12 @@
 """Setting a feature flag's state in the provider (spec §7.3, §12.1).
 
-The write tier's one action, and the only place in Argus that knows the
-provider's admin wire shape. Two credentials are used and they are not
-interchangeable: the admin token *changes* the flag, and the evaluation token
-*confirms* the change became visible. A read credential inside a write process
-is harmless; the reverse is the thing the tier split exists to prevent.
+The write tier's one act on the flag provider. How the provider is reached, under
+which credential, and how long it takes to show a change are the provider's
+adapter's, behind `FlagProviderWrites`; what is left here is the tier's part: the
+change asked of the provider is the one the caller asked for, what comes back is
+the undo the provider's write produced, and a failure reaches the caller as a
+refusal saying what it left - nothing, something it cannot vouch for, or the undo
+that puts the flag back.
 
 One function serves both directions, because a flag causes an incident by
 changing and the damaging direction is not always "on" - a flag switched off can
@@ -12,86 +14,17 @@ disable a fallback, or withdraw the very mitigation someone applied an hour ago.
 Undoing such a change means switching the flag back on, and an agent that could
 only clear flags could not mitigate that incident at all. It is also what makes
 undoing a *mitigation* the same call with the state reversed.
-
-Changing a flag is deliberately not "post and return". Unleash accepts the admin
-call before the change reaches its evaluation API, so a caller that trusted the
-POST would re-query the metrics against a flag still serving its old value, watch
-the error rate stay where it was, and refute a hypothesis that was right.
 """
 
 from __future__ import annotations
 
 import logging
-import time
-from collections.abc import Callable
-from datetime import datetime
-from email.utils import parsedate_to_datetime
-from typing import Any, Final, Protocol
 
-import httpx2
-from core import SettingsSlice
-from core.applying import known_not_applied
 from core.mcp_transport import a_refusal_saying_what_it_left
 from core.models import FlagUndo
+from flag_provider import FlagProviderWrites, FlagWriteFailed
 
 logger = logging.getLogger(__name__)
-
-
-class FlagWriteSettings(SettingsSlice):
-    """What the write tier is allowed to know, which is both credentials.
-
-    The admin token changes a flag; the evaluation token confirms the change
-    became visible. A read credential inside a write process is harmless, and
-    the reverse is what the tier split exists to prevent - so this is the slice
-    that may name both, and the read server's is the one that cannot name
-    either (spec §13).
-
-    Declared here rather than beside the history reader, although both use it:
-    this is the module that performs the tier's one action, and the docstring
-    above is where the two credentials are already explained.
-    """
-
-    unleash_base_url: str
-    unleash_frontend_token: str
-    unleash_admin_token: str
-    unleash_project: str
-    unleash_environment: str
-
-
-HttpPost = Callable[..., httpx2.Response]
-HttpGet = Callable[..., httpx2.Response]
-
-# How the wait between looks is spent. Injected so that a change which never
-# becomes visible is a case a test can afford, rather than five real seconds.
-Sleeper = Callable[[float], None]
-
-
-class EvaluateFlags(Protocol):
-    """What `set_flag` needs in order to confirm its own write landed.
-
-    A `Protocol` rather than a `Callable` alias so that a test can stand it in
-    with `create_autospec`, which needs something introspectable. Specing
-    against `evaluated_flags` would be specing against the wrong shape - that
-    takes the credential it reads under, and confirming a write needs only the
-    answer.
-    """
-
-    def __call__(self) -> list[str]: ...
-
-
-REQUEST_TIMEOUT_SECONDS = 10.0
-
-# How long to keep asking whether the change became visible. Propagation is
-# sub-second in practice; this is the bound on "it never did", not the expected
-# wait.
-_EVALUATION_ATTEMPTS = 25
-_SECONDS_BETWEEN_ATTEMPTS = 0.2
-
-EVALUATION_PATH = "/api/frontend"
-
-# The method the admin write is made with, as the classification of its
-# failure is asked about it.
-_THE_WRITE: Final = "POST"
 
 
 class FlagNotSet(Exception):
@@ -106,154 +39,31 @@ class FlagNotSet(Exception):
     """
 
 
-def evaluated_flags(
-    settings: FlagWriteSettings,
-    get: HttpGet = httpx2.get,
-) -> list[str]:
-    """The flags currently evaluating true, read with the evaluation credential.
+def set_flag(flag: str, enabled: bool, flags: FlagProviderWrites) -> FlagUndo:
+    """Sets `flag` on or off through the provider and returns the undo its
+    write produced.
 
-    The write server's own check that its change landed. It duplicates what the
-    read tier offers rather than calling it, because verifying one's own write
-    is not a retrieval concern - and a write server that depended on the read
-    server could not change a flag while the read server was down.
+    The provider returns only once the change is visible to evaluation, so a
+    caller about to judge whether the service recovered judges a service that
+    was actually changed.
+
+    Raises `FlagNotSet` where the provider did not do it - saying, as every
+    write tool's refusal says, what it left behind. A write the provider never
+    took left nothing; one whose answer was lost may have flipped the flag, and
+    says nothing either way. One the provider took and nobody saw evaluating has
+    flipped it, so the refusal carries what puts it back: recorded nowhere else,
+    it is a flag no withdrawal would ever touch.
     """
-    url = f"{settings.unleash_base_url}{EVALUATION_PATH}"
-
-    response = get(
-        url,
-        headers={"Authorization": settings.unleash_frontend_token},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    body: dict[str, Any] = response.json()
-
-    return [
-        toggle["name"]
-        for toggle in body.get("toggles", [])
-        if toggle.get("enabled", True)
-    ]
-
-
-def set_flag(
-    flag: str,
-    enabled: bool,
-    settings: FlagWriteSettings,
-    post: HttpPost = httpx2.post,
-    *,
-    evaluate: EvaluateFlags,
-    sleep: Sleeper = time.sleep
-) -> FlagUndo:
-    """Sets `flag` on or off in the configured environment and waits until it is.
-
-    Returns the undo descriptor: the state that existed before, which is what
-    restores it. `was_enabled` is the opposite of what is being set rather than
-    a fresh reading of the flag - this is only ever called to move a flag from
-    one state to the other, and re-reading it here would open a window in which
-    the answer changed between the two calls without making the record any
-    truer.
-
-    Raises `FlagNotSet` unless the provider accepted the change *and* the change
-    became visible to evaluation - saying, as every write tool's refusal says,
-    what it left behind. A write the provider never took left nothing; one whose
-    answer was lost may have flipped the flag, and says nothing either way. One
-    the provider took and nobody saw evaluating has flipped it, so the failure
-    carries what puts it back: recorded nowhere else, it is a flag no withdrawal
-    would ever touch.
-    """
-    url = f"{settings.unleash_base_url}{_environment_path(settings, flag, enabled)}"
-
     try:
-        response = post(
-            url,
-            headers={"Authorization": settings.unleash_admin_token},
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-    except Exception as error:
-        said = f"could not set flag [{flag}] {_state_name(enabled)} at [{url}]: {error}"
+        undo = flags.set(flag, enabled)
+    except FlagWriteFailed as failure:
+        said = str(failure)
 
         raise FlagNotSet(
-            a_refusal_saying_what_it_left(said)
-            if known_not_applied(_THE_WRITE, error) else said
-        ) from error
-
-    undo = FlagUndo(
-        flag=flag,
-        was_enabled=not enabled,
-        environment=settings.unleash_environment,
-        written_at=_when_the_provider_recorded(flag, response)
-    )
-
-    try:
-        _wait_until_evaluating(flag, enabled, evaluate, sleep)
-    except FlagNotSet as unconfirmed:
-        raise FlagNotSet(a_refusal_saying_what_it_left(str(unconfirmed), undo)) from unconfirmed
+            a_refusal_saying_what_it_left(said, failure.left_behind)
+            if failure.known_not_applied or failure.left_behind is not None else said
+        ) from failure
 
     logger.info("flag set", extra={"flag": flag, "enabled": enabled})
 
     return undo
-
-
-def _when_the_provider_recorded(flag: str, response: httpx2.Response) -> datetime | None:
-    """The provider's own time for this write, or `None` where it gave none.
-
-    Read from the response rather than taken from this process's clock, because
-    of what it is for: an undo asks the provider which changes came after this
-    one, and the provider answers with its own timestamps. Two clocks compared
-    against each other are wrong by however much they disagree, and the
-    disagreement is invisible - it looks like nobody having touched the flag.
-
-    Absent rather than substituted where the header is missing or unreadable. An
-    undo has an answer for a moment it does not know - it says the state could
-    not be established - and that is a better answer than a number this process
-    made up.
-    """
-    dated = response.headers.get("Date")
-
-    if not dated:
-        logger.warning("provider gave no write time", extra={"flag": flag})
-        return None
-
-    try:
-        return parsedate_to_datetime(dated)
-    except Exception:
-        logger.warning("provider gave no write time", extra={"flag": flag, "date": dated})
-        return None
-
-
-def _wait_until_evaluating(flag: str,
-                           enabled: bool,
-                           evaluate: EvaluateFlags,
-                           sleep: Sleeper) -> None:
-    for attempt in range(_EVALUATION_ATTEMPTS):
-        try:
-            if (flag in evaluate()) == enabled:
-                return
-        except Exception as error:
-            raise FlagNotSet(
-                f"could not confirm flag [{flag}] is {_state_name(enabled)}: {error}"
-            ) from error
-
-        if attempt + 1 < _EVALUATION_ATTEMPTS:
-            sleep(_SECONDS_BETWEEN_ATTEMPTS)
-
-    logger.warning("flag accepted but not evaluating", extra={"flag": flag, "enabled": enabled})
-
-    raise FlagNotSet(
-        f"flag [{flag}] was accepted as {_state_name(enabled)} but still evaluates "
-        f"{_state_name(not enabled)}"
-    )
-
-
-def _environment_path(settings: FlagWriteSettings, flag: str, enabled: bool) -> str:
-    return (
-        f"/api/admin/projects/{settings.unleash_project}"
-        f"/features/{flag}"
-        f"/environments/{settings.unleash_environment}/{_state_name(enabled)}"
-    )
-
-
-def _state_name(enabled: bool) -> str:
-    """The provider's own word for a state - and the path segment that sets it,
-    which is why one function names both."""
-    return "on" if enabled else "off"

@@ -7,8 +7,8 @@ performs one and judges what the service did, and `undoing.py` puts a recorded
 change back. The split follows §13's gate: the Orchestrator has to be able to
 reach the choice, and the question of admission, without reaching the write.
 `accelerators.py`, `attribution.py` and `binding.py` are what those five work
-with - which card a pin holds a deployment to, how Argus tells its own flag
-changes from everybody else's, and where those capabilities are bound to the
+with - which card a pin holds a deployment to, how Argus tells its own
+deployments from everybody else's, and where those capabilities are bound to the
 tier they run over.
 
 `tools.py` is behind the same door rather than a module of its own to import.

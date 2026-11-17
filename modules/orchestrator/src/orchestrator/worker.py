@@ -51,10 +51,7 @@ from incident_record import (
 )
 from incident_record.repository import incidents, runs, taken_actions
 from incident_record.repository.incidents import NO_TRACE_CONTEXT
-from mitigation import (
-    MitigationSettings,
-    an_undo_over,
-)
+from mitigation import an_undo_over
 from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel, ConfigDict
@@ -607,7 +604,6 @@ def main() -> None:
     checkpointer's as much as a node's. Nothing here opens one any other way.
     """
     settings = get_settings()
-    mitigation = MitigationSettings.of(settings)
     database = DatabaseSettings.of(settings)
     holding = Holding()
 
@@ -643,7 +639,7 @@ def main() -> None:
                            # assembled here from a subset of the walk's
                            # collaborators would fail on whichever kind this
                            # copy had not heard about.
-                           undo=an_undo_over(write, mitigation),
+                           undo=an_undo_over(write),
                            taken_actions_of=taken_actions_from(connections),
                            record_undone=undone_recorded_through(connections)),
             ended_by_a_person=ended_by_a_person_via(connections),

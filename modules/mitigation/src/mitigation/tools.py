@@ -56,9 +56,11 @@ from write_mcp_client import (
     roll_back_deployment,
     scale_out,
     set_feature_flag,
+    was_flag_changed_by_argus_since,
+    was_flag_changed_by_others_since,
 )
 
-from mitigation.attribution import change_by_actor_to, changes_not_made_by
+from mitigation.attribution import changes_not_made_by
 
 logger = logging.getLogger(__name__)
 
@@ -128,10 +130,9 @@ def an_action_in_force_at_once() -> Arrival:
     return Arrival.ARRIVED
 
 
-# The flag history asked for a window that starts where the caller says, rather
-# than where configuration says. Only the resumed walk needs that: it is asking
-# about one particular moment - when an action was claimed - and the configured
-# lookback is about something else entirely.
+# The flag history asked from a moment the caller says, rather than one
+# configuration says: `fetch_recent_flag_changes` works the start out from the
+# lookback and, where one was stated, the onset.
 class FlagChangesSince(Protocol):
     def __call__(self, since: str) -> list[FlagChange]: ...
 
@@ -379,21 +380,20 @@ ChangedFromOutside = Callable[[str, datetime], bool | None]
 class MitigationSettings(SettingsSlice):
     """How Mitigation behaves against the provider and the service.
 
-    How far back a window of recent changes reaches, whose changes Argus
+    How far back a window of recent changes reaches, which deployments Argus
     recognises as its own, and how long it waits while nothing has been measured.
     Not how long the service is watched for: that is measured off the window the
     service answers with - plus `metrics_reporting_lag_minutes`, how long after a
     minute ends the metrics source reports it, without which the wait ends before
     the minute that decides it can be read.
 
-    `unleash_actor` and `argocd_actor` are empty where Argus and its operators
-    share one credential on that system. That is a real deployment and not a
-    misconfiguration - the attribution rules answer `None` there rather than
-    guessing.
+    `argocd_actor` is empty where Argus and its operators share one credential on
+    the platform. That is a real deployment and not a misconfiguration - the
+    attribution rules filter nothing there rather than guessing. Whose a flag
+    change was is not here: the provider's adapter says so on the change itself.
     """
 
     mitigation_change_lookback_minutes: int
-    unleash_actor: str
     argocd_actor: str
     mitigation_verification_timeout_seconds: float
     mitigation_attempts_per_subject: int
@@ -685,16 +685,19 @@ def fetch_recent_flag_changes(
     the shape the caller actually uses. Deciding the window here also keeps
     `propose_action` free of both configuration and I/O.
 
-    `fetch` is not defaulted, here or in the two questions below. It is the
-    provider reached over a connection somebody opened, and a default would be
-    this module deciding where that provider is - which belongs to whoever
-    started the process. The clock still is: a clock is not an address.
+    `fetch` is not defaulted. It is the provider reached over a connection
+    somebody opened, and a default would be this module deciding where that
+    provider is - which belongs to whoever started the process. The clock still
+    is: a clock is not an address.
 
     Argus's own changes are dropped here rather than by the caller, because
     every caller wants the same thing: what somebody *else* did. Once Argus can
     act more than once on an incident, its own revert lands in this window, and
     a window carrying it makes the unambiguous case - one flag changed, so that
-    is the one to revert - report two flags and refuse to act.
+    is the one to revert - report two flags and refuse to act. Whose a change
+    was is the provider's adapter's to say (`FlagChange.made_by_argus`); a
+    change nobody can say of is kept, because the costly mistake is discarding a
+    human's change - the real evidence - rather than keeping one of Argus's.
 
     `onset` moves the window back to end where the incident began, and is left
     out by almost every caller. Ending it at the present asks what somebody
@@ -718,14 +721,12 @@ def fetch_recent_flag_changes(
     window_starts_at = anchored_at - lookback
     window_ends_at = the_end_of_the_onset(onset) if onset is not None else anchored_at
 
-    changes = changes_not_made_by(
-        settings.unleash_actor,
-        fetch(since=to_iso(window_starts_at)),
-    )
+    changes = fetch(since=to_iso(window_starts_at))
 
     return FlagHistory(
         changes=[change for change in changes
-                 if parse_iso(change.occurred_at) <= window_ends_at],
+                 if change.made_by_argus is not True
+                 and parse_iso(change.occurred_at) <= window_ends_at],
         since=window_starts_at,
         until=window_ends_at
     )
@@ -768,47 +769,43 @@ def fetch_recent_deployments(
     )
 
 
-def argus_changed_flag_since(
-    flag: str,
-    since: datetime,
-    settings: MitigationSettings,
-    fetch: FlagChangesSince,
-) -> bool | None:
+def argus_changed_flag_since(flag: str,
+                             since: datetime,
+                             *,
+                             client: McpClient) -> bool | None:
     """Whether Argus's own change to `flag` reached the provider after `since`.
 
     The question a walk asks when it is resumed inside the mitigation node and
     finds an action claimed with nothing recorded against it: the worker that
     claimed it died, and only the provider knows whether the change it was
     making landed. The provider's event log is where that is written down, and
-    it is already what tells Argus's changes from a human's - asked here in the
-    one direction the rest of Argus never asks it.
+    the write tier asks it - the log is served to that tier's credential alone,
+    and the provider's adapter there is what tells Argus's changes from a
+    human's.
 
-    `None` means the provider could not say - it could not be reached, or it
-    attributes nothing to Argus because operator and Argus share a credential.
-    A caller must not read that as "no change was made": the difference between
-    an unmade change and an unanswerable question is the difference between
-    acting again and escalating.
+    `None` means nobody could say - the write tier could not be reached, the
+    provider's history could not be read, or it attributes nothing to Argus
+    because operator and Argus share a credential. A caller must not read that
+    as "no change was made": the difference between an unmade change and an
+    unanswerable question is the difference between acting again and
+    escalating.
     """
     try:
-        changes = fetch(since=to_iso(since))
+        return was_flag_changed_by_argus_since(flag, since, client=client)
     except Exception:
-        # Every way the provider can fail to answer arrives here, and they all
-        # mean the same thing to the caller: nobody can say. Narrowing this to
-        # the transport's own exception would let a change in the client's
+        # Every way the tier can fail to answer arrives here, and they all mean
+        # the same thing to the caller: nobody can say. Narrowing this to the
+        # transport's own exception would let a change in the client's
         # vocabulary turn "could not ask" into a crash inside a resumed walk.
         logger.warning("flag history could not be read", exc_info=True, extra={"flag": flag})
 
         return None
 
-    return change_by_actor_to(flag, settings.unleash_actor, changes)
 
-
-def somebody_else_changed_flag_since(
-    flag: str,
-    since: datetime,
-    settings: MitigationSettings,
-    fetch: FlagChangesSince,
-) -> bool | None:
+def somebody_else_changed_flag_since(flag: str,
+                                     since: datetime,
+                                     *,
+                                     client: McpClient) -> bool | None:
     """Whether anybody but Argus changed `flag` after `since`.
 
     What an undo consults before it writes, and the mirror of the question
@@ -818,27 +815,16 @@ def somebody_else_changed_flag_since(
     exactly like one nobody touched, and the provider serves current state from
     a cache that lags the change that matters most.
 
-    `None` means nobody can say: the provider could not be reached. A caller
-    must not read it as "nobody has been in here" - the two are the difference
-    between putting a change back and overwriting a person.
-
-    A deployment that attributes nothing - operator and Argus sharing one
-    credential - answers `True`, because `changes_not_made_by` filters nothing
-    there and Argus's own write is then indistinguishable from somebody else's.
-    That is the safe direction: a flag left as found can be put back by hand,
-    and a human's deliberate change overwritten cannot be recovered at all.
+    `None` means nobody can say, for the reasons the question above gives. A
+    caller must not read it as "nobody has been in here" - the two are the
+    difference between putting a change back and overwriting a person.
     """
     try:
-        changes = fetch(since=to_iso(since))
+        return was_flag_changed_by_others_since(flag, since, client=client)
     except Exception:
         logger.warning("flag history could not be read", exc_info=True, extra={"flag": flag})
 
         return None
-
-    return any(
-        change.flag == flag
-        for change in changes_not_made_by(settings.unleash_actor, changes)
-    )
 
 
 def fetch_recent_metrics(rule: str | None, *, client: McpClient) -> list[MetricBucket]:

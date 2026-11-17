@@ -16,21 +16,28 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core.mcp_transport import McpClient
-from core.models import AcceleratorPinUndo, DeploymentRollbackUndo
+from core.models import AcceleratorPinUndo, DeploymentRollbackUndo, FlagUndo
 from mitigation import an_undo_over
-from mitigation.tools import MitigationSettings
 
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
 RESTORE_ACCELERATOR_PIN_TOOL = "restore_accelerator_pin"
+OTHERS_CHANGED_FLAG_TOOL = "was_flag_changed_by_others_since"
 
 SOME_APPLICATION = "io-shop"
-SOME_ARGUS_USER = "Shuki Tuki"
+
+A_FLAG_TO_PUT_BACK = FlagUndo(
+    flag="monthly-spend-feature",
+    was_enabled=True,
+    environment="production",
+    written_at=datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
+)
 
 A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
     application=SOME_APPLICATION,
@@ -63,7 +70,7 @@ def test_an_undo_needs_nothing_but_the_change_it_is_putting_back() -> None:
     # already changed.
     Scenario() \
         .given(dont_care_client := _a_session_that_answers_nothing()) \
-        .when(lambda: an_undo_over(dont_care_client, _some_mitigation_settings())) \
+        .when(lambda: an_undo_over(dont_care_client)) \
         .then(_it_still_requires_only(WHAT_AN_UNDO_IS_GIVEN))
 
 
@@ -83,9 +90,7 @@ def test_an_undo_puts_a_rolled_back_deployment_back_over_the_write_tier() -> Non
             write := _a_session_that_answers_nothing()
         ) \
         .when(
-            _asking(read, write, lambda: an_undo_over(
-                write, _some_mitigation_settings()
-            )(A_ROLLBACK_TO_PUT_BACK))
+            _asking(read, write, lambda: an_undo_over(write)(A_ROLLBACK_TO_PUT_BACK))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),
@@ -104,14 +109,40 @@ def test_an_undo_puts_a_pin_to_a_card_back_over_the_write_tier() -> None:
             write := _a_session_that_answers_nothing()
         ) \
         .when(
-            _asking(read, write, lambda: an_undo_over(
-                write, _some_mitigation_settings()
-            )(A_PIN_TO_A_CARD_TO_PUT_BACK))
+            _asking(read, write, lambda: an_undo_over(write)(A_PIN_TO_A_CARD_TO_PUT_BACK))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(RESTORE_ACCELERATOR_PIN_TOOL)
         ))
+
+
+@pytest.mark.integration
+def test_an_undo_asks_the_write_tier_whether_anybody_else_changed_a_flag() -> None:
+    # Asked before a flag is put back, and asked of the tier holding the
+    # provider's history - the read tier has no such tool. The tier answering
+    # that nobody can say is what keeps this case to that one question: the
+    # flag is then left as it is, and nothing is written.
+    Scenario() \
+        .given(
+            read := _a_session_that_answers_nothing(),
+            write := _a_session_answering(None)
+        ) \
+        .when(
+            _asking(read, write, lambda: an_undo_over(write)(A_FLAG_TO_PUT_BACK))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(OTHERS_CHANGED_FLAG_TOOL)
+        ))
+
+
+def _a_session_answering(answer: object) -> Mock:
+    """A client that records the question and gives every call this answer."""
+    client: Mock = create_autospec(McpClient, instance=True)
+    client.call.return_value = answer
+
+    return client
 
 
 def _a_session_that_answers_nothing() -> Mock:
@@ -200,23 +231,3 @@ def _it_still_requires_only(
         return True
 
     return assertion
-
-
-def _some_mitigation_settings() -> MitigationSettings:
-    """How Mitigation behaves, as this file sets it.
-
-    Nothing here reads any of it: the binding passes the lookback and the actor
-    into the provider check it composes, and no test below reaches that check.
-    They are required, and required is the whole of why they are present.
-    """
-    a_lookback_nothing_here_reaches = 30
-    a_wait_nothing_here_reaches = 180.0
-
-    return MitigationSettings(
-        mitigation_change_lookback_minutes=a_lookback_nothing_here_reaches,
-        unleash_actor=SOME_ARGUS_USER,
-        argocd_actor=SOME_ARGUS_USER,
-        mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches,
-        metrics_reporting_lag_minutes=0,
-        mitigation_attempts_per_subject=1
-    )

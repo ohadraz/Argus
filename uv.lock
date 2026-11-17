@@ -16,6 +16,7 @@ members = [
     "argus-core",
     "argus-deployment-platform",
     "argus-exchange-rate-source",
+    "argus-flag-provider",
     "argus-github-double",
     "argus-incident-memory",
     "argus-incident-record",
@@ -341,6 +342,31 @@ dev = [
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "httpx2", specifier = ">=2.12" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-flag-provider"
+version = "0.1.0"
+source = { editable = "modules/flag_provider" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "httpx2" },
+    { name = "pydantic-settings" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "httpx2" },
+    { name = "pydantic-settings", specifier = ">=2.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -768,6 +794,7 @@ source = { editable = "modules/read_mcp_server" }
 dependencies = [
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
+    { name = "argus-flag-provider" },
     { name = "argus-metrics-source" },
     { name = "argus-repository-index", extra = ["store"] },
     { name = "argus-repository-source" },
@@ -785,6 +812,7 @@ dev = [
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
+    { name = "argus-flag-provider", editable = "modules/flag_provider" },
     { name = "argus-metrics-source", editable = "modules/metrics_source" },
     { name = "argus-repository-index", extras = ["store"], editable = "modules/repository_index" },
     { name = "argus-repository-source", editable = "modules/repository_source" },
@@ -1076,6 +1104,7 @@ source = { editable = "modules/write_mcp_server" }
 dependencies = [
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
+    { name = "argus-flag-provider" },
     { name = "argus-incident-record" },
     { name = "argus-telemetry" },
     { name = "httpx2" },
@@ -1092,6 +1121,7 @@ dev = [
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
+    { name = "argus-flag-provider", editable = "modules/flag_provider" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "httpx2" },

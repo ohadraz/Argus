@@ -140,6 +140,7 @@ root_packages = [
     "core",
     "deployment_platform",
     "exchange_rate_source",
+    "flag_provider",
     "incident_memory",
     "incident_record",
     "investigation_agent",
@@ -323,10 +324,10 @@ ignore_imports = [
     # Whether a failed request is known not to have been applied, read off the
     # HTTP client's error. Narrow for the reason `mcp_transport` is - `httpx2`
     # is an extra - and taken by the two write paths that ask over HTTP: the
-    # deployment platform's adapter and the flag provider's write. Each
-    # declares `httpx2` itself.
+    # deployment platform's adapter and the flag provider's. Each declares
+    # `httpx2` itself.
     "deployment_platform.** -> core.applying",
-    "write_mcp_server.** -> core.applying",
+    "flag_provider.** -> core.applying",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -455,6 +456,23 @@ forbidden_modules = ["deployment_platform.argocd"]
 ignore_imports = [
     "read_mcp_server.server -> deployment_platform.argocd",
     "write_mcp_server.server -> deployment_platform.argocd",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "Argus knows the flag provider by its port, and only each server's wiring knows the vendor"
+type = "forbidden"
+source_modules = ["*"]
+forbidden_modules = ["flag_provider.unleash"]
+# Where the adapters are built and handed out, each typed as its tier's port:
+# the read server's holding the evaluation credential alone, the write server's
+# both. Everything else - the servers' own tools, Mitigation, the walk - reaches
+# the provider through what it was handed, so a route, a token or an event name
+# written anywhere else is a contract broken here rather than a second copy of
+# Unleash's wire shape found in review.
+ignore_imports = [
+    "read_mcp_server.server -> flag_provider.unleash",
+    "write_mcp_server.server -> flag_provider.unleash",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

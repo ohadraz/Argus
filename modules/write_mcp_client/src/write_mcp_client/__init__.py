@@ -21,6 +21,8 @@ from write_mcp_client.client import (
     roll_back_deployment,
     scale_out,
     set_feature_flag,
+    was_flag_changed_by_argus_since,
+    was_flag_changed_by_others_since,
     write_mcp,
 )
 
@@ -39,5 +41,7 @@ __all__ = [
     "roll_back_deployment",
     "scale_out",
     "set_feature_flag",
+    "was_flag_changed_by_argus_since",
+    "was_flag_changed_by_others_since",
     "write_mcp"
 ]

@@ -22,6 +22,12 @@ WRITE_MCP_TEST_PORT = 8192
 
 DONT_CARE_ADMIN_TOKEN = "*:*.dont-care-admin-token"
 DONT_CARE_FRONTEND_TOKEN = "default:production.dont-care-frontend-token"
+# The name the server is told the provider records Argus's own writes under, so
+# a case can stage a change Argus made by recording one under it. Set rather
+# than left to the default, so a developer's own `.env` cannot move it.
+THE_ARGUS_ACTOR = "Argus"
+# The environment every row a case stages is recorded in, set for the same reason.
+THE_ENVIRONMENT = "production"
 
 
 class FakeUnleashHandler(BaseHTTPRequestHandler):
@@ -111,6 +117,8 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     env["UNLEASH_BASE_URL"] = f"http://127.0.0.1:{FAKE_UNLEASH_PORT}"
     env["UNLEASH_ADMIN_TOKEN"] = DONT_CARE_ADMIN_TOKEN
     env["UNLEASH_FRONTEND_TOKEN"] = DONT_CARE_FRONTEND_TOKEN
+    env["UNLEASH_ACTOR"] = THE_ARGUS_ACTOR
+    env["UNLEASH_ENVIRONMENT"] = THE_ENVIRONMENT
     env["WRITE_MCP_HOST"] = "127.0.0.1"
     env["WRITE_MCP_PORT"] = str(WRITE_MCP_TEST_PORT)
     # The suite is a package tree rather than an installed distribution, so a

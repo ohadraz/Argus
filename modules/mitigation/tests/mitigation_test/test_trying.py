@@ -4187,7 +4187,6 @@ def _some_mitigation_settings(reporting_lag_minutes: int = 0) -> MitigationSetti
     """
     return MitigationSettings(
         mitigation_change_lookback_minutes=60,
-        unleash_actor="argus",
         argocd_actor="argus",
         mitigation_verification_timeout_seconds=A_SHORT_WAIT_IN_SECONDS,
         mitigation_attempts_per_subject=1,

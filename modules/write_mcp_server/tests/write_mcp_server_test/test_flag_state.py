@@ -1,47 +1,36 @@
-"""Changing a flag, and recording enough to change it back.
+"""Changing a flag, and saying what a failure to change one left behind.
 
-The write tier's one act on the flag provider, and the only place Argus holds
-a credential that can alter what the Target Service evaluates. Two things are
-being claimed here and they are separate: that the right flag in the right
-environment was addressed with the right credential, and that the call did not
-return until the provider was actually serving the new value.
+The write tier's one act on the flag provider. How the provider is reached, and
+how long it takes to show a change, are the adapter's and are pinned in its own
+suite; what is left here is the tier's part: the change asked of the provider is
+the one the caller asked for, what comes back is the undo the provider's write
+produced, and a failure reaches the caller as a refusal saying what it left -
+nothing, something it cannot vouch for, or the undo that puts the flag back.
 
-The second matters because a toggle is not instantly visible through the
-evaluation API. Returning early would hand Mitigation a window in which it
-reads the old value and refutes a hypothesis that was right.
-
-What comes back is the undo - the state to restore, not the call that would
-restore it - and it carries the provider's own time for the write rather than
-this process's, since an undo compares it against the provider's log.
+That third is the one worth the most. A write the provider took and nobody saw
+evaluating has flipped the flag, and recorded nowhere else it is a flag no
+withdrawal would ever touch.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from email.utils import format_datetime
-from typing import Any
-from unittest.mock import create_autospec
+from unittest.mock import Mock, create_autospec
 
-import httpx2
 import pytest
 from argus_testkit import (
-    Assertion,
     Scenario,
     all_of,
-    an_error_was_raised,
     attempting,
     calling,
-    dont_care_sleep,
     one_record_was_logged,
+    the_answer_was,
+    the_error_mentioned,
 )
 from core.models import FlagUndo
-from write_mcp_server.flag_state import (
-    EvaluateFlags,
-    FlagNotSet,
-    FlagWriteSettings,
-    set_flag,
-)
+from flag_provider import FlagProviderWrites, FlagWriteFailed
+from write_mcp_server.flag_state import FlagNotSet, set_flag
 
 from write_mcp_server_test.framework.refusals import (
     it_left_behind,
@@ -49,209 +38,49 @@ from write_mcp_server_test.framework.refusals import (
     what_it_left_is_known,
 )
 
+SOME_FLAG = "monthly-spend-feature"
 DONT_CARE_FLAG = "dont-care-flag"
-DONT_CARE_PROVIDER_URL = "http://flags.invalid/"
+DONT_CARE_ENABLED = False
 
-
-def _a_status_error(status: int) -> httpx2.HTTPStatusError:
-    request = httpx2.Request("POST", DONT_CARE_PROVIDER_URL)
-
-    return httpx2.HTTPStatusError(
-        f"answered {status}",
-        request=request,
-        response=httpx2.Response(status, request=request)
-    )
-
-
-@pytest.mark.unit
-def test_setting_a_flag_off_addresses_its_environment() -> None:
-    some_flag = "monthly-spend-feature"
-    some_project = "default"
-    some_environment = "production"
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([])
-        ) \
-        .when(
-            lambda: set_flag(
-                some_flag,
-                enabled=False,
-                settings=some_settings(project=some_project, environment=some_environment),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _the_write_addressed(
-                provider,
-                f"/api/admin/projects/{some_project}/features/{some_flag}"
-                f"/environments/{some_environment}/off"
-            )
-        )
-
-
-@pytest.mark.unit
-def test_setting_a_flag_on_addresses_its_environment() -> None:
-    # The direction that did not exist before. An incident can be caused by a
-    # flag being withdrawn - a fallback disabled, traffic moved back to a path
-    # that has since rotted - and an agent that can only turn flags off cannot
-    # mitigate that incident at all.
-    some_flag = "monthly-spend-feature"
-    some_project = "default"
-    some_environment = "production"
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([some_flag])
-        ) \
-        .when(
-            lambda: set_flag(
-                some_flag,
-                enabled=True,
-                settings=some_settings(project=some_project, environment=some_environment),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _the_write_addressed(
-                provider,
-                f"/api/admin/projects/{some_project}/features/{some_flag}"
-                f"/environments/{some_environment}/on"
-            )
-        )
-
-
-@pytest.mark.unit
-def test_setting_a_flag_uses_the_credential_that_can_change_state() -> None:
-    # The write tier exists to hold this one. A change authenticating with the
-    # evaluation credential would fail against a real provider, and the tier
-    # split would be describing a boundary the code does not actually use.
-    some_admin_token = "*:*.some-admin-token"
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([])
-        ) \
-        .when(
-            lambda: set_flag(
-                DONT_CARE_FLAG,
-                enabled=False,
-                settings=some_settings(admin_token=some_admin_token),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _the_write_used(provider, some_admin_token)
-        )
-
-
-@pytest.mark.unit
-def test_setting_a_flag_off_returns_only_once_it_evaluates_off() -> None:
-    # A toggle is not instantly visible through the evaluation API. Returning
-    # before it is would hand Mitigation a window in which it reads the old
-    # value and refutes a hypothesis that was right.
-    Scenario() \
-        .given(
-            provider := a_flag_provider_still_reporting_it_on_twice()
-        ) \
-        .when(
-            lambda: set_flag(
-                DONT_CARE_FLAG,
-                enabled=False,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _it_kept_asking_until_it_agreed(provider, times=3)
-        )
-
-
-@pytest.mark.unit
-def test_setting_a_flag_on_returns_only_once_it_evaluates_on() -> None:
-    Scenario() \
-        .given(
-            provider := a_flag_provider_still_reporting_it_off_twice()
-        ) \
-        .when(
-            lambda: set_flag(
-                DONT_CARE_FLAG,
-                enabled=True,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _it_kept_asking_until_it_agreed(provider, times=3)
-        )
-
-
-@pytest.mark.unit
-def test_a_flag_that_never_reaches_the_requested_state_is_not_reported_as_set() -> None:
-    provider = a_flag_provider_reporting([DONT_CARE_FLAG])
-
-    Scenario() \
-        .when(
-            attempting(
-                lambda: set_flag(
-                    DONT_CARE_FLAG,
-                    enabled=False,
-                    settings=some_settings(),
-                    post=provider.post,
-                    evaluate=provider.evaluate,
-                    sleep=dont_care_sleep
-                )
-            )
-        ) \
-        .then(
-            an_error_was_raised(FlagNotSet)
-        )
-
-
-@pytest.mark.unit
-def test_an_unreachable_provider_is_not_reported_as_set() -> None:
-    some_transport_error = httpx2.ConnectError("connection refused")
-    provider = a_flag_provider_reporting([])
-    provider.post.side_effect = some_transport_error
-
-    Scenario() \
-        .when(
-            attempting(
-                lambda: set_flag(
-                    DONT_CARE_FLAG,
-                    enabled=False,
-                    settings=some_settings(),
-                    post=provider.post,
-                    evaluate=provider.evaluate
-                )
-            )
-        ) \
-        .then(
-            an_error_was_raised(FlagNotSet)
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "failure",
-    [httpx2.ConnectError("connection refused"), _a_status_error(400)],
-    ids=["never sent", "rejected"]
+SOME_UNDO = FlagUndo(
+    flag=SOME_FLAG,
+    was_enabled=True,
+    environment="production",
+    written_at=datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
 )
-def test_a_write_the_provider_never_took_is_known_to_have_changed_nothing(
-    failure: Exception
-) -> None:
-    # Nothing was sent, or what was sent was read and refused: the flag is as
-    # it was, and the refusal says so.
-    provider = a_flag_provider_reporting([])
-    provider.post.side_effect = failure
+SOME_PROVIDER_WORDS = "the provider said something about it"
 
+
+@pytest.mark.unit
+@pytest.mark.parametrize("enabled", [False, True], ids=["off", "on"])
+def test_the_provider_is_asked_for_the_flag_and_the_state_asked_for(enabled: bool) -> None:
+    # Both directions, one tool: a flag causes an incident by changing, and the
+    # damaging direction is not always "on".
     Scenario() \
-        .when(attempting(lambda: _setting_it_off(provider))) \
+        .given(flags := _a_provider_answering(SOME_UNDO)) \
+        .when(lambda: set_flag(SOME_FLAG, enabled, flags)) \
+        .then(lambda _: _the_provider_was_asked_to_set(flags, SOME_FLAG, enabled))
+
+
+@pytest.mark.unit
+def test_what_comes_back_is_the_undo_the_providers_write_produced() -> None:
+    # Whole, as the provider's write made it: the provider's own time for it is
+    # what an undo later asks the history from.
+    Scenario() \
+        .given(flags := _a_provider_answering(SOME_UNDO)) \
+        .when(lambda: set_flag(SOME_FLAG, False, flags)) \
+        .then(the_answer_was(SOME_UNDO))
+
+
+@pytest.mark.unit
+def test_a_write_the_provider_never_took_is_refused_as_having_changed_nothing() -> None:
+    # Nothing was sent, or what was sent was refused: the flag is as it was, and
+    # the refusal says so.
+    Scenario() \
+        .given(flags := _a_provider_failing(
+            FlagWriteFailed(SOME_PROVIDER_WORDS, known_not_applied=True)
+        )) \
+        .when(attempting(lambda: set_flag(DONT_CARE_FLAG, DONT_CARE_ENABLED, flags))) \
         .then(all_of(
             it_was_refused_as(FlagNotSet),
             what_it_left_is_known(True),
@@ -260,21 +89,14 @@ def test_a_write_the_provider_never_took_is_known_to_have_changed_nothing(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "failure",
-    [httpx2.ReadTimeout("timed out"), _a_status_error(500)],
-    ids=["timed out", "faulted"]
-)
-def test_a_write_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
-    failure: Exception
-) -> None:
+def test_a_write_whose_answer_was_lost_is_not_said_to_have_changed_nothing() -> None:
     # The provider may have flipped it. A refusal saying it left nothing would
     # have the record say the flag is as it was.
-    provider = a_flag_provider_reporting([])
-    provider.post.side_effect = failure
-
     Scenario() \
-        .when(attempting(lambda: _setting_it_off(provider))) \
+        .given(flags := _a_provider_failing(
+            FlagWriteFailed(SOME_PROVIDER_WORDS, known_not_applied=False)
+        )) \
+        .when(attempting(lambda: set_flag(DONT_CARE_FLAG, DONT_CARE_ENABLED, flags))) \
         .then(all_of(
             it_was_refused_as(FlagNotSet),
             what_it_left_is_known(False),
@@ -283,451 +105,69 @@ def test_a_write_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
 
 
 @pytest.mark.unit
-def test_a_write_accepted_and_never_seen_in_effect_carries_what_puts_it_back() -> None:
-    # The provider took the change, so the flag Argus flipped is flipped,
-    # whatever evaluation says yet - and recorded nowhere else, it is a flag no
-    # withdrawal would ever put back.
-    provider = a_flag_provider_reporting([DONT_CARE_FLAG])
-
+def test_a_write_taken_and_never_seen_in_effect_is_refused_carrying_what_puts_it_back() -> None:
+    # The provider took the change, so the flag is flipped whatever evaluation
+    # says yet - and the undo is the whole of what it left.
     Scenario() \
-        .when(attempting(lambda: _setting_it_off(provider))) \
+        .given(flags := _a_provider_failing(
+            FlagWriteFailed(SOME_PROVIDER_WORDS, left_behind=SOME_UNDO)
+        )) \
+        .when(attempting(lambda: set_flag(SOME_FLAG, False, flags))) \
         .then(all_of(
             it_was_refused_as(FlagNotSet),
             what_it_left_is_known(True),
-            it_left_behind(_the_flag_as_it_was(enabled=True))
+            it_left_behind(SOME_UNDO)
         ))
 
 
 @pytest.mark.unit
-def test_a_write_accepted_and_then_unconfirmable_carries_what_puts_it_back() -> None:
-    # The same change taken, and the evaluation read gone with it.
-    provider = a_flag_provider_reporting([])
-    provider.evaluate.side_effect = httpx2.ConnectError("connection refused")
-
+def test_a_refusal_carries_what_the_provider_said() -> None:
+    # The reason is the provider's, and it is what a person reading the
+    # incident has to go on.
     Scenario() \
-        .when(attempting(lambda: _setting_it_off(provider))) \
-        .then(all_of(
-            it_was_refused_as(FlagNotSet),
-            what_it_left_is_known(True),
-            it_left_behind(_the_flag_as_it_was(enabled=True))
-        ))
-
-
-@pytest.mark.unit
-def test_switching_a_flag_off_records_that_it_had_been_on() -> None:
-    # The descriptor names the state to restore, not the call that would
-    # restore it: a tool renamed or resignatured later would leave the second
-    # kind of record pointing at nothing.
-    some_flag = "monthly-spend-feature"
-    some_environment = "production"
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([])
-        ) \
-        .when(
-            lambda: set_flag(
-                some_flag,
-                enabled=False,
-                settings=some_settings(environment=some_environment),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            all_of(
-                _the_undo_names(some_flag, some_environment),
-                _the_undo_restores_it_to(enabled=True)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_switching_a_flag_on_records_that_it_had_been_off() -> None:
-    # The undo of a mitigation that undid a switch-off. Recording `was_enabled`
-    # as true here - as a revert-only tool would have to - would have the undo
-    # leave the flag in the state that caused the incident.
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([DONT_CARE_FLAG])
-        ) \
-        .when(
-            lambda: set_flag(
-                DONT_CARE_FLAG,
-                enabled=True,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _the_undo_restores_it_to(enabled=False)
-        )
-
-
-@pytest.mark.unit
-def test_the_undo_descriptor_records_when_the_provider_recorded_the_write() -> None:
-    # The one fact the descriptor was missing, and the reason it needs it: an
-    # undo asks the provider what changed *since* Argus wrote, and a time taken
-    # from Argus's own clock would be compared against timestamps from the
-    # provider's. The write's own response carries the provider's.
-    some_moment_the_provider_recorded = datetime(2026, 9, 6, 17, 38, tzinfo=UTC)
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_dating_its_write(some_moment_the_provider_recorded)
-        ) \
-        .when(
-            lambda: set_flag(
-                DONT_CARE_FLAG,
-                enabled=False,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _the_undo_was_written_at(some_moment_the_provider_recorded)
-        )
-
-
-@pytest.mark.unit
-def test_a_provider_that_dates_nothing_leaves_the_moment_absent() -> None:
-    # Absent rather than filled in from this process's clock. A descriptor that
-    # carried Argus's own time would be compared against the provider's log and
-    # would be wrong by whatever the two clocks disagree by - and an undo can
-    # say it could not establish the state, which is one of its three answers.
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([])
-        ) \
-        .when(
-            lambda: set_flag(
-                DONT_CARE_FLAG,
-                enabled=False,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            _the_undo_was_written_at(None)
-        )
+        .given(flags := _a_provider_failing(FlagWriteFailed(SOME_PROVIDER_WORDS))) \
+        .when(attempting(lambda: set_flag(DONT_CARE_FLAG, DONT_CARE_ENABLED, flags))) \
+        .then(the_error_mentioned(SOME_PROVIDER_WORDS))
 
 
 @pytest.mark.unit
 def test_a_flag_set_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # A change to production, and the first line a person reading the write
     # server's log looks for: which flag was switched, and which way.
-    some_flag = "monthly-spend-feature"
-
     Scenario() \
         .given(
             calling(lambda: caplog.set_level(logging.INFO)),
-            provider := a_flag_provider_reporting([])
+            flags := _a_provider_answering(SOME_UNDO)
         ) \
-        .when(
-            lambda: set_flag(
-                some_flag,
-                enabled=False,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.INFO,
-                                  "flag set",
-                                  values={"flag": some_flag, "enabled": False})
+        .when(lambda: set_flag(SOME_FLAG, False, flags)) \
+        .then(one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.INFO,
+                                    "flag set",
+                                    values={"flag": SOME_FLAG, "enabled": False}))
+
+
+def _a_provider_answering(undo: FlagUndo) -> Mock:
+    flags: Mock = create_autospec(FlagProviderWrites, instance=True)
+    flags.set.return_value = undo
+
+    return flags
+
+
+def _a_provider_failing(failure: FlagWriteFailed) -> Mock:
+    flags: Mock = create_autospec(FlagProviderWrites, instance=True)
+    flags.set.side_effect = failure
+
+    return flags
+
+
+def _the_provider_was_asked_to_set(flags: Mock, flag: str, enabled: bool) -> bool:
+    """Read off `call_args` rather than through `assert_called_with`, which does
+    not survive a spec built from a `Protocol`: `self` is left on the signature."""
+    asked = [call.args for call in flags.set.call_args_list]
+
+    if asked != [(flag, enabled)]:
+        raise AssertionError(
+            f"Expected the provider to be asked once to set [{flag}] to [{enabled}], "
+            f"and it was asked {asked}."
         )
 
-
-@pytest.mark.unit
-def test_a_write_the_provider_did_not_date_is_logged_as_a_warning(
-    caplog: pytest.LogCaptureFixture
-) -> None:
-    # The undo this leaves can only answer that it could not establish the
-    # state, and whoever reads that answer later needs to know why.
-    some_flag = "monthly-spend-feature"
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([])
-        ) \
-        .when(
-            lambda: set_flag(
-                some_flag,
-                enabled=False,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.WARNING,
-                                  "provider gave no write time",
-                                  values={"flag": some_flag})
-        )
-
-
-@pytest.mark.unit
-def test_a_write_the_provider_dated_unreadably_is_logged_as_a_warning(
-    caplog: pytest.LogCaptureFixture
-) -> None:
-    # The same undo, for a different reason - and the header it could not
-    # read is the one thing that says which reason.
-    some_flag = "monthly-spend-feature"
-    some_unreadable_date = "the day before yesterday"
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_dating_its_write_as(some_unreadable_date)
-        ) \
-        .when(
-            lambda: set_flag(
-                some_flag,
-                enabled=False,
-                settings=some_settings(),
-                post=provider.post,
-                evaluate=provider.evaluate
-            )
-        ) \
-        .then(
-            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.WARNING,
-                                  "provider gave no write time",
-                                  values={"flag": some_flag, "date": some_unreadable_date})
-        )
-
-
-@pytest.mark.unit
-def test_a_flag_that_never_evaluates_as_set_is_logged_as_a_warning(
-    caplog: pytest.LogCaptureFixture
-) -> None:
-    # Not the same failure as a provider that refused: the write was taken,
-    # and should the provider catch up later, production ends up in a state
-    # Argus reported it had not reached.
-    some_flag = "monthly-spend-feature"
-
-    Scenario() \
-        .given(
-            provider := a_flag_provider_reporting([some_flag])
-        ) \
-        .when(
-            attempting(
-                lambda: set_flag(
-                    some_flag,
-                    enabled=False,
-                    settings=some_settings(),
-                    post=provider.post,
-                    evaluate=provider.evaluate,
-                    sleep=dont_care_sleep
-                )
-            )
-        ) \
-        .then(
-            one_record_was_logged(caplog, "write_mcp_server.flag_state", logging.WARNING,
-                                  "flag accepted but not evaluating",
-                                  values={"flag": some_flag, "enabled": False})
-        )
-
-
-class _FlagProvider:
-    def __init__(self) -> None:
-        self.post: Any = create_autospec(httpx2.post)
-        # Spec'd against the port, not `evaluated_flags`: that reads under
-        # a credential, and confirming a write needs only the answer.
-        self.evaluate: Any = create_autospec(EvaluateFlags, instance=True)
-
-
-def a_flag_provider() -> _FlagProvider:
-    provider = _FlagProvider()
-    provider.post.return_value = httpx2.Response(
-        status_code=200,
-        json={},
-        request=httpx2.Request("POST", "http://flags.invalid/")
-    )
-    return provider
-
-
-def a_flag_provider_reporting(enabled_flags: list[str]) -> _FlagProvider:
-    provider = a_flag_provider()
-    provider.evaluate.return_value = enabled_flags
-    return provider
-
-
-def a_flag_provider_still_reporting_it_on_twice() -> _FlagProvider:
-    """A provider that catches up on the third read rather than the first.
-
-    Two stale answers and then the new one, which is what makes "returns only
-    once it evaluates off" a claim about waiting rather than about luck.
-    """
-    provider = a_flag_provider()
-    provider.evaluate.side_effect = [[DONT_CARE_FLAG], [DONT_CARE_FLAG], []]
-
-    return provider
-
-
-def a_flag_provider_still_reporting_it_off_twice() -> _FlagProvider:
-    """The same lag in the other direction."""
-    provider = a_flag_provider()
-    provider.evaluate.side_effect = [[], [], [DONT_CARE_FLAG]]
-
-    return provider
-
-
-def a_flag_provider_dating_its_write(moment: datetime) -> _FlagProvider:
-    dont_care_provider_url = "http://kuki.com/"
-    provider = a_flag_provider_reporting([])
-    provider.post.return_value = httpx2.Response(
-        status_code=200,
-        json={},
-        headers={"Date": format_datetime(moment, usegmt=True)},
-        request=httpx2.Request("POST", dont_care_provider_url)
-    )
-
-    return provider
-
-
-def a_flag_provider_dating_its_write_as(header: str) -> _FlagProvider:
-    dont_care_provider_url = "http://kuki.com/"
-    provider = a_flag_provider_reporting([])
-    provider.post.return_value = httpx2.Response(
-        status_code=200,
-        json={},
-        headers={"Date": header},
-        request=httpx2.Request("POST", dont_care_provider_url)
-    )
-
-    return provider
-
-
-def _setting_it_off(provider: _FlagProvider) -> FlagUndo:
-    return set_flag(
-        DONT_CARE_FLAG,
-        enabled=False,
-        settings=some_settings(),
-        post=provider.post,
-        evaluate=provider.evaluate,
-        sleep=dont_care_sleep
-    )
-
-
-def _the_flag_as_it_was(enabled: bool) -> FlagUndo:
-    """What puts the flag back, as `some_settings` addresses it and as a
-    provider that dates nothing leaves it."""
-    return FlagUndo(
-        flag=DONT_CARE_FLAG,
-        was_enabled=enabled,
-        environment=some_settings().unleash_environment,
-        written_at=None
-    )
-
-
-def some_settings(project: str = "default",
-                  environment: str = "production",
-                  admin_token: str = "*:*.dont-care-admin-token") -> FlagWriteSettings:
-    """The slice this tier writes under.
-
-    Each test names only the field it is about. The evaluation credential is
-    never one of them - what confirms the change is injected as `evaluate`, so
-    nothing here ever sends it.
-    """
-    dont_care_frontend_token = "default:production.dont-care-frontend-token"
-
-    return FlagWriteSettings(
-        unleash_base_url="http://flags.invalid",
-        unleash_frontend_token=dont_care_frontend_token,
-        unleash_project=project,
-        unleash_environment=environment,
-        unleash_admin_token=admin_token
-    )
-
-
-def _the_write_addressed(provider: _FlagProvider, expected: str) -> Assertion[FlagUndo]:
-    """Which URL the change was posted to, read off the call itself.
-
-    Read off the call rather than inferred from the answer, because the double
-    answers the same way whatever it is asked - it is not the provider and
-    does not refuse a flag that does not exist or an environment that is not
-    this one.
-    """
-    def assertion(dont_care_undo: FlagUndo) -> bool:
-        addressed = provider.post.call_args.args[0]
-        if not addressed.endswith(expected):
-            raise AssertionError(f"Expected a write to [...{expected}], got [{addressed}].")
-
-        return True
-
-    return assertion
-
-
-def _the_write_used(provider: _FlagProvider, expected: str) -> Assertion[FlagUndo]:
-    def assertion(dont_care_undo: FlagUndo) -> bool:
-        used = provider.post.call_args.kwargs["headers"]["Authorization"]
-        if used != expected:
-            raise AssertionError(f"Expected the write to use [{expected}], got [{used}].")
-
-        return True
-
-    return assertion
-
-
-def _it_kept_asking_until_it_agreed(provider: _FlagProvider,
-                                    times: int) -> Assertion[FlagUndo]:
-    """That the call did not return on the provider's first, stale answer.
-
-    Counted rather than merely "more than once", because the fixture lags by a
-    known number of reads: fewer means it returned early, and more means it
-    kept asking after the provider had already caught up.
-    """
-    def assertion(dont_care_undo: FlagUndo) -> bool:
-        asked = provider.evaluate.call_count
-        if asked != times:
-            raise AssertionError(f"Expected the state to be read [{times}] times, got [{asked}].")
-
-        return True
-
-    return assertion
-
-
-def _the_undo_names(flag: str, environment: str) -> Assertion[FlagUndo]:
-    """Both halves of what an undo has to address, reported together.
-
-    An undo naming the right flag in the wrong environment would restore a
-    value in an environment nobody touched, and leave the incident's own
-    environment as the mitigation left it.
-    """
-    def assertion(undo: FlagUndo) -> bool:
-        named = (undo.flag, undo.environment)
-        if named != (flag, environment):
-            raise AssertionError(f"Expected the undo to name {(flag, environment)}, got {named}.")
-
-        return True
-
-    return assertion
-
-
-def _the_undo_restores_it_to(enabled: bool) -> Assertion[FlagUndo]:
-    """The state the flag is to be put back into - which is the state it was
-    in before the write, not the state the write left it in."""
-    def assertion(undo: FlagUndo) -> bool:
-        if undo.was_enabled is not enabled:
-            raise AssertionError(
-                f"Expected the undo to restore it to [{enabled}], got [{undo.was_enabled}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_undo_was_written_at(expected: datetime | None) -> Assertion[FlagUndo]:
-    def assertion(undo: FlagUndo) -> bool:
-        if undo.written_at != expected:
-            raise AssertionError(
-                f"Expected the write to be dated [{expected}], got [{undo.written_at}]."
-            )
-
-        return True
-
-    return assertion
+    return True

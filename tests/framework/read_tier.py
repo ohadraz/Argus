@@ -22,11 +22,11 @@ from core import Connections, ReadMcpEndpoint
 from core.mcp_transport import McpClient
 from core.models import CodeSearch, ToolDefinition
 from deployment_platform import DeploymentPlatformReads
+from flag_provider import FlagProviderReads
 from mcp.server.fastmcp import FastMCP
 from metrics_source import MetricsSettings
 from read_mcp_client import offered
 from read_mcp_server.alert_rules import AlertRuleReadSettings
-from read_mcp_server.flags import FlagReadSettings
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
@@ -69,8 +69,7 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
                           metrics_window_minutes=60),
         TargetServiceSettings(target_service_url="http://target.invalid"),
         MetricsSettings(prometheus_base_url="http://prometheus.invalid"),
-        FlagReadSettings(unleash_base_url="http://flags.invalid",
-                         unleash_frontend_token="dont-care-token"),
+        create_autospec(FlagProviderReads, instance=True),
         create_autospec(DeploymentPlatformReads, instance=True),
         ServiceRegistrySettings(
             service_registry_base_url="http://registry.invalid",

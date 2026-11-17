@@ -267,8 +267,6 @@ def against(connections: Connections,
     settings = get_settings()
     mitigation = MitigationSettings.of(settings)
     memory = IncidentMemorySettings.of(settings)
-    # Asked of the provider four different ways below, over one connection.
-    flag_history = flag_changes_over(write)
     # One register, read by the model during the investigation and by the walk
     # on the gate's behalf. Bound once rather than at each of the two, because
     # two bindings are two registers as far as an incident is concerned - and
@@ -339,7 +337,7 @@ def against(connections: Connections,
         # the wait for the service are read once, here, rather than by the
         # agent every time it is asked a question.
         fetch_flag_changes=partial(
-            fetch_recent_flag_changes, mitigation, flag_history
+            fetch_recent_flag_changes, mitigation, flag_changes_over(write)
         ),
         # The other change a service has, over the same lookback and read over
         # the read tier the Investigator's change channel uses.
@@ -375,15 +373,13 @@ def against(connections: Connections,
             # The agent's own binding rather than one assembled here, because
             # the worker wants the same one for a withdrawal - and two copies
             # of it is how one came to be missing a collaborator the other had.
-            undo=an_undo_over(write, mitigation)
+            undo=an_undo_over(write)
         ),
         record_action=records.claim_action,
         complete_action=records.complete_action,
         already_taken=records.claimed_action,
         advance_action=records.advance_action,
-        change_landed=partial(
-            argus_changed_flag_since, settings=mitigation, fetch=flag_history
-        ),
+        change_landed=partial(argus_changed_flag_since, client=write),
         # Both tiers, because proposing a fix is the one act that spans them:
         # the repository is read from the process that cannot write, and the
         # branch and the draft pull request come from the one that can (§13).

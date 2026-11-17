@@ -45,33 +45,9 @@ class Settings(BaseSettings):
     read_mcp_host: str = Field(default="localhost")
     read_mcp_port: int = Field(default=8090)
 
-    # The feature-flag provider, read side. This credential can evaluate flags
-    # and cannot change one, which is what makes `argus-read-mcp` incapable of
-    # mutation rather than merely disinclined (spec §13, §14). The admin
-    # credential belongs to `argus-write-mcp` alone and is not read here.
-    unleash_base_url: str = Field(default="http://localhost:4242")
-    unleash_frontend_token: str = Field(
-        default="default:production.argus-demo-frontend-token"
-    )
-    # Which project and environment a flag change addresses. Read-side calls
-    # need neither - the evaluation credential is already scoped to one
-    # environment - but the admin API names both in its path.
-    unleash_project: str = Field(default="default")
-    unleash_environment: str = Field(default="production")
-    # The credential that can change a flag. `argus-write-mcp` holds it and
-    # `argus-read-mcp` is issued none: the tier boundary is enforced by which
-    # process possesses which secret, not only by which code paths exist
-    # (spec §13, §14). Empty by default so a misconfigured write server fails
-    # loudly rather than silently authenticating as nobody.
-    unleash_admin_token: str = Field(default="")
-    # The name the provider attributes Argus's own flag writes to - the username
-    # on the credential above, seeded by the Target Environment's compose file
-    # and matched here exactly. It is what lets a change Argus made be told from
-    # a change a human made, so that a later look at "what recently changed"
-    # does not offer Argus its own action as a cause. Empty switches that
-    # filtering off, which is the honest setting for a deployment where Argus
-    # and its operators share one credential and the distinction cannot be made.
-    unleash_actor: str = Field(default="Argus")
+    # The feature-flag provider is configured by its adapter's own settings
+    # (`flag_provider.unleash`), read from the same `UNLEASH_*` variables - not
+    # here, where every slice could reach its admin credential.
 
     write_mcp_host: str = Field(default="localhost")
     write_mcp_port: int = Field(default=8092)
@@ -673,10 +649,11 @@ class Settings(BaseSettings):
     # the stand-in needs none, and a real Argo CD issues these to operators.
     # The name the platform records Argus's own actions under - the account the
     # credential above belongs to, which Argo CD writes on each history entry as
-    # `initiatedBy.username`. The counterpart of `unleash_actor`, for the same
-    # reason: a rollback Argus made lands in the deploy history a later round
-    # reads, and kept there it is offered as the change to undo. Empty switches
-    # the filtering off, the honest setting where the credential is shared.
+    # `initiatedBy.username`. The counterpart of the flag provider's
+    # `UNLEASH_ACTOR`, for the same reason: a rollback Argus made lands in the
+    # deploy history a later round reads, and kept there it is offered as the
+    # change to undo. Empty switches the filtering off, the honest setting where
+    # the credential is shared.
     argocd_actor: str = Field(default="Argus")
     argocd_auth_token: str = Field(default="")
     # Where a resource action is run, as the same template. A real Argo CD's is
@@ -897,7 +874,7 @@ class SettingsSlice(BaseModel):
     cannot change anything does not name the credential that could.
 
     The narrowing is the point rather than the packaging. `read_mcp_server`
-    holding a `Settings` names `unleash_admin_token` whether or not the
+    holding a `Settings` names `argocd_auth_token` whether or not the
     environment ever supplies one - and the day somebody wires it in, nothing
     objects. Holding a slice, it cannot name it at all.
 

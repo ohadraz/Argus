@@ -211,7 +211,7 @@ jobs:
           # The credential that reads flag history and toggles a flag. Not a
           # secret: it is a token the Target Environment's compose seeds into
           # its own Unleash, so it is a fixture value.
-          # `Settings.unleash_admin_token` has no default on purpose, so a real
+          # `UnleashSettings.admin_token` has no default on purpose, so a real
           # deployment cannot ship a working write token by accident - which
           # means every job running the stack has to name it. Without it the
           # history read 401s and every mitigation escalates.

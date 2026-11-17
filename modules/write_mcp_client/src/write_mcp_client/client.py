@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Final
 
-from core import Holding, WriteMcpEndpoint
+from core import Holding, WriteMcpEndpoint, to_iso
 from core.mcp_transport import McpClient
 from core.models import (
     AcceleratorPinRestored,
@@ -29,6 +30,11 @@ from pydantic import TypeAdapter
 # that decision has one door - reading it a second way here would be a second
 # place for it to be decided differently.
 _FLAG_CHANGES: Final = TypeAdapter(list[FlagChange])
+
+# Either question about whose a flag change was, answered as a yes, a no, or
+# nobody-can-say - validated rather than cast, so `None` crosses as itself and
+# anything else the tier said is refused here rather than read as an answer.
+_AN_ANSWER_OR_NONE: Final[TypeAdapter[bool | None]] = TypeAdapter(bool | None)
 
 _OPENED_PULL_REQUEST: Final = TypeAdapter(OpenedPullRequest)
 
@@ -437,6 +443,44 @@ def get_recent_flag_changes(since: str,
         "get_recent_flag_changes",
         _FLAG_CHANGES.validate_python,
         since=since,
+    )
+
+
+def was_flag_changed_by_argus_since(flag: str,
+                                    since: datetime,
+                                    *,
+                                    client: McpClient) -> bool | None:
+    """Whether Argus's own change to `flag` was recorded at or after `since`,
+    or `None` where nobody can say.
+
+    The question a walk resumed after its worker died asks: did the change it
+    was claiming land? Only the provider's history knows, and the provider's
+    adapter decides whose each change in it was - this carries the answer and
+    adds nothing, least of all a `False` where the tier said nobody can say.
+    """
+    return client.call(
+        "was_flag_changed_by_argus_since",
+        _AN_ANSWER_OR_NONE.validate_python,
+        flag=flag,
+        since=to_iso(since)
+    )
+
+
+def was_flag_changed_by_others_since(flag: str,
+                                     since: datetime,
+                                     *,
+                                     client: McpClient) -> bool | None:
+    """Whether anybody but Argus changed `flag` at or after `since`, or `None`
+    where nobody can say.
+
+    What an undo asks before it writes. `None` is never "nobody": the two are
+    the difference between putting a change back and overwriting a person.
+    """
+    return client.call(
+        "was_flag_changed_by_others_since",
+        _AN_ANSWER_OR_NONE.validate_python,
+        flag=flag,
+        since=to_iso(since)
     )
 
 

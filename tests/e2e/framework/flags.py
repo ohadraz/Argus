@@ -18,9 +18,9 @@ from typing import Any, Final
 import httpx2
 import psycopg
 from argus_testkit import Assertion, eventually
-from core import get_settings
 from core.anomaly import has_recovered_since
 from core.models import MetricBucket
+from flag_provider.unleash import UnleashSettings
 
 from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS, TARGET_SERVICE_BASE_URL
 from tests.framework.investigating import the_configured_thresholds
@@ -31,7 +31,7 @@ from tests.framework.investigating import the_configured_thresholds
 FLAG_PROVIDER_DATABASE_URL = "postgresql://unleash:unleash@localhost:5433/unleash"
 
 # The credential these cases write flags with, and deliberately *not* the one
-# `Settings.unleash_admin_token` holds. That one is Argus's, and the provider
+# `UnleashSettings.admin_token` holds. That one is Argus's, and the provider
 # records the author of every change: a case staging a flag change with Argus's
 # credential would be staging something Argus attributes to itself and filters
 # out of its own evidence. Everything here plays a human - the operator who
@@ -140,11 +140,11 @@ def another_flag_was_toggled_on(flag: str) -> Callable[[], bool]:
 
 
 def switch_flag(flag: str, enabled: bool) -> bool:
-    settings = get_settings()
+    settings = UnleashSettings()
     response = httpx2.post(
-        f"{settings.unleash_base_url}"
-        f"/api/admin/projects/{settings.unleash_project}"
-        f"/features/{flag}/environments/{settings.unleash_environment}"
+        f"{settings.base_url}"
+        f"/api/admin/projects/{settings.project}"
+        f"/features/{flag}/environments/{settings.environment}"
         f"/{'on' if enabled else 'off'}",
         headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -154,10 +154,10 @@ def switch_flag(flag: str, enabled: bool) -> bool:
 
 
 def flags_evaluating_true() -> list[str]:
-    settings = get_settings()
+    settings = UnleashSettings()
     response = httpx2.get(
-        f"{settings.unleash_base_url}/api/frontend",
-        headers={"Authorization": settings.unleash_frontend_token},
+        f"{settings.base_url}/api/frontend",
+        headers={"Authorization": settings.frontend_token},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -244,9 +244,9 @@ def _the_flags_the_provider_holds() -> list[str]:
     """Every flag in the project, over the admin API rather than the evaluation
     one - a flag that is off still exists, and existing is the thing being
     cleaned up here."""
-    settings = get_settings()
+    settings = UnleashSettings()
     response = httpx2.get(
-        f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
+        f"{settings.base_url}/api/admin/projects/{settings.project}"
         f"/features",
         headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -282,10 +282,10 @@ def _delete_flag(flag: str) -> None:
     version: archive-then-remove crashed it within 16 and 200 rounds, and 800
     rounds with this wait did not.
     """
-    settings = get_settings()
+    settings = UnleashSettings()
     headers = {"Authorization": THE_HUMANS_ADMIN_TOKEN}
     httpx2.delete(
-        f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
+        f"{settings.base_url}/api/admin/projects/{settings.project}"
         f"/features/{flag}",
         headers=headers,
         timeout=REQUEST_TIMEOUT_SECONDS
@@ -296,7 +296,7 @@ def _delete_flag(flag: str) -> None:
     # Checked, where the archiving is not: a name left in the archive cannot be
     # created again, and the next case staging it would quietly go without it.
     httpx2.delete(
-        f"{settings.unleash_base_url}/api/admin/archive/{flag}",
+        f"{settings.base_url}/api/admin/archive/{flag}",
         headers=headers,
         timeout=REQUEST_TIMEOUT_SECONDS
     ).raise_for_status()
@@ -306,9 +306,9 @@ def _archived_in_its_lifecycle(flag: str) -> Assertion[None]:
     """That the provider has recorded `flag` as archived - the write a removal
     must not overtake."""
     def assertion(_: None) -> bool:
-        settings = get_settings()
+        settings = UnleashSettings()
         response = httpx2.get(
-            f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
+            f"{settings.base_url}/api/admin/projects/{settings.project}"
             f"/features/{flag}/lifecycle",
             headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
             timeout=REQUEST_TIMEOUT_SECONDS
@@ -328,9 +328,9 @@ def _archived_in_its_lifecycle(flag: str) -> Assertion[None]:
 
 
 def _create_flag_if_absent(flag: str) -> None:
-    settings = get_settings()
+    settings = UnleashSettings()
     httpx2.post(
-        f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}/features",
+        f"{settings.base_url}/api/admin/projects/{settings.project}/features",
         headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         json={"name": flag, "type": "release"},
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -338,8 +338,8 @@ def _create_flag_if_absent(flag: str) -> None:
     # A flag with no strategy never evaluates true however it is toggled, so
     # the second flag would be invisible to the very read this arranges for.
     httpx2.post(
-        f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
-        f"/features/{flag}/environments/{settings.unleash_environment}/strategies",
+        f"{settings.base_url}/api/admin/projects/{settings.project}"
+        f"/features/{flag}/environments/{settings.environment}/strategies",
         headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
         json={"name": "flexibleRollout", "parameters": {"rollout": "100"}},
         timeout=REQUEST_TIMEOUT_SECONDS,

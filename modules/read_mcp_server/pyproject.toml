@@ -7,6 +7,7 @@ dependencies = [
     "argus-telemetry",
     "argus-repository_index[store]",
     "argus-deployment_platform",
+    "argus-flag_provider",
     "argus-metrics_source",
     "argus-repository_source",
     "httpx2",
@@ -23,6 +24,7 @@ argus-core = { workspace = true }
 argus-telemetry = { workspace = true }
 argus-repository_index = { workspace = true }
 argus-deployment_platform = { workspace = true }
+argus-flag_provider = { workspace = true }
 argus-metrics_source = { workspace = true }
 argus-repository_source = { workspace = true }
 argus-argus_testkit = { workspace = true }

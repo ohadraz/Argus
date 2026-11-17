@@ -40,6 +40,8 @@ from core.models import (
 )
 from deployment_platform import DeploymentPlatformReads
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
+from flag_provider import FlagProviderReads
+from flag_provider.unleash import UnleashFrontend, UnleashFrontendSettings
 from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 from pydantic import Field
@@ -51,7 +53,6 @@ from read_mcp_server import (
     alert_rules,
     deployments,
     descriptions,
-    flags,
     meaning,
     placements,
     repository,
@@ -61,7 +62,6 @@ from read_mcp_server import (
 from read_mcp_server.alert_rules import AlertRuleReadSettings
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.deploy_history import fetch_deploys
-from read_mcp_server.flags import FlagReadSettings
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import (
     ServiceRegistrySettings,
@@ -83,7 +83,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  retrieval_settings: RetrievalSettings,
                  target_service: TargetServiceSettings,
                  metrics_settings: MetricsSettings,
-                 flag_settings: FlagReadSettings,
+                 flags: FlagProviderReads,
                  platform: DeploymentPlatformReads,
                  registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
@@ -120,9 +120,6 @@ def build_server(endpoint: ReadMcpEndpoint,
         )
 
     metrics_source: MetricsSource = metrics
-
-    def toggles() -> list[dict[str, object]]:
-        return list(flags.fetch_evaluated_toggles(flag_settings))
 
     # The deploy history for a window, as the change channel asks for it. The
     # deployment channel and the rollout channel are handed the platform itself,
@@ -249,10 +246,10 @@ def build_server(endpoint: ReadMcpEndpoint,
 
         Raises rather than returning an empty list when the provider cannot be
         reached, for the reason `get_change_events` does: "nothing is enabled"
-        is a conclusion, and an outage is not evidence for it. The behavior and
-        its injection seam live in `flags.enabled_flags`; this is registration
+        is a conclusion, and an outage is not evidence for it. The behavior
+        lives behind the flag provider's reads port; this is registration
         only."""
-        return flags.enabled_flags(toggles)
+        return flags.enabled()
 
     @mcp.tool(description=descriptions.SEARCH_REPOSITORY)
     def search_repository(
@@ -553,7 +550,10 @@ def main() -> None:
             RetrievalSettings.of(settings),
             TargetServiceSettings.of(settings),
             MetricsSettings.of(settings),
-            FlagReadSettings.of(settings),
+            # The flag provider's adapter, built here for the same reason and
+            # handed on as its reads port - holding the evaluation credential
+            # alone, since its settings have nowhere to put another.
+            UnleashFrontend(UnleashFrontendSettings()),
             # The adapter is built here and nowhere else in this tier, and handed
             # on typed as the reads port: a write typed anywhere below does not
             # type-check, which is the tier split held in the code this process

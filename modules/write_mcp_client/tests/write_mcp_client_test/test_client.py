@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
-from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings
+from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings, parse_iso
 from core.mcp_transport import McpClient, McpToolError, PlatformUnreachable
 from core.models import (
     AcceleratorPinRestored,
@@ -27,6 +27,8 @@ from write_mcp_client import (
     restore_deployment,
     roll_back_deployment,
     set_feature_flag,
+    was_flag_changed_by_argus_since,
+    was_flag_changed_by_others_since,
     write_mcp,
 )
 
@@ -38,11 +40,17 @@ from write_mcp_client_test.fake_deployment_platform import (
     FakeDeploymentPlatformHandler,
     a_running_platform,
 )
-from write_mcp_client_test.fake_feature_flag_provider import FakeUnleashHandler, a_running_write_mcp
+from write_mcp_client_test.fake_feature_flag_provider import (
+    THE_ARGUS_ACTOR,
+    THE_ENVIRONMENT,
+    FakeUnleashHandler,
+    a_running_write_mcp,
+)
 
 SINCE = "2026-08-20T11:00:00Z"
 INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
 DONT_CARE_ACTOR = "dont-care-actor"
+SOME_HUMAN = "admin"
 SOME_APPLICATION = "io-shop"
 SOME_CARD = "Tesla-V100-SXM2-16GB"
 
@@ -142,6 +150,68 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
         .then(
             the_changes_are([(some_flag, False)])
         )
+
+
+@pytest.mark.integration
+def test_asking_whether_argus_changed_a_flag_reaches_the_provider_through_the_real_write_server(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # The whole path of the question a resumed walk asks: the typed client, a
+    # real MCP round trip, the tool, the provider's own log and the name the
+    # server was told Argus writes under. Asked holding no run, as a read is.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            calling(the_provider_recorded(
+                running_write_mcp,
+                [a_disabling_of(some_flag, at=INSIDE_THE_WINDOW, by=THE_ARGUS_ACTOR)]
+            ))
+        ) \
+        .when(
+            _asking_the_server_as(None, lambda client: was_flag_changed_by_argus_since(
+                some_flag, parse_iso(SINCE), client=client
+            ))
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
+
+
+@pytest.mark.integration
+def test_asking_whether_others_changed_a_flag_reaches_the_provider_through_the_real_write_server(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # The question an undo asks before it writes, over the same path - and
+    # answered from the same row the other question would call somebody else's.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            calling(the_provider_recorded(
+                running_write_mcp,
+                [a_disabling_of(some_flag, at=INSIDE_THE_WINDOW, by=SOME_HUMAN)]
+            ))
+        ) \
+        .when(
+            _asking_the_server_as(None, lambda client: was_flag_changed_by_others_since(
+                some_flag, parse_iso(SINCE), client=client
+            ))
+        ) \
+        .then(
+            _the_answer_is(True)
+        )
+
+
+def _the_answer_is(expected: bool | None) -> Assertion[bool | None]:
+    """`is` rather than `==`: `None` and `False` are the whole distinction here."""
+    def assertion(answer: bool | None) -> bool:
+        if answer is not expected:
+            raise AssertionError(f"Expected the answer [{expected}], got [{answer}].")
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.integration
@@ -470,16 +540,17 @@ def the_provider_recorded(handler: type[FakeUnleashHandler],
     return step
 
 
-def a_disabling_of(flag: str, at: str) -> dict[str, Any]:
-    """One row of the provider's event log, in its own wire shape."""
+def a_disabling_of(flag: str, at: str, by: str = DONT_CARE_ACTOR) -> dict[str, Any]:
+    """One row of the provider's event log, in its own wire shape, recorded in
+    the environment the server was told it serves."""
     return {
         "id": 11,
         "type": "feature-environment-disabled",
-        "createdBy": DONT_CARE_ACTOR,
+        "createdBy": by,
         "createdAt": at,
         "featureName": flag,
         "project": "default",
-        "environment": "production",
+        "environment": THE_ENVIRONMENT
     }
 
 

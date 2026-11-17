@@ -33,10 +33,17 @@ class FlagChange(BaseModel):
     enabled: bool
     occurred_at: str
     # Who the provider attributes the change to. Absent when it does not say.
-    # Load-bearing: Argus writes under a credential of its own, so this is what
-    # tells its own revert from a human's - see `mitigation.attribution`,
-    # which is what stops Argus offering its own action as a candidate cause.
+    # Evidence, carried to a model as a change's author; whether that author is
+    # Argus is the field below.
     actor: str | None = None
+    # Whether the change was Argus's own, worked out by the provider's adapter
+    # from the author above and the name Argus writes under - which is what stops
+    # Argus offering its own action as a candidate cause. `None` where nobody can
+    # say: no name is configured, so Argus and its operators share a credential,
+    # or the change was recorded before the adapter said so - and nothing is not
+    # a "no". A fact code acts on and never evidence, so `as_a_change` leaves it
+    # behind.
+    made_by_argus: bool | None = None
 
 
 class FlagHistory(BaseModel):

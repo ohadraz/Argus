@@ -28,8 +28,9 @@ import httpx2
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
-from core import get_settings, the_clock_named_by, utc_now
+from core import the_clock_named_by, utc_now
 from core.models import IncidentStatus
+from flag_provider.unleash import UnleashSettings
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
@@ -84,7 +85,7 @@ def test_every_party_of_the_stack_reads_the_clock_argus_reads() -> None:
                     A_DATABASE_MAY_DIFFER_BY
                 ),
                 "the flag provider": (
-                    lambda: _a_date_header(f"{get_settings().unleash_base_url}/health"),
+                    lambda: _a_date_header(f"{UnleashSettings().base_url}/health"),
                     A_DATE_HEADER_MAY_DIFFER_BY
                 ),
                 "the Target Service": (
@@ -220,7 +221,7 @@ def _the_flag_switches_argus_made(flag: str) -> list[datetime]:
             "SELECT created_at FROM events "
             "WHERE feature_name = %s AND created_by = %s AND type = ANY(%s) "
             "ORDER BY id",
-            (flag, get_settings().unleash_actor, list(A_FLAG_SWITCHED))
+            (flag, UnleashSettings().actor, list(A_FLAG_SWITCHED))
         ).fetchall()
 
     return [row[0] for row in rows]
