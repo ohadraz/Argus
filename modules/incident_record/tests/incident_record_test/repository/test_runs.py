@@ -1,17 +1,34 @@
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
+from contextlib import ExitStack
 from datetime import timedelta
 from functools import partial
 from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, attempting, calling, the_answer_was
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    eventually,
+    the_answer_was,
+)
 from core import Fence, connect_from_env, fence, utc_now, was_lost
 from core.models import Alert
 from incident_record.repository import incidents, runs
 
-from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
+from incident_record_test.framework import (
+    autocommitting,
+    no_column_is_empty,
+    written_and_rolled_back,
+)
 
 # Long enough that nothing in this test expires on its own: what is being
 # measured here is who gets the run, not what happens when a holder goes quiet.
@@ -31,6 +48,37 @@ A_MOMENT_TO_WAIT_FOR_A_LOCK = "500ms"
 # the leases are.
 A_WAIT_NOTHING_OUTLASTS = timedelta(hours=1)
 A_WAIT_ALREADY_OVER = timedelta(seconds=-1)
+
+# Far longer than a moment to wait for a lock: a statement still waiting by then
+# was not stopped by its lock timeout, and is cancelled rather than left to hang
+# the suite - which fails as the wrong error instead of never ending.
+LONG_PAST_A_MOMENT = "10s"
+
+# How many of the oldest runs waiting a claim considers. Mirrors the private
+# bound in `runs.claim`, which is not imported: a test reading it would agree
+# with whatever it said.
+THE_RUNS_A_CLAIM_CONSIDERS = 16
+
+# More settled runs than a claim considers, and all older than the runs
+# waiting: a claim that considered runs it cannot take would consider these
+# alone, lock them, and claim nothing.
+MANY_SETTLED_RUNS = THE_RUNS_A_CLAIM_CONSIDERS * 2
+
+DONT_CARE_REASON = "the walk ran out of tool calls"
+
+# How long a hold started on its own thread is given to reach the lock a claim
+# keeps, and how often it is looked for there - looked for rather than slept
+# on, so the test waits only as long as the hold takes.
+LONG_ENOUGH_TO_START_WAITING = timedelta(seconds=5)
+OFTEN_ENOUGH_TO_SEE_IT_WAITING = timedelta(milliseconds=10)
+
+# How long that hold waits behind the claim before it is refused: past the time
+# it is given to start waiting, so it is still waiting when the claim commits.
+A_WHILE_TO_WAIT_BEHIND_A_CLAIM = LONG_ENOUGH_TO_START_WAITING * 2
+
+# Past the hold's own lock timeout, so a hold that never ends fails the test
+# rather than hanging it.
+LONG_ENOUGH_FOR_THE_HOLD_TO_END = A_WHILE_TO_WAIT_BEHIND_A_CLAIM * 2
 
 
 @pytest.mark.integration
@@ -401,23 +449,27 @@ def test_a_change_is_held_for_a_claim_only_while_the_run_is_still_at_it(since: s
     # made for a claim the run has moved past is a second walk acting on an
     # incident somebody else is walking.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "worker-that-was-paused"
 
-    with connect_from_env() as conn, connect_from_env() as the_tiers_conn:
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        ExitStack() as the_change
+    ):
         Scenario() \
             .given(
                 _an_enqueued_run_for(conn, dont_care_alert),
-                held := _a_claim_by(conn, "worker-that-was-paused", A_LEASE_ALREADY_OVER),
+                held := _a_claim_by(conn, dont_care_worker, A_LEASE_ALREADY_OVER),
                 calling(lambda: _and_since(conn, held, since))
             ) \
             .when(
-                lambda: runs.hold_for_a_change(the_tiers_conn,
-                                               Fence(run_id=held.id, epoch=held.epoch))
+                lambda: the_change.enter_context(runs.hold_for_a_change(
+                    the_tiers_conn, Fence(run_id=held.id, epoch=held.epoch)
+                ))
             ) \
             .then(
                 _it_says_held(since == "nothing")
             )
-
-        the_tiers_conn.rollback()
 
 
 @pytest.mark.integration
@@ -427,26 +479,270 @@ def test_a_run_held_for_a_change_is_not_taken_back_until_the_change_is_done(
 ) -> None:
     # Its lease is over, so any worker looking would take it - and a change
     # half made for one claim while the next claim starts walking is the
-    # duplicate walk the epoch exists to stop. The run waits for the change.
+    # duplicate walk the epoch exists to stop. The run waits for the change:
+    # the claim comes inside the hold while the change is being made, and after
+    # the hold has let go once it is done.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_paused_worker = "worker-that-was-paused"
+    dont_care_worker = "worker-that-came-after"
 
-    with connect_from_env() as conn, connect_from_env() as the_tiers_conn:
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        ExitStack() as the_change
+    ):
         Scenario() \
             .given(
                 _an_enqueued_run_for(conn, dont_care_alert),
-                held := _a_claim_by(conn, "worker-that-was-paused", A_LEASE_ALREADY_OVER),
-                calling(lambda: runs.hold_for_a_change(the_tiers_conn,
-                                                       Fence(run_id=held.id, epoch=held.epoch))),
-                calling(the_tiers_conn.commit if change == "done" else lambda: None)
+                held := _a_claim_by(conn, dont_care_paused_worker, A_LEASE_ALREADY_OVER),
+                calling(lambda: the_change.enter_context(runs.hold_for_a_change(
+                    the_tiers_conn, Fence(run_id=held.id, epoch=held.epoch)
+                ))),
+                calling(the_change.close if change == "done" else lambda: None)
             ) \
             .when(
-                lambda: runs.claim(conn, "worker-that-came-after", A_GENEROUS_LEASE)
+                lambda: runs.claim(conn, dont_care_worker, A_GENEROUS_LEASE)
             ) \
             .then(
                 _taken_back(change == "done")
             )
 
-        the_tiers_conn.rollback()
+
+@pytest.mark.integration
+@pytest.mark.parametrize("change", ["being-made", "done"])
+def test_a_run_requeued_while_held_for_a_change_is_not_taken_again_until_the_change_is_done(
+    change: str
+) -> None:
+    # The walk gave up on the model and requeued its run while the tier was
+    # still making a change for it. The wait is already over, so any worker
+    # looking would take it - and the next claim would walk on while a change
+    # made for the last one is still landing. The run waits for the change, as
+    # one whose lease ran out does.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "worker-looking-for-something-to-do"
+
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        ExitStack() as the_change
+    ):
+        Scenario() \
+            .given(
+                held := _a_claimed_run_for(conn, dont_care_alert),
+                calling(lambda: the_change.enter_context(runs.hold_for_a_change(
+                    the_tiers_conn, Fence(run_id=held.id, epoch=held.epoch)
+                ))),
+                calling(lambda: runs.try_again_later(conn, held, A_WAIT_ALREADY_OVER)),
+                calling(conn.commit),
+                calling(the_change.close if change == "done" else lambda: None)
+            ) \
+            .when(
+                lambda: runs.claim(conn, dont_care_worker, A_GENEROUS_LEASE)
+            ) \
+            .then(
+                _taken_again(change == "done")
+            )
+
+
+@pytest.mark.integration
+def test_a_run_held_for_a_change_under_its_id_in_upper_case_is_not_taken_back() -> None:
+    # One run, however its id is spelled. A hold keyed on the spelling would
+    # keep a lock the claim never asks after, and the run would be taken back
+    # with its change half made.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_paused_worker = "worker-that-was-paused"
+    dont_care_worker = "worker-that-came-after"
+
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        ExitStack() as the_change
+    ):
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, dont_care_paused_worker, A_LEASE_ALREADY_OVER),
+                calling(lambda: the_change.enter_context(runs.hold_for_a_change(
+                    the_tiers_conn, Fence(run_id=held.id.upper(), epoch=held.epoch)
+                )))
+            ) \
+            .when(
+                lambda: runs.claim(conn, dont_care_worker, A_GENEROUS_LEASE)
+            ) \
+            .then(
+                _taken_back(False)
+            )
+
+
+@pytest.mark.integration
+def test_a_hold_that_waits_behind_a_claim_says_the_run_is_no_longer_held() -> None:
+    # The paused worker's change arrives while the next worker's claim of its
+    # run is still being made. The hold waits for that claim, and reads the run
+    # only once it has the lock - in a statement of its own, so it reads the
+    # epoch the claim moved on, not the one it started waiting under.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_paused_worker = "worker-that-was-paused"
+    dont_care_worker = "worker-that-came-after"
+    answered: Kept[bool | Exception] = Kept()
+
+    # The claim's connection is let go first on the way out, so a test that
+    # failed before committing it ends the hold's wait rather than closing a
+    # connection a thread is still waiting on.
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        connect_from_env() as the_next_workers_conn
+    ):
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, dont_care_paused_worker, A_LEASE_ALREADY_OVER),
+                the_tiers_pid := the_tiers_conn.info.backend_pid,
+                the_hold := _a_hold_on_its_own_thread(
+                    the_tiers_conn, Fence(run_id=held.id, epoch=held.epoch), answered
+                ),
+                calling(lambda: runs.claim(the_next_workers_conn, dont_care_worker,
+                                           A_GENEROUS_LEASE)),
+                calling(lambda: _waiting_at_most(the_tiers_conn,
+                                                 A_WHILE_TO_WAIT_BEHIND_A_CLAIM)),
+                calling(the_hold.start),
+                calling(lambda: eventually(
+                    _waiting_on_a_lock(conn, the_tiers_pid),
+                    timeout=LONG_ENOUGH_TO_START_WAITING.total_seconds(),
+                    interval=OFTEN_ENOUGH_TO_SEE_IT_WAITING.total_seconds()
+                )(None))
+            ) \
+            .when(
+                lambda: _the_claim_committed_under(the_next_workers_conn, the_hold, answered)
+            ) \
+            .then(
+                _it_says_held(False)
+            )
+
+
+@pytest.mark.integration
+def test_a_second_change_for_a_run_held_for_one_is_refused_within_its_lock_timeout() -> None:
+    # Two changes at once for one run are two hands on one incident. The second
+    # is told so once its moment is up, rather than waiting out a restart.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        autocommitting(connect_from_env()) as another_of_the_tiers_conns,
+        ExitStack() as the_change,
+        ExitStack() as the_second_change
+    ):
+        Scenario() \
+            .given(
+                held := _a_claimed_run_for(conn, dont_care_alert),
+                calling(lambda: the_change.enter_context(runs.hold_for_a_change(
+                    the_tiers_conn, Fence(run_id=held.id, epoch=held.epoch)
+                ))),
+                calling(lambda: _waiting_a_moment_at_most(another_of_the_tiers_conns))
+            ) \
+            .when(attempting(
+                lambda: the_second_change.enter_context(runs.hold_for_a_change(
+                    another_of_the_tiers_conns, Fence(run_id=held.id, epoch=held.epoch)
+                ))
+            )) \
+            .then(
+                an_error_was_raised(runs.ChangeInFlight)
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("asking", [
+    lambda conn, held: runs.renew(conn, held, A_GENEROUS_LEASE),
+    lambda conn, held: runs.finish(conn, held),
+    lambda conn, held: runs.fail(conn, held, DONT_CARE_REASON),
+    lambda conn, held: runs.try_again_later(conn, held, A_WAIT_NOTHING_OUTLASTS)
+], ids=["renew", "finish", "fail", "try_again_later"])
+def test_a_run_held_for_a_change_is_renewed_or_settled_by_its_claim_without_waiting(
+    asking: Callable[[psycopg.Connection, runs.Run], bool]
+) -> None:
+    # The walk goes on while the tier makes its change: it renews its lease, and
+    # it may end or give up on the model before the change is done. Made to wait,
+    # a walk's renewal would sit out a restart while its lease ran out. Its
+    # connection waits a moment at most, so a wait is refused as a lock it could
+    # not have rather than hanging the suite.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        ExitStack() as the_change
+    ):
+        Scenario() \
+            .given(
+                held := _a_claimed_run_for(conn, dont_care_alert),
+                calling(lambda: _waiting_a_moment_at_most(conn)),
+                calling(lambda: the_change.enter_context(runs.hold_for_a_change(
+                    the_tiers_conn, Fence(run_id=held.id, epoch=held.epoch)
+                )))
+            ) \
+            .when(
+                lambda: asking(conn, held)
+            ) \
+            .then(
+                _it_said_the_claim_still_held_the_run()
+            )
+
+
+@pytest.mark.integration
+def test_a_claim_locks_no_more_runs_than_are_waiting_to_be_claimed() -> None:
+    # The settled runs pile up behind every incident ever walked, oldest first.
+    # A claim that considered runs it cannot take would spend its few on them,
+    # lock them, and claim nothing - and the queue would stall with runs
+    # waiting in it.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_runs_waiting = 2
+    dont_care_worker = "worker-looking-for-something-to-do"
+
+    with (
+        connect_from_env() as conn,
+        connect_from_env() as a_workers_conn
+    ):
+        Scenario() \
+            .given(
+                calling(lambda: _settled_runs_for(conn, dont_care_alert, MANY_SETTLED_RUNS)),
+                calling(lambda: _runs_waiting_for(conn, dont_care_alert, some_runs_waiting))
+            ) \
+            .when(
+                lambda: runs.claim(a_workers_conn, dont_care_worker, A_GENEROUS_LEASE)
+            ) \
+            .then(all_of(
+                _a_waiting_run_was_claimed(),
+                _locks_held_by_the_claim_at_most(conn, a_workers_conn, some_runs_waiting)
+            ))
+
+
+@pytest.mark.integration
+def test_a_claim_locks_fewer_runs_than_are_waiting_where_more_wait_than_it_considers() -> None:
+    # A backlog - the worker down for an hour while alerts kept coming. A claim
+    # that tried every run waiting would hold a lock for each of them for its
+    # transaction's length, however long the backlog grew.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_more_than_a_claim_considers = THE_RUNS_A_CLAIM_CONSIDERS + 1
+    dont_care_worker = "worker-looking-for-something-to-do"
+
+    with (
+        connect_from_env() as conn,
+        connect_from_env() as a_workers_conn
+    ):
+        Scenario() \
+            .given(
+                calling(lambda: _runs_waiting_for(conn, dont_care_alert,
+                                                  some_more_than_a_claim_considers))
+            ) \
+            .when(
+                lambda: runs.claim(a_workers_conn, dont_care_worker, A_GENEROUS_LEASE)
+            ) \
+            .then(all_of(
+                _a_waiting_run_was_claimed(),
+                _locks_held_by_the_claim_at_most(conn, a_workers_conn,
+                                                 some_more_than_a_claim_considers - 1)
+            ))
 
 
 @pytest.mark.integration
@@ -456,18 +752,21 @@ def test_a_run_held_for_a_change_still_takes_the_writes_of_the_claim_holding_it(
     # back without keeping its own claim from writing for as long as a restart
     # takes.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "worker-holding-it"
 
     with (
         connect_from_env() as conn,
-        connect_from_env() as the_tiers_conn,
-        connect_from_env() as the_holders_conn
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        connect_from_env() as the_holders_conn,
+        ExitStack() as the_change
     ):
         Scenario() \
             .given(
                 _an_enqueued_run_for(conn, dont_care_alert),
-                held := _a_claim_by(conn, "worker-holding-it", A_GENEROUS_LEASE),
-                calling(lambda: runs.hold_for_a_change(the_tiers_conn,
-                                                       Fence(run_id=held.id, epoch=held.epoch))),
+                held := _a_claim_by(conn, dont_care_worker, A_GENEROUS_LEASE),
+                calling(lambda: the_change.enter_context(runs.hold_for_a_change(
+                    the_tiers_conn, Fence(run_id=held.id, epoch=held.epoch)
+                ))),
                 calling(lambda: _fenced_and_waiting_a_moment_at_most(the_holders_conn, held))
             ) \
             .when(attempting(
@@ -476,8 +775,6 @@ def test_a_run_held_for_a_change_still_takes_the_writes_of_the_claim_holding_it(
             .then(
                 _the_write_was_made()
             )
-
-        the_tiers_conn.rollback()
 
 
 @pytest.mark.integration
@@ -710,8 +1007,148 @@ def _fenced_and_waiting_a_moment_at_most(conn: psycopg.Connection, held: runs.Ru
     """The holder's connection, fenced for its claim, and refusing rather than
     hanging on a lock it cannot have."""
     fence(conn, Fence(run_id=held.id, epoch=held.epoch))
+    _waiting_a_moment_at_most(conn)
+
+
+def _waiting_a_moment_at_most(conn: psycopg.Connection) -> None:
+    """`conn` refusing a lock it cannot have once a moment is up - and, should
+    anything outlast that moment anyway, cancelled long past it rather than
+    left to hang."""
     conn.execute(f"SET lock_timeout = '{A_MOMENT_TO_WAIT_FOR_A_LOCK}'")
+    conn.execute(f"SET statement_timeout = '{LONG_PAST_A_MOMENT}'")
     conn.commit()
+
+
+def _waiting_at_most(conn: psycopg.Connection, wait: timedelta) -> None:
+    """`conn` refusing a lock it cannot have once `wait` is up."""
+    conn.execute(f"SET lock_timeout = '{int(wait.total_seconds() * 1000)}ms'")
+    conn.commit()
+
+
+def _a_hold_on_its_own_thread(conn: psycopg.Connection,
+                              held: Fence,
+                              answered: Kept[bool | Exception]) -> threading.Thread:
+    """The tier's hold for `held`, on a thread of its own and not yet started -
+    what it says, or what it raised, kept in `answered`."""
+    def hold() -> None:
+        try:
+            with runs.hold_for_a_change(conn, held) as still_held:
+                answered.take(still_held)
+        except Exception as refused:
+            answered.take(refused)
+
+    return threading.Thread(target=hold, daemon=True)
+
+
+def _the_claim_committed_under(the_claims_conn: psycopg.Connection,
+                               the_hold: threading.Thread,
+                               answered: Kept[bool | Exception]) -> object:
+    """The claim a hold waits behind, committed - and what the hold said once
+    it had had long enough to end, or that it was still waiting."""
+    the_claims_conn.commit()
+    the_hold.join(LONG_ENOUGH_FOR_THE_HOLD_TO_END.total_seconds())
+
+    return answered.only() if answered.taken else "nothing - it was still waiting"
+
+
+def _waiting_on_a_lock(conn: psycopg.Connection, pid: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_locks "
+                "WHERE locktype = 'advisory' AND NOT granted AND pid = %s",
+                (pid,)
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            waiting = int(row[0])
+
+        if not waiting:
+            raise AssertionError(
+                f"Expected the hold on [{pid}] waiting on the claim's lock, and it was not."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_said_the_claim_still_held_the_run() -> Assertion[Any]:
+    def assertion(still_held: Any) -> bool:
+        if still_held is not True:
+            raise AssertionError(
+                f"Expected the claim told it still held the run while a change was "
+                f"held for it, and it was told [{still_held}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _settled_runs_for(conn: psycopg.Connection, alert: Alert, count: int) -> None:
+    """`count` runs walked to their end, finished and failed in turn, committed.
+
+    Settled in SQL of their own rather than claimed and then settled: a claim
+    that broke on settled runs would otherwise break here, in the setup, and
+    the case would never reach the claim it is asking about.
+    """
+    for each in range(count):
+        run_id = runs.enqueue(conn, incidents.create(conn, alert, at=utc_now()))
+        state, reason = ((runs.RunState.FAILED, DONT_CARE_REASON) if each % 2
+                         else (runs.RunState.DONE, None))
+        conn.execute("UPDATE incident_run SET state = %s, failure_reason = %s WHERE id = %s",
+                     (state, reason, run_id))
+
+    conn.commit()
+
+
+def _runs_waiting_for(conn: psycopg.Connection, alert: Alert, count: int) -> None:
+    """`count` runs waiting to be claimed, committed, so a worker on another
+    connection sees them."""
+    for _ in range(count):
+        _an_enqueued_run_for(conn, alert)
+
+    conn.commit()
+
+
+def _a_waiting_run_was_claimed() -> Assertion[Any]:
+    def assertion(claimed: Any) -> bool:
+        if claimed is None:
+            raise AssertionError(
+                "Expected one of the runs waiting claimed, and nothing was claimed."
+            )
+
+        return True
+
+    return assertion
+
+
+def _locks_held_by_the_claim_at_most(conn: psycopg.Connection,
+                                     the_claims_conn: psycopg.Connection,
+                                     most: int) -> Assertion[Any]:
+    """Asked of `conn` while the claim's transaction on `the_claims_conn` is
+    still open, which is where its locks live."""
+    def assertion(_claimed: Any) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_locks "
+                "WHERE locktype = 'advisory' AND granted AND pid = %s",
+                (the_claims_conn.info.backend_pid,)
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            held = int(row[0])
+
+        if held > most:
+            raise AssertionError(
+                f"Expected the claim to hold at most [{most}] advisory locks, and it "
+                f"held [{held}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_write_committed_on(conn: psycopg.Connection, held: runs.Run) -> None:
@@ -738,6 +1175,20 @@ def _taken_back(expected: bool) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected the run {"taken back once the change was done" if expected
                                     else "left alone while the change was being made"}, "
+                f"and it was claimed by [{claimed.claimed_by if claimed else None}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _taken_again(expected: bool) -> Assertion[Any]:
+    def assertion(claimed: Any) -> bool:
+        if (claimed is not None) is not expected:
+            raise AssertionError(
+                f"Expected the requeued run {"taken again once the change was done" if expected
+                                             else "left to wait while the change was being made"}, "
                 f"and it was claimed by [{claimed.claimed_by if claimed else None}]."
             )
 

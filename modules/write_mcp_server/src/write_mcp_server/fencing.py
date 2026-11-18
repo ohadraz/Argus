@@ -12,7 +12,10 @@ What a refusal means decides how it is said. A claim the run has moved past is
 a lost run, marked so the walk stops. A call naming no claim, or one whose run
 could not be asked after, is refused as an ordinary refusal: neither says the
 run was lost, and a walk told it was would stop in silence where it should reach
-a human. Both are refused before the tool runs, and say they left nothing.
+a human. Both are refused before the tool runs, and say they left nothing. A
+change whose run has another change already being made for it is refused too,
+before it runs - but without saying it left nothing, since the change asking
+is that same one asked again, and the first may have landed.
 
 Reads are answered as they always were. Nothing a read does can be got wrong by
 a second walk.
@@ -25,7 +28,7 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from typing import Any, Final
 
-from core import DatabaseSettings, Fence, open_pool
+from core import DatabaseSettings, Fence, connect
 from core.mcp_transport import (
     FENCE_META_KEY,
     TracedFastMCP,
@@ -50,8 +53,19 @@ type OpensHolds = Callable[[DatabaseSettings], AbstractContextManager[HoldForACh
 # it, which is how long a change may take. Above the longest the tier makes: a
 # restart's two requests, then sixty looks a second apart, each up to the
 # platform's ten-second timeout - eleven minutes and a little more. A bound on
-# a server that hung holding a run, not a wait anybody expects.
+# a server that hung holding a run, not a wait anybody expects: the database
+# closes the connection, and the run is let go with it.
 LONGER_THAN_ANY_CHANGE: Final = "15min"
+
+# How long a change waits for its run to be free before it is refused as one
+# already being made. Above the moment a claim holds the run for while it
+# commits, which is what an honest wait is for; below a restart, the one change
+# that can outlast the client's wait for its answer - so a restart asked again,
+# over a connection that gave out while the first was still being made, is
+# refused rather than made twice. Every other change is usually over within this wait,
+# so one asked again is waited out and asked again: that redo is crash-resume's
+# to answer, not this.
+LONGER_THAN_ANY_CLAIM: Final = "5s"
 
 
 class FencedFastMCP(TracedFastMCP):
@@ -108,6 +122,14 @@ class FencedFastMCP(TracedFastMCP):
 
         try:
             still_held = held_for_now.enter_context(self._hold_for_a_change(held))
+        except runs.ChangeInFlight as in_flight:
+            # Refused without saying it left nothing, unlike the refusals
+            # around it: what asks is this change asked again while the first
+            # is still being made, and that one may well have changed the world.
+            # The walk records what it left as unknown, and a person is told.
+            raise RuntimeError(
+                f"[{name}] was not made for run [{held.run_id}]: {in_flight}"
+            ) from in_flight
         except Exception as unasked:
             raise RuntimeError(a_refusal_saying_what_it_left(
                 f"whether run [{held.run_id}] is still held for [{name}] could not be "
@@ -125,22 +147,36 @@ class FencedFastMCP(TracedFastMCP):
 
 
 @contextmanager
-def holds_in_the_database(settings: DatabaseSettings) -> Generator[HoldForAChange]:
-    """The run's own row, asked and kept on a pool of this process's own.
+def holds_in_the_database(settings: DatabaseSettings,
+                          wait: str = LONGER_THAN_ANY_CLAIM,
+                          idle: str = LONGER_THAN_ANY_CHANGE) -> Generator[HoldForAChange]:
+    """The run asked after and kept on a connection of the change's own.
 
-    Kept for the length of a transaction, which the database ends if nothing is
-    said on it for `LONGER_THAN_ANY_CHANGE`. Committed once the change is made;
-    a change that raised has it rolled back - either lets the run go.
+    Kept by the session rather than by a transaction (`runs.hold_for_a_change`),
+    so the connection commits each statement as it is said and holds nothing
+    the event log would wait behind. The database closes it if nothing is said
+    on it for `idle`, which lets the run go, and a run already held is waited
+    for no longer than `wait` - both said as Postgres says a duration, and
+    both the tier's own bounds unless a caller has reason to say shorter ones.
+
+    One connection per change rather than a pool, because closing it is the
+    one way of letting go that cannot fail to: a pooled connection whose
+    letting go had failed would carry the run, held, into whichever change
+    took it next. A change is rare and slow, and a connection costs it nothing
+    worth counting.
     """
-    with open_pool(settings, connection={
-        "options": f"-c idle_in_transaction_session_timeout={LONGER_THAN_ANY_CHANGE}"
-    }) as pool:
-        @contextmanager
-        def hold(held: Fence) -> Generator[bool]:
-            with pool.connection() as conn:
-                yield runs.hold_for_a_change(conn, held)
+    @contextmanager
+    def hold(held: Fence) -> Generator[bool]:
+        with (
+            connect(settings, connection={
+                "autocommit": True,
+                "options": f"-c idle_session_timeout={idle} -c lock_timeout={wait}"
+            }) as conn,
+            runs.hold_for_a_change(conn, held) as still_held
+        ):
+            yield still_held
 
-        yield hold
+    yield hold
 
 
 def _the_claim_in(meta: Mapping[str, Any] | None) -> Fence | None:

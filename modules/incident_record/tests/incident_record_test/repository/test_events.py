@@ -12,10 +12,14 @@ and carries the place it got to so that a restart resumes rather than repeats.
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+from datetime import timedelta
+from typing import Any
+
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import connect_from_env, utc_now
+from core import Fence, connect_from_env, utc_now
 from core.events import (
     AgentInvoked,
     IncidentEvent,
@@ -24,13 +28,18 @@ from core.events import (
     RetrievalRequested,
 )
 from core.models import Actor, Alert, RetrievalChannel
-from incident_record.repository import events, incidents
+from incident_record.repository import events, incidents, runs
 
-from incident_record_test.framework import no_column_is_empty
+from incident_record_test.framework import autocommitting, no_column_is_empty
 
 # Bigger than anything published in these tests. What is under test where this
 # appears is which events come back, not how many of them fit in one batch.
 A_GENEROUS_BATCH = 100
+
+# Who holds a run, and for how long: a claim is needed for a run to be held for
+# a change, and nothing here reads who made it or until when.
+DONT_CARE_WORKER = "worker-walking-it"
+DONT_CARE_LEASE = timedelta(minutes=5)
 
 
 @pytest.mark.integration
@@ -350,6 +359,40 @@ def test_a_held_back_event_is_delivered_once_its_transaction_lands() -> None:
 
 
 @pytest.mark.integration
+def test_an_event_published_while_a_run_is_held_for_a_change_is_not_held_back() -> None:
+    # The write tier holds a run for as long as its change takes, and a restart
+    # takes minutes. Were the hold a transaction, it would be the oldest one in
+    # flight for all that time, and every incident's account would stop at it
+    # until the change was done. So the hold is no transaction, and what lands
+    # meanwhile is delivered.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with (
+        connect_from_env() as conn,
+        autocommitting(connect_from_env()) as the_tiers_conn,
+        ExitStack() as the_change
+    ):
+        Scenario() \
+            .given(
+                incident_id := incidents.create(conn, some_alert, at=utc_now()),
+                held := _a_claim_on_a_run_for(conn, incident_id),
+                the_start_of_the_log := _the_end_of_the_log(conn),
+                still_held := the_change.enter_context(
+                    runs.hold_for_a_change(the_tiers_conn, held)
+                ),
+                some_event := AgentInvoked(incident_id=incident_id, agent=Actor.MITIGATION),
+                calling(lambda: _record(conn, some_event))
+            ) \
+            .when(lambda: events.get_since(conn,
+                                           the_start_of_the_log,
+                                           A_GENEROUS_BATCH)) \
+            .then(all_of(
+                _the_run_was_held_for_the_change(still_held),
+                _the_batch_reads([some_event.kind])
+            ))
+
+
+@pytest.mark.integration
 def test_a_recorded_event_leaves_no_column_of_its_row_empty() -> None:
     # `payload` is the record and the columns beside it are what the table is
     # read by - which means an empty one is not a missing detail but a line of
@@ -416,6 +459,32 @@ def _the_end_of_the_log(conn: psycopg.Connection) -> int:
         assert row is not None
 
         return int(row[0])
+
+
+def _a_claim_on_a_run_for(conn: psycopg.Connection, incident_id: str) -> Fence:
+    """The claim a worker holds on a run for the incident, as a call to the
+    write tier names it - committed, as a worker commits its claim the moment
+    it makes it."""
+    runs.enqueue(conn, incident_id)
+    claimed = runs.claim(conn, DONT_CARE_WORKER, DONT_CARE_LEASE)
+    assert claimed is not None
+    conn.commit()
+
+    return Fence(run_id=claimed.id, epoch=claimed.epoch)
+
+
+def _the_run_was_held_for_the_change(still_held: bool) -> Assertion[Any]:
+    """The hold was had - without it, nothing was held and an event delivered
+    says nothing about a hold."""
+    def assertion(_delivered: Any) -> bool:
+        if still_held is not True:
+            raise AssertionError(
+                f"Expected the run held for the change, and the hold said [{still_held}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _row_counts(conn: psycopg.Connection) -> dict[str, int]:

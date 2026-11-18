@@ -15,6 +15,8 @@ leaves nothing behind to distinguish it from a slow one.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Final
@@ -22,8 +24,11 @@ from typing import Final
 import psycopg
 from core import Fence, UuidStr
 from core.models import IncidentStatus
+from psycopg.errors import LockNotAvailable
 from psycopg.rows import class_row
 from pydantic import BaseModel
+
+from incident_record.repository.advisory_locks import AdvisoryLock
 
 
 class RunState(StrEnum):
@@ -67,9 +72,49 @@ class Run(BaseModel):
     not_before: datetime | None
 
 
+class ChangeInFlight(Exception):
+    """A run another change is already being made for, so this one is not.
+
+    Raised rather than waited out. The one thing that asks for a second change
+    on a run while its first is still being made is the first asked again - a
+    tool call whose connection gave out while the tier was still making it -
+    and waiting would have it made twice, once the first was done: a second
+    rollback, one more revision back.
+    """
+
+
+# How many of the oldest runs waiting to be taken a claim considers. More than
+# can be held for a change at once - one per worker - so runs held at the head
+# of the queue never keep a claim from the run behind them; few enough that the
+# locks a claim tries are counted in tens, whatever the table has grown to.
+_RUNS_A_CLAIM_CONSIDERS: Final = 16
+
+
 # Every column a `Run` is read from, in its order.
 _A_RUN: Final = ("id, incident_id, state, claimed_by, leased_until, epoch, failure_reason, "
                  "created_at, retries, not_before")
+
+# Whether `run` may be taken: waiting and due - or withdrawn, which waits for
+# nothing - or walked by somebody whose lease ran out. Said once, because a
+# claim asks it twice: of the runs it considers, and again of the one it locks.
+_CLAIMABLE: Final = (
+    "((run.state = %(queued)s AND (run.not_before IS NULL OR run.not_before <= now()"
+    "                              OR incident.status = %(withdrawn)s))"
+    " OR (run.state = %(running)s AND run.leased_until < now()))"
+)
+
+
+def _the_lock_on_the_change_to(run_id: str) -> str:
+    """The advisory lock a run is held for a change by, for a run id said in SQL.
+
+    One spelling for every caller, the id canonicalised on the way: the hold is
+    handed the id as the walk said it, a claim reads it off the row, and a hash
+    of two spellings of one uuid is two locks - a claim that stopped skipping
+    the run its change is being made for, with nothing to say so. Two runs whose
+    ids hash alike share a lock, which costs a claim a run it could have taken
+    until the change is done - never a second walk.
+    """
+    return f"{int(AdvisoryLock.RUN_HELD_FOR_A_CHANGE)}, hashtext(({run_id})::uuid::text)"
 
 
 def enqueue(conn: psycopg.Connection, incident_id: str) -> str:
@@ -94,10 +139,12 @@ def claim(conn: psycopg.Connection,
           lease: timedelta) -> Run | None:
     """Takes one run to walk, or answers that there is nothing to take.
 
-    `SKIP LOCKED` is what makes a second worker harmless rather than merely
-    unlikely: it passes over a row another worker is claiming instead of
-    queueing behind it, so two workers starting together take two different
-    runs and never the same one twice.
+    A second worker is harmless rather than merely unlikely: a run another
+    worker is claiming is passed over rather than queued behind, so two workers
+    starting together take two different runs and never the same one twice. The
+    claiming worker holds the run's lock below (the change's), which this claim
+    only tries; `SKIP LOCKED` passes over a row something else is writing - a
+    renewal, a settling - in the same way.
 
     A run whose lease has run out is taken back, because the worker holding it
     is no longer walking it - a claim is renewed while a run is alive, so an
@@ -113,23 +160,50 @@ def claim(conn: psycopg.Connection,
     next is put back what it changed, which needs no model, and Argus's changes
     would otherwise stand until the wait was over. A resolution keeps the wait:
     its walk goes on to the write-up, which needs the model the wait is for.
+
+    A run the write tier is changing the world for is passed over, whatever its
+    lease says (`hold_for_a_change`): taken now, a second walk would start while
+    the first one's change is still being made. Tried rather than waited on,
+    for `SKIP LOCKED`'s reason, and held only until this claim commits - a hold
+    arriving meanwhile waits for it, and then reads the epoch it moved on.
+
+    Tried only of the oldest `_RUNS_A_CLAIM_CONSIDERS` runs that may be taken,
+    chosen first in a subquery the lock cannot reach into. Asked of the table
+    itself, the lock is tried of every run that may be taken, so a claim holds
+    one for every run in the backlog until it commits, from a lock table every
+    other lock shares. So a claim tries as many as it reads before one is free -
+    oldest first, as the plan reads them, so usually the one it takes and any
+    held ahead of it - and never more than it considers, each let go at its
+    commit. A try that fails takes nothing; one it locked and then passed over -
+    a row something else is writing, or a run no longer claimable when asked
+    again - costs a hold arriving in that moment a moment's wait, never a run
+    lost. The run is asked again whether it may be taken once it is locked,
+    since another claim may have taken it between the choosing and the lock.
     """
     with conn.cursor(row_factory=class_row(Run)) as cursor:
         cursor.execute(
-            "UPDATE incident_run SET state = %s, claimed_by = %s, "
-            "leased_until = now() + %s, epoch = epoch + 1 "
+            "UPDATE incident_run SET state = %(running)s, claimed_by = %(claimed_by)s, "
+            "leased_until = now() + %(lease)s, epoch = epoch + 1 "
             "WHERE id = ("
-            "    SELECT run.id FROM incident_run run JOIN incident ON incident.id = run.incident_id"
-            "    WHERE (run.state = %s AND (run.not_before IS NULL OR run.not_before <= now()"
-            "                               OR incident.status = %s))"
-            "       OR (run.state = %s AND run.leased_until < now())"
-            "    ORDER BY run.created_at"
+            "    SELECT run.id FROM ("
+            "        SELECT run.id, run.created_at"
+            "        FROM incident_run run JOIN incident ON incident.id = run.incident_id"
+            f"       WHERE {_CLAIMABLE}"
+            "        ORDER BY run.created_at"
+            "        LIMIT %(considered)s"
+            "    ) considered"
+            "    JOIN incident_run run ON run.id = considered.id"
+            "    JOIN incident ON incident.id = run.incident_id"
+            f"   WHERE pg_try_advisory_xact_lock({_the_lock_on_the_change_to('considered.id')})"
+            f"     AND {_CLAIMABLE}"
+            "    ORDER BY considered.created_at"
             "    LIMIT 1"
             "    FOR UPDATE OF run SKIP LOCKED"
             ") "
             f"RETURNING {_A_RUN}",
-            (RunState.RUNNING, claimed_by, lease, RunState.QUEUED, IncidentStatus.WITHDRAWN,
-             RunState.RUNNING)
+            {"running": RunState.RUNNING, "claimed_by": claimed_by, "lease": lease,
+             "queued": RunState.QUEUED, "withdrawn": IncidentStatus.WITHDRAWN,
+             "considered": _RUNS_A_CLAIM_CONSIDERS}
         )
         claimed = cursor.fetchone()
 
@@ -225,27 +299,59 @@ def is_held(conn: psycopg.Connection, held: Fence) -> bool:
         return cursor.fetchone() is not None
 
 
-def hold_for_a_change(conn: psycopg.Connection, held: Fence) -> bool:
+@contextmanager
+def hold_for_a_change(conn: psycopg.Connection, held: Fence) -> Iterator[bool]:
     """Whether the run is still at the claim `held` names, and still being
-    walked - and, where it is, the run kept so until `conn`'s transaction ends.
+    walked - and, where it is, the run kept so until the block ends.
 
     Asked by the write tier before it changes the world for a walk. Kept, not
     only read, because a run taken back between the answer and the change would
-    have the change made for a claim that no longer holds it. The run's row is
-    share-locked, which a claim skips, and a renewal or a settling waits on, and
-    which the walk's own fenced writes share. So a long change can outlast the
-    lease: the run is still not taken back, and the renewal lands once the
-    change is done. Committing or rolling back is the caller's, once the change
-    is made.
-    """
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT 1 FROM incident_run WHERE id = %s AND epoch = %s AND state = %s "
-            "FOR SHARE",
-            (held.run_id, held.epoch, RunState.RUNNING)
-        )
+    have the change made for a claim that no longer holds it. So a long change
+    can outlast the lease: the run is still not taken back until it is done.
 
-        return cursor.fetchone() is not None
+    Kept by an advisory lock the session holds, which a claim skips, rather than
+    by a lock on the run's row. A row lock lives only inside a transaction, and
+    a transaction left open for the length of a restart holds back the event
+    log for every incident (`events.get_since` shows nothing newer than the
+    oldest transaction still running). An advisory lock is no transaction's, so
+    `conn` is meant to be one that commits each statement as it is said. The
+    walk's own fenced writes never meet it, and neither does a renewal or a
+    settling: a claim skipping the run is the whole of what keeps a second walk
+    off it.
+
+    Taken first, and in a statement of its own. A claim holds the lock for as
+    long as it takes to commit, so a hold can find itself waiting on one - and a
+    read in the same statement would have taken its snapshot before the wait,
+    missing the epoch the claim moved on and keeping the run for a claim that
+    no longer holds it. Read after, it sees what the claim committed.
+
+    Waited on for no longer than `conn`'s `lock_timeout`, which is the caller's
+    to set: above any claim's commit, and far below any change. Held longer than
+    that, the run has a change being made for it already, and `ChangeInFlight`
+    says so rather than waiting to make it a second time.
+
+    Let go however the block ends; a connection that could not let go is the
+    caller's to close, which lets go too.
+    """
+    lock = _the_lock_on_the_change_to("%(run_id)s")
+
+    with conn.cursor() as cursor:
+        try:
+            cursor.execute(f"SELECT pg_advisory_lock({lock})", {"run_id": held.run_id})
+        except LockNotAvailable as held_already:
+            raise ChangeInFlight(
+                f"a change for run [{held.run_id}] is already being made"
+            ) from held_already
+
+        try:
+            cursor.execute(
+                "SELECT 1 FROM incident_run WHERE id = %s AND epoch = %s AND state = %s",
+                (held.run_id, held.epoch, RunState.RUNNING)
+            )
+
+            yield cursor.fetchone() is not None
+        finally:
+            cursor.execute(f"SELECT pg_advisory_unlock({lock})", {"run_id": held.run_id})
 
 
 def get(conn: psycopg.Connection, run_id: str) -> Run | None:

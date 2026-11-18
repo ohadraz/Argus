@@ -30,12 +30,14 @@ from core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     an_unreachable_platform,
 )
+from incident_record.repository import runs
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, TextContent
 from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
 
 SOME_FENCE = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
 WHAT_THE_CHANGE_ANSWERS = ["changed"]
+DONT_CARE_WHY = "another change for the run is still being made"
 
 
 @pytest.mark.unit
@@ -121,6 +123,29 @@ def test_a_change_whose_run_could_not_be_checked_is_refused_but_not_as_a_lost_ru
         .then(all_of(
             _refused(as_a_lost_run=False),
             _refused_with(LEFT_BEHIND_KNOWN_MARKER),
+            _the_change_was_made(made, times=0)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_while_another_for_its_run_is_in_flight_is_refused_but_not_as_leaving_nothing(
+) -> None:
+    # The claim still holds the run, so not a lost run: the walk goes on. And
+    # not said to have left nothing, though this tool never ran - the change
+    # still in flight may have landed, and a walk told nothing was left would
+    # record nothing to put back for it.
+    made: list[str] = []
+
+    Scenario() \
+        .given(
+            server := _a_tier_making(made, _a_hold_with_a_change_in_flight())
+        ) \
+        .when(
+            lambda: _asked(server, "make_a_change", _sent(SOME_FENCE))
+        ) \
+        .then(all_of(
+            _refused(as_a_lost_run=False),
+            _not_refused_with(LEFT_BEHIND_KNOWN_MARKER),
             _the_change_was_made(made, times=0)
         ))
 
@@ -294,6 +319,15 @@ def _a_hold_that_cannot_be_had() -> HoldForAChange:
     return hold
 
 
+def _a_hold_with_a_change_in_flight() -> HoldForAChange:
+    """A run already held for another change, which this one cannot have."""
+    @contextmanager
+    def hold(dont_care_fence: Fence) -> Generator[bool]:
+        raise runs.ChangeInFlight(DONT_CARE_WHY)
+
+    return hold
+
+
 def _a_hold_that_cannot_be_let_go() -> HoldForAChange:
     @contextmanager
     def hold(dont_care_fence: Fence) -> Generator[bool]:
@@ -357,6 +391,21 @@ def _refused_with(marker: str) -> Assertion[CallToolResult]:
         if not result.isError or marker not in said:
             raise AssertionError(
                 f"Expected the call refused with [{marker}], got [{said}] (an error: "
+                f"{result.isError})."
+            )
+
+        return True
+
+    return assertion
+
+
+def _not_refused_with(marker: str) -> Assertion[CallToolResult]:
+    def assertion(result: CallToolResult) -> bool:
+        said = _the_words_of(result)
+
+        if marker in said:
+            raise AssertionError(
+                f"Expected the call answered without [{marker}], got [{said}] (an error: "
                 f"{result.isError})."
             )
 

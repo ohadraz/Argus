@@ -90,14 +90,19 @@ def unit_of_work(connections: Connections) -> Iterator[psycopg.Connection]:
         yield conn
 
 
-def connect(settings: DatabaseSettings) -> psycopg.Connection:
+def connect(settings: DatabaseSettings,
+            connection: Mapping[str, Any] | None = None) -> psycopg.Connection:
     """One connection, opened now and closed by whoever asked for it.
 
     For a caller whose whole life is shorter than a pool would be worth: a
-    migration script, a suite arranging a row, a one-shot command. A long-lived
-    process wants `open_pool` instead.
+    migration script, a suite arranging a row, a one-shot command - or one whose
+    closing is the point, as a run held for a change is let go by closing the
+    connection that held it. A long-lived process wants `open_pool` instead.
+
+    What the `connection` must be like is the caller's to say, as `open_pool`'s
+    is.
     """
-    return psycopg.connect(settings.database_url)
+    return psycopg.connect(settings.database_url, **dict(connection or {}))
 
 
 def connect_from_env() -> psycopg.Connection:
