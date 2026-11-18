@@ -342,10 +342,13 @@ class RollBackDeploymentKind:
         looks correct and receives nothing, which is worse than the state Argus
         found - so a half-restore is reported as not established, and escalates.
 
-        No "changed from outside" check, unlike a flag. The platform's history is
-        append-only and a rollback is addressed to an entry in it, so there is no
-        value here somebody could have overwritten between Argus writing and Argus
-        reading - the question a flag has to ask does not arise.
+        Only where it is still Argus's, as with a flag - asked of the platform
+        rather than of a change log, and by the write tier, which reads it inside
+        the same held change that would write. Still Argus's is the newest history
+        entry Argus's own, on the revision it rolled back to, with the running
+        images that revision's; already back is counted as put back with nothing
+        written; anything else is somebody's change, and nothing is written. See
+        `_left_as_somebody_set_it` for what that is reported as.
         """
         application = descriptor.application
 
@@ -367,6 +370,10 @@ class RollBackDeploymentKind:
                     f"history entry [{descriptor.was_on_history_id}]: {error}"
                 ),
             )
+
+        if restored.left_because is not None:
+            return _left_as_somebody_set_it(application, restored.left_because,
+                                            restored.sync_still_suspended)
 
         if restored.revision_put_back and restored.automated_sync_put_back:
             return UndoAttempt(
@@ -463,10 +470,14 @@ class ScaleOutKind:
         is worse than the state Argus found - so a half-restore is reported as not
         established, and escalates.
 
-        No "changed from outside" check, as with a rollback and unlike a flag. What
-        this writes is a replica count through the platform's own action, and a count
-        somebody else changed meanwhile is a count this is about to set to the figure
-        Argus found - which is the restore, not an overwrite of somebody's decision.
+        Only where the count is still Argus's, asked by the write tier as a
+        rollback's is: still at the figure Argus asked for is put back, already at
+        the figure Argus found is counted as put back with nothing written, and any
+        other figure is somebody's change, with nothing written - see
+        `_left_as_somebody_set_it`. A deployment an autoscaler sizes has no count of
+        Argus's to put back: the count is the controller's, so the tier writes none
+        and resumes the sync, and the change is restored with its count left to its
+        autoscaler rather than to a figure nobody wrote.
         """
         application = descriptor.application
 
@@ -487,6 +498,25 @@ class ScaleOutKind:
                     f"could not be put back to [{descriptor.was_replicas}] "
                     f"replica{'' if descriptor.was_replicas == 1 else 's'}: {error}"
                 ),
+            )
+
+        if restored.left_because is not None:
+            return _left_as_somebody_set_it(application, restored.left_because,
+                                            restored.sync_still_suspended)
+
+        if (restored.count_put_back and restored.automated_sync_put_back
+                and restored.count_left_to_its_autoscaler):
+            return UndoAttempt(
+                subject=application,
+                outcome=Undone.RESTORED,
+                detail=(
+                    "had its count left to its autoscaler, and its automated sync "
+                    "was restored"
+                ),
+                said_as=(
+                    "its count was left to its autoscaler and its automated sync "
+                    "restored"
+                )
             )
 
         if restored.count_put_back and restored.automated_sync_put_back:
@@ -571,11 +601,11 @@ class PinAutoscalerKind:
         is worse than the state Argus found - so a half-restore is reported as not
         established, and escalates.
 
-        No "changed from outside" check, as with a rollback and a scale-out and unlike
-        a flag. What this writes is one field of the autoscaler through the platform's
-        own patch, and a floor somebody else moved meanwhile is a floor this is about
-        to set to the figure Argus found - which is the restore, not an overwrite of
-        somebody's decision.
+        Only where the floor is still Argus's, asked by the write tier as a
+        rollback's is: still at the floor Argus asked for is put back, already at
+        the floor Argus found is counted as put back with nothing written, and any
+        other floor - or an autoscaler no longer there - is somebody's change, with
+        nothing written. See `_left_as_somebody_set_it`.
 
         Worth reading twice, because this is the one undo that starts something moving
         again rather than putting a value back: the count will begin oscillating within
@@ -604,6 +634,10 @@ class PinAutoscalerKind:
                     f"[{descriptor.was_min_replicas}]: {error}"
                 ),
             )
+
+        if restored.left_because is not None:
+            return _left_as_somebody_set_it(application, restored.left_because,
+                                            restored.sync_still_suspended)
 
         if restored.floor_put_back and restored.automated_sync_put_back:
             return UndoAttempt(
@@ -717,9 +751,11 @@ class PinToAcceleratorKind:
         reconciliation the pin had to suspend.
 
         Both, or it is not undone, for the reason every undo under a GitOps
-        controller needs both. No "changed from outside" check, as with the
-        autoscaler's pin: what this writes is one selector through the platform's
-        own patch, and setting it to what Argus found is the restore.
+        controller needs both. And only where the pin is still Argus's, asked by
+        the write tier as a rollback's is: still holding the card Argus chose is
+        put back, already back to what Argus found is counted as put back with
+        nothing written, and any other selector is somebody's change, with nothing
+        written. See `_left_as_somebody_set_it`.
 
         Letting go moves nothing by itself. The pods stay where the pin put them
         until something reschedules them, so a withdrawal leaves the shop well rather
@@ -742,6 +778,10 @@ class PinToAcceleratorKind:
                 outcome=Undone.NOT_ESTABLISHED,
                 detail=f"could not have its pods let off their card: {error}",
             )
+
+        if restored.left_because is not None:
+            return _left_as_somebody_set_it(application, restored.left_because,
+                                            restored.sync_still_suspended)
 
         if restored.pin_put_back and restored.automated_sync_put_back:
             return UndoAttempt(
@@ -890,6 +930,41 @@ def arrival_of(action: Action, *, rollouts: RolloutReader) -> HasArrived:
     type error rather than an action silently judged as though it had arrived.
     """
     return kind_of(action).arrival(action, rollouts)
+
+
+def _left_as_somebody_set_it(subject: str, found: str, sync_still_suspended: bool) -> UndoAttempt:
+    """A change to a deployment the write tier found somebody else's since, and
+    so wrote nothing to - said in the tier's own words for what it found.
+
+    Two answers, decided on what the tier read rather than on what Argus found
+    before it acted. Where the reconciliation Argus suspended still stands,
+    resuming it would have the platform re-apply git over the person's change,
+    so the tier left the suspension too: something of Argus's is still in place,
+    and the change is left standing for a person to decide. Where nothing of
+    Argus's stands - sync was off before Argus came, or the person turned it
+    back on themselves - the change is left as found, as a flag somebody changed
+    is.
+    """
+    if sync_still_suspended:
+        logger.warning("change left standing", extra={"subject": subject, "found": found})
+
+        return UndoAttempt(
+            subject=subject,
+            outcome=Undone.LEFT_STANDING,
+            detail=(
+                f"was somebody else's since ({found}), so it was left as they set it "
+                f"- and the reconciliation Argus suspended still stands, because "
+                f"resuming it would overwrite them"
+            )
+        )
+
+    logger.info("change left as found", extra={"subject": subject, "found": found})
+
+    return UndoAttempt(
+        subject=subject,
+        outcome=Undone.LEFT_AS_FOUND,
+        detail=f"was left as found: {found}"
+    )
 
 
 def _replicas(count: int) -> str:

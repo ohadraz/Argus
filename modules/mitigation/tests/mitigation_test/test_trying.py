@@ -130,11 +130,14 @@ _AN_EVALUATION_OVER_THE_ACTIONS_MINUTE = _THE_FIRST_WHOLE_MINUTE
 _AN_EVALUATION_SINCE_THE_CHANGE = _AN_EVALUATION_OVER_THE_ACTIONS_MINUTE + _A_MINUTE
 _THE_EVALUATION_AFTER_THAT = _AN_EVALUATION_SINCE_THE_CHANGE + _A_MINUTE
 
-# Words nothing reads: what a kind said it did, why a tier refused, and why a
-# rule could not be read.
+# Words nothing reads: what a kind said it did, why a tier refused, why a
+# rule could not be read, how a kind usually puts a change back, and what an
+# undo found.
 DONT_CARE_WHAT_IT_DID = "dont care what it did"
 DONT_CARE_REFUSAL = "dont care why it refused"
 DONT_CARE_RULE_FAILURE = "the rule could not be read"
+DONT_CARE_HOW_IT_IS_PUT_BACK = "to dont care"
+DONT_CARE_WHAT_THE_UNDO_FOUND = "dont care what the undo found"
 
 # Where the incident's own minutes begin in
 # `_a_window_that_flapped_before_the_incident` - after the calm, the earlier
@@ -860,6 +863,44 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
 
 
 @pytest.mark.unit
+def test_a_change_left_standing_escalates_carrying_what_the_undo_said() -> None:
+    # Somebody made the subject theirs while the reconciliation Argus suspended
+    # still stands, and resuming it would overwrite them. The service did not
+    # recover, but a refutation would close the attempt with Argus's suspension
+    # in place and nobody asked about it - so a person is paged to decide it,
+    # and told why in the undo's own words.
+    some_left_standing = (
+        "was left as they set it - the reconciliation Argus suspended still stands"
+    )
+    undo: MagicMock = create_autospec(UndoChange, instance=True)
+    undo.return_value = UndoAttempt(subject=DONT_CARE_FLAG, outcome=Undone.LEFT_STANDING,
+                                    detail=some_left_standing)
+
+    Scenario() \
+        .given(undo) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo,
+                kinds=_every_action_is(
+                    _a_kind_that_did(DONT_CARE_WHAT_IT_DID, an_undo_descriptor_for(DONT_CARE_FLAG))
+                )
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions(some_left_standing),
+            _putting_it_back_is_carried_as(Undone.LEFT_STANDING, some_left_standing)
+        ))
+
+
+@pytest.mark.unit
 def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
     # Not established is not the same as unchanged. Writing on a reading that
     # never came back is the blind restore this check exists to prevent.
@@ -1023,6 +1064,44 @@ def test_a_refuted_change_put_back_ends_as_its_kind_says_it_was_put_back() -> No
 
 
 @pytest.mark.unit
+def test_a_refuted_change_put_back_as_its_undo_told_it_ends_as_the_undo_said() -> None:
+    # A scale-out whose count an autoscaler sets was not put back to any count:
+    # the count was left to the controller. The kind's usual ending would name
+    # a number nobody wrote, so where the undo tells how it was put back, that
+    # is how the sentence ends.
+    some_telling = "its count was left to its autoscaler"
+    what_it_left = an_undo_descriptor_for(DONT_CARE_FLAG)
+
+    Scenario() \
+        .given(
+            the_kind_undoing_it := _a_kind_putting_it_back_as(DONT_CARE_HOW_IT_IS_PUT_BACK)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=lambda dont_care_descriptor: UndoAttempt(
+                    subject=DONT_CARE_FLAG, outcome=Undone.RESTORED,
+                    detail=DONT_CARE_WHAT_THE_UNDO_FOUND, said_as=some_telling
+                ),
+                kinds=_every_action_is(
+                    _a_kind_that_did(DONT_CARE_WHAT_IT_DID, what_it_left)
+                ),
+                undoing_kinds=_every_change_is(the_kind_undoing_it)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_closes_with(f"so {some_telling}")
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("a_window", "a_clock", "an_undo", "verdict"),
     [
@@ -1035,7 +1114,10 @@ def test_a_refuted_change_put_back_ends_as_its_kind_says_it_was_put_back() -> No
                      id="refuted-and-left-as-found"),
         pytest.param(a_still_failing_window, a_clock_that_runs_out_after_one_look,
                      lambda: _an_undo_answering(Undone.NOT_ESTABLISHED), Verdict.ESCALATED,
-                     id="escalated-after-the-undo-failed")
+                     id="escalated-after-the-undo-failed"),
+        pytest.param(a_still_failing_window, a_clock_that_runs_out_after_one_look,
+                     lambda: _an_undo_answering(Undone.LEFT_STANDING), Verdict.ESCALATED,
+                     id="escalated-after-the-change-was-left-standing")
     ]
 )
 def test_the_change_s_way_back_travels_on_the_outcome_whatever_the_verdict(

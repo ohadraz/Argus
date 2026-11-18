@@ -77,7 +77,8 @@ def build_server(endpoint: WriteMcpEndpoint,
                  repository_settings: RepositoryWriteSettings,
                  platform: DeploymentPlatformWrites,
                  discard_settings: DiscardSettings,
-                 hold_for_a_change: HoldForAChange) -> FencedFastMCP:
+                 hold_for_a_change: HoldForAChange,
+                 argus_account: str) -> FencedFastMCP:
     """Registers the write tools against one deployment's configuration.
 
     Two slices and two ports. The code tool speaks to the repository, and the
@@ -106,6 +107,13 @@ def build_server(endpoint: WriteMcpEndpoint,
     leaves out of what the tool declares, so no caller is offered it as an
     argument. A restart and a discard leave nothing to put back, and the flag
     provider and the repository record whose a change was in their own way.
+
+    `argus_account` is the account Argus signs in to the deployment platform as,
+    which the platform writes on every history entry a rollback of Argus's adds.
+    Handed to the rollback's restore, which asks whether the newest entry is still
+    Argus's own before it puts anything back - and is the server's to hand it,
+    because nothing in a call names it and a restore told any other name would
+    take Argus's rollback for a person's, or a person's for Argus's.
     """
     mcp = FencedFastMCP(
         "argus-write-mcp",
@@ -184,14 +192,20 @@ def build_server(endpoint: WriteMcpEndpoint,
         descriptor: DeploymentRollbackUndo,
         ctx: Context[Any, Any, Any]
     ) -> DeploymentRestored:
-        """Puts back both of the things a rollback changed, and reports which
-        of them it managed.
+        """Puts back both of the things a rollback changed, where they are
+        still Argus's, and reports which of them it managed.
 
         The revision the deployment was running, and the reconciliation that
         had to be suspended to leave it. Both, or it is not undone: a
         deployment whose revision is back while the platform is still not
         reconciling it looks correct from every angle a reader has, and
         silently receives nothing anybody ships to it.
+
+        Neither where somebody has changed the deployment since - a revision
+        they deployed, or images they set without a deployment. That is left
+        as they set it, with the reconciliation Argus suspended left
+        suspended, and the answer says what was found: putting it back would
+        overwrite them, and so would resuming sync.
 
         Answers with which halves it managed rather than raising, because a
         restore can half-succeed and the caller has to be able to say which
@@ -203,7 +217,9 @@ def build_server(endpoint: WriteMcpEndpoint,
         rollback, so the revision is put back before reconciliation is
         re-enabled. The behavior lives in
         `rolling_back.restore_deployment`; this is registration only."""
-        return rolling_back.restore_deployment(descriptor, platform, _the_mark_of(ctx))
+        return rolling_back.restore_deployment(
+            descriptor, platform, _the_mark_of(ctx), argus_account
+        )
 
     @mcp.change(marked=True)
     def scale_out(application: str, ctx: Context[Any, Any, Any]) -> ReplicaUndo:
@@ -238,14 +254,19 @@ def build_server(endpoint: WriteMcpEndpoint,
     @mcp.change(marked=True)
     def restore_replica_count(descriptor: ReplicaUndo,
                               ctx: Context[Any, Any, Any]) -> CapacityRestored:
-        """Puts back both of the things a scale-out changed, and reports which
-        of them it managed.
+        """Puts back both of the things a scale-out changed, where they are
+        still Argus's, and reports which of them it managed.
 
         The count the deployment was running, and the reconciliation that had to
         be suspended to leave it. Both, or it is not undone: a deployment back at
         its declared size while the platform is still not reconciling it looks
         correct from every angle a reader has, and silently receives nothing
         anybody ships to it.
+
+        Neither where somebody has set the count since: that is left as they
+        set it, with the reconciliation Argus suspended left suspended, and the
+        answer says what was found. Where an autoscaler owns the count, the
+        count is left to it and only the sync is put back.
 
         Answers with which halves it managed rather than raising, for the reason
         the rollback's restore does: a restore can half-succeed, and the caller
@@ -324,14 +345,18 @@ def build_server(endpoint: WriteMcpEndpoint,
         descriptor: AutoscalerUndo,
         ctx: Context[Any, Any, Any]
     ) -> AutoscalingRestored:
-        """Puts back both of the things a pin changed, and reports which of them
-        it managed.
+        """Puts back both of the things a pin changed, where they are still
+        Argus's, and reports which of them it managed.
 
         The floor the autoscaler had, and the reconciliation that had to be
         suspended to leave it. Both, or it is not undone: an autoscaler back at
         its declared floor while the platform is still not reconciling it looks
         correct from every angle a reader has, and silently receives nothing
         anybody ships to it.
+
+        Neither where somebody has set the floor since, or taken the autoscaler
+        away: that is left as they set it, with the reconciliation Argus
+        suspended left suspended, and the answer says what was found.
 
         Answers with which halves it managed rather than raising, for the reason
         the other two restores do: a restore can half-succeed, and the caller has
@@ -374,13 +399,15 @@ def build_server(endpoint: WriteMcpEndpoint,
         descriptor: AcceleratorPinUndo,
         ctx: Context[Any, Any, Any]
     ) -> AcceleratorPinRestored:
-        """Puts back both of the things a pin to a card changed, and reports
-        which of them it managed.
+        """Puts back both of the things a pin to a card changed, where they are
+        still Argus's, and reports which of them it managed.
 
         The card the pods were held to, or that they were held to none, and the
         reconciliation that had to be suspended to leave it. Both, or it is not
-        undone. Answers with which halves it managed rather than raising, for the
-        reason the other restores do.
+        undone - and neither where somebody has moved the pods since, which is
+        left as they set it with the reconciliation Argus suspended left
+        suspended. Answers with which halves it managed rather than raising, for
+        the reason the other restores do.
 
         The pin is put back before reconciliation is re-enabled. The behavior
         lives in `accelerators.restore_accelerator_pin`; this is registration
@@ -522,7 +549,8 @@ def main(holds: OpensHolds = holds_in_the_database) -> None:
             # on as the writes port: no action below names a route.
             ArgoCd(ArgoCdSettings.of(settings)),
             DiscardSettings.of(settings),
-            hold_for_a_change
+            hold_for_a_change,
+            settings.argocd_actor
         ).serve()
 
 

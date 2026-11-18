@@ -56,6 +56,7 @@ THE_RESOURCE = f"{THE_APPLICATION}/resource"
 THE_RESOURCE_ACTIONS = f"{THE_APPLICATION}/resource/actions/v2"
 THE_ROLLBACK = f"{THE_APPLICATION}/rollback"
 THE_RESOURCE_TREE = f"{THE_APPLICATION}/resource-tree"
+THE_MANIFESTS = f"{THE_APPLICATION}/manifests"
 
 SOME_AUTOSCALER = Autoscaler(name="io-shop-hpa", namespace="kuki-namespace")
 # How the autoscaler is addressed on the resource route, read and write alike.
@@ -82,6 +83,16 @@ THE_DEPLOYMENT_SELECTORS = {
 THE_CARD_LABEL = "nvidia.com/gpu.product"
 SOME_CARD = "Tesla-V100-SXM2-16GB"
 SOME_OTHER_CARD = "NVIDIA-A100-SXM4-40GB"
+
+# What a Deployment's pods start, by container name: the application's own
+# container and the init container that runs before it - and another chart's.
+THE_IMAGES = {
+    SOME_APPLICATION: "io-shop:544cef3",
+    "migrate": "io-shop-migrations:544cef3"
+}
+SOME_OTHER_IMAGES = {"worker": "io-shop-worker:0d8e826"}
+# Which of `THE_IMAGES` is an init container rather than one serving.
+THE_INIT_CONTAINERS = {"migrate"}
 
 # The mark every write Argus makes is made under: the action row it is made for,
 # and when the write tier wrote it - to the millisecond here, so that a moment
@@ -151,6 +162,7 @@ def _argo_cd_over(platform: Any, auth_token: str = SOME_TOKEN) -> ArgoCd:
             argocd_resource_tree_path=(
                 "/api/v1/applications/{application}/resource-tree"
             ),
+            argocd_manifests_path="/api/v1/applications/{application}/manifests",
             restart_namespace=SOME_RESTART_NAMESPACE,
             scale_namespace=SOME_SCALE_NAMESPACE
         ),
@@ -176,6 +188,26 @@ def _an_application(syncing: dict[str, Any] | None = None,
 def _a_managed_resource(manifest: dict[str, Any]) -> dict[str, Any]:
     """The resource route's wrapper: the manifest arrives as *text*."""
     return {"manifest": json.dumps(manifest)}
+
+
+def _a_deployment_running(name: str, images: dict[str, str]) -> dict[str, Any]:
+    """A Deployment named `name` whose pods start `images` - those named in
+    `THE_INIT_CONTAINERS` as init containers, the rest as containers - beside
+    the fields a real template carries and nobody compares."""
+    def containers(init: bool) -> list[dict[str, Any]]:
+        return [{"name": container, "image": image, "imagePullPolicy": "IfNotPresent"}
+                for container, image in images.items()
+                if (container in THE_INIT_CONTAINERS) is init]
+
+    return {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {"name": name},
+        "spec": {"replicas": 3, "template": {"spec": {
+            "initContainers": containers(init=True),
+            "containers": containers(init=False)
+        }}}
+    }
 
 
 def _a_tree_of(*nodes: dict[str, Any]) -> dict[str, Any]:
@@ -236,8 +268,7 @@ def test_every_request_carries_the_platform_credential() -> None:
 
 @pytest.mark.unit
 def test_an_empty_credential_sends_no_authorization_header() -> None:
-    # The stand-in needs none, and a placeholder would send a real server
-    # something meaningless to reject.
+    # A placeholder would send a real server something meaningless to reject.
     platform = _Platform().answering(GET, THE_APPLICATION, _ok(_an_application()))
 
     Scenario() \
@@ -994,6 +1025,65 @@ def test_a_deployment_with_no_selector_at_all_is_pinned_to_none() -> None:
         .given(argo_cd := _argo_cd_over(platform)) \
         .when(lambda: argo_cd.accelerator_pin_of(SOME_APPLICATION)) \
         .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_the_images_running_are_read_off_the_live_deployments_template() -> None:
+    # Every container the pods start, init containers too, by name: a `kubectl
+    # set image` can change any of them, and a put-back compares all of them
+    # with what the revision renders.
+    platform = _Platform().answering(GET, THE_RESOURCE, _ok(_a_managed_resource(
+        _a_deployment_running(SOME_APPLICATION, THE_IMAGES)
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.images_running(SOME_APPLICATION)) \
+        .then(all_of(
+            the_answer_was(THE_IMAGES),
+            lambda _: _the_last_request_was(
+                platform, GET, THE_RESOURCE, query=THE_DEPLOYMENT_SELECTORS
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_the_images_a_revision_renders_are_read_off_its_manifests() -> None:
+    # Argo CD's `ManifestResponse` carries each manifest the revision renders as
+    # text. The application's own Deployment is the one of that kind and name;
+    # a Service beside it, or another chart's Deployment, says nothing about it.
+    some_revision = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
+    another_deployment = "io-shop-worker"
+    platform = _Platform().answering(GET, THE_MANIFESTS, _ok({"manifests": [
+        json.dumps({"kind": "Service", "metadata": {"name": SOME_APPLICATION}}),
+        json.dumps(_a_deployment_running(another_deployment, SOME_OTHER_IMAGES)),
+        json.dumps(_a_deployment_running(SOME_APPLICATION, THE_IMAGES))
+    ]}))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.images_at(SOME_APPLICATION, some_revision)) \
+        .then(all_of(
+            the_answer_was(THE_IMAGES),
+            lambda _: _the_last_request_was(
+                platform, GET, THE_MANIFESTS, query={"revision": some_revision}
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_revision_rendering_no_deployment_of_the_application_is_refused() -> None:
+    # Answered as no images at all, a put-back would compare the images running
+    # with nothing and call Argus's own rollback somebody else's.
+    dont_care_revision = "544cef3"
+    platform = _Platform().answering(GET, THE_MANIFESTS, _ok({"manifests": [
+        json.dumps({"kind": "Service", "metadata": {"name": SOME_APPLICATION}})
+    ]}))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(attempting(lambda: argo_cd.images_at(SOME_APPLICATION, dont_care_revision))) \
+        .then(an_error_was_raised(PlatformRefused))
 
 
 @pytest.mark.unit

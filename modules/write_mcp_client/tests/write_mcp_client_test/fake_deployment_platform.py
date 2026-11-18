@@ -33,6 +33,12 @@ RESOURCE_PATH = "/argocd/{application}/resource"
 APPLICATION_PATH = "/argocd/{application}"
 RESOURCE_TREE_PATH = "/argocd/{application}/resource-tree"
 ROLLBACK_PATH = "/argocd/{application}/rollback"
+MANIFESTS_PATH = "/argocd/{application}/manifests"
+
+# The account the platform writes on every history entry a rollback through the
+# write server adds - as a real Argo CD writes the account the credential
+# belongs to - and the name the write server is told it signs in as.
+THE_ACCOUNT_ARGUS_SIGNS_IN_AS = "Argus"
 
 # How the platform spells a creation time, which is Kubernetes' own: RFC 3339
 # to the second. The resolution is not a shortcut - what the value is compared
@@ -56,6 +62,28 @@ THE_REVISION_RUNNING_NOW = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 THE_REVISION_BEFORE_IT = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 THE_HISTORY_RUNNING_NOW = 2
 THE_HISTORY_BEFORE_IT = 1
+
+
+def the_history_found() -> list[dict[str, Any]]:
+    """The two entries an application has before anybody rolls it back, in the
+    order the platform serves them.
+
+    `deployedAt` on both, because Argo CD's `RevisionHistory` always carries it
+    - it is not `omitempty` - and the platform port refuses an entry that does
+    not say when it landed.
+    """
+    return [
+        {"id": THE_HISTORY_BEFORE_IT, "revision": THE_REVISION_BEFORE_IT,
+         "deployedAt": "2026-08-20T10:05:00Z"},
+        {"id": THE_HISTORY_RUNNING_NOW, "revision": THE_REVISION_RUNNING_NOW,
+         "deployedAt": "2026-08-20T11:05:00Z"}
+    ]
+
+
+def the_image_of(application: str, revision: str) -> str:
+    """The image a revision renders the application's container as - one of
+    each revision's own, as a build pipeline tags them."""
+    return f"{application}:{revision[:7]}"
 
 # What the deployment is running when anybody looks, which is the size the
 # fixture's own values file asks for. A scale-out reads it, doubles it, and the
@@ -102,6 +130,13 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     rollback route refuses while that policy says the platform syncs itself,
     exactly as a real server refuses it.
 
+    And it keeps a history that moves: a rollback adds an entry of the revision
+    it returned to, made by the account the write server signs in as, and the
+    Deployment then runs the image that revision renders - which the manifests
+    route says of every revision. That is what a put-back reads to find out
+    whether the rollback is still Argus's, so a fake whose history stood still
+    would have every rollback read as somebody else's.
+
     It answers the surfaces a pin to a card needs the same way again. The
     Deployment reports the card its pod template selects, and a merge patch on
     the resource route is actually applied to that selector - so a pin that sent
@@ -125,6 +160,9 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     # The card the Deployment's pods are held to, or `None` where its selector
     # names none - which is how an application nobody has pinned is declared.
     accelerator_pin: str | None = None
+    # Every deployment recorded, in the order the platform serves them - the
+    # newest last, and the one the Deployment is running.
+    history: list[dict[str, Any]] = the_history_found()
 
     # Whether this platform's API server is serving at all. Off by default: an
     # unavailable platform is something a test stages, and a fake that had to be
@@ -152,6 +190,8 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
         if self.path.endswith("/resource-tree"):
             self._respond_with(self._the_resource_tree())
+        elif urlsplit(self.path).path.endswith("/manifests"):
+            self._respond_with(self._the_manifests())
         elif urlsplit(self.path).path.endswith("/resource"):
             self._respond_with(self._the_managed_deployment())
         elif self._names_an_application() and self.path.count("/") == 2:
@@ -182,11 +222,42 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
                     },
                     "spec": {
                         "replicas": self.replicas,
-                        TEMPLATE: {SPEC: {NODE_SELECTOR: self._the_node_selector()}}
+                        TEMPLATE: {SPEC: {
+                            NODE_SELECTOR: self._the_node_selector(),
+                            "containers": self._the_containers_at(
+                                self.history[-1]["revision"]
+                            )
+                        }}
                     }
                 }
             )
         }
+
+    def _the_manifests(self) -> dict[str, Any]:
+        """What the platform renders at the revision asked about, as Argo CD's
+        `ManifestResponse` carries it: each manifest as text."""
+        revisions = parse_qs(urlsplit(self.path).query).get("revision") or []
+
+        if len(revisions) != 1:
+            return {"manifests": []}
+
+        return {
+            "manifests": [
+                json.dumps({
+                    "apiVersion": "apps/v1",
+                    "kind": "Deployment",
+                    "metadata": {"name": self._the_application_named()},
+                    "spec": {TEMPLATE: {SPEC: {
+                        "containers": self._the_containers_at(revisions[0])
+                    }}}
+                })
+            ]
+        }
+
+    def _the_containers_at(self, revision: str) -> list[dict[str, Any]]:
+        application = self._the_application_named()
+
+        return [{"name": application, "image": the_image_of(application, revision)}]
 
     def do_PATCH(self) -> None:
         """Argo CD's `PATCH /api/v1/applications/{name}`, for a merge patch.
@@ -298,7 +369,18 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        type(self).rolled_back_to = self.rolled_back_to + [self._the_body()["id"]]
+        to = self._the_body()["id"]
+        returned_to = next(entry for entry in self.history if entry["id"] == to)
+        type(self).rolled_back_to = self.rolled_back_to + [to]
+        # A new entry of the revision returned to, by the account the write
+        # server is told it signs in as - which is what a real server records of
+        # a rollback.
+        type(self).history = self.history + [{
+            "id": self.history[-1]["id"] + 1,
+            "revision": returned_to["revision"],
+            "deployedAt": "2026-08-20T12:05:00Z",
+            "initiatedBy": {"username": THE_ACCOUNT_ARGUS_SIGNS_IN_AS}
+        }]
 
         self._respond_with({})
 
@@ -379,23 +461,7 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         """
         return {
             SPEC: {SYNC_POLICY: self.sync_policy},
-            "status": {
-                # `deployedAt` on both, because Argo CD's `RevisionHistory`
-                # always carries it - it is not `omitempty` - and the platform
-                # port refuses an entry that does not say when it landed.
-                "history": [
-                    {
-                        "id": THE_HISTORY_BEFORE_IT,
-                        "revision": THE_REVISION_BEFORE_IT,
-                        "deployedAt": "2026-08-20T10:05:00Z"
-                    },
-                    {
-                        "id": THE_HISTORY_RUNNING_NOW,
-                        "revision": THE_REVISION_RUNNING_NOW,
-                        "deployedAt": "2026-08-20T11:05:00Z"
-                    }
-                ]
-            }
+            "status": {"history": self.history}
         }
 
     def _the_body(self) -> dict[str, Any]:
@@ -477,6 +543,8 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
     os.environ["ARGOCD_APPLICATION_PATH"] = APPLICATION_PATH
     os.environ["ARGOCD_RESOURCE_TREE_PATH"] = RESOURCE_TREE_PATH
     os.environ["ARGOCD_ROLLBACK_PATH"] = ROLLBACK_PATH
+    os.environ["ARGOCD_MANIFESTS_PATH"] = MANIFESTS_PATH
+    os.environ["ARGOCD_ACTOR"] = THE_ACCOUNT_ARGUS_SIGNS_IN_AS
     # Empty on purpose: the stand-in takes no credential, and an inherited one
     # would be sent as a header a real server would then refuse.
     os.environ["ARGOCD_AUTH_TOKEN"] = ""
@@ -496,11 +564,14 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
         FakeDeploymentPlatformHandler.sync_patches_received = []
         FakeDeploymentPlatformHandler.replicas = THE_COUNT_RUNNING
         FakeDeploymentPlatformHandler.accelerator_pin = None
+        FakeDeploymentPlatformHandler.history = the_history_found()
         del os.environ["ARGOCD_BASE_URL"]
         del os.environ["ARGOCD_RESOURCE_ACTION_PATH"]
         del os.environ["ARGOCD_RESOURCE_PATH"]
         del os.environ["ARGOCD_APPLICATION_PATH"]
         del os.environ["ARGOCD_RESOURCE_TREE_PATH"]
         del os.environ["ARGOCD_ROLLBACK_PATH"]
+        del os.environ["ARGOCD_MANIFESTS_PATH"]
+        del os.environ["ARGOCD_ACTOR"]
         del os.environ["ARGOCD_AUTH_TOKEN"]
         get_settings.cache_clear()

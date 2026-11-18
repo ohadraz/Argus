@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS action (
     -- What putting the change back did (`Undone`) - the walk's own undo after
     -- a refutation, or the cleanup after the incident: `restored`;
     -- `left-as-found` where somebody changed the subject since Argus set it;
+    -- `left-standing` where they did and the reconciliation Argus suspended
+    -- still stands, since resuming it would overwrite them;
     -- `not-established` where what it holds could not be read; `no-undo-was-owed`
     -- for a change nothing puts back. NULL where nothing attempted an undo. The
     -- cleanup puts back NULL and `not-established`, passes over the rest, and

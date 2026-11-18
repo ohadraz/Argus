@@ -17,6 +17,13 @@ The descriptor is the other half. Only this module ever knows what the count was
 or whether reconciliation was on, so an undo hours later can put back exactly as
 much as this records and no more.
 
+And a withdrawal puts back only what is still Argus's. A count that is still the
+one Argus asked for is put back; one already back where Argus found it needs no
+write; any other is somebody's since, and is left as they set it - with the
+reconciliation Argus suspended left suspended where it still is, since resuming
+it would have the platform re-apply git over them. Where an autoscaler owns the
+count, the count is the controller's and nobody's to put back: only the sync is.
+
 How the count is read and written on Argo CD - the manifest, the merge patch the
 count and the mark travel in - is the adapter's, and pinned in its own suite.
 """
@@ -45,6 +52,7 @@ from core.mcp_transport import (
 )
 from core.models import CapacityRestored, ReplicaUndo, RolloutProgress
 from deployment_platform import (
+    Autoscaler,
     DeploymentPlatformWrites,
     PlatformRefused,
     PlatformUnreachable,
@@ -58,6 +66,11 @@ from write_mcp_server.scaling import (
 )
 
 from write_mcp_server_test.framework.marks import a_mark, every_write_carried
+from write_mcp_server_test.framework.putting_back import (
+    it_was_left_because,
+    it_was_not_left_alone,
+    the_suspension_is_said_to_stand,
+)
 from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
@@ -75,11 +88,17 @@ SOME_MARK = a_mark()
 # comes to. Three is the size the fixture's own values file asks for.
 THE_COUNT_RUNNING = 3
 TWICE_THAT = 6
+# A count somebody set since, which is neither of the two above.
+A_COUNT_SOMEBODY_SET = TWICE_THAT - 1
+
+# An autoscaler the platform names for the application, where one owns the count.
+SOME_AUTOSCALER = Autoscaler(name="io-shop-cpu", namespace="shopping")
 
 # What a scale-out leaves where it suspended the sync and the count never moved.
 THE_SUSPENSION = ReplicaUndo(
     application=SOME_APPLICATION,
     was_replicas=THE_COUNT_RUNNING,
+    replicas_asked_for=TWICE_THAT,
     was_syncing_itself=True
 )
 
@@ -96,12 +115,24 @@ def _running(replicas: int) -> RolloutProgress:
 
 
 def a_platform(replicas: int = THE_COUNT_RUNNING,
-               reconciling_itself: bool = True) -> Any:
+               reconciling_itself: bool = True,
+               autoscaler: Autoscaler | None = None) -> Any:
     platform = create_autospec(DeploymentPlatformWrites, instance=True)
     platform.rollout_of.return_value = _running(replicas)
     platform.is_syncing_itself.return_value = reconciling_itself
+    platform.autoscaler_of.return_value = autoscaler
 
     return platform
+
+
+def a_platform_as_the_scale_out_left_it(replicas: int = TWICE_THAT,
+                                        reconciling_itself: bool = False,
+                                        autoscaler: Autoscaler | None = None) -> Any:
+    """A platform a scale-out of Argus's has been through: running the count it
+    asked for unless a case names another, and not syncing itself, because the
+    scale-out suspended that, unless a case says somebody turned it back on."""
+    return a_platform(replicas=replicas, reconciling_itself=reconciling_itself,
+                      autoscaler=autoscaler)
 
 
 def _scaling_out(platform: Any) -> ReplicaUndo:
@@ -156,7 +187,7 @@ def test_every_write_a_scale_out_makes_carries_its_actions_mark() -> None:
 
 @pytest.mark.unit
 def test_every_write_a_restore_makes_carries_its_mark() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -188,6 +219,32 @@ def test_the_descriptor_records_the_count_and_the_policy_it_found() -> None:
             _the_descriptor_records_the_count(THE_COUNT_RUNNING),
             _the_descriptor_records_sync_was(True)
         ))
+
+
+@pytest.mark.unit
+def test_the_descriptor_records_the_count_it_asked_for() -> None:
+    # What a withdrawal compares the live count with to find out whether the
+    # scale-out is still Argus's.
+    platform = a_platform(replicas=THE_COUNT_RUNNING)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _scaling_out(platform)) \
+        .then(_the_descriptor_records_it_asked_for(TWICE_THAT))
+
+
+@pytest.mark.unit
+def test_the_count_recorded_as_asked_for_is_the_ceiling_where_doubling_passed_it() -> None:
+    # The count actually asked for, not twice what was running: a withdrawal
+    # comparing the live count with the doubling would call Argus's own
+    # scale-out somebody else's.
+    just_under = THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR - 1
+    platform = a_platform(replicas=just_under)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _scaling_out(platform)) \
+        .then(_the_descriptor_records_it_asked_for(THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR))
 
 
 @pytest.mark.unit
@@ -264,7 +321,7 @@ def test_a_count_the_platform_could_not_say_is_refused() -> None:
 
 @pytest.mark.unit
 def test_restoring_puts_back_the_count_that_was_running() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -279,7 +336,7 @@ def test_restoring_puts_back_the_count_that_was_running() -> None:
 def test_restoring_turns_reconciliation_back_on_after_the_count() -> None:
     # Re-enabling sync first would have the platform set the count back on its
     # own - to the same number, and unverifiably, at a moment nothing here chose.
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -289,7 +346,7 @@ def test_restoring_turns_reconciliation_back_on_after_the_count() -> None:
 
 @pytest.mark.unit
 def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=False)) \
@@ -305,7 +362,7 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
     # The half that fails is the quiet one: a deployment back at its declared size
     # looks right from every angle a reader has, while receiving nothing anybody
     # ships to it.
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
@@ -316,7 +373,7 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
 
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
     platform.scale.side_effect = PlatformUnreachable("no route to the platform")
     platform.resume_sync.side_effect = PlatformUnreachable("no route to the platform")
 
@@ -324,6 +381,174 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: _restoring(a_descriptor, platform)) \
         .then(_it_reports_restored(count=False, automated_sync=False))
+
+
+@pytest.mark.unit
+def test_a_count_still_argus_s_is_put_back_and_said_to_be_nobody_else_s() -> None:
+    # The deployment runs the count Argus asked for, so nobody has resized it.
+    platform = a_platform_as_the_scale_out_left_it(replicas=TWICE_THAT)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _it_asked_for(platform, replicas=THE_COUNT_RUNNING),
+            _it_reports_restored(count=True, automated_sync=True),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_already_back_where_argus_found_it_is_not_written_again() -> None:
+    # Somebody - anybody - has already set it back. Nothing is written for the
+    # count, and it counts as put back; the sync Argus suspended is still
+    # Argus's to resume.
+    platform = a_platform_as_the_scale_out_left_it(replicas=THE_COUNT_RUNNING)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _the_count_was_not_written(platform),
+            every_write_carried(platform, "resume_sync", SOME_MARK),
+            _it_reports_restored(count=True, automated_sync=True),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_somebody_set_since_is_left_as_they_set_it() -> None:
+    # Setting it back would replace their decision with a number nobody now
+    # wants, and resuming sync would have the platform re-apply git over it - so
+    # neither is written, and what was found is said.
+    platform = a_platform_as_the_scale_out_left_it(replicas=A_COUNT_SOMEBODY_SET)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            it_was_left_because(f"[{A_COUNT_SOMEBODY_SET}]")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("was_syncing_itself", "syncing_now", "still_suspended"),
+    [
+        pytest.param(True, False, True, id="argus-suspended-it-and-it-is-still-off"),
+        pytest.param(True, True, False, id="somebody-turned-it-back-on"),
+        pytest.param(False, False, False, id="it-was-off-before-argus-came")
+    ]
+)
+def test_a_count_left_as_somebody_set_it_says_whether_argus_s_suspension_still_stands(
+    was_syncing_itself: bool, syncing_now: bool, still_suspended: bool
+) -> None:
+    # Read from the platform, because only it knows: a person who reverted in
+    # git and turned sync back on has ended Argus's suspension themselves, and
+    # one sync was off for before Argus came was never suspended by Argus.
+    platform = a_platform_as_the_scale_out_left_it(replicas=A_COUNT_SOMEBODY_SET,
+                                                   reconciling_itself=syncing_now)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            the_suspension_is_said_to_stand(still_suspended)
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_an_autoscaler_owns_is_left_to_it_and_the_sync_is_put_back() -> None:
+    # Whatever the count reads, it is the controller's: a figure written here
+    # would be re-derived within a sync period, and a count matching neither of
+    # Argus's is the autoscaler moving rather than a person deciding. So the
+    # count is left to it, and the reconciliation Argus suspended is resumed.
+    platform = a_platform_as_the_scale_out_left_it(replicas=A_COUNT_SOMEBODY_SET,
+                                                   autoscaler=SOME_AUTOSCALER)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _the_count_was_not_written(platform),
+            every_write_carried(platform, "resume_sync", SOME_MARK),
+            _the_count_is_said_left_to_its_autoscaler(),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_an_autoscaler_owns_leaves_reconciliation_off_where_argus_found_it_off() -> None:
+    platform = a_platform_as_the_scale_out_left_it(autoscaler=SOME_AUTOSCALER)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=False)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _the_count_was_not_written(platform),
+            _the_sync_policy_was_not_touched(platform),
+            _the_count_is_said_left_to_its_autoscaler()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", ["autoscaler_of", "rollout_of"])
+def test_a_restore_that_could_not_read_whose_the_count_is_writes_nothing(read: str) -> None:
+    # Writing on a reading that never came back is the blind put-back the check
+    # exists to prevent - so neither half is written, neither is said to be
+    # back, and nothing is said to have been found.
+    platform = a_platform_as_the_scale_out_left_it()
+    getattr(platform, read).side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(count=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_restore_that_could_not_read_whether_sync_is_back_on_writes_nothing() -> None:
+    # The last read, made only where the count is somebody's: without it nobody
+    # can say whether Argus's suspension still stands, and the answer says
+    # nothing it could not establish.
+    platform = a_platform_as_the_scale_out_left_it(replicas=A_COUNT_SOMEBODY_SET)
+    platform.is_syncing_itself.side_effect = PlatformRefused("403")
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(count=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_recorded_without_the_count_it_asked_for_is_not_written_over() -> None:
+    # A row written before the descriptor said what Argus asked for. Whether
+    # the live count is still Argus's cannot be asked without it, so the restore
+    # answers as a read that never came back does: nothing written, neither
+    # half back, nothing found.
+    from_before = _a_descriptor(was_syncing_itself=True).model_copy(
+        update={"replicas_asked_for": None}
+    )
+    platform = a_platform_as_the_scale_out_left_it()
+
+    Scenario() \
+        .given(from_before) \
+        .when(lambda: _restoring(from_before, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(count=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
 
 
 @pytest.mark.unit
@@ -549,7 +774,7 @@ def test_a_scale_out_refused_after_sync_was_suspended_is_logged_as_a_warning(
 @pytest.mark.unit
 def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # A change to production as much as the action was.
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
 
     Scenario() \
         .given(
@@ -570,7 +795,7 @@ def test_a_restore_that_only_managed_the_count_is_logged_as_a_warning(
 ) -> None:
     # The quiet half. The application looks put back and is receiving nothing
     # anybody ships to it, and no other line would say so.
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
@@ -591,7 +816,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
 ) -> None:
     # The restore reports which half it lost, never why. The why is here, and
     # it is what a person putting the other half back by hand needs first.
-    platform = a_platform()
+    platform = a_platform_as_the_scale_out_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
@@ -670,8 +895,68 @@ def _a_descriptor(was_syncing_itself: bool) -> ReplicaUndo:
     return ReplicaUndo(
         application=SOME_APPLICATION,
         was_replicas=THE_COUNT_RUNNING,
+        replicas_asked_for=TWICE_THAT,
         was_syncing_itself=was_syncing_itself
     )
+
+
+def _the_descriptor_records_it_asked_for(replicas: int) -> Assertion[ReplicaUndo]:
+    def assertion(descriptor: ReplicaUndo) -> bool:
+        if descriptor.replicas_asked_for != replicas:
+            raise AssertionError(
+                f"Expected the descriptor to record [{replicas}] replicas as the count "
+                f"asked for, and it records [{descriptor.replicas_asked_for}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_count_was_not_written(platform: Any) -> Assertion[CapacityRestored]:
+    def assertion(dont_care_restored: CapacityRestored) -> bool:
+        if platform.scale.called:
+            raise AssertionError(
+                f"Expected no count written, and the platform was asked "
+                f"{platform.scale.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_written(platform: Any) -> Assertion[CapacityRestored]:
+    """Neither the count nor the sync policy - the reads are what a restore
+    that left the deployment alone did ask."""
+    def assertion(dont_care_restored: CapacityRestored) -> bool:
+        written = [name for name, operation in (("the count", platform.scale),
+                                                ("the sync policy", platform.resume_sync),
+                                                ("the sync policy", platform.suspend_sync))
+                   if operation.called]
+
+        if written:
+            raise AssertionError(
+                f"Expected nothing written, and the restore wrote {written}: "
+                f"{platform.method_calls}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_count_is_said_left_to_its_autoscaler() -> Assertion[CapacityRestored]:
+    def assertion(restored: CapacityRestored) -> bool:
+        if not restored.count_left_to_its_autoscaler or not restored.automated_sync_put_back:
+            raise AssertionError(
+                f"Expected the count left to its autoscaler and the sync put back, "
+                f"and the restore reported {restored!r}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_asked_for(platform: Any, replicas: int) -> Assertion[object]:

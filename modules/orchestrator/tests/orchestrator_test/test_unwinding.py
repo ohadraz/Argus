@@ -89,14 +89,17 @@ def test_every_change_the_incident_recorded_is_put_back(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("settled_as", [Undone.RESTORED, Undone.LEFT_AS_FOUND],
-                         ids=["restored", "left-as-found"])
+@pytest.mark.parametrize("settled_as",
+                         [Undone.RESTORED, Undone.LEFT_AS_FOUND, Undone.LEFT_STANDING],
+                         ids=["restored", "left-as-found", "left-standing"])
 def test_a_change_the_walk_already_settled_is_passed_over(
     settled_as: Undone, undo: MagicMock, published: list[IncidentEvent]
 ) -> None:
     # The walk put it back after refuting it, or left it as somebody else had
-    # since set it, and its verdict's line said so. Put back again it is said
-    # again; the change beside it, which nothing settled, is still put back.
+    # since set it - with Argus's suspension of sync still standing or not -
+    # and its verdict's line said so. A second pass would find the subject
+    # still theirs and decide the same; put back again it is said again. The
+    # change beside it, which nothing settled, is still put back.
     a_settled_change = _a_taken_action_carrying(
         _an_undo_descriptor_for("monthly-spend-feature"), undone=settled_as
     )
@@ -411,6 +414,40 @@ def test_a_change_the_unwind_could_not_settle_is_logged_as_an_error(
             one_record_was_logged(caplog, _THE_UNWIND, logging.ERROR,
                                   "change could not be put back",
                                   values={"subject": some_flag, "detail": some_detail})
+        )
+
+
+@pytest.mark.unit
+def test_a_change_the_unwind_left_standing_is_logged_as_a_warning(
+    undo: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Settled - a second pass would decide the same - and still not tidy: the
+    # subject is somebody else's now while the reconciliation Argus suspended
+    # stays suspended, which a person has to decide about.
+    some_application = "io-shop"
+    some_detail = "was left as they set it - the reconciliation Argus suspended still stands"
+    undo.return_value = UndoAttempt(
+        subject=some_application, outcome=Undone.LEFT_STANDING, detail=some_detail
+    )
+
+    Scenario() \
+        .given(
+            an_incident_that_changed := _an_incident_that_changed(
+                _an_undo_descriptor_for(_DONT_CARE_FLAG))
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_that_changed),
+                undo=undo,
+                acting_for=_acting_for_whichever,
+                record_undone=_kept_nowhere
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, _THE_UNWIND, logging.WARNING,
+                                  "change left standing",
+                                  values={"subject": some_application, "detail": some_detail})
         )
 
 

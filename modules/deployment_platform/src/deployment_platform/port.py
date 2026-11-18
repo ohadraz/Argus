@@ -173,3 +173,19 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
         """Holds the Deployment's pods to one card, or releases them where
         `accelerator` is `None` - and changes nothing else it selects on."""
         ...
+
+    def images_running(self, application: str, /) -> dict[str, str]:
+        """The image each of the live Deployment's containers starts, by
+        container name - init containers among them."""
+        ...
+
+    def images_at(self, application: str, revision: str, /) -> dict[str, str]:
+        """The image each container of the application's Deployment is started
+        from as the platform renders `revision`, by container name - init
+        containers among them.
+
+        Beside `images_running`, it says whether what is running is what that
+        revision ships: a change made to the Deployment outside the platform - an
+        image set by hand - leaves no history entry, and shows only here.
+        """
+        ...

@@ -46,7 +46,17 @@ re-derived, the service does not recover, and the walk moves on.
 Which is also why this mitigates without resolving, and why the descriptor it
 returns records two things. The repository still asks for the size that was too
 small, and reconciliation is off so that nothing re-applies it. Both have to be put
-back by a withdrawal, and only this module ever knew either.
+back by a withdrawal, and only this module ever knew either. It records the count
+it asked for beside them, which is what that withdrawal compares the live count
+with.
+
+A withdrawal puts back only what is still Argus's, and reads the platform before
+it writes to find out. A count still the one Argus asked for is put back; one
+already back where Argus found it needs no write; any other is somebody's since,
+and is left as they set it - with the reconciliation Argus suspended left
+suspended too, because resuming it would have the platform re-apply git over them.
+Where an autoscaler owns the count, the count is the controller's whatever it
+reads, and nobody's to put back: only the sync is.
 """
 
 from __future__ import annotations
@@ -177,6 +187,7 @@ def scale_out(application: str,
     undo = ReplicaUndo(
         application=application,
         was_replicas=running,
+        replicas_asked_for=_twice(running),
         was_syncing_itself=was_syncing_itself
     )
 
@@ -204,42 +215,102 @@ def scale_out(application: str,
 def restore_replica_count(descriptor: ReplicaUndo,
                           platform: DeploymentPlatformWrites,
                           mark: Mark) -> CapacityRestored:
-    """Puts back both of the things a scale-out changed, and says which it managed
-    - every write carrying `mark`, as the scale-out's did.
+    """Puts back both of the things a scale-out changed, where they are still
+    Argus's, and says which it managed - every write carrying `mark`, as the
+    scale-out's did.
 
     A pair rather than an exception, for the reason the rollback's restore answers
     one: a restore can half-succeed and the half that fails is the quiet one. The
     caller turns the pair into a verdict; this reports facts.
 
+    The platform is read before anything is written, and what it says decides how
+    much is. A live count still the one Argus asked for is put back. One already
+    back where Argus found it needs no write, and counts as put back. Any other is
+    somebody's change since: nothing is written, sync is not resumed, and the
+    answer says what was found and whether Argus's suspension still stands.
+    Writing over it would be this module deciding that somebody else's change
+    should not stand, which is not its question to answer.
+
+    Where an autoscaler owns the count, no count is written whatever it reads: a
+    figure written here would be re-derived within a sync period, and a count a
+    controller replaces is one Argus is not responsible for. The sync Argus
+    suspended is still Argus's, and is resumed; the answer says the count was left
+    to its autoscaler.
+
+    A read that never came back writes nothing and claims nothing - neither half
+    back, nothing found - and neither does a descriptor recorded without the count
+    it asked for, since whether the live count is still Argus's cannot be asked
+    without it. A put-back made blind is the one the check exists to prevent.
+
     The count first and reconciliation second, which is the order that leaves
     nothing to chance. Re-enabling sync first would have the platform set the
     count back on its own - to the same number, and unverifiably, at a moment
     nothing here chose.
-
-    The recorded count is written back even where something else has since moved
-    the live one away from it, and no check is made first. What an undo owes is
-    that nothing Argus set is left behind; it does not owe a deployment left at a
-    size Argus can vouch for. Where a controller owns the count, the figure written
-    here is re-derived within a sync period - and that is the correct outcome
-    rather than a failure of this call, because a count a controller immediately
-    replaces is a count Argus is no longer responsible for. Reading the live count
-    first and declining to write on a mismatch would be this module deciding
-    whether somebody else's change should stand, which is not its question to
-    answer.
     """
     application = descriptor.application
+    asked_for = descriptor.replicas_asked_for
 
-    count = _tried(
-        application, "count",
-        lambda: platform.scale(application, descriptor.was_replicas, mark)
+    if asked_for is None:
+        logger.error("restore check impossible", extra={
+            "application": application, "missing": "replicas_asked_for"
+        })
+        return _said(_nothing_established(), application)
+
+    try:
+        autoscaler = platform.autoscaler_of(application)
+        running = (
+            None if autoscaler is not None
+            else platform.rollout_of(application).replicas_wanted
+        )
+    except DeploymentPlatformError:
+        logger.error("restore check failed", exc_info=True,
+                     extra={"application": application, "read": "the count"})
+        return _said(_nothing_established(), application)
+
+    if autoscaler is not None:
+        logger.info("replica count left to its autoscaler", extra={
+            "application": application, "autoscaler": autoscaler.name
+        })
+        return _with_the_sync_put_back(descriptor, platform, mark, count=True,
+                                       left_to_its_autoscaler=True)
+
+    if running == asked_for:
+        return _with_the_sync_put_back(
+            descriptor, platform, mark,
+            count=_tried(
+                application, "count",
+                lambda: platform.scale(application, descriptor.was_replicas, mark)
+            )
+        )
+
+    if running == descriptor.was_replicas:
+        # Already where Argus found it, whoever put it there: nothing is written
+        # for the count, and it counts as put back.
+        return _with_the_sync_put_back(descriptor, platform, mark, count=True)
+
+    return _left_as_somebody_set_it(
+        f"[{application}] is asked to run [{running}] replicas, which is neither "
+        f"the [{descriptor.was_replicas}] Argus found nor the [{asked_for}] it asked for",
+        descriptor, platform
     )
+
+
+def _with_the_sync_put_back(descriptor: ReplicaUndo,
+                            platform: DeploymentPlatformWrites,
+                            mark: Mark, *,
+                            count: bool,
+                            left_to_its_autoscaler: bool = False) -> CapacityRestored:
+    """The answer once the count's half is settled as `count`: the sync resumed
+    where Argus suspended it, carrying `mark`."""
+    application = descriptor.application
 
     if not descriptor.was_syncing_itself:
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
         return _said(
-            CapacityRestored(count_put_back=count, automated_sync_put_back=True),
+            CapacityRestored(count_put_back=count, automated_sync_put_back=True,
+                             count_left_to_its_autoscaler=left_to_its_autoscaler),
             application
         )
 
@@ -249,15 +320,61 @@ def restore_replica_count(descriptor: ReplicaUndo,
             automated_sync_put_back=_tried(
                 application, "automated sync",
                 lambda: platform.resume_sync(application, mark)
-            )
+            ),
+            count_left_to_its_autoscaler=left_to_its_autoscaler
         ),
         application
     )
 
 
+def _left_as_somebody_set_it(because: str,
+                             descriptor: ReplicaUndo,
+                             platform: DeploymentPlatformWrites) -> CapacityRestored:
+    """The answer for a count somebody changed since: nothing written, sync not
+    resumed, `because` said - and whether the reconciliation Argus suspended
+    still stands, read from the platform.
+
+    Read rather than taken from the descriptor, because only the platform knows:
+    a person who reverted in git and turned sync back on has ended Argus's
+    suspension themselves, and sync that was off before Argus came was never
+    Argus's to have suspended. A read that fails here establishes nothing, and
+    the answer claims nothing.
+    """
+    application = descriptor.application
+
+    try:
+        syncing_now = platform.is_syncing_itself(application)
+    except DeploymentPlatformError:
+        logger.error("restore check failed", exc_info=True,
+                     extra={"application": application, "read": "automated sync"})
+        return _said(_nothing_established(), application)
+
+    return _said(
+        CapacityRestored(
+            count_put_back=False,
+            automated_sync_put_back=False,
+            left_because=because,
+            sync_still_suspended=descriptor.was_syncing_itself and not syncing_now
+        ),
+        application
+    )
+
+
+def _nothing_established() -> CapacityRestored:
+    """The answer where whose the count is could not be found out: nothing
+    written, neither half back, nothing found."""
+    return CapacityRestored(count_put_back=False, automated_sync_put_back=False)
+
+
 def _said(restored: CapacityRestored, application: str) -> CapacityRestored:
     """`restored`, once the log has been told how much of it there is."""
-    if restored.count_put_back and restored.automated_sync_put_back:
+    if restored.left_because is not None:
+        logger.warning("replica count left as somebody set it", extra={
+            "application": application,
+            "found": restored.left_because,
+            "sync_still_suspended": restored.sync_still_suspended
+        })
+    elif restored.count_put_back and restored.automated_sync_put_back:
         logger.info("replica count restored", extra={"application": application})
     else:
         logger.warning("replica count not fully restored", extra={

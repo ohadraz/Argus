@@ -38,6 +38,13 @@ Which is also why this mitigates without resolving, and why the descriptor it
 returns records two things. The repository still declares the floor the controller
 was thrashing between, and reconciliation is off so that nothing re-applies it.
 Both have to be put back by a withdrawal, and only this module ever knew either.
+
+A withdrawal puts back only what is still Argus's, and reads the platform before
+it writes to find out. A floor still the one Argus asked for is put back; one
+already back where Argus found it needs no write; any other - or an autoscaler no
+longer there at all - is somebody's change since, and is left as they set it, with
+the reconciliation Argus suspended left suspended too, because resuming it would
+have the platform re-apply git over them.
 """
 
 from __future__ import annotations
@@ -189,12 +196,27 @@ def pin_autoscaler(application: str,
 def restore_autoscaler_floor(descriptor: AutoscalerUndo,
                              platform: DeploymentPlatformWrites,
                              mark: Mark) -> AutoscalingRestored:
-    """Puts back both of the things a pin changed, and says which it managed -
-    every write carrying `mark`, as the pin's did.
+    """Puts back both of the things a pin changed, where they are still Argus's,
+    and says which it managed - every write carrying `mark`, as the pin's did.
 
     A pair rather than an exception, for the reason the scale-out's restore answers
     one: a restore can half-succeed and the half that fails is the quiet one. The
     caller turns the pair into a verdict; this reports facts.
+
+    The platform is read before anything is written, and what it says decides how
+    much is. A floor still the one Argus asked for is put back. One already back
+    where Argus found it needs no write, and counts as put back. Any other is
+    somebody's change since, and so is an autoscaler no longer among the
+    application's resources - somebody took away the controller Argus held still.
+    Either way nothing is written, sync is not resumed, and the answer says what
+    was found and whether Argus's suspension still stands. Writing over it would
+    be this module deciding that somebody else's change should not stand, which is
+    not its question to answer; resuming sync over a removed autoscaler would have
+    the platform bring back what they removed.
+
+    A read that never came back writes nothing and claims nothing - neither half
+    back, nothing found. An autoscaler the platform could not be asked about is not
+    one somebody removed.
 
     The floor first and reconciliation second, which is the order that leaves
     nothing to chance. Re-enabling sync first would have the platform re-apply the
@@ -209,28 +231,58 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
     """
     application = descriptor.application
 
-    floor = _tried(
-        application, "floor",
-        lambda: platform.set_autoscaler_floor(
-            application,
-            _where_the_autoscaler_is(application, platform),
-            descriptor.was_min_replicas,
-            mark
+    try:
+        autoscaler = platform.autoscaler_of(application)
+    except DeploymentPlatformError:
+        logger.error("restore check failed", exc_info=True,
+                     extra={"application": application, "read": "the autoscaler"})
+        return _said(_nothing_established(), application)
+
+    if autoscaler is None:
+        return _left_as_somebody_set_it(
+            f"[{application}] has no autoscaler among its resources any more, so "
+            f"the one Argus held still was taken away since",
+            descriptor, platform
         )
-    )
+
+    try:
+        floor = platform.autoscaler_bounds(application, autoscaler).floor
+    except DeploymentPlatformError:
+        logger.error("restore check failed", exc_info=True,
+                     extra={"application": application, "read": "the floor"})
+        return _said(_nothing_established(), application)
+
+    if floor == descriptor.min_replicas_asked_for:
+        floor_put_back = _tried(
+            application, "floor",
+            lambda: platform.set_autoscaler_floor(
+                application, autoscaler, descriptor.was_min_replicas, mark
+            )
+        )
+    elif floor == descriptor.was_min_replicas:
+        # Already where Argus found it, whoever put it there: nothing is written
+        # for the floor, and it counts as put back.
+        floor_put_back = True
+    else:
+        return _left_as_somebody_set_it(
+            f"[{application}]'s autoscaler may fall to [{floor}], which is neither "
+            f"the [{descriptor.was_min_replicas}] Argus found nor the "
+            f"[{descriptor.min_replicas_asked_for}] it asked for",
+            descriptor, platform
+        )
 
     if not descriptor.was_syncing_itself:
         # It was already off when Argus found it, so leaving it off *is* the
         # restore. Turning it on because that is the usual arrangement would be
         # Argus starting something it did not stop.
         return _said(
-            AutoscalingRestored(floor_put_back=floor, automated_sync_put_back=True),
+            AutoscalingRestored(floor_put_back=floor_put_back, automated_sync_put_back=True),
             application
         )
 
     return _said(
         AutoscalingRestored(
-            floor_put_back=floor,
+            floor_put_back=floor_put_back,
             automated_sync_put_back=_tried(
                 application, "automated sync",
                 lambda: platform.resume_sync(application, mark)
@@ -240,9 +292,54 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
     )
 
 
+def _left_as_somebody_set_it(because: str,
+                             descriptor: AutoscalerUndo,
+                             platform: DeploymentPlatformWrites) -> AutoscalingRestored:
+    """The answer for a floor somebody changed since: nothing written, sync not
+    resumed, `because` said - and whether the reconciliation Argus suspended
+    still stands, read from the platform.
+
+    Read rather than taken from the descriptor, because only the platform knows:
+    a person who reverted in git and turned sync back on has ended Argus's
+    suspension themselves, and sync that was off before Argus came was never
+    Argus's to have suspended. A read that fails here establishes nothing, and
+    the answer claims nothing.
+    """
+    application = descriptor.application
+
+    try:
+        syncing_now = platform.is_syncing_itself(application)
+    except DeploymentPlatformError:
+        logger.error("restore check failed", exc_info=True,
+                     extra={"application": application, "read": "automated sync"})
+        return _said(_nothing_established(), application)
+
+    return _said(
+        AutoscalingRestored(
+            floor_put_back=False,
+            automated_sync_put_back=False,
+            left_because=because,
+            sync_still_suspended=descriptor.was_syncing_itself and not syncing_now
+        ),
+        application
+    )
+
+
+def _nothing_established() -> AutoscalingRestored:
+    """The answer where whose the floor is could not be found out: nothing
+    written, neither half back, nothing found."""
+    return AutoscalingRestored(floor_put_back=False, automated_sync_put_back=False)
+
+
 def _said(restored: AutoscalingRestored, application: str) -> AutoscalingRestored:
     """`restored`, once the log has been told how much of it there is."""
-    if restored.floor_put_back and restored.automated_sync_put_back:
+    if restored.left_because is not None:
+        logger.warning("autoscaler floor left as somebody set it", extra={
+            "application": application,
+            "found": restored.left_because,
+            "sync_still_suspended": restored.sync_still_suspended
+        })
+    elif restored.floor_put_back and restored.automated_sync_put_back:
         logger.info("autoscaler floor restored", extra={"application": application})
     else:
         logger.warning("autoscaler floor not fully restored", extra={

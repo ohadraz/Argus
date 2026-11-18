@@ -50,9 +50,14 @@ type ActingFor = Callable[[str], AbstractContextManager[None]]
 
 # What leaves a change needing nothing more from an unwind, whichever undo
 # wrote it - the walk's own after a refutation, or an earlier unwind: the change
-# restored, left as somebody else set it, or owing nothing back. Not
+# restored, left as somebody else set it - with Argus's suspension of sync
+# still standing or not - or owing nothing back. Left standing is settled
+# because a second pass would find the subject still theirs and decide the
+# same; what it leaves is a person's to decide, not another pass's. Not
 # `NOT_ESTABLISHED`, which is a change that may still be out there.
-_SETTLED = frozenset({Undone.RESTORED, Undone.LEFT_AS_FOUND, Undone.NO_UNDO_WAS_OWED})
+_SETTLED = frozenset({
+    Undone.RESTORED, Undone.LEFT_AS_FOUND, Undone.LEFT_STANDING, Undone.NO_UNDO_WAS_OWED
+})
 
 
 class UndoChange(Protocol):
@@ -150,11 +155,12 @@ def unwind_incident(incident_id: str,
     Each put back while acting for the row that made it, so the write tier marks
     the put-back as that action's, as it marked the change.
 
-    Except a change the walk already settled after refuting it - put back, or
-    left as somebody else had since set it - which its verdict's own line has
-    already said. Put back a second time it was said a second time, the
-    thread reading as the flag still changed until this ran. Every other row is
-    put back whatever the walk made of it, and a change the walk's own undo
+    Except a change the walk already settled after judging it - put back, or
+    left as somebody else had since set it, with Argus's suspension of sync
+    still standing or not - which its verdict's own line has already said. Put
+    back a second time it was said a second time, the thread reading as the
+    flag still changed until this ran. Every other row is put back whatever
+    the walk made of it, and a change the walk's own undo
     could not establish is tried again here: the only thing the provider's
     record can show since Argus wrote is Argus's own, which is nobody else's
     decision to protect. That is what makes this safe to run twice.
@@ -241,10 +247,17 @@ def unwind_incident(incident_id: str,
 def _said_in_the_log(attempt: UndoAttempt) -> None:
     """A change settled is a production change put on the record; one that
     could not be is production possibly still the way the incident left it,
-    with nothing else coming to put it back - somebody has to go and look."""
+    with nothing else coming to put it back - somebody has to go and look.
+
+    A change left standing is between the two: settled, and still not tidy. The
+    subject is somebody else's now while the reconciliation Argus suspended
+    stays suspended, which a person has to decide about."""
     if attempt.outcome is Undone.NOT_ESTABLISHED:
         logger.error("change could not be put back",
                      extra={"subject": attempt.subject, "detail": attempt.detail})
+    elif attempt.outcome is Undone.LEFT_STANDING:
+        logger.warning("change left standing",
+                       extra={"subject": attempt.subject, "detail": attempt.detail})
     else:
         logger.info("change put back",
                     extra={"subject": attempt.subject, "outcome": attempt.outcome})

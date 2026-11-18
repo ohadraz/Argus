@@ -1274,7 +1274,10 @@ def _undone(performed: Performed,
     made of. A change left as found is still a refutation - the wait found
     against it, which is what the verdict is about - while a change nobody
     could account for escalates, because an environment Argus cannot describe
-    is precisely what a human needs paging for.
+    is precisely what a human needs paging for. So does a change left
+    standing: somebody made the subject theirs while the reconciliation Argus
+    suspended still stands, and whether to resume it over them is a person's
+    to decide.
 
     `because` is what the verification wait judged, said as it said it: the
     rule still firing, the service still at the incident's level, or a window
@@ -1319,6 +1322,25 @@ def _undone(performed: Performed,
                 undone=attempt.outcome,
                 undone_detail=attempt.detail,
             )
+        case Undone.LEFT_STANDING:
+            # Not a refutation, though the wait found against the change.
+            # Somebody made the subject theirs while the reconciliation Argus
+            # suspended still stands, and resuming it would overwrite them -
+            # so a refutation would close the attempt with Argus's suspension
+            # in place and nobody asked about it. A person decides it.
+            logger.warning("change left standing", extra={
+                "action_type": action_type, "subject": attempt.subject, "detail": attempt.detail
+            })
+
+            return Outcome(
+                verdict=Verdict.ESCALATED,
+                left_behind_known=True,
+                because=because,
+                detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
+                undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail
+            )
         case Undone.LEFT_AS_FOUND:
             return Outcome(
                 verdict=Verdict.REFUTED,
@@ -1330,14 +1352,21 @@ def _undone(performed: Performed,
                 undone_detail=attempt.detail,
             )
         case Undone.RESTORED:
+            # The undo's own telling where it gave one: the kind's ending is how
+            # a change of its kind is usually put back, and not every put-back
+            # is - a count left to an autoscaler was put back to no count.
+            told = (
+                attempt.said_as
+                if attempt.said_as is not None
+                else f"it was put back "
+                     f"{undoing_kinds(undo_descriptor).put_back_as(undo_descriptor)}"
+            )
+
             return Outcome(
                 verdict=Verdict.REFUTED,
                 left_behind_known=True,
                 because=because,
-                detail=(
-                    f"{taken}, but {because}, so it was put back "
-                    f"{undoing_kinds(undo_descriptor).put_back_as(undo_descriptor)}"
-                ),
+                detail=f"{taken}, but {because}, so {told}",
                 undo_descriptor=undo_descriptor,
                 undone=attempt.outcome,
                 undone_detail=attempt.detail,

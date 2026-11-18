@@ -77,6 +77,19 @@ _USERNAME: Final = "username"
 # The resource route's wrapper: the manifest arrives as *text*, and the caller
 # parses it.
 _MANIFEST: Final = "manifest"
+# The manifests route's `ManifestResponse`: every manifest the revision renders,
+# each as text, as the resource route carries its one.
+_MANIFESTS: Final = "manifests"
+# Where a manifest names itself.
+_METADATA_NAME: Final = "name"
+# A pod template's containers, the ones serving and the ones run before them, and
+# what each is started from.
+_CONTAINERS: Final = "containers"
+_INIT_CONTAINERS: Final = "initContainers"
+_CONTAINER_NAME: Final = "name"
+_IMAGE: Final = "image"
+# The manifests route's query parameter naming the revision to render.
+_REVISION_PARAMETER: Final = "revision"
 
 # Where an object carries what anybody wrote about it, in Kubernetes' own words,
 # and the two keys Argus marks a change of its own with. On the object's own
@@ -165,9 +178,9 @@ class ArgoCdSettings(SettingsSlice):
     application, so the demo's stand-in and a real server's
     `/api/v1/applications/{application}` are one setting with two values.
 
-    The token may be empty, which sends no credential at all: the stand-in needs
-    none, and a placeholder would send a real server something meaningless to
-    reject.
+    The token may be empty, which sends no credential at all rather than a
+    placeholder a real server would reject as meaningless. The demo's stand-in
+    then answers reads and refuses a rollback, which needs a token it issued.
 
     The two namespaces are the restart's and the scale-out's, each addressing the
     Deployment its action is run against. The autoscaler has none, because its
@@ -184,6 +197,9 @@ class ArgoCdSettings(SettingsSlice):
     argocd_rollback_path: str
     # What an application is made of: its pods, and its autoscaler's own name.
     argocd_resource_tree_path: str
+    # What the platform renders an application as at a revision - what git ships,
+    # where the resource route says what is running.
+    argocd_manifests_path: str
     restart_namespace: str
     scale_namespace: str
 
@@ -463,6 +479,51 @@ class ArgoCd:
 
         return _parsed(pinned_to, f"[{application}]'s node selector")
 
+    def images_running(self, application: str, /) -> dict[str, str]:
+        """The images the live Deployment's pod template starts, read off the
+        resource the platform is running rather than the values file.
+
+        Every container, init containers too: a `kubectl set image` can change
+        any of them, and none of it leaves an entry in the platform's history.
+        """
+        manifest = self._manifest(application, self._the_deployment_of(application))
+
+        return _parsed(
+            lambda: _the_images_in(manifest), f"[{application}]'s running images"
+        )
+
+    def images_at(self, application: str, revision: str, /) -> dict[str, str]:
+        """The images the application's own Deployment starts as the platform
+        renders `revision`.
+
+        Argo CD's `ManifestResponse` carries every manifest the revision renders,
+        each as text. The application's Deployment is the one of that kind and
+        name; a Service beside it, or another chart's Deployment, says nothing
+        about it. A revision rendering none is refused rather than answered as no
+        images: compared with nothing, every image running would read as
+        somebody else's.
+        """
+        rendered = self._get(
+            self._settings.argocd_manifests_path,
+            application,
+            {_REVISION_PARAMETER: revision}
+        )
+
+        def images() -> dict[str, str]:
+            deployments = [
+                manifest
+                for manifest in (json.loads(text) for text in rendered[_MANIFESTS])
+                if manifest.get(_KIND) == DEPLOYMENT_KIND
+                and (manifest.get(METADATA) or {}).get(_METADATA_NAME) == application
+            ]
+
+            if not deployments:
+                raise ValueError(f"no Deployment named [{application}] is rendered")
+
+            return _the_images_in(deployments[0])
+
+        return _parsed(images, f"[{application}]'s manifests at [{revision}]")
+
     def pin_to_accelerator(self,
                            application: str,
                            accelerator: str | None,
@@ -622,6 +683,23 @@ def _marked(mark: Mark) -> dict[str, Any]:
                 )
             }
         }
+    }
+
+
+def _the_images_in(deployment: dict[str, Any]) -> dict[str, str]:
+    """Each container's image in a Deployment's pod template, by container name.
+
+    A template that does not list its containers is refused rather than read as
+    starting none - a Deployment always lists them, and no images compared with
+    any would read as a change. Init containers are optional, and their absence
+    is an ordinary answer.
+    """
+    pod = deployment[SPEC][TEMPLATE][SPEC]
+    containers = [*(pod.get(_INIT_CONTAINERS) or []), *pod[_CONTAINERS]]
+
+    return {
+        str(container[_CONTAINER_NAME]): str(container[_IMAGE])
+        for container in containers
     }
 
 

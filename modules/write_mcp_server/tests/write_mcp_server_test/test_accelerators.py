@@ -13,6 +13,12 @@ Which card to pin to is not decided here. It arrives worked out from a placement
 recorded before anything was done; this tier is told it, as the scale-out is told
 nothing and the rollback is told nothing, and does the work.
 
+And a withdrawal lets go only of what is still Argus's. Pods still held to the card
+Argus pinned them to are let go; pods already back where Argus found them need no
+write; any other selector is somebody's since, and is left as they set it - with
+the reconciliation Argus suspended left suspended where it still is, since
+resuming it would have the platform re-apply git over them.
+
 How Argo CD is asked any of this - the selectors, a merge patch carried as text,
 a null that removes a key - is the adapter's, and pinned in its own suite.
 """
@@ -53,6 +59,11 @@ from write_mcp_server.accelerators import (
 )
 
 from write_mcp_server_test.framework.marks import a_mark, every_write_carried
+from write_mcp_server_test.framework.putting_back import (
+    it_was_left_because,
+    it_was_not_left_alone,
+    the_suspension_is_said_to_stand,
+)
 from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
@@ -67,6 +78,8 @@ SOME_APPLICATION = "io-shop"
 SOME_MARK = a_mark()
 THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
 SOME_OTHER_CARD = "NVIDIA-A100-SXM4-40GB"
+# A card somebody held the pods to since, which is neither of the two above.
+A_CARD_SOMEBODY_CHOSE = "Tesla-T4"
 
 # What a pin onto a deployment held to no card leaves, where it suspended the
 # sync and the pods were never moved.
@@ -84,6 +97,14 @@ def a_platform(pinned_to: str | None = None, reconciling_itself: bool = True) ->
     platform.is_syncing_itself.return_value = reconciling_itself
 
     return platform
+
+
+def a_platform_as_the_pin_left_it(pinned_to: str | None = THE_FLEETS_CARD,
+                                  reconciling_itself: bool = False) -> Any:
+    """A platform a pin of Argus's has been through: the pods held to the card
+    the pin named unless a case names another, and not syncing itself, because
+    the pin suspended that, unless a case says somebody turned it back on."""
+    return a_platform(pinned_to=pinned_to, reconciling_itself=reconciling_itself)
 
 
 def _pinning(platform: Any, to: str = THE_FLEETS_CARD) -> AcceleratorPinUndo:
@@ -133,7 +154,7 @@ def test_every_write_a_pin_makes_carries_its_actions_mark() -> None:
 
 @pytest.mark.unit
 def test_every_write_a_restore_makes_carries_its_mark() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -366,7 +387,7 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
 
 @pytest.mark.unit
 def test_restoring_takes_the_pin_off_where_there_was_none() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(platform) \
@@ -379,7 +400,7 @@ def test_restoring_takes_the_pin_off_where_there_was_none() -> None:
 
 @pytest.mark.unit
 def test_restoring_puts_back_the_pin_somebody_else_had_set() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(platform) \
@@ -391,7 +412,7 @@ def test_restoring_puts_back_the_pin_somebody_else_had_set() -> None:
 def test_the_pin_is_put_back_before_reconciliation_is() -> None:
     # Turning reconciliation on first would have the platform take the selector
     # off on its own - unverifiably, at a moment nothing here chose.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(platform) \
@@ -401,7 +422,7 @@ def test_the_pin_is_put_back_before_reconciliation_is() -> None:
 
 @pytest.mark.unit
 def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(platform) \
@@ -414,7 +435,7 @@ def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
 
 @pytest.mark.unit
 def test_a_restore_that_only_managed_the_pin_says_so() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.resume_sync.side_effect = PlatformRefused("409")
 
     Scenario() \
@@ -425,7 +446,7 @@ def test_a_restore_that_only_managed_the_pin_says_so() -> None:
 
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.pin_to_accelerator.side_effect = PlatformUnreachable("503")
     platform.resume_sync.side_effect = PlatformUnreachable("503")
 
@@ -433,6 +454,122 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
         .given(platform) \
         .when(lambda: _restoring(_a_descriptor(was_syncing_itself=True), platform)) \
         .then(_it_reports_restored(pin=False, automated_sync=False))
+
+
+@pytest.mark.unit
+def test_a_pin_still_argus_s_is_let_go_and_said_to_be_nobody_else_s() -> None:
+    # The pods are still held to the card Argus pinned them to.
+    platform = a_platform_as_the_pin_left_it(pinned_to=THE_FLEETS_CARD)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _restoring(_a_descriptor(was_pinned_to=None), platform)) \
+        .then(all_of(
+            _it_pinned(platform, [None]),
+            _it_reports_restored(pin=True, automated_sync=True),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_pods_already_back_where_argus_found_them_are_not_written_again() -> None:
+    # Somebody - anybody - has already let them go. Nothing is written for the
+    # pin, and it counts as put back; the sync Argus suspended is still Argus's
+    # to resume.
+    platform = a_platform_as_the_pin_left_it(pinned_to=SOME_OTHER_CARD)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _restoring(_a_descriptor(was_pinned_to=SOME_OTHER_CARD), platform)) \
+        .then(all_of(
+            _it_pinned(platform, []),
+            every_write_carried(platform, "resume_sync", SOME_MARK),
+            _it_reports_restored(pin=True, automated_sync=True),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("somebody_s", [A_CARD_SOMEBODY_CHOSE, None],
+                         ids=["held-to-another-card", "let-go-of-every-card"])
+def test_a_pin_somebody_changed_since_is_left_as_they_set_it(somebody_s: str | None) -> None:
+    # Putting the selector back would replace their decision, and resuming sync
+    # would have the platform re-apply git over it - so neither is written. A
+    # selector somebody took off is a change as much as one somebody moved.
+    platform = a_platform_as_the_pin_left_it(pinned_to=somebody_s)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _restoring(_a_descriptor(was_pinned_to=SOME_OTHER_CARD), platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            it_was_left_because(*([] if somebody_s is None else [f"[{somebody_s}]"]))
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("was_syncing_itself", "syncing_now", "still_suspended"),
+    [
+        pytest.param(True, False, True, id="argus-suspended-it-and-it-is-still-off"),
+        pytest.param(True, True, False, id="somebody-turned-it-back-on"),
+        pytest.param(False, False, False, id="it-was-off-before-argus-came")
+    ]
+)
+def test_a_pin_left_as_somebody_set_it_says_whether_argus_s_suspension_still_stands(
+    was_syncing_itself: bool, syncing_now: bool, still_suspended: bool
+) -> None:
+    # Read from the platform, because only it knows: a person who reverted in
+    # git and turned sync back on has ended Argus's suspension themselves, and
+    # one sync was off for before Argus came was never suspended by Argus.
+    platform = a_platform_as_the_pin_left_it(pinned_to=A_CARD_SOMEBODY_CHOSE,
+                                             reconciling_itself=syncing_now)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _restoring(_a_descriptor(was_syncing_itself=was_syncing_itself),
+                                 platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            the_suspension_is_said_to_stand(still_suspended)
+        ))
+
+
+@pytest.mark.unit
+def test_a_restore_that_could_not_read_which_card_the_pods_are_held_to_writes_nothing(
+) -> None:
+    # Writing on a reading that never came back is the blind put-back the check
+    # exists to prevent - so neither half is written, neither is said to be
+    # back, and nothing is said to have been found.
+    platform = a_platform_as_the_pin_left_it()
+    platform.accelerator_pin_of.side_effect = PlatformUnreachable("503")
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _restoring(_a_descriptor(was_syncing_itself=True), platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(pin=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_restore_that_could_not_read_whether_sync_is_back_on_writes_nothing() -> None:
+    # The last read, made only where the pin is somebody's: without it nobody
+    # can say whether Argus's suspension still stands, and the answer says
+    # nothing it could not establish.
+    platform = a_platform_as_the_pin_left_it(pinned_to=A_CARD_SOMEBODY_CHOSE)
+    platform.is_syncing_itself.side_effect = PlatformRefused("403")
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _restoring(_a_descriptor(was_syncing_itself=True), platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(pin=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
 
 
 @pytest.mark.unit
@@ -478,7 +615,7 @@ def test_a_pin_refused_after_sync_was_suspended_is_logged_as_a_warning(
 @pytest.mark.unit
 def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # A change to production as much as the action was.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(
@@ -499,7 +636,7 @@ def test_a_restore_that_only_managed_the_pin_is_logged_as_a_warning(
 ) -> None:
     # The quiet half. The application looks put back and is receiving nothing
     # anybody ships to it, and no other line would say so.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
@@ -520,7 +657,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
 ) -> None:
     # The restore reports which half it lost, never why. The why is here, and
     # it is what a person putting the other half back by hand needs first.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
@@ -543,6 +680,27 @@ def _a_descriptor(was_pinned_to: str | None = None,
         pinned_to=THE_FLEETS_CARD,
         was_syncing_itself=was_syncing_itself
     )
+
+
+def _nothing_was_written(platform: Any) -> Assertion[AcceleratorPinRestored]:
+    """Neither the selector nor the sync policy - the reads are what a restore
+    that left the pods alone did ask."""
+    def assertion(dont_care_restored: AcceleratorPinRestored) -> bool:
+        written = [name for name, operation in (
+            ("the pin", platform.pin_to_accelerator),
+            ("the sync policy", platform.resume_sync),
+            ("the sync policy", platform.suspend_sync)
+        ) if operation.called]
+
+        if written:
+            raise AssertionError(
+                f"Expected nothing written, and the restore wrote {written}: "
+                f"{platform.method_calls}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_pinned(platform: Any, cards: list[str | None]) -> Assertion[object]:

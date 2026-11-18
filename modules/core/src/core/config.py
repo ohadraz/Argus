@@ -645,16 +645,18 @@ class Settings(BaseSettings):
     # `/api/v1/applications/{application}` are the same setting - only the
     # value differs. A path carrying no placeholder is formatted to itself.
     argocd_application_path: str = Field(default="/argocd/{application}")
-    # Empty means no credential is sent at all, rather than an invented one -
-    # the stand-in needs none, and a real Argo CD issues these to operators.
     # The name the platform records Argus's own actions under - the account the
-    # credential above belongs to, which Argo CD writes on each history entry as
+    # credential below belongs to, which Argo CD writes on each history entry as
     # `initiatedBy.username`. The counterpart of the flag provider's
     # `UNLEASH_ACTOR`, for the same reason: a rollback Argus made lands in the
     # deploy history a later round reads, and kept there it is offered as the
     # change to undo. Empty switches the filtering off, the honest setting where
-    # the credential is shared.
+    # the credential is shared - and leaves every rollback put-back to a person,
+    # since whether a rollback is still Argus's is asked by this name.
     argocd_actor: str = Field(default="Argus")
+    # Empty means no credential is sent at all, rather than an invented one.
+    # The demo's stand-in answers reads without one and refuses a rollback that
+    # carries no token it issued.
     argocd_auth_token: str = Field(default="")
     # Where a resource action is run, as the same template. A real Argo CD's is
     # `/api/v1/applications/{application}/resource/actions/v2` - v2 rather
@@ -716,6 +718,14 @@ class Settings(BaseSettings):
     # to be confirmed by looking at the dependency.
     argocd_resource_tree_path: str = Field(
         default="/argocd/{application}/resource-tree"
+    )
+    # Where the platform says what it renders an application as at a revision -
+    # what git ships, where the resource route says what is running. A put-back
+    # of a rollback compares the two's images, because a `kubectl set image`
+    # leaves no history entry to find it by. A real Argo CD's is
+    # `/api/v1/applications/{application}/manifests`.
+    argocd_manifests_path: str = Field(
+        default="/argocd/{application}/manifests"
     )
 
     # Where the Target Service's rendered-summary cache answers. The first

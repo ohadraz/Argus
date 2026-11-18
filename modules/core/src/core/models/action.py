@@ -485,10 +485,20 @@ class DeploymentRestored(BaseModel):
     `was_syncing_itself` reads as a second opinion on the same state, and the
     two say different things: one is how Argus found the platform, and this is
     whether Argus managed to leave it that way.
+
+    `left_because` is what the restore found in place of Argus's rollback - a
+    newer entry somebody else made, or images the revision does not render - and
+    is set only where nothing was written: the deployment was somebody else's
+    since, so it was left as they set it. `None` where it was still Argus's, or
+    already back. `sync_still_suspended` says, in that case alone, whether the
+    reconciliation Argus suspended is still suspended: it was not resumed,
+    because resuming would re-apply git over whatever that person did.
     """
 
     revision_put_back: bool
     automated_sync_put_back: bool
+    left_because: str | None = None
+    sync_still_suspended: bool = False
 
 
 class CapacityRestored(BaseModel):
@@ -505,10 +515,23 @@ class CapacityRestored(BaseModel):
     different claim: a revision put back and a replica count put back are not the
     same fact, and a reader of `revision_put_back` on a resize would be told
     something nobody established.
+
+    `left_because` and `sync_still_suspended` say what they say on the
+    rollback's: the count was neither what Argus asked for nor what it was, so
+    it was somebody else's since and left as they set it, with the
+    reconciliation Argus suspended left suspended where it still was.
+
+    `count_left_to_its_autoscaler` is the other way a count is nobody's to
+    write: the deployment has an autoscaler, whose controller owns the count
+    once Argus lets go. No count was written and reconciliation was resumed
+    where Argus suspended it, and that is the scale-out put back.
     """
 
     count_put_back: bool
     automated_sync_put_back: bool
+    left_because: str | None = None
+    sync_still_suspended: bool = False
+    count_left_to_its_autoscaler: bool = False
 
 
 class AcceleratorPinRestored(BaseModel):
@@ -519,10 +542,17 @@ class AcceleratorPinRestored(BaseModel):
     back on the selector it had looks right from every angle a reader has, and is
     silently receiving nothing anybody ships to it while the reconciliation Argus
     suspended is still suspended.
+
+    `left_because` and `sync_still_suspended` say what they say on the
+    rollback's: the selector held neither the card Argus pinned nor the one it
+    found, so it was somebody else's since and left as they set it, with the
+    reconciliation Argus suspended left suspended where it still was.
     """
 
     pin_put_back: bool
     automated_sync_put_back: bool
+    left_because: str | None = None
+    sync_still_suspended: bool = False
 
 
 class AutoscalingRestored(BaseModel):
@@ -538,10 +568,18 @@ class AutoscalingRestored(BaseModel):
     A type of its own rather than that one reused, because the first field is a
     different claim - a replica count put back and an autoscaler's floor put back
     are not the same fact, for the reason their descriptors are two descriptors.
+
+    `left_because` and `sync_still_suspended` say what they say on the
+    rollback's: the floor was neither what Argus asked for nor what it was - or
+    the autoscaler it was set on is gone - so it was somebody else's since and
+    left as they set it, with the reconciliation Argus suspended left suspended
+    where it still was.
     """
 
     floor_put_back: bool
     automated_sync_put_back: bool
+    left_because: str | None = None
+    sync_still_suspended: bool = False
 
 
 # The kinds of action that leave a change behind somebody could put back. A

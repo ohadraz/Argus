@@ -84,6 +84,13 @@ class DeploymentRollbackUndo(BaseModel):
     An application somebody had already stopped reconciling must be left
     stopped - putting it back to "on" because that is the usual arrangement
     would be Argus turning on a thing it did not turn off.
+
+    `rolled_back_to_revision` is the commit the rollback returned the deployment
+    to, which is what a withdrawal asks the platform about: whether the newest
+    entry is still Argus's rollback to it, running the images it renders. `None`
+    only on a row recorded before it was kept, and a put-back answers that as
+    not established - read as a guess, it would put back a deployment somebody
+    has since made their own.
     """
 
     kind: Literal["deployment-revision"] = "deployment-revision"
@@ -91,6 +98,7 @@ class DeploymentRollbackUndo(BaseModel):
     was_on_history_id: int
     was_on_revision: str
     was_syncing_itself: bool
+    rolled_back_to_revision: str | None = None
     tool: str = ROLL_BACK_DEPLOYMENT_TOOL
     written_at: datetime | None = None
 
@@ -113,16 +121,19 @@ class ReplicaUndo(BaseModel):
     application somebody had already stopped reconciling must be left stopped, for
     the reason the rollback's is left as found.
 
-    One thing it does *not* record is what the count was raised to. An undo puts
-    back what was there; where the deployment got to in between is what the action
-    reported when it was taken, and a descriptor carrying it would be a second
-    record of one fact for a reader to find disagreeing with the first.
+    `replicas_asked_for` is the count this scale-out asked for, which a
+    withdrawal compares with the live count to find out whether anybody has
+    changed it since Argus wrote: still this, and the scale-out is still Argus's
+    to put back. `None` only on a row recorded before it was kept, which the
+    put-back answers as not established rather than guessing whose the count
+    now is.
     """
 
     kind: Literal["replica-count"] = "replica-count"
     application: str
     was_replicas: int
     was_syncing_itself: bool
+    replicas_asked_for: int | None = None
     tool: str = SCALE_OUT_TOOL
     written_at: datetime | None = None
 

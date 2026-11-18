@@ -172,6 +172,16 @@ SOME_MESSAGE = Reference(source="some-chat", kind="some-kind", value="some-messa
 SOME_FLAG = "monthly-spend-feature"
 SOME_OTHER_FLAG = "legacy-checkout-fallback"
 
+# A rollback that suspended the sync of an application that had been syncing
+# itself - the change a person can make their own while the suspension stands.
+A_ROLLBACK_THAT_SUSPENDED_SYNC = DeploymentRollbackUndo(
+    application="io-shop",
+    was_on_history_id=2,
+    was_on_revision="7c3ca00c7528df68d533f6e87acd4f23a55ab342",
+    rolled_back_to_revision="544cef36a8eaf45c5b030c3d5c21473d8176cef3",
+    was_syncing_itself=True
+)
+
 # What the page says where a postmortem holds no summary, in its words.
 NO_SUMMARY_WRITTEN = "No summary was written."
 
@@ -1849,6 +1859,44 @@ def test_an_action_that_did_not_help_and_was_changed_since_is_said_to_be_left_as
 
 
 @pytest.mark.component
+@pytest.mark.parametrize("outcome", [Verdict.ESCALATED, Verdict.REFUTED, Verdict.CONFIRMED],
+                         ids=["escalated-by-the-walk", "refuted", "unwound-after-confirming"])
+def test_an_action_left_standing_says_it_was_left_as_set_with_argus_s_suspension_in_place(
+        outcome: Verdict, a_clean_database: None) -> None:
+    # Somebody made the subject theirs since, so it was left as they set it -
+    # and the reconciliation Argus suspended is still suspended, because
+    # resuming it would overwrite them. Said as put back, a reader would take
+    # the subject for Argus's again; said as still in place, they would go
+    # looking for Argus's change to undo, and miss that sync is still off.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, outcome,
+                    A_ROLLBACK_THAT_SUSPENDED_SYNC, undone=Undone.LEFT_STANDING))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _mentions_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "left as somebody set it"
+                ),
+                _mentions_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "sync"
+                ),
+                _mentions_none_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "put back"
+                )
+            ))
+
+
+@pytest.mark.component
 @pytest.mark.parametrize(("action_type", "outcome", "undo", "undone", "put_back"), [
     pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
                  None, True, id="put-back"),
@@ -1857,7 +1905,9 @@ def test_an_action_that_did_not_help_and_was_changed_since_is_said_to_be_left_as
     pytest.param(REVERT_FEATURE_FLAG, Verdict.CONFIRMED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
                  None, False, id="still-in-place"),
     pytest.param(DISCARD_CACHE_ENTRIES, Verdict.REFUTED, None, None, False,
-                 id="nothing-to-put-back")
+                 id="nothing-to-put-back"),
+    pytest.param(ROLL_BACK_DEPLOYMENT, Verdict.REFUTED, A_ROLLBACK_THAT_SUSPENDED_SYNC,
+                 Undone.LEFT_STANDING, False, id="left-standing")
 ])
 def test_an_action_says_whether_the_walk_put_it_back(
     action_type: ActionType,

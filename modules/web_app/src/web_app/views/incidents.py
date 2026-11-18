@@ -50,7 +50,8 @@ class Attempt(BaseModel):
     outcome: str | None
     # What putting the change back did, as the row records it - the walk's own
     # undo or the cleanup after the incident: restored, or left as somebody
-    # else had since set it - and `None` where nothing put it back.
+    # else had since set it, with the reconciliation Argus suspended still
+    # suspended or not - and `None` where nothing put it back.
     undone: Undone | None
     taken_at: datetime
     # Whether a verdict may still come: none is recorded and the incident is

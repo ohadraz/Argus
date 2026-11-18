@@ -1197,6 +1197,16 @@ def what_became_of(taken_action: TakenAction) -> str:
         return ("left as found when it did not help: it had been changed from "
                 "outside since Argus set it")
 
+    # Left as somebody else had since set it, and the reconciliation Argus
+    # suspended with it, whatever the verdict - the walk's own undo or a
+    # withdrawal's may have found it so. Said as put back, a reader would take
+    # the subject for Argus's again; said as still in place, they would go
+    # looking for Argus's change to undo, and miss that sync is still off.
+    if taken_action.undone is Undone.LEFT_STANDING:
+        return ("left as somebody set it since Argus changed it, and the automated "
+                "sync Argus suspended is still suspended: resuming it would "
+                "overwrite them")
+
     if _whether_it_was_put_back(taken_action):
         return "put back when it did not help"
 
@@ -1212,11 +1222,11 @@ def what_became_of(taken_action: TakenAction) -> str:
 
 def _whether_it_was_put_back(taken_action: TakenAction) -> bool:
     """Whether Mitigation put the action's change back itself, having found it
-    did not help - with a way back, refuted, and not left as found because
-    somebody had changed its subject since."""
+    did not help - with a way back, refuted, and neither left as found nor left
+    standing because somebody had changed its subject since."""
     return (taken_action.has_a_way_back
             and taken_action.outcome is Verdict.REFUTED
-            and taken_action.undone is not Undone.LEFT_AS_FOUND)
+            and taken_action.undone not in (Undone.LEFT_AS_FOUND, Undone.LEFT_STANDING))
 
 
 def _how_far_the_logs_were_read(account: list[IncidentEvent]) -> datetime | None:

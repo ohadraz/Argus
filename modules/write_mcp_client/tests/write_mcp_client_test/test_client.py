@@ -37,6 +37,7 @@ from write_mcp_client_test.a_write_server_holding_one_run import THE_RUN_HELD
 from write_mcp_client_test.fake_deployment_platform import (
     THE_HISTORY_BEFORE_IT,
     THE_HISTORY_RUNNING_NOW,
+    THE_REVISION_BEFORE_IT,
     THE_REVISION_RUNNING_NOW,
     FakeDeploymentPlatformHandler,
     a_running_platform,
@@ -60,6 +61,10 @@ SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
 # rather than imported: the wire shape is the adapter's suite's to pin, and this
 # one asserts the action travelled the whole way to it.
 THE_ACTION_ANNOTATION = "argus/action"
+
+# Somebody who deployed after Argus rolled back, and the revision they deployed.
+SOME_PERSON_DEPLOYING = "alice"
+A_REVISION_SOMEBODY_DEPLOYED = "9b2c4e1f0a7d8c6b5e4f3a2d1c0b9a8f7e6d5c4b"
 
 # A claim of the server's run from before it was last taken back.
 A_CLAIM_THE_RUN_MOVED_PAST = Fence(run_id=THE_RUN_HELD.run_id, epoch=THE_RUN_HELD.epoch - 1)
@@ -305,7 +310,8 @@ def test_rolling_a_configuration_back_reaches_the_platform_through_the_real_writ
                 history_id=THE_HISTORY_RUNNING_NOW,
                 revision=THE_REVISION_RUNNING_NOW,
                 was_syncing_itself=True
-            )
+            ),
+            _the_descriptor_records_it_went_to(THE_REVISION_BEFORE_IT)
         ))
 
 
@@ -337,6 +343,32 @@ def test_restoring_a_configuration_reaches_the_platform_through_the_real_write_s
             the_platform_was_rolled_back_to(
                 running_write_mcp_over_a_platform, THE_HISTORY_RUNNING_NOW
             )
+        ))
+
+
+@pytest.mark.integration
+def test_a_rollback_somebody_deployed_over_is_left_as_they_set_it_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The whole path of the question a put-back asks before it writes: the
+    # history and the images read through the adapter, against the account the
+    # server was told Argus signs in as. A person deployed after Argus's
+    # rollback, so neither the revision nor the sync is touched, the
+    # suspension Argus made is said to stand, and the answer says what was
+    # found.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: restore_deployment(
+                _rolled_back_and_then_deployed_over(handler, client),
+                client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_left_as_somebody_set_it(mentioning=A_REVISION_SOMEBODY_DEPLOYED),
+            _the_platform_was_not_rolled_back_again(handler),
+            the_platform_stopped_reconciling(handler)
         ))
 
 
@@ -911,6 +943,73 @@ def _both_halves_of_the_pin_were_put_back() -> Assertion[AcceleratorPinRestored]
                 f"Expected both the pin and the sync policy to be put back, and "
                 f"the tier reported pin_put_back=[{restored.pin_put_back}] "
                 f"automated_sync_put_back=[{restored.automated_sync_put_back}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _rolled_back_and_then_deployed_over(handler: type[FakeDeploymentPlatformHandler],
+                                        client: McpClient) -> DeploymentRollbackUndo:
+    """A real rollback through the server, and then a deployment of somebody
+    else's recorded after it - the descriptor the rollback answered with, to
+    put back."""
+    rolled_back = roll_back_deployment(SOME_APPLICATION, client=client)
+    handler.history = handler.history + [{
+        "id": handler.history[-1]["id"] + 1,
+        "revision": A_REVISION_SOMEBODY_DEPLOYED,
+        "deployedAt": "2026-08-20T12:35:00Z",
+        "initiatedBy": {"username": SOME_PERSON_DEPLOYING}
+    }]
+
+    return rolled_back
+
+
+def _the_descriptor_records_it_went_to(revision: str) -> Assertion[DeploymentRollbackUndo]:
+    """The revision rolled back to, carried back through the round trip - what
+    a withdrawal hours later compares the platform with."""
+    def assertion(descriptor: DeploymentRollbackUndo) -> bool:
+        if descriptor.rolled_back_to_revision != revision:
+            raise AssertionError(
+                f"Expected the descriptor to record rolling back to [{revision}], and "
+                f"it records [{descriptor.rolled_back_to_revision}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_left_as_somebody_set_it(mentioning: str) -> Assertion[DeploymentRestored]:
+    def assertion(restored: DeploymentRestored) -> bool:
+        if restored.left_because is None or mentioning not in restored.left_because:
+            raise AssertionError(
+                f"Expected the deployment left as somebody set it, naming "
+                f"[{mentioning}], and the tier reported {restored!r}."
+            )
+
+        if not restored.sync_still_suspended:
+            raise AssertionError(
+                f"Expected the sync Argus suspended said to be still suspended, and "
+                f"the tier reported {restored!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_platform_was_not_rolled_back_again(
+    handler: type[FakeDeploymentPlatformHandler]
+) -> Assertion[object]:
+    """One rollback - Argus's own - and none after it: the put-back wrote
+    nothing over the deployment somebody made since."""
+    def assertion(dont_care_result: object) -> bool:
+        if handler.rolled_back_to != [THE_HISTORY_BEFORE_IT]:
+            raise AssertionError(
+                f"Expected only Argus's rollback to entry [{THE_HISTORY_BEFORE_IT}], "
+                f"and the platform was asked for {handler.rolled_back_to}."
             )
 
         return True

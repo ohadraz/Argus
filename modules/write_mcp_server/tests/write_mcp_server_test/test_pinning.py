@@ -23,6 +23,12 @@ restore's order is the same rule read backwards - reconciliation last, because
 turning it on first would have the platform put the floor back on its own,
 unverifiably, at a moment nothing here chose.
 
+And a withdrawal puts back only what is still Argus's. A floor that is still the
+one Argus asked for is put back; one already back where Argus found it needs no
+write; any other is somebody's since, and is left as they set it - with the
+reconciliation Argus suspended left suspended where it still is, since resuming
+it would have the platform re-apply git over them.
+
 How Argo CD is asked any of this - the tree, the selectors, a merge patch carried
 as text - is the adapter's, and pinned in its own suite.
 """
@@ -67,6 +73,11 @@ from write_mcp_server.pinning import (
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 
 from write_mcp_server_test.framework.marks import a_mark, every_write_carried
+from write_mcp_server_test.framework.putting_back import (
+    it_was_left_because,
+    it_was_not_left_alone,
+    the_suspension_is_said_to_stand,
+)
 from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
@@ -90,6 +101,9 @@ SOME_AUTOSCALER = Autoscaler(name="io-shop-cpu", namespace="shopping")
 # between three replicas and six, which is what makes a flap possible at all.
 THE_FLOOR = 3
 THE_CEILING = 6
+# A floor somebody set since, which is neither the one Argus found nor the one
+# it asked for.
+A_FLOOR_SOMEBODY_SET = THE_FLOOR + 1
 
 # What a pin leaves where it suspended the sync and the floor never moved.
 # `min_replicas_asked_for` is the ceiling only while the ceiling is at or below
@@ -116,6 +130,17 @@ def a_platform(floor: int = THE_FLOOR,
     platform.is_syncing_itself.return_value = reconciling_itself
 
     return platform
+
+
+def a_platform_as_the_pin_left_it(floor: int = THE_CEILING,
+                                  reconciling_itself: bool = False,
+                                  holding_an_autoscaler: bool = True) -> Any:
+    """A platform a pin of Argus's has been through: its autoscaler held at the
+    floor the pin asked for unless a case names another, and not syncing
+    itself, because the pin suspended that, unless a case says somebody turned
+    it back on."""
+    return a_platform(floor=floor, reconciling_itself=reconciling_itself,
+                      holding_an_autoscaler=holding_an_autoscaler)
 
 
 def _pinning(platform: Any) -> AutoscalerUndo:
@@ -156,7 +181,7 @@ def test_every_write_a_pin_makes_carries_its_actions_mark() -> None:
 
 @pytest.mark.unit
 def test_every_write_a_restore_makes_carries_its_mark() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -385,7 +410,7 @@ def test_bounds_the_platform_would_not_report_are_not_reported_as_pinned() -> No
 
 @pytest.mark.unit
 def test_restoring_puts_back_the_floor_the_autoscaler_had() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -402,7 +427,7 @@ def test_a_restore_asks_again_where_the_autoscaler_is() -> None:
     # deliberately, because where it lives is the platform's to say at the moment
     # the question is asked. A record of it taken when the pin was performed would
     # be a record that can have gone stale.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -414,16 +439,33 @@ def test_a_restore_asks_again_where_the_autoscaler_is() -> None:
 
 
 @pytest.mark.unit
-def test_a_restore_that_cannot_find_the_autoscaler_says_the_floor_is_not_back() -> None:
-    # Reported rather than raised, for the reason the other half is: a withdrawal
-    # has to be able to say which of the two things it managed, and a floor it
-    # could not reach is one it did not put back.
-    platform = a_platform(holding_an_autoscaler=False)
+@pytest.mark.parametrize(
+    ("was_syncing_itself", "syncing_now", "still_suspended"),
+    [
+        pytest.param(True, False, True, id="argus-suspended-it-and-it-is-still-off"),
+        pytest.param(True, True, False, id="somebody-turned-it-back-on"),
+        pytest.param(False, False, False, id="it-was-off-before-argus-came")
+    ]
+)
+def test_an_autoscaler_somebody_removed_since_is_left_removed(
+    was_syncing_itself: bool, syncing_now: bool, still_suspended: bool
+) -> None:
+    # Argus pinned an autoscaler that is no longer there, so somebody took it
+    # away - a change of theirs like any other. Nothing is written, and sync is
+    # not resumed: the platform would re-apply git and bring back what they
+    # removed. Whether Argus's suspension still stands is read as it is for
+    # every change left as somebody set it.
+    platform = a_platform_as_the_pin_left_it(holding_an_autoscaler=False,
+                                             reconciling_itself=syncing_now)
 
     Scenario() \
-        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
         .when(lambda: _restoring(a_descriptor, platform)) \
-        .then(_it_reports_restored(floor=False, automated_sync=True))
+        .then(all_of(
+            _nothing_was_written(platform),
+            it_was_left_because("no autoscaler"),
+            the_suspension_is_said_to_stand(still_suspended)
+        ))
 
 
 @pytest.mark.unit
@@ -431,7 +473,7 @@ def test_the_floor_is_put_back_before_reconciliation_is() -> None:
     # The order that leaves nothing to chance. Turning sync on first would have the
     # platform re-apply the manifest itself - to the same floor, and unverifiably,
     # at a moment nothing here chose.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -441,7 +483,7 @@ def test_the_floor_is_put_back_before_reconciliation_is() -> None:
 
 @pytest.mark.unit
 def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=False)) \
@@ -457,7 +499,7 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
     # The half that fails is the quiet one: an autoscaler back at its declared
     # floor looks right from every angle a reader has, while the application
     # receives nothing anybody ships to it.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
@@ -468,7 +510,7 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
 
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.set_autoscaler_floor.side_effect = PlatformUnreachable("no route")
     platform.resume_sync.side_effect = PlatformUnreachable("no route")
 
@@ -476,6 +518,120 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: _restoring(a_descriptor, platform)) \
         .then(_it_reports_restored(floor=False, automated_sync=False))
+
+
+@pytest.mark.unit
+def test_a_floor_still_argus_s_is_put_back_and_said_to_be_nobody_else_s() -> None:
+    # The autoscaler holds the floor Argus asked for, so nobody has moved it.
+    platform = a_platform_as_the_pin_left_it(floor=THE_CEILING)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _it_asked_for_a_floor_of(platform, THE_FLOOR),
+            _it_reports_restored(floor=True, automated_sync=True),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_floor_already_back_where_argus_found_it_is_not_written_again() -> None:
+    # Somebody - anybody - has already let it fall back. Nothing is written for
+    # the floor, and it counts as put back; the sync Argus suspended is still
+    # Argus's to resume.
+    platform = a_platform_as_the_pin_left_it(floor=THE_FLOOR)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _the_floor_was_not_written(platform),
+            every_write_carried(platform, "resume_sync", SOME_MARK),
+            _it_reports_restored(floor=True, automated_sync=True),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_floor_somebody_set_since_is_left_as_they_set_it() -> None:
+    # Setting it back would replace their decision, and resuming sync would have
+    # the platform re-apply git over it - so neither is written, and what was
+    # found is said.
+    platform = a_platform_as_the_pin_left_it(floor=A_FLOOR_SOMEBODY_SET)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            it_was_left_because(f"[{A_FLOOR_SOMEBODY_SET}]")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("was_syncing_itself", "syncing_now", "still_suspended"),
+    [
+        pytest.param(True, False, True, id="argus-suspended-it-and-it-is-still-off"),
+        pytest.param(True, True, False, id="somebody-turned-it-back-on"),
+        pytest.param(False, False, False, id="it-was-off-before-argus-came")
+    ]
+)
+def test_a_floor_left_as_somebody_set_it_says_whether_argus_s_suspension_still_stands(
+    was_syncing_itself: bool, syncing_now: bool, still_suspended: bool
+) -> None:
+    # Read from the platform, because only it knows: a person who reverted in
+    # git and turned sync back on has ended Argus's suspension themselves, and
+    # one sync was off for before Argus came was never suspended by Argus.
+    platform = a_platform_as_the_pin_left_it(floor=A_FLOOR_SOMEBODY_SET,
+                                             reconciling_itself=syncing_now)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            the_suspension_is_said_to_stand(still_suspended)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", ["autoscaler_of", "autoscaler_bounds"])
+def test_a_restore_that_could_not_read_whose_the_floor_is_writes_nothing(read: str) -> None:
+    # Writing on a reading that never came back is the blind put-back the check
+    # exists to prevent - so neither half is written, neither is said to be
+    # back, and nothing is said to have been found. An autoscaler the platform
+    # could not be asked about is not one somebody removed.
+    platform = a_platform_as_the_pin_left_it()
+    getattr(platform, read).side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(floor=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+def test_a_restore_that_could_not_read_whether_sync_is_back_on_writes_nothing() -> None:
+    # The last read, made only where the floor is somebody's: without it nobody
+    # can say whether Argus's suspension still stands, and the answer says
+    # nothing it could not establish.
+    platform = a_platform_as_the_pin_left_it(floor=A_FLOOR_SOMEBODY_SET)
+    platform.is_syncing_itself.side_effect = PlatformRefused("403")
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(floor=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
 
 
 @pytest.mark.unit
@@ -706,7 +862,7 @@ def test_a_pin_refused_after_sync_was_suspended_is_logged_as_a_warning(
 @pytest.mark.unit
 def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # A change to production as much as the action was.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
 
     Scenario() \
         .given(
@@ -727,7 +883,7 @@ def test_a_restore_that_only_managed_the_floor_is_logged_as_a_warning(
 ) -> None:
     # The quiet half. The application looks put back and is receiving nothing
     # anybody ships to it, and no other line would say so.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
@@ -748,7 +904,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
 ) -> None:
     # The restore reports which half it lost, never why. The why is here, and
     # it is what a person putting the other half back by hand needs first.
-    platform = a_platform()
+    platform = a_platform_as_the_pin_left_it()
     platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
 
     Scenario() \
@@ -829,6 +985,40 @@ def _a_descriptor(was_syncing_itself: bool) -> AutoscalerUndo:
         min_replicas_asked_for=THE_CEILING,
         was_syncing_itself=was_syncing_itself
     )
+
+
+def _the_floor_was_not_written(platform: Any) -> Assertion[AutoscalingRestored]:
+    def assertion(dont_care_restored: AutoscalingRestored) -> bool:
+        if platform.set_autoscaler_floor.called:
+            raise AssertionError(
+                f"Expected no floor written, and the platform was asked "
+                f"{platform.set_autoscaler_floor.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_written(platform: Any) -> Assertion[AutoscalingRestored]:
+    """Neither the floor nor the sync policy - the reads are what a restore
+    that left the autoscaler alone did ask."""
+    def assertion(dont_care_restored: AutoscalingRestored) -> bool:
+        written = [name for name, operation in (
+            ("the floor", platform.set_autoscaler_floor),
+            ("the sync policy", platform.resume_sync),
+            ("the sync policy", platform.suspend_sync)
+        ) if operation.called]
+
+        if written:
+            raise AssertionError(
+                f"Expected nothing written, and the restore wrote {written}: "
+                f"{platform.method_calls}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_asked_for_a_floor_of(platform: Any, floor: int) -> Assertion[object]:

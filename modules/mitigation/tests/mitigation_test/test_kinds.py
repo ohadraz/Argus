@@ -8,6 +8,14 @@ different question - what does the provider's evaluation cache currently serve -
 and answers it wrongly for as long as that cache is stale, which is exactly the
 window in which a human's deliberate change would be overwritten.
 
+For a change to a deployment the condition is the write tier's to settle, where
+it reads the platform inside the same held change that would write: the restore
+answers either that it put the change back, or what it found instead - somebody
+else's change - and whether the reconciliation Argus suspended still stands. A
+change left as somebody set it with Argus's suspension still in place is left
+standing, which a person has to decide about; one left as somebody set it with
+nothing of Argus's still in place is left as found.
+
 Waiting differs by kind too. Two kinds change a Deployment and have a count to
 wait on, and the two counts are different; the rest are in force once they are
 acknowledged.
@@ -108,8 +116,12 @@ SOME_FLAG = "monthly-spend-feature"
 SOME_APPLICATION = "io-shop"
 SOME_SERVICE = "kuki-service"
 THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
+THE_REVISION_IT_ROLLED_BACK_TO = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 # The size the deployment was running before Argus made it larger.
 THE_COUNT_IT_WAS_RUNNING = 3
+# What a write tier found where it left a change as somebody had set it since,
+# in its own words.
+SOME_FINDING = "revision [9b2c4e1] by [alice]"
 # The floor the autoscaler was allowed to fall to before Argus held it still.
 THE_FLOOR_IT_WAS_HOLDING = 3
 # And the floor it was raised to, which is the ceiling here and is not always: the
@@ -318,7 +330,47 @@ EVERY_ANSWER_BUT_A_RESTORE = [
     pytest.param(RevertFeatureFlagKind(),
                  lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
                  lambda: the_way_back(set_state=_a_collaborator_raising(FlagSetter)),
-                 id="flag-refused")
+                 id="flag-refused"),
+    pytest.param(RollBackDeploymentKind(), lambda: a_rollback_descriptor_for(SOME_APPLICATION),
+                 lambda: the_way_back(restore_deployment=_a_collaborator_answering(
+                     DeploymentRestorer, _a_deployment_left(SOME_FINDING, still_suspended=True))),
+                 id="rollback-left-standing"),
+    pytest.param(PinToAcceleratorKind(), lambda: a_card_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: the_way_back(restore_accelerator_pin=_a_collaborator_answering(
+                     AcceleratorPinRestorer,
+                     _an_accelerator_pin_left(SOME_FINDING, still_suspended=False))),
+                 id="card-pin-left-as-found")
+]
+
+# Every kind of change a write tier can find somebody else's since: the kind,
+# a descriptor of it Argus found syncing itself or not, the part of the way back
+# that answers, and that part's answer where it left the change as found -
+# saying what it found, and whether Argus's suspension still stands.
+EVERY_CHANGE_SOMEBODY_COULD_MAKE_THEIR_OWN = [
+    pytest.param(RollBackDeploymentKind(),
+                 lambda syncing: a_rollback_descriptor_for(SOME_APPLICATION,
+                                                           was_syncing_itself=syncing),
+                 "restore_deployment", DeploymentRestorer,
+                 lambda found, suspended: _a_deployment_left(found, suspended),
+                 id="rollback"),
+    pytest.param(ScaleOutKind(),
+                 lambda syncing: a_resize_descriptor_for(SOME_APPLICATION,
+                                                         was_syncing_itself=syncing),
+                 "restore_capacity", CapacityRestorer,
+                 lambda found, suspended: _a_capacity_left(found, suspended),
+                 id="scale-out"),
+    pytest.param(PinAutoscalerKind(),
+                 lambda syncing: a_pin_descriptor_for(SOME_APPLICATION,
+                                                      was_syncing_itself=syncing),
+                 "restore_autoscaling", AutoscalingRestorer,
+                 lambda found, suspended: _an_autoscaling_left(found, suspended),
+                 id="autoscaler-pin"),
+    pytest.param(PinToAcceleratorKind(),
+                 lambda syncing: a_card_pin_descriptor_for(SOME_APPLICATION,
+                                                           was_syncing_itself=syncing),
+                 "restore_accelerator_pin", AcceleratorPinRestorer,
+                 lambda found, suspended: _an_accelerator_pin_left(found, suspended),
+                 id="card-pin")
 ]
 
 # The two kinds with a count to wait on, each with the action that asks it.
@@ -1733,6 +1785,137 @@ def test_an_accelerator_pin_restorer_that_raises_leaves_the_pin_not_established(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_descriptor", "write", "spec", "an_answer"),
+                         EVERY_CHANGE_SOMEBODY_COULD_MAKE_THEIR_OWN)
+def test_a_change_somebody_made_their_own_while_argus_s_suspension_stands_is_left_standing(
+    kind: UndoableKind[Any], a_descriptor: Callable[[bool], UndoDescriptor], write: str,
+    spec: type, an_answer: Callable[[str, bool], object]
+) -> None:
+    # Neither put back nor simply left: the subject is theirs now, and the
+    # reconciliation Argus suspended is still suspended - resuming it would
+    # have the platform re-apply git over them. Something of Argus's is still
+    # in place, so a person has to decide it, and the sentence says why.
+    Scenario() \
+        .given(
+            putting_back := the_way_back(**{
+                write: _a_collaborator_answering(spec, an_answer(SOME_FINDING, True))
+            })
+        ) \
+        .when(
+            lambda: kind.undo(a_descriptor(True), putting_back)
+        ) \
+        .then(all_of(
+            _it_reports(Undone.LEFT_STANDING),
+            _it_says_what_is_still_changed(SOME_FINDING),
+            _it_says_what_is_still_changed("left as they set it"),
+            _it_says_what_is_still_changed("suspended still stands")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_descriptor", "write", "spec", "an_answer"),
+                         EVERY_CHANGE_SOMEBODY_COULD_MAKE_THEIR_OWN)
+@pytest.mark.parametrize("was_syncing_itself", [True, False],
+                         ids=["argus-suspended-sync", "sync-was-off-before-argus"])
+def test_a_change_somebody_made_their_own_with_nothing_of_argus_s_standing_is_left_as_found(
+    kind: UndoableKind[Any], a_descriptor: Callable[[bool], UndoDescriptor], write: str,
+    spec: type, an_answer: Callable[[str, bool], object], was_syncing_itself: bool
+) -> None:
+    # Whatever Argus found: sync off before Argus came was never Argus's to
+    # resume, and a person who reverted in git and turned sync back on has
+    # ended Argus's suspension themselves. The write tier, which read the
+    # platform, says which - so nothing of Argus's is left, and the change is
+    # left as found.
+    Scenario() \
+        .given(
+            putting_back := the_way_back(**{
+                write: _a_collaborator_answering(spec, an_answer(SOME_FINDING, False))
+            })
+        ) \
+        .when(
+            lambda: kind.undo(a_descriptor(was_syncing_itself), putting_back)
+        ) \
+        .then(all_of(
+            _it_reports(Undone.LEFT_AS_FOUND),
+            _it_says_exactly(f"was left as found: {SOME_FINDING}")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_descriptor", "write", "spec", "nothing_back"), [
+    pytest.param(RollBackDeploymentKind(), lambda: a_rollback_descriptor_for(SOME_APPLICATION),
+                 "restore_deployment", DeploymentRestorer,
+                 lambda: DeploymentRestored(revision_put_back=False,
+                                            automated_sync_put_back=False),
+                 id="rollback"),
+    pytest.param(ScaleOutKind(), lambda: a_resize_descriptor_for(SOME_APPLICATION),
+                 "restore_capacity", CapacityRestorer,
+                 lambda: CapacityRestored(count_put_back=False, automated_sync_put_back=False),
+                 id="scale-out"),
+    pytest.param(PinAutoscalerKind(), lambda: a_pin_descriptor_for(SOME_APPLICATION),
+                 "restore_autoscaling", AutoscalingRestorer,
+                 lambda: AutoscalingRestored(floor_put_back=False, automated_sync_put_back=False),
+                 id="autoscaler-pin"),
+    pytest.param(PinToAcceleratorKind(), lambda: a_card_pin_descriptor_for(SOME_APPLICATION),
+                 "restore_accelerator_pin", AcceleratorPinRestorer,
+                 lambda: AcceleratorPinRestored(pin_put_back=False, automated_sync_put_back=False),
+                 id="card-pin")
+])
+def test_a_change_the_write_tier_could_not_read_is_not_established(
+    kind: UndoableKind[Any], a_descriptor: Callable[[], UndoDescriptor], write: str,
+    spec: type, nothing_back: Callable[[], object]
+) -> None:
+    # What a write tier answers where a read its check needed never came back:
+    # nothing written, neither half back, nothing found. Not left as found -
+    # nobody established that anybody changed anything - and not restored, so
+    # somebody is told the change may still be out there.
+    Scenario() \
+        .given(
+            putting_back := the_way_back(**{write: _a_collaborator_answering(spec, nothing_back())})
+        ) \
+        .when(
+            lambda: kind.undo(a_descriptor(), putting_back)
+        ) \
+        .then(
+            _it_reports(Undone.NOT_ESTABLISHED)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("was_syncing_itself", [True, False],
+                         ids=["argus-suspended-sync", "sync-was-off-before-argus"])
+def test_a_count_left_to_its_autoscaler_is_put_back_and_says_so(
+    was_syncing_itself: bool
+) -> None:
+    # The count is the controller's, and was never Argus's to write back: what
+    # was Argus's is the sync, and that was put back where it was suspended. So
+    # the change is restored, and the sentence says the count went to the
+    # autoscaler rather than naming a number nobody wrote.
+    Scenario() \
+        .given(
+            descriptor := a_resize_descriptor_for(SOME_APPLICATION,
+                                                  was_syncing_itself=was_syncing_itself)
+        ) \
+        .when(
+            lambda: ScaleOutKind().undo(
+                descriptor,
+                the_way_back(restore_capacity=_a_collaborator_answering(
+                    CapacityRestorer,
+                    CapacityRestored(count_put_back=True, automated_sync_put_back=True,
+                                     count_left_to_its_autoscaler=True)
+                ))
+            )
+        ) \
+        .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _it_says_what_is_still_changed("left to its autoscaler"),
+            # And the account of the refutation says the same, rather than the
+            # kind's usual ending, which names a count nobody wrote back.
+            _it_is_said_as("left to its autoscaler")
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("kind", "a_descriptor", "write", "a_whole_restore"),
                          EVERY_WHOLE_RESTORE)
 def test_a_change_put_back_does_not_name_its_subject_again(
@@ -1941,6 +2124,7 @@ def a_rollback_descriptor_for(application: str,
         application=application,
         was_on_history_id=2,
         was_on_revision=THE_REVISION_IT_WAS_ON,
+        rolled_back_to_revision=THE_REVISION_IT_ROLLED_BACK_TO,
         was_syncing_itself=was_syncing_itself
     )
 
@@ -1951,6 +2135,7 @@ def a_resize_descriptor_for(application: str,
     return ReplicaUndo(
         application=application,
         was_replicas=was_replicas,
+        replicas_asked_for=was_replicas * 2,
         was_syncing_itself=was_syncing_itself
     )
 
@@ -1967,13 +2152,46 @@ def a_pin_descriptor_for(application: str,
 
 
 def a_card_pin_descriptor_for(application: str,
-                              was_pinned_to: str | None = None) -> AcceleratorPinUndo:
+                              was_pinned_to: str | None = None,
+                              was_syncing_itself: bool = True) -> AcceleratorPinUndo:
     return AcceleratorPinUndo(
         application=application,
         was_pinned_to=was_pinned_to,
         pinned_to=THE_CARD_IT_WAS_HELD_TO,
-        was_syncing_itself=True
+        was_syncing_itself=was_syncing_itself
     )
+
+
+def _a_deployment_left(found: str, still_suspended: bool) -> DeploymentRestored:
+    """A rollback the write tier left as somebody set it: nothing written."""
+    return DeploymentRestored(revision_put_back=False, automated_sync_put_back=False,
+                              left_because=found, sync_still_suspended=still_suspended)
+
+
+def _a_capacity_left(found: str, still_suspended: bool) -> CapacityRestored:
+    """A scale-out the write tier left as somebody set it: nothing written."""
+    return CapacityRestored(count_put_back=False, automated_sync_put_back=False,
+                            left_because=found, sync_still_suspended=still_suspended)
+
+
+def _an_autoscaling_left(found: str, still_suspended: bool) -> AutoscalingRestored:
+    """An autoscaler pin the write tier left as somebody set it: nothing written."""
+    return AutoscalingRestored(floor_put_back=False, automated_sync_put_back=False,
+                               left_because=found, sync_still_suspended=still_suspended)
+
+
+def _an_accelerator_pin_left(found: str, still_suspended: bool) -> AcceleratorPinRestored:
+    """A pin to a card the write tier left as somebody set it: nothing written."""
+    return AcceleratorPinRestored(pin_put_back=False, automated_sync_put_back=False,
+                                  left_because=found, sync_still_suspended=still_suspended)
+
+
+def _a_collaborator_answering(spec: type, answer: object) -> MagicMock:
+    """`spec`, answering `answer` however it is asked."""
+    collaborator: MagicMock = create_autospec(spec, instance=True)
+    collaborator.return_value = answer
+
+    return collaborator
 
 
 def _a_flag_setter() -> MagicMock:
@@ -2195,6 +2413,19 @@ def _it_says_what_is_still_changed(mentioned: str) -> Assertion[UndoAttempt]:
             raise AssertionError(
                 f"Expected the report to name [{mentioned}], and it said: "
                 f"{attempt.detail}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_said_as(mentioned: str) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.said_as is None or mentioned not in attempt.said_as:
+            raise AssertionError(
+                f"Expected the put-back said as something naming [{mentioned}], and "
+                f"it was said as [{attempt.said_as}]."
             )
 
         return True

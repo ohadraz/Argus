@@ -607,6 +607,36 @@ def test_an_incident_page_shows_what_putting_each_refuted_attempt_back_did() -> 
 
 
 @pytest.mark.component
+def test_an_incident_page_shows_an_attempt_left_standing_as_neither_put_back_nor_left_as_found(
+) -> None:
+    # Somebody made the subject theirs while the reconciliation Argus suspended
+    # still stood, so the change was left as they set it and the suspension
+    # with it. "Put back" would hand their change back to Argus, and "left as
+    # found" would say nothing of Argus's is still in place - when sync is off
+    # and somebody has to decide whether to turn it back on.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        left_standing = _a_candidate_recorded_for(conn, incident_id,
+                                                  subject=DONT_CARE_SUBJECT, rank=1)
+        _an_attempt_taken_for(conn, incident_id, left_standing, outcome=Verdict.ESCALATED,
+                              undone=Undone.LEFT_STANDING)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_shows("undone", "left-standing"),
+            the_page_says(">left standing<"),
+            _the_page_does_not_say(">put back<"),
+            _the_page_does_not_say(">left as found<")
+        ))
+
+
+@pytest.mark.component
 @pytest.mark.parametrize(("status", "said", "never_said"), [
     pytest.param(IncidentStatus.MITIGATING, "no verdict yet", "no verdict recorded",
                  id="still-worked"),

@@ -27,7 +27,7 @@ from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from core import Fence, WriteMcpEndpoint, to_iso
 from core.mcp_transport import ACTION_META_KEY, FENCE_META_KEY
 from core.models import DeploymentRollbackUndo, FlagChange
-from deployment_platform import DeploymentPlatformWrites
+from deployment_platform import DeploymentPlatformWrites, DeploymentRecord
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult
@@ -79,6 +79,18 @@ SOME_FENCE = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
 SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
 SOME_APPLICATION = "io-shop"
 
+# The account Argus signs in to the platform as, and somebody who is not Argus.
+SOME_ARGUS_ACCOUNT = "argus"
+SOME_PERSON = "alice"
+# The history entry a rollback was on, and the one Argus's rollback added.
+THE_ENTRY_IT_WAS_ON = 41
+THE_ENTRY_THE_ROLLBACK_ADDED = THE_ENTRY_IT_WAS_ON + 1
+THE_REVISION_IT_WAS_ON = "0f1e2d3"
+THE_REVISION_ROLLED_BACK_TO = "a7b8c9d"
+# What the Deployment runs at the revision rolled back to, and what the
+# platform renders for it - the same, so the rollback is nobody else's.
+THE_IMAGES_ROLLED_BACK_TO = {SOME_APPLICATION: f"{SOME_APPLICATION}:{THE_REVISION_ROLLED_BACK_TO}"}
+
 
 @pytest.mark.unit
 def test_every_tool_the_tier_serves_but_its_reads_is_a_change() -> None:
@@ -111,9 +123,9 @@ def test_every_change_that_writes_to_the_platform_is_marked() -> None:
 @pytest.mark.unit
 def test_a_marked_tool_writes_under_the_action_its_call_named() -> None:
     # The tool's half of the mark: the action id travels in the call's `_meta`,
-    # and has to reach the port's write. A restore stands for the eight, being
-    # the one whose every write is marked whatever the platform answers.
-    platform = create_autospec(DeploymentPlatformWrites, instance=True)
+    # and has to reach the port's write. A restore stands for the eight, over a
+    # platform where the rollback is still Argus's, so it does write.
+    platform = _a_platform_argus_s_rollback_still_stands_on(by=SOME_ARGUS_ACCOUNT)
 
     Scenario() \
         .given(
@@ -127,6 +139,36 @@ def test_a_marked_tool_writes_under_the_action_its_call_named() -> None:
         ) \
         .then(
             _every_write_was_for(platform.resume_sync, SOME_ACTION_ID)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("newest_by", "resumed"), [
+    pytest.param(SOME_ARGUS_ACCOUNT, True, id="argus-s-own-account"),
+    pytest.param(SOME_PERSON, False, id="somebody-else-s")
+])
+def test_a_rollback_is_put_back_only_where_the_account_it_was_handed_made_the_newest_entry(
+    newest_by: str, resumed: bool
+) -> None:
+    # The account Argus signs in to the platform as is the server's to hand the
+    # restore: nothing in the call names it, and a restore told any other name
+    # would leave Argus's own rollback standing as a person's - or put back a
+    # person's as Argus's.
+    platform = _a_platform_argus_s_rollback_still_stands_on(by=newest_by)
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform, hold=_a_hold_answering_held,
+                                argus_account=SOME_ARGUS_ACCOUNT)
+        ) \
+        .when(
+            lambda: _asked(server, "restore_deployment",
+                           {FENCE_META_KEY: SOME_FENCE.spoken(),
+                            ACTION_META_KEY: SOME_ACTION_ID},
+                           descriptor=_a_rollback_descriptor().model_dump(mode="json"))
+        ) \
+        .then(
+            lambda _: _it_was_resumed(platform, resumed)
         )
 
 
@@ -208,15 +250,39 @@ def _a_rollback_descriptor() -> DeploymentRollbackUndo:
     """A rollback that suspended reconciliation, so its restore writes twice."""
     return DeploymentRollbackUndo(
         application=SOME_APPLICATION,
-        was_on_history_id=41,
-        was_on_revision="0f1e2d3",
+        was_on_history_id=THE_ENTRY_IT_WAS_ON,
+        was_on_revision=THE_REVISION_IT_WAS_ON,
+        rolled_back_to_revision=THE_REVISION_ROLLED_BACK_TO,
         was_syncing_itself=True
     )
 
 
+def _a_deployment(history_id: int, revision: str, by: str | None) -> DeploymentRecord:
+    return DeploymentRecord(history_id=history_id, revision=revision,
+                            deployed_at="2026-10-07T09:00:00Z", repo_url=None, path=None,
+                            initiated_by=by)
+
+
+def _a_platform_argus_s_rollback_still_stands_on(by: str) -> Mock:
+    """A platform `_a_rollback_descriptor`'s rollback has been through, its
+    newest entry - of the revision rolled back to - made by `by`, running the
+    images that revision renders, and sync still suspended."""
+    platform: Mock = create_autospec(DeploymentPlatformWrites, instance=True)
+    platform.deployments_of.return_value = [
+        _a_deployment(THE_ENTRY_IT_WAS_ON, THE_REVISION_IT_WAS_ON, by=None),
+        _a_deployment(THE_ENTRY_THE_ROLLBACK_ADDED, THE_REVISION_ROLLED_BACK_TO, by=by)
+    ]
+    platform.images_running.return_value = THE_IMAGES_ROLLED_BACK_TO
+    platform.images_at.return_value = THE_IMAGES_ROLLED_BACK_TO
+    platform.is_syncing_itself.return_value = False
+
+    return platform
+
+
 def _a_server(flags: Mock | None = None,
               platform: Mock | None = None,
-              hold: HoldForAChange | None = None) -> FencedFastMCP:
+              hold: HoldForAChange | None = None,
+              argus_account: str = SOME_ARGUS_ACCOUNT) -> FencedFastMCP:
     return build_server(
         WriteMcpEndpoint(write_mcp_host="127.0.0.1", write_mcp_port=8199,
                          write_mcp_url="http://127.0.0.1:8199"),
@@ -225,8 +291,19 @@ def _a_server(flags: Mock | None = None,
         platform if platform is not None else create_autospec(DeploymentPlatformWrites,
                                                               instance=True),
         DiscardSettings(cache_url="redis://cache.invalid:6379"),
-        hold if hold is not None else _a_hold_never_asked
+        hold if hold is not None else _a_hold_never_asked,
+        argus_account=argus_account
     )
+
+
+def _it_was_resumed(platform: Mock, expected: bool) -> bool:
+    if platform.resume_sync.called is not expected:
+        raise AssertionError(
+            f"Expected the sync Argus suspended resumed [{expected}], and the platform "
+            f"was asked {platform.method_calls}."
+        )
+
+    return True
 
 
 @contextmanager

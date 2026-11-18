@@ -29,13 +29,36 @@ returns records two things. The repository still holds the change that caused
 the incident - a values file or the source, according to what broke - and the
 deployment is merely no longer running it, with reconciliation off so that it
 stays that way. Both have to be put back by a withdrawal, and only this module
-ever knew either.
+ever knew either. It records the revision it rolled back to beside them, which
+is what that withdrawal compares the platform against.
+
+A withdrawal puts back only what is still Argus's, and reads the platform before
+it writes to find out. Still Argus's is the newest entry in the history being
+Argus's own rollback - by the account Argus signs in as, of the revision it went
+to - and the Deployment running the images the platform renders for that
+revision. The images because a `kubectl set image` or a `rollout undo` leaves no
+entry in the history and changes exactly them; images alone because the live
+template carries defaulted fields git never states. A deployment already back on
+the revision Argus found, running what that renders, needs no rollback. Anything
+else is somebody's change since, and is left as they set it - with the
+reconciliation Argus suspended left suspended too, because resuming it would
+have the platform re-apply git over them. What is read decides it; the marks on
+the platform's objects are not read.
+
+What this cannot see is a hand edit that leaves every image alone - an
+environment variable changed with `kubectl edit` - which reads as Argus's. An
+admission webhook that rewrites images reads as a person's change on every
+rollback, which overwrites nothing and escalates each one. And resuming the
+reconciliation re-applies git to every object of the application, so a person's
+change to another of its objects, made while Argus held it off, is reverted with
+it.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from enum import Enum, auto
 
 from core.mcp_transport import an_exhausted_action
 from core.models import DeploymentRestored, DeploymentRollbackUndo
@@ -44,6 +67,15 @@ from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrite
 from write_mcp_server.refusing import a_platform_refusal
 
 logger = logging.getLogger(__name__)
+
+
+class _Standing(Enum):
+    """Where a rollback stands that nobody else has changed since."""
+
+    # The rollback Argus made is still what the platform runs.
+    STILL_ARGUS_S = auto()
+    # The deployment is already on the revision Argus found it on.
+    ALREADY_BACK = auto()
 
 
 class NoEarlierRevision(Exception):
@@ -145,6 +177,7 @@ def roll_back_deployment(application: str,
         application=application,
         was_on_history_id=running.history_id,
         was_on_revision=running.revision,
+        rolled_back_to_revision=previous.revision,
         was_syncing_itself=was_syncing_itself
     )
 
@@ -173,9 +206,11 @@ def roll_back_deployment(application: str,
 
 def restore_deployment(descriptor: DeploymentRollbackUndo,
                        platform: DeploymentPlatformWrites,
-                       mark: Mark) -> DeploymentRestored:
-    """Puts back both of the things a rollback changed, and says which it
-    managed - the resumed sync carrying `mark`, as the suspension did.
+                       mark: Mark,
+                       argus_account: str) -> DeploymentRestored:
+    """Puts back both of the things a rollback changed, where they are still
+    Argus's, and says which it managed - the resumed sync carrying `mark`, as
+    the suspension did.
 
     A pair rather than an exception, because a restore can half-succeed and
     the half that fails is the quiet one: a deployment whose revision is back
@@ -183,17 +218,65 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     anybody ships to it because the reconciliation Argus suspended is still
     suspended. The caller turns the pair into a verdict; this reports facts.
 
+    The platform is read before anything is written, and what it says decides
+    how much is. A rollback still Argus's - the newest entry made by
+    `argus_account`, of the revision recorded as rolled back to, and the
+    Deployment running what that revision renders - is put back. A deployment
+    already back on the revision Argus found, running what that renders, needs
+    no rollback, and counts as put back. Anything else is somebody's change
+    since: nothing is written, sync is not resumed, and the answer says what was
+    found and whether Argus's suspension still stands. Writing over it would be
+    this module deciding that somebody else's change should not stand, which is
+    not its question to answer.
+
+    A read that never came back writes nothing and claims nothing - neither
+    half back, nothing found - and neither does a descriptor recorded without
+    the revision it rolled back to, nor an empty `argus_account`, since whose
+    the newest entry is cannot be asked without both. A put-back made blind is
+    the one the check exists to prevent.
+
     The revision first and reconciliation second, which is the order the
     platform allows: automated sync refuses a rollback, so re-enabling it
     before returning to the earlier entry would make the second step
     impossible.
     """
     application = descriptor.application
+    rolled_back_to = descriptor.rolled_back_to_revision
 
-    revision = _tried(
-        application, "revision",
-        lambda: platform.roll_back(application, descriptor.was_on_history_id)
-    )
+    if rolled_back_to is None:
+        logger.error("restore check impossible", extra={
+            "application": application, "missing": "rolled_back_to_revision"
+        })
+        return _said(_nothing_established(), application)
+
+    # No history entry is ever made by nobody, so with no account to look for,
+    # Argus's own rollback would read as somebody else's and be left standing.
+    if not argus_account:
+        logger.error("restore check impossible", extra={
+            "application": application, "missing": "argus_account"
+        })
+        return _said(_nothing_established(), application)
+
+    try:
+        found = _what_became_of_the_rollback(descriptor, rolled_back_to, platform,
+                                             argus_account)
+    except DeploymentPlatformError:
+        logger.error("restore check failed", exc_info=True,
+                     extra={"application": application, "read": "the deployment"})
+        return _said(_nothing_established(), application)
+
+    if isinstance(found, str):
+        return _left_as_somebody_set_it(found, descriptor, platform)
+
+    if found is _Standing.ALREADY_BACK:
+        # Already where Argus found it, whoever put it there: nothing is written
+        # for the revision, and it counts as put back.
+        revision = True
+    else:
+        revision = _tried(
+            application, "revision",
+            lambda: platform.roll_back(application, descriptor.was_on_history_id)
+        )
 
     if not descriptor.was_syncing_itself:
         # It was already off when Argus found it, so leaving it off *is* the
@@ -216,9 +299,112 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     )
 
 
+def _what_became_of_the_rollback(descriptor: DeploymentRollbackUndo,
+                                 rolled_back_to: str,
+                                 platform: DeploymentPlatformWrites,
+                                 argus_account: str) -> _Standing | str:
+    """Where the rollback `descriptor` records stands now, or - where it is
+    somebody's change since - what was found, said.
+
+    Reads the history, then the images: the Deployment's, and those the
+    platform renders for the revision the newest entry says it should be on.
+    Raises `DeploymentPlatformError` where any read fails, so the caller can
+    write nothing on it.
+    """
+    application = descriptor.application
+    history = platform.deployments_of(application)
+
+    if not history:
+        return f"the platform records no deployment of [{application}] at all"
+
+    newest = history[-1]
+
+    if newest.revision == rolled_back_to and newest.initiated_by == argus_account:
+        return _by_its_images(application, rolled_back_to, _Standing.STILL_ARGUS_S, platform)
+
+    if newest.revision == descriptor.was_on_revision:
+        return _by_its_images(application, descriptor.was_on_revision,
+                              _Standing.ALREADY_BACK, platform)
+
+    return (
+        f"the newest deployment of [{application}] is of revision "
+        f"[{newest.revision}], made by [{newest.initiated_by or 'an unnamed account'}] "
+        f"rather than by Argus's own rollback"
+    )
+
+
+def _by_its_images(application: str,
+                   revision: str,
+                   standing: _Standing,
+                   platform: DeploymentPlatformWrites) -> _Standing | str:
+    """`standing`, where the Deployment runs the images `revision` renders - or,
+    where it runs others, what it runs, said: something other than a deployment
+    set them, and left no entry in the history doing it."""
+    running = platform.images_running(application)
+    rendered = platform.images_at(application, revision)
+
+    if running == rendered:
+        return standing
+
+    return (
+        f"[{application}] runs {_listed(running)}, where revision [{revision}] "
+        f"renders {_listed(rendered)} - images set since without a deployment"
+    )
+
+
+def _listed(images: dict[str, str]) -> str:
+    """Each container and its image, in a stable order."""
+    return ", ".join(f"[{container}] on [{image}]" for container, image in sorted(images.items()))
+
+
+def _left_as_somebody_set_it(because: str,
+                             descriptor: DeploymentRollbackUndo,
+                             platform: DeploymentPlatformWrites) -> DeploymentRestored:
+    """The answer for a rollback somebody changed since: nothing written, sync
+    not resumed, `because` said - and whether the reconciliation Argus
+    suspended still stands, read from the platform.
+
+    Read rather than taken from the descriptor, because only the platform knows:
+    a person who reverted in git and turned sync back on has ended Argus's
+    suspension themselves, and sync that was off before Argus came was never
+    Argus's to have suspended. A read that fails here establishes nothing, and
+    the answer claims nothing.
+    """
+    application = descriptor.application
+
+    try:
+        syncing_now = platform.is_syncing_itself(application)
+    except DeploymentPlatformError:
+        logger.error("restore check failed", exc_info=True,
+                     extra={"application": application, "read": "automated sync"})
+        return _said(_nothing_established(), application)
+
+    return _said(
+        DeploymentRestored(
+            revision_put_back=False,
+            automated_sync_put_back=False,
+            left_because=because,
+            sync_still_suspended=descriptor.was_syncing_itself and not syncing_now
+        ),
+        application
+    )
+
+
+def _nothing_established() -> DeploymentRestored:
+    """The answer where whose the rollback is could not be found out: nothing
+    written, neither half back, nothing found."""
+    return DeploymentRestored(revision_put_back=False, automated_sync_put_back=False)
+
+
 def _said(restored: DeploymentRestored, application: str) -> DeploymentRestored:
     """`restored`, once the log has been told how much of it there is."""
-    if restored.revision_put_back and restored.automated_sync_put_back:
+    if restored.left_because is not None:
+        logger.warning("deployment left as somebody set it", extra={
+            "application": application,
+            "found": restored.left_because,
+            "sync_still_suspended": restored.sync_still_suspended
+        })
+    elif restored.revision_put_back and restored.automated_sync_put_back:
         logger.info("deployment restored", extra={"application": application})
     else:
         logger.warning("deployment not fully restored", extra={

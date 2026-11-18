@@ -78,11 +78,17 @@ class UndoAttempt(BaseModel):
 
     `detail` is the sentence a human reads on the timeline. The outcome is what
     anything else branches on.
+
+    `said_as` is how the account of a refutation ends where the change was put
+    back other than as its kind usually tells it - a scale-out whose count was
+    left to its autoscaler was put back to no count at all, and the kind's own
+    ending would name one. `None` where the kind's ending is true.
     """
 
     subject: str
     outcome: Undone
     detail: str
+    said_as: str | None = None
 
 
 def propose_action(hypothesis: Hypothesis,
