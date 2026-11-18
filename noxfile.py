@@ -1,6 +1,7 @@
 import contextlib
 import ctypes
 import functools
+import json
 import os
 import signal
 import socket
@@ -1579,6 +1580,10 @@ _THE_REPORTING_LAG: Final = os.environ.get("METRICS_REPORTING_LAG_MINUTES", "0")
 # And `e2e_replay` alone: a real model's answer takes tens of real seconds, which
 # at this speed ages a staged change out of the window Argus looks back over.
 _THE_SIMULATED_SPEED: Final = "10"
+# Argus's credential on the stack's Argo CD stand-in, and the account it is.
+# Fixture values: the stand-in issues no tokens, it is told which it knows.
+_THE_ARGOCD_TOKEN: Final = "argocd_test_argus_demo"
+_THE_ARGOCD_ACCOUNT: Final = "Argus"
 _E2E_SETTINGS = {
     "MITIGATION_VERIFICATION_TIMEOUT_SECONDS": "180",
     # Where the service's metrics are read from: the Target Service's own
@@ -1617,6 +1622,14 @@ _E2E_SETTINGS = {
     # on, so one hiccup there is one red run. No key, because the provider
     # needs none and the stand-in asks for none.
     "EXCHANGE_RATE_BASE_URL": "http://localhost:8080/frankfurter",
+    # Who Argus is to the Argo CD stand-in: a token, the account it belongs to,
+    # and the map the stand-in knows it by - one entry, so the three cannot
+    # disagree. The stand-in records each rollback under the account whose token
+    # asked for it, as Argo CD does, and Argus tells its own rollbacks from
+    # everybody else's by that name; a token nobody issued is refused.
+    "ARGOCD_AUTH_TOKEN": _THE_ARGOCD_TOKEN,
+    "ARGOCD_ACTOR": _THE_ARGOCD_ACCOUNT,
+    "ARGOCD_ACCOUNTS": json.dumps({_THE_ARGOCD_TOKEN: _THE_ARGOCD_ACCOUNT}),
     # How long the catch-up loop sleeps between passes. Short, because an e2e
     # case that pushes waits for the index to catch up with it - and the
     # default is a minute, which is the right pause for a deployment and a
