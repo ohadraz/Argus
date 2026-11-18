@@ -82,6 +82,7 @@ class Holding:
 
     def __init__(self) -> None:
         self._held: Fence | None = None
+        self._acting_for: str | None = None
 
     def current(self) -> Fence | None:
         """The claim held now, or `None`."""
@@ -97,6 +98,27 @@ class Holding:
             yield
         finally:
             self._held = None
+
+    def current_action(self) -> str | None:
+        """The action a change is being made for now, by its row's id, or `None`."""
+        return self._acting_for
+
+    @contextmanager
+    def acting_for(self, action_id: str) -> Generator[None]:
+        """`action_id` as the action changes are made for while the block runs,
+        and none after - however it ends.
+
+        Beside the run rather than inside it: a walk holds its run throughout,
+        and takes one action at a time within it. The write tier marks what it
+        writes with this, so that whoever reads the platform afterwards can tell
+        which action a change was.
+        """
+        self._acting_for = action_id
+
+        try:
+            yield
+        finally:
+            self._acting_for = None
 
 
 def fence(conn: psycopg.Connection, held: Fence | None) -> None:

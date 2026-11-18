@@ -641,7 +641,10 @@ def main() -> None:
                            # copy had not heard about.
                            undo=an_undo_over(write),
                            taken_actions_of=taken_actions_from(connections),
-                           record_undone=undone_recorded_through(connections)),
+                           record_undone=undone_recorded_through(connections),
+                           # The holding the write client reads, so each
+                           # put-back is marked with the action it puts back.
+                           acting_for=holding.acting_for),
             ended_by_a_person=ended_by_a_person_via(connections),
             holding=holding
         )

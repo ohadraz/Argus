@@ -39,7 +39,7 @@ from collections.abc import Callable
 
 from core.mcp_transport import an_exhausted_action
 from core.models import DeploymentRestored, DeploymentRollbackUndo
-from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites, Mark
 
 from write_mcp_server.refusing import a_platform_refusal
 
@@ -83,9 +83,13 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
 
 
 def roll_back_deployment(application: str,
-                         platform: DeploymentPlatformWrites) -> DeploymentRollbackUndo:
+                         platform: DeploymentPlatformWrites,
+                         mark: Mark) -> DeploymentRollbackUndo:
     """Returns `application` to the revision it was running before the current
     one, and reports what that cost.
+
+    The suspension carries `mark`. The rollback cannot: the platform records
+    under whose account it was made, and its request has nowhere to put more.
 
     The entry rolled back to is the platform's to choose, and the choice is the
     one `argocd app rollback APPNAME` makes with its history id omitted: the
@@ -127,7 +131,7 @@ def roll_back_deployment(application: str,
     # for: a failure here may have suspended the sync, where one there cannot.
     if was_syncing_itself:
         try:
-            platform.suspend_sync(application)
+            platform.suspend_sync(application, mark)
         except DeploymentPlatformError as error:
             raise _refusing(
                 f"could not suspend the sync of [{application}]: {error}", error,
@@ -168,9 +172,10 @@ def roll_back_deployment(application: str,
 
 
 def restore_deployment(descriptor: DeploymentRollbackUndo,
-                       platform: DeploymentPlatformWrites) -> DeploymentRestored:
+                       platform: DeploymentPlatformWrites,
+                       mark: Mark) -> DeploymentRestored:
     """Puts back both of the things a rollback changed, and says which it
-    managed.
+    managed - the resumed sync carrying `mark`, as the suspension did.
 
     A pair rather than an exception, because a restore can half-succeed and
     the half that fails is the quiet one: a deployment whose revision is back
@@ -204,7 +209,7 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
             revision_put_back=revision,
             automated_sync_put_back=_tried(
                 application, "automated sync",
-                lambda: platform.resume_sync(application)
+                lambda: platform.resume_sync(application, mark)
             )
         ),
         application

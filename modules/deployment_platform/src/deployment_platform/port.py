@@ -14,6 +14,7 @@ its vendor.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from core.models import PodPlacement, RolloutProgress
@@ -58,6 +59,21 @@ class AutoscalerBounds:
     ceiling: int
 
 
+@dataclass(frozen=True)
+class Mark:
+    """Argus's mark on a change it writes: which action it was made for, by the
+    action's row id, and when the write tier wrote it.
+
+    Carried by the change itself, on the object changed, so that whoever reads
+    the platform afterwards - a put-back asking whether anybody changed it since,
+    a walk resumed after its worker died - can tell Argus's change from a
+    person's, and which of Argus's actions it was.
+    """
+
+    action_id: str
+    written_at: datetime
+
+
 class DeploymentPlatformReads(Protocol):
     """What reading the platform can ask, and nothing that changes it.
 
@@ -84,21 +100,27 @@ class DeploymentPlatformReads(Protocol):
 
 
 class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
-    """What changing the platform can ask, beside everything reading can."""
+    """What changing the platform can ask, beside everything reading can.
+
+    Every write that leaves an object changed carries Argus's `Mark` on it. A
+    rollback does not: the platform records who rolled back itself, and its
+    request has nowhere to put one. Nor does a restart, which leaves nothing to
+    put back.
+    """
 
     def is_syncing_itself(self, application: str, /) -> bool:
         """Whether the platform reconciles the application on its own."""
         ...
 
-    def suspend_sync(self, application: str, /) -> None:
+    def suspend_sync(self, application: str, mark: Mark, /) -> None:
         """Stops the platform reconciling the application, keeping its policy."""
         ...
 
-    def resume_sync(self, application: str, /) -> None:
+    def resume_sync(self, application: str, mark: Mark, /) -> None:
         """Lets the platform reconcile the application again."""
         ...
 
-    def scale(self, application: str, replicas: int, /) -> None:
+    def scale(self, application: str, replicas: int, mark: Mark, /) -> None:
         """Asks for `replicas` of the application's Deployment."""
         ...
 
@@ -133,6 +155,7 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
                              application: str,
                              autoscaler: Autoscaler,
                              floor: int,
+                             mark: Mark,
                              /) -> None:
         """Raises or lowers the autoscaler's floor, and nothing else about it."""
         ...
@@ -142,7 +165,11 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
         are held to none."""
         ...
 
-    def pin_to_accelerator(self, application: str, accelerator: str | None, /) -> None:
+    def pin_to_accelerator(self,
+                           application: str,
+                           accelerator: str | None,
+                           mark: Mark,
+                           /) -> None:
         """Holds the Deployment's pods to one card, or releases them where
         `accelerator` is `None` - and changes nothing else it selects on."""
         ...

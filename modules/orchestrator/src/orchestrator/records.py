@@ -135,7 +135,7 @@ class Records:
         action_type: ActionType,
         subject: str | None,
         at: datetime
-    ) -> bool:
+    ) -> str | None:
         with unit_of_work(self._connections) as conn:
             return taken_actions.claim(
                 conn,
@@ -225,6 +225,7 @@ class Records:
             return None
 
         return ClaimedAction(
+            action_id=taken_action.id,
             outcome=taken_action.outcome,
             claimed_at=taken_action.taken_at,
             progress=taken_action.progress

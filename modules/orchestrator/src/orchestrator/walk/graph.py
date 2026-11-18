@@ -174,6 +174,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     already_taken=collaborators.already_taken,
                     advance_action=collaborators.advance_action,
                     change_landed=collaborators.change_landed,
+                    acting_for=collaborators.acting_for,
                     record_outcome=collaborators.record_outcome,
                     still_wanted=still_wanted,
                     publisher=collaborators.publisher)

@@ -75,6 +75,7 @@ from orchestrator.gathering import write_postmortem_for, write_synopsis_for
 from orchestrator.records import Records
 from orchestrator.sources import the_real_sources
 from orchestrator.walk.ports import (
+    ActingFor,
     ActionAlreadyTaken,
     ActionsTaken,
     Admitted,
@@ -136,6 +137,9 @@ class Collaborators:
     already_taken: ActionAlreadyTaken
     advance_action: AdvanceAction
     change_landed: ChangeLanded
+    # Which action the changes made inside it are for, so the write tier marks
+    # each with it. The process's own `Holding`, which the write client reads.
+    acting_for: ActingFor
     propose_fix: ProposeFix
     actions_taken: ActionsTaken
     recall_similar: RecallSimilar
@@ -381,6 +385,7 @@ def against(connections: Connections,
         already_taken=records.claimed_action,
         advance_action=records.advance_action,
         change_landed=partial(argus_changed_flag_since, client=write),
+        acting_for=holding.acting_for,
         # Both tiers, because proposing a fix is the one act that spans them:
         # the repository is read from the process that cannot write, and the
         # branch and the draft pull request come from the one that can (§13).

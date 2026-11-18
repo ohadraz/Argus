@@ -51,6 +51,7 @@ from write_mcp_server.rolling_back import (
     roll_back_deployment,
 )
 
+from write_mcp_server_test.framework.marks import a_mark, every_write_carried
 from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
@@ -59,6 +60,10 @@ from write_mcp_server_test.framework.refusals import (
 )
 
 SOME_APPLICATION = "io-shop"
+# What every rollback and restore here is made under. One for the file: which
+# action a write is for is the caller's, and what is asserted is only that the
+# writes carry it.
+SOME_MARK = a_mark()
 
 THE_ENTRY_RUNNING = 2
 THE_ENTRY_BEFORE_IT = 1
@@ -105,7 +110,7 @@ def a_platform(history: list[DeploymentRecord] | None = None,
 
 
 def _rolling_back(platform: Any) -> DeploymentRollbackUndo:
-    return roll_back_deployment(SOME_APPLICATION, platform)
+    return roll_back_deployment(SOME_APPLICATION, platform, SOME_MARK)
 
 
 @pytest.mark.unit
@@ -223,12 +228,36 @@ def test_a_platform_that_will_not_answer_is_not_reported_as_rolled_back() -> Non
 
 
 @pytest.mark.unit
+def test_the_suspension_a_rollback_makes_carries_its_actions_mark() -> None:
+    # The one write here that takes a mark: the rollback itself is the
+    # platform's own history entry, and says whose it was in that history.
+    platform = a_platform(syncing_itself=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _rolling_back(platform)) \
+        .then(every_write_carried(platform, "suspend_sync", SOME_MARK))
+
+
+@pytest.mark.unit
+def test_turning_reconciliation_back_on_carries_the_restores_mark() -> None:
+    # A restore is a write of Argus's as much as the action was, and is marked
+    # as the one putting the action back.
+    platform = a_platform()
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
+        .then(every_write_carried(platform, "resume_sync", SOME_MARK))
+
+
+@pytest.mark.unit
 def test_restoring_puts_back_the_entry_that_was_running() -> None:
     platform = a_platform()
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _it_rolled_back_to(platform, THE_ENTRY_RUNNING),
             _it_reports_restored(revision=True, automated_sync=True)
@@ -243,7 +272,7 @@ def test_restoring_turns_reconciliation_back_on_after_the_revision() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(_it_was_asked_in_order(platform, "roll_back", "resume_sync"))
 
 
@@ -255,7 +284,7 @@ def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=False)) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_sync_policy_was_not_touched(platform),
             _it_reports_restored(revision=True, automated_sync=True)
@@ -271,7 +300,7 @@ def test_a_restore_that_only_managed_the_revision_says_so() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(_it_reports_restored(revision=True, automated_sync=False))
 
 
@@ -283,7 +312,7 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(_it_reports_restored(revision=False, automated_sync=False))
 
 
@@ -516,7 +545,7 @@ def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
             calling(lambda: caplog.set_level(logging.INFO)),
             descriptor := _a_descriptor(was_syncing_itself=True)
         ) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.INFO,
                                   "deployment restored",
@@ -535,7 +564,7 @@ def test_a_restore_that_only_managed_the_revision_is_logged_as_a_warning(
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.WARNING,
                                   "deployment not fully restored",
@@ -556,7 +585,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: restore_deployment(descriptor, platform)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.rolling_back", logging.ERROR,
                                   "restore step failed",

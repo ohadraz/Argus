@@ -158,6 +158,9 @@ FASTMCP_TOOL_ERROR: Final = "Error executing tool {name}: "
 # is held, and its headers were fixed before any run was claimed. Prefixed with
 # the project's name, as MCP asks of a key that is not its own.
 FENCE_META_KEY: Final = "argus/fence"
+# And the action a change is made for, by its row's id, for the same reasons:
+# what the write tier marks the change with, so the platform says whose it was.
+ACTION_META_KEY: Final = "argus/action"
 
 
 class McpToolError(RuntimeError):
@@ -559,8 +562,8 @@ class McpClient:
 
         Yields the carrier the span's context was injected into, which is what
         the call sends - so a server reading it answers inside this span - and
-        the claim held now, where one is. A failure is said on the span and in
-        the measurement, then raised on as it was.
+        the claim held now and the action acted for, where there are. A failure
+        is said on the span and in the measurement, then raised on as it was.
         """
         measured: dict[str, str] = {
             MCP_METHOD_NAME: MCP_TOOLS_CALL_METHOD,
@@ -584,6 +587,13 @@ class McpClient:
 
             if held is not None:
                 carrier[FENCE_META_KEY] = held.spoken()
+
+            acting_for = (
+                self._holding.current_action() if self._holding is not None else None
+            )
+
+            if acting_for is not None:
+                carrier[ACTION_META_KEY] = acting_for
 
             started_at = self._clock()
 

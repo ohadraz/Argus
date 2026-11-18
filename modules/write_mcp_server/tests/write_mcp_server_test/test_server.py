@@ -1,8 +1,11 @@
-"""Which of the write tier's tools are changes, and what its reads answer.
+"""Which of the write tier's tools are changes, which are marked, and what its
+reads answer.
 
 The one thing about the assembled server its own tools' suites cannot see: a
-tool left unmarked changes the world for any walk at all, a stale one included,
-and nothing about the tool itself would say so.
+tool not registered as a change changes the world for any walk at all, a stale
+one included, and nothing about the tool itself would say so. And the same of a
+platform write not registered as marked: it is made for a call naming no action,
+and lands on the platform as nobody's.
 
 And its three reads, which are registration and nothing else - the provider's
 history, and the two questions asked of it about one flag - so what is asserted
@@ -22,15 +25,17 @@ from unittest.mock import Mock, create_autospec
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from core import Fence, WriteMcpEndpoint, to_iso
-from core.models import FlagChange
+from core.mcp_transport import ACTION_META_KEY, FENCE_META_KEY
+from core.models import DeploymentRollbackUndo, FlagChange
 from deployment_platform import DeploymentPlatformWrites
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult
 from write_mcp_server.discarding import DiscardSettings
-from write_mcp_server.fencing import FencedFastMCP
+from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
 from write_mcp_server.server import build_server
 
+from write_mcp_server_test.framework.marks import marked_are
 from write_mcp_server_test.framework.settings import some_repository_settings
 
 # Every tool that changes something outside the tier: the seven mitigations,
@@ -41,6 +46,17 @@ EVERY_CHANGE = {
     "scale_out", "restore_replica_count", "pin_autoscaler", "discard_cache_entries",
     "restore_autoscaler_floor", "pin_to_accelerator", "restore_accelerator_pin",
     "commit_to_new_branch", "open_pull_request"
+}
+
+# Every change that writes to the deployment platform an object that can carry
+# Argus's mark: the four actions and the four restores that put them back. Not
+# the restart, whose write is the platform's own action and has nowhere to put
+# one; and not the flag, the cache, the branch or the pull request, which are
+# not the platform's.
+EVERY_MARKED = {
+    "roll_back_deployment", "restore_deployment", "scale_out", "restore_replica_count",
+    "pin_autoscaler", "restore_autoscaler_floor", "pin_to_accelerator",
+    "restore_accelerator_pin"
 }
 
 THE_HISTORY = "get_recent_flag_changes"
@@ -59,6 +75,10 @@ SOME_CHANGE = FlagChange(
     made_by_argus=False
 )
 
+SOME_FENCE = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
+SOME_APPLICATION = "io-shop"
+
 
 @pytest.mark.unit
 def test_every_tool_the_tier_serves_but_its_reads_is_a_change() -> None:
@@ -71,6 +91,42 @@ def test_every_tool_the_tier_serves_but_its_reads_is_a_change() -> None:
         ) \
         .then(
             _changes_are(server, EVERY_CHANGE, reads=EVERY_READ)
+        )
+
+
+@pytest.mark.unit
+def test_every_change_that_writes_to_the_platform_is_marked() -> None:
+    Scenario() \
+        .given(
+            server := _a_server()
+        ) \
+        .when(
+            lambda: server.marked
+        ) \
+        .then(
+            marked_are(EVERY_MARKED)
+        )
+
+
+@pytest.mark.unit
+def test_a_marked_tool_writes_under_the_action_its_call_named() -> None:
+    # The tool's half of the mark: the action id travels in the call's `_meta`,
+    # and has to reach the port's write. A restore stands for the eight, being
+    # the one whose every write is marked whatever the platform answers.
+    platform = create_autospec(DeploymentPlatformWrites, instance=True)
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform, hold=_a_hold_answering_held)
+        ) \
+        .when(
+            lambda: _asked(server, "restore_deployment",
+                           {FENCE_META_KEY: SOME_FENCE.spoken(),
+                            ACTION_META_KEY: SOME_ACTION_ID},
+                           descriptor=_a_rollback_descriptor().model_dump(mode="json"))
+        ) \
+        .then(
+            _every_write_was_for(platform.resume_sync, SOME_ACTION_ID)
         )
 
 
@@ -99,7 +155,7 @@ def test_a_history_the_provider_could_not_give_is_an_error_rather_than_empty() -
 
     Scenario() \
         .given(server := _a_server(flags)) \
-        .when(lambda: _asked(server, THE_HISTORY, since=to_iso(SOME_MOMENT)).isError) \
+        .when(lambda: _asked(server, THE_HISTORY, None, since=to_iso(SOME_MOMENT)).isError) \
         .then(the_answer_was(True))
 
 
@@ -148,15 +204,28 @@ def _a_provider() -> Mock:
     return flags
 
 
-def _a_server(flags: Mock | None = None) -> FencedFastMCP:
+def _a_rollback_descriptor() -> DeploymentRollbackUndo:
+    """A rollback that suspended reconciliation, so its restore writes twice."""
+    return DeploymentRollbackUndo(
+        application=SOME_APPLICATION,
+        was_on_history_id=41,
+        was_on_revision="0f1e2d3",
+        was_syncing_itself=True
+    )
+
+
+def _a_server(flags: Mock | None = None,
+              platform: Mock | None = None,
+              hold: HoldForAChange | None = None) -> FencedFastMCP:
     return build_server(
         WriteMcpEndpoint(write_mcp_host="127.0.0.1", write_mcp_port=8199,
                          write_mcp_url="http://127.0.0.1:8199"),
         flags if flags is not None else _a_provider(),
         some_repository_settings(),
-        create_autospec(DeploymentPlatformWrites, instance=True),
+        platform if platform is not None else create_autospec(DeploymentPlatformWrites,
+                                                              instance=True),
         DiscardSettings(cache_url="redis://cache.invalid:6379"),
-        _a_hold_never_asked
+        hold if hold is not None else _a_hold_never_asked
     )
 
 
@@ -165,23 +234,31 @@ def _a_hold_never_asked(dont_care_fence: Fence) -> Generator[bool]:
     raise AssertionError("Expected the run never asked after for a read, and it was.")
 
 
+@contextmanager
+def _a_hold_answering_held(dont_care_fence: Fence) -> Generator[bool]:
+    yield True
+
+
 def _what_it_serves(server: FencedFastMCP) -> set[str]:
     return {tool.name for tool in asyncio.run(server.list_tools())}
 
 
-def _asked(server: FencedFastMCP, tool: str, **arguments: object) -> CallToolResult:
-    """One call over a real MCP session held in memory, naming no run - which is
-    how a read is asked."""
+def _asked(server: FencedFastMCP,
+           tool: str,
+           meta: dict[str, Any] | None,
+           **arguments: object) -> CallToolResult:
+    """One call over a real MCP session held in memory, carrying `meta` - none,
+    for a read."""
     async def over_a_session() -> CallToolResult:
         async with create_connected_server_and_client_session(server) as session:
-            return await session.call_tool(tool, dict(arguments))
+            return await session.call_tool(tool, dict(arguments), meta=meta)
 
     return asyncio.run(over_a_session())
 
 
 def _the_answer_to(server: FencedFastMCP, tool: str, **arguments: object) -> Any:
     """What the tool answered, as the transport reads a structured answer."""
-    result = _asked(server, tool, **arguments)
+    result = _asked(server, tool, None, **arguments)
 
     if result.isError or result.structuredContent is None:
         raise AssertionError(f"Expected [{tool}] to answer, and it said [{result.content}].")
@@ -211,17 +288,36 @@ def _the_provider_was_asked(question: Mock, expected: tuple[object, ...]) -> boo
     return True
 
 
+def _every_write_was_for(write: Mock, action_id: str) -> Assertion[CallToolResult]:
+    """`write` was made, and every time under a mark naming `action_id` - the
+    moment it carries being the tier's own clock's, which no test can name."""
+    def assertion(result: CallToolResult) -> bool:
+        marks = [call.args[-1] for call in write.call_args_list]
+        named = [getattr(mark, "action_id", None) for mark in marks]
+
+        if not named or any(each != action_id for each in named):
+            raise AssertionError(
+                f"Expected every write made under the action [{action_id}], got the "
+                f"marks {marks} (the call answered [{result.content}])."
+            )
+
+        return True
+
+    return assertion
+
+
 def _changes_are(server: FencedFastMCP,
                  expected: set[str],
                  reads: set[str]) -> Assertion[set[str]]:
     def assertion(served: set[str]) -> bool:
         if set(server.changes) != expected or served - set(server.changes) != reads:
             raise AssertionError(
-                f"Expected {sorted(expected)} marked as changes and only {sorted(reads)} "
-                f"served unmarked; marked were {sorted(server.changes)} and unmarked "
-                f"{sorted(served - set(server.changes))}."
+                f"Expected {sorted(expected)} registered as changes and only "
+                f"{sorted(reads)} served as reads; the changes were "
+                f"{sorted(server.changes)} and the rest {sorted(served - set(server.changes))}."
             )
 
         return True
 
     return assertion
+

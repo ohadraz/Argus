@@ -77,6 +77,7 @@ LONG_ENOUGH_TO_HAVE_COME_BACK = 15.0
 SOMETHING = TypeAdapter(list[str])
 A_COUNT = TypeAdapter(int)
 A_FENCE_HEARD = TypeAdapter(dict[str, object])
+AN_ACTION_HEARD = TypeAdapter(dict[str, object])
 
 NOTHING_IS_LISTENING_HERE = "http://127.0.0.1:8199/mcp"
 DONT_CARE_TOOL = "say_something"
@@ -148,7 +149,8 @@ def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
                     "refuse_as_unreachable_platform_mid_action",
                     "refuse_saying_it_left_nothing", "refuse_saying_what_it_left",
                     "refuse_with_what_it_left", "refuse_as_lost_run",
-                    "the_fence_i_was_sent", "dawdle", "the_trace_i_am_in"
+                    "the_fence_i_was_sent", "the_action_i_was_sent", "dawdle",
+                    "the_trace_i_am_in"
                 ]),
                 _the_tool_listed_requires("dawdle", ["seconds"]),
                 _the_tool_listed_is_described("refuse_as_exhausted",
@@ -343,6 +345,52 @@ def test_a_call_made_while_no_run_is_held_names_none(
         ) \
         .when(
             _asking_holding(running_double, holding, _the_fence_sent)
+        ) \
+        .then(
+            the_answer_was({})
+        )
+
+
+@pytest.mark.component
+def test_a_call_made_while_an_action_is_taken_says_which_action_it_is_made_for(
+    running_double: RunningDouble
+) -> None:
+    # What the write tier marks a platform write with: the action row the write
+    # is made for, beside the claim it is made under. Read as the call is made,
+    # as the claim is, because one client serves every action a walk takes.
+    some_fence = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    some_action_id = "6f1c1d2e-0000-4000-8000-0000000000a1"
+    holding = Holding()
+
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_while_holding(running_double, holding, some_fence,
+                                  lambda client: _the_action_sent_while_acting_for(
+                                      holding, some_action_id, client
+                                  ))
+        ) \
+        .then(
+            the_answer_was({"action_id": some_action_id})
+        )
+
+
+@pytest.mark.component
+def test_a_call_made_while_no_action_is_taken_names_none(running_double: RunningDouble) -> None:
+    # A read the walk makes while it holds the run, or a change it makes that is
+    # no platform write: naming an action there would put some other action's
+    # id on whatever it changes.
+    some_fence = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    holding = Holding()
+
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_while_holding(running_double, holding, some_fence, _the_action_sent)
         ) \
         .then(
             the_answer_was({})
@@ -1145,6 +1193,17 @@ def _the_fence_sent(client: McpClient) -> object:
 def _the_fence_sent_while_holding(holding: Holding, held: Fence, client: McpClient) -> object:
     with holding.of(held):
         return _the_fence_sent(client)
+
+
+def _the_action_sent(client: McpClient) -> object:
+    return client.call("the_action_i_was_sent", AN_ACTION_HEARD.validate_python)
+
+
+def _the_action_sent_while_acting_for(holding: Holding,
+                                      action_id: str,
+                                      client: McpClient) -> object:
+    with holding.acting_for(action_id):
+        return _the_action_sent(client)
 
 
 def _asking_while_holding[T](double: RunningDouble,

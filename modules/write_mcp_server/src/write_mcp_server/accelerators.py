@@ -35,7 +35,7 @@ from collections.abc import Callable
 
 from core.mcp_transport import an_exhausted_action
 from core.models import AcceleratorPinRestored, AcceleratorPinUndo
-from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites, Mark
 
 from write_mcp_server.refusing import a_platform_refusal
 
@@ -77,8 +77,10 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
 
 def pin_to_accelerator(application: str,
                        accelerator: str,
-                       platform: DeploymentPlatformWrites) -> AcceleratorPinUndo:
-    """Holds `application`'s pods to `accelerator`, and reports what that cost.
+                       platform: DeploymentPlatformWrites,
+                       mark: Mark) -> AcceleratorPinUndo:
+    """Holds `application`'s pods to `accelerator`, and reports what that cost -
+    every write carrying `mark`.
 
     Raises rather than half-succeeding. A deployment already held to the card
     raises before anything is touched; a platform that refuses the pin raises
@@ -115,7 +117,7 @@ def pin_to_accelerator(application: str,
     # for: a failure here may have suspended the sync, where one there cannot.
     if was_syncing_itself:
         try:
-            platform.suspend_sync(application)
+            platform.suspend_sync(application, mark)
         except DeploymentPlatformError as error:
             raise _refusing(
                 f"could not suspend the sync of [{application}]: {error}", error,
@@ -133,7 +135,7 @@ def pin_to_accelerator(application: str,
     )
 
     try:
-        platform.pin_to_accelerator(application, accelerator)
+        platform.pin_to_accelerator(application, accelerator, mark)
     except DeploymentPlatformError as error:
         logger.warning("accelerator pin refused", extra={
             "application": application, "sync_suspended": was_syncing_itself
@@ -153,9 +155,11 @@ def pin_to_accelerator(application: str,
 
 
 def restore_accelerator_pin(descriptor: AcceleratorPinUndo,
-                            platform: DeploymentPlatformWrites
+                            platform: DeploymentPlatformWrites,
+                            mark: Mark
                             ) -> AcceleratorPinRestored:
-    """Puts back both of the things a pin changed, and says which it managed.
+    """Puts back both of the things a pin changed, and says which it managed -
+    every write carrying `mark`, as the pin's did.
 
     A pair rather than an exception, for the reason the other restores answer
     one: a restore can half-succeed and the half that fails is the quiet one.
@@ -170,7 +174,7 @@ def restore_accelerator_pin(descriptor: AcceleratorPinUndo,
 
     pin = _tried(
         application, "pin",
-        lambda: platform.pin_to_accelerator(application, descriptor.was_pinned_to)
+        lambda: platform.pin_to_accelerator(application, descriptor.was_pinned_to, mark)
     )
 
     if not descriptor.was_syncing_itself:
@@ -187,7 +191,7 @@ def restore_accelerator_pin(descriptor: AcceleratorPinUndo,
             pin_put_back=pin,
             automated_sync_put_back=_tried(
                 application, "automated sync",
-                lambda: platform.resume_sync(application)
+                lambda: platform.resume_sync(application, mark)
             )
         ),
         application

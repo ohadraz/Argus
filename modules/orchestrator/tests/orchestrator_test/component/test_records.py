@@ -377,6 +377,87 @@ def test_a_claim_found_by_a_resumed_walk_says_how_far_it_got(
 
 
 @pytest.mark.component
+def test_a_claim_won_answers_with_the_row_it_wrote(a_clean_database: None) -> None:
+    # The id the walk marks the action's writes with, which is only worth
+    # anything if it is the row's own.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.claim_action(incident_id, hypothesis_id=a_candidate.id,
+                                         action_type=DONT_CARE_ACTION,
+                                         subject=DONT_CARE_FLAG, at=utc_now())
+        ) \
+        .then(
+            _the_id_of_the_row_for(incident_id, a_candidate.id)
+        )
+
+
+@pytest.mark.component
+def test_a_claim_lost_to_an_earlier_attempt_answers_with_no_row(
+    a_clean_database: None
+) -> None:
+    # The row is the earlier attempt's: a walk handed its id would mark its
+    # writes as somebody else's action.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=DONT_CARE_FLAG,
+                            at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.claim_action(incident_id, hypothesis_id=a_candidate.id,
+                                         action_type=DONT_CARE_ACTION,
+                                         subject=DONT_CARE_FLAG, at=utc_now())
+        ) \
+        .then(
+            _no_row_was_answered()
+        )
+
+
+@pytest.mark.component
+def test_a_claim_found_by_a_resumed_walk_names_its_row(a_clean_database: None) -> None:
+    # A resumed walk that acts again acts for the earlier attempt's row, and
+    # marks its writes with it - so the row has to come back with the claim.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=DONT_CARE_FLAG,
+                            at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.claimed_action(incident_id, hypothesis_id=a_candidate.id)
+        ) \
+        .then(
+            _it_names_the_row_for(incident_id, a_candidate.id)
+        )
+
+
+@pytest.mark.component
 def test_a_weighing_is_kept_on_the_lead_and_said(
     a_clean_database: None
 ) -> None:
@@ -1028,6 +1109,59 @@ def _the_action_is_seen_as(incident_id: str,
         if seen != [(progress, undo_descriptor)]:
             raise AssertionError(f"Expected one action seen as [{progress}] carrying "
                                  f"[{undo_descriptor}], got {seen}.")
+
+        return True
+
+    return assertion
+
+
+def _the_row_for(incident_id: str, hypothesis_id: str) -> str:
+    """The id of the one action row the candidate has, read off the table."""
+    with connect_from_env() as conn:
+        row = taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+
+    if row is None:
+        raise AssertionError(
+            f"Expected an action row for candidate [{hypothesis_id}], got none."
+        )
+
+    return row.id
+
+
+def _the_id_of_the_row_for(incident_id: str, hypothesis_id: str) -> Assertion[str | None]:
+    def assertion(answered: str | None) -> bool:
+        expected = _the_row_for(incident_id, hypothesis_id)
+
+        if answered != expected:
+            raise AssertionError(
+                f"Expected the claim answered with its row [{expected}], got [{answered}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_row_was_answered() -> Assertion[str | None]:
+    def assertion(answered: str | None) -> bool:
+        if answered is not None:
+            raise AssertionError(f"Expected the claim answered with no row, got [{answered}].")
+
+        return True
+
+    return assertion
+
+
+def _it_names_the_row_for(incident_id: str,
+                          hypothesis_id: str) -> Assertion[ClaimedAction | None]:
+    def assertion(claimed: ClaimedAction | None) -> bool:
+        expected = _the_row_for(incident_id, hypothesis_id)
+        found = claimed.action_id if claimed is not None else None
+
+        if found != expected:
+            raise AssertionError(
+                f"Expected the claim read back naming its row [{expected}], got [{found}]."
+            )
 
         return True
 

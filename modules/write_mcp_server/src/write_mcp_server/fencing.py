@@ -12,10 +12,11 @@ What a refusal means decides how it is said. A claim the run has moved past is
 a lost run, marked so the walk stops. A call naming no claim, or one whose run
 could not be asked after, is refused as an ordinary refusal: neither says the
 run was lost, and a walk told it was would stop in silence where it should reach
-a human. Both are refused before the tool runs, and say they left nothing. A
-change whose run has another change already being made for it is refused too,
-before it runs - but without saying it left nothing, since the change asking
-is that same one asked again, and the first may have landed.
+a human. So is a change registered as marked whose call names no action: its
+write could not say whose it was. All are refused before the tool runs, and say
+they left nothing. A change whose run has another change already being made for
+it is refused too, before it runs - but without saying it left nothing, since
+the change asking is that same one asked again, and the first may have landed.
 
 Reads are answered as they always were. Nothing a read does can be got wrong by
 a second walk.
@@ -37,6 +38,8 @@ from core.mcp_transport import (
 )
 from incident_record.repository import runs
 from mcp.types import AnyFunction, ContentBlock
+
+from write_mcp_server.marking import the_action_in
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +85,29 @@ class FencedFastMCP(TracedFastMCP):
         super().__init__(name, **settings)
         self._hold_for_a_change = hold_for_a_change
         self._changes: set[str] = set()
+        self._marked: set[str] = set()
 
     @property
     def changes(self) -> frozenset[str]:
         """Every tool registered as a change, by name."""
         return frozenset(self._changes)
 
-    def change(self) -> Callable[[AnyFunction], AnyFunction]:
-        """Registers a tool, as `tool()` does, as one that changes the world."""
+    @property
+    def marked(self) -> frozenset[str]:
+        """Every change whose writes carry the mark of the action they are made
+        for, by name."""
+        return frozenset(self._marked)
+
+    def change(self, marked: bool = False) -> Callable[[AnyFunction], AnyFunction]:
+        """Registers a tool, as `tool()` does, as one that changes the world -
+        and, `marked`, as one made only for a call naming the action it is for."""
         register = self.tool()
 
         def registered(tool: AnyFunction) -> AnyFunction:
             self._changes.add(tool.__name__)
+
+            if marked:
+                self._marked.add(tool.__name__)
 
             return register(tool)
 
@@ -116,6 +130,14 @@ class FencedFastMCP(TracedFastMCP):
         if held is None:
             raise RuntimeError(a_refusal_saying_what_it_left(
                 f"[{name}] changes the world, and the call named no run to change it for"
+            ))
+
+        # Before the hold is asked for, as the fence is: a write nobody could
+        # tell from a person's is not made, and the run is not kept still for it.
+        if name in self._marked and the_action_in(meta) is None:
+            raise RuntimeError(a_refusal_saying_what_it_left(
+                f"[{name}] marks what it writes with the action it is made for, and "
+                f"the call named none"
             ))
 
         held_for_now = ExitStack()

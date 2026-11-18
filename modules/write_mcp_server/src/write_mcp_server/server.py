@@ -21,7 +21,7 @@ was in.
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
 from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings, parse_iso
 from core.models import (
@@ -39,10 +39,11 @@ from core.models import (
     ReplicaUndo,
     RestartedService,
 )
-from deployment_platform import DeploymentPlatformWrites
+from deployment_platform import DeploymentPlatformWrites, Mark
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from flag_provider import FlagProviderWrites
 from flag_provider.unleash import Unleash, UnleashSettings
+from mcp.server.fastmcp import Context
 from telemetry import start_telemetry
 
 from write_mcp_server import (
@@ -50,6 +51,7 @@ from write_mcp_server import (
     branching,
     discarding,
     flag_state,
+    marking,
     pinning,
     pull_requests,
     restarting,
@@ -96,6 +98,14 @@ def build_server(endpoint: WriteMcpEndpoint,
     for the claim that holds the run it is for - asked of `hold_for_a_change`
     (`fencing`). The three reads are not: a stale walk reading the provider's
     history, or asking whose a change in it was, gets nothing wrong.
+
+    The changes that write to the deployment platform and leave something to
+    put back are registered as marked too: each is made only for a call naming
+    the action it is for, and every write it makes carries that action's mark
+    (`marking`). Read off the call's `Context`, which FastMCP hands the tool and
+    leaves out of what the tool declares, so no caller is offered it as an
+    argument. A restart and a discard leave nothing to put back, and the flag
+    provider and the repository record whose a change was in their own way.
     """
     mcp = FencedFastMCP(
         "argus-write-mcp",
@@ -144,8 +154,9 @@ def build_server(endpoint: WriteMcpEndpoint,
         `restarting.restart_service`; this is registration only."""
         return restarting.restart_service(service, platform)
 
-    @mcp.change()
-    def roll_back_deployment(application: str) -> DeploymentRollbackUndo:
+    @mcp.change(marked=True)
+    def roll_back_deployment(application: str,
+                             ctx: Context[Any, Any, Any]) -> DeploymentRollbackUndo:
         """Returns a deployment to the revision it ran before, and reports
         what that cost.
 
@@ -166,11 +177,12 @@ def build_server(endpoint: WriteMcpEndpoint,
         descriptor returned, and both are what a withdrawal puts back. The
         behavior lives in `rolling_back.roll_back_deployment`; this is
         registration only."""
-        return rolling_back.roll_back_deployment(application, platform)
+        return rolling_back.roll_back_deployment(application, platform, _the_mark_of(ctx))
 
-    @mcp.change()
+    @mcp.change(marked=True)
     def restore_deployment(
-        descriptor: DeploymentRollbackUndo
+        descriptor: DeploymentRollbackUndo,
+        ctx: Context[Any, Any, Any]
     ) -> DeploymentRestored:
         """Puts back both of the things a rollback changed, and reports which
         of them it managed.
@@ -191,10 +203,10 @@ def build_server(endpoint: WriteMcpEndpoint,
         rollback, so the revision is put back before reconciliation is
         re-enabled. The behavior lives in
         `rolling_back.restore_deployment`; this is registration only."""
-        return rolling_back.restore_deployment(descriptor, platform)
+        return rolling_back.restore_deployment(descriptor, platform, _the_mark_of(ctx))
 
-    @mcp.change()
-    def scale_out(application: str) -> ReplicaUndo:
+    @mcp.change(marked=True)
+    def scale_out(application: str, ctx: Context[Any, Any, Any]) -> ReplicaUndo:
         """Gives a deployment more replicas than it is running, and reports
         what that cost.
 
@@ -221,10 +233,11 @@ def build_server(endpoint: WriteMcpEndpoint,
         is still arriving; the first two are recorded in the descriptor returned
         and are what a withdrawal puts back. The behavior lives in
         `scaling.scale_out`; this is registration only."""
-        return scaling.scale_out(application, platform)
+        return scaling.scale_out(application, platform, _the_mark_of(ctx))
 
-    @mcp.change()
-    def restore_replica_count(descriptor: ReplicaUndo) -> CapacityRestored:
+    @mcp.change(marked=True)
+    def restore_replica_count(descriptor: ReplicaUndo,
+                              ctx: Context[Any, Any, Any]) -> CapacityRestored:
         """Puts back both of the things a scale-out changed, and reports which
         of them it managed.
 
@@ -242,10 +255,10 @@ def build_server(endpoint: WriteMcpEndpoint,
         order would have the platform set the count itself, unverifiably, at a
         moment nothing here chose. The behavior lives in
         `scaling.restore_replica_count`; this is registration only."""
-        return scaling.restore_replica_count(descriptor, platform)
+        return scaling.restore_replica_count(descriptor, platform, _the_mark_of(ctx))
 
-    @mcp.change()
-    def pin_autoscaler(application: str) -> AutoscalerUndo:
+    @mcp.change(marked=True)
+    def pin_autoscaler(application: str, ctx: Context[Any, Any, Any]) -> AutoscalerUndo:
         """Stops a deployment's autoscaler moving the replica count about, and
         reports the floor it had.
 
@@ -271,7 +284,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         was reacting to is still there; the first two are recorded in the
         descriptor returned and are what a withdrawal puts back. The behavior
         lives in `pinning.pin_autoscaler`; this is registration only."""
-        return pinning.pin_autoscaler(application, platform)
+        return pinning.pin_autoscaler(application, platform, _the_mark_of(ctx))
 
     @mcp.change()
     def discard_cache_entries(keys: list[str]) -> CacheEntriesDiscarded:
@@ -306,9 +319,10 @@ def build_server(endpoint: WriteMcpEndpoint,
         registration only."""
         return discarding.discard_cache_entries(keys, discard_settings)
 
-    @mcp.change()
+    @mcp.change(marked=True)
     def restore_autoscaler_floor(
-        descriptor: AutoscalerUndo
+        descriptor: AutoscalerUndo,
+        ctx: Context[Any, Any, Any]
     ) -> AutoscalingRestored:
         """Puts back both of the things a pin changed, and reports which of them
         it managed.
@@ -327,10 +341,12 @@ def build_server(endpoint: WriteMcpEndpoint,
         order would have the platform re-apply the manifest itself,
         unverifiably, at a moment nothing here chose. The behavior lives in
         `pinning.restore_autoscaler_floor`; this is registration only."""
-        return pinning.restore_autoscaler_floor(descriptor, platform)
+        return pinning.restore_autoscaler_floor(descriptor, platform, _the_mark_of(ctx))
 
-    @mcp.change()
-    def pin_to_accelerator(application: str, accelerator: str) -> AcceleratorPinUndo:
+    @mcp.change(marked=True)
+    def pin_to_accelerator(application: str,
+                           accelerator: str,
+                           ctx: Context[Any, Any, Any]) -> AcceleratorPinUndo:
         """Holds a deployment's pods to one accelerator card, and reports the
         card they were held to before.
 
@@ -349,11 +365,14 @@ def build_server(endpoint: WriteMcpEndpoint,
         recorded in the descriptor returned and are what a withdrawal puts back.
         The behavior lives in `accelerators.pin_to_accelerator`; this is
         registration only."""
-        return accelerators.pin_to_accelerator(application, accelerator, platform)
+        return accelerators.pin_to_accelerator(
+            application, accelerator, platform, _the_mark_of(ctx)
+        )
 
-    @mcp.change()
+    @mcp.change(marked=True)
     def restore_accelerator_pin(
-        descriptor: AcceleratorPinUndo
+        descriptor: AcceleratorPinUndo,
+        ctx: Context[Any, Any, Any]
     ) -> AcceleratorPinRestored:
         """Puts back both of the things a pin to a card changed, and reports
         which of them it managed.
@@ -366,7 +385,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         The pin is put back before reconciliation is re-enabled. The behavior
         lives in `accelerators.restore_accelerator_pin`; this is registration
         only."""
-        return accelerators.restore_accelerator_pin(descriptor, platform)
+        return accelerators.restore_accelerator_pin(descriptor, platform, _the_mark_of(ctx))
 
     @mcp.tool()
     def get_recent_flag_changes(since: str) -> list[FlagChange]:
@@ -468,6 +487,14 @@ def build_server(endpoint: WriteMcpEndpoint,
         )
 
     return mcp
+
+
+def _the_mark_of(ctx: Context[Any, Any, Any]) -> Mark:
+    """The mark the call asking for a tool names, as `marking` reads it off the
+    call's `_meta`."""
+    meta = ctx.request_context.meta
+
+    return marking.the_mark_in(meta.model_dump() if meta is not None else None)
 
 
 def main(holds: OpensHolds = holds_in_the_database) -> None:

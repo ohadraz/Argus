@@ -15,7 +15,8 @@ that reached the provider with nothing measured after it, or nothing at all.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from itertools import count
 from typing import cast
@@ -95,10 +96,41 @@ A_CHANGE_MADE_AND_NEVER_RECORDED = ("an earlier attempt carried out this action 
 A_CHANGE_NOBODY_CAN_ACCOUNT_FOR = ("an earlier attempt claimed this action and nothing "
                                    "can say whether it was carried out")
 
+# The action rows a claim answers with: the one this walk writes, and the one a
+# worker that is gone wrote before it.
+THE_ACTION_THIS_WALK_CLAIMED = "6f1c1d2e-0000-4000-8000-0000000000a1"
+THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED = "6f1c1d2e-0000-4000-8000-0000000000a0"
+
+
+class _Acting:
+    """Acts for whichever action it is handed, and notes into `happened` when
+    each began and ended - beside whatever else a case notes there."""
+
+    def __init__(self, happened: list[str] | None = None) -> None:
+        self.happened = happened if happened is not None else []
+
+    @contextmanager
+    def __call__(self, action_id: str) -> Generator[None]:
+        self.happened.append(f"acting for {action_id}")
+
+        try:
+            yield
+        finally:
+            self.happened.append(f"no longer acting for {action_id}")
+
 
 @pytest.fixture
 def record_action() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.RecordAction, instance=True))
+    """A claim this walk wins, unless a case says an earlier attempt won it."""
+    claimed = cast(MagicMock, create_autospec(ports.RecordAction, instance=True))
+    claimed.return_value = THE_ACTION_THIS_WALK_CLAIMED
+
+    return claimed
+
+
+@pytest.fixture
+def acting_for() -> _Acting:
+    return _Acting()
 
 
 @pytest.fixture
@@ -141,6 +173,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     Scenario() \
@@ -158,6 +191,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.CONFIRMED))
 
@@ -171,6 +205,7 @@ def test_the_verdict_an_action_reached_is_logged(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock,
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -193,6 +228,7 @@ def test_the_verdict_an_action_reached_is_logged(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.mitigating", logging.INFO,
@@ -207,6 +243,7 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The candidate describes the fault in prose - "io-shop process heap
@@ -236,6 +273,7 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_subject_recorded_is(
@@ -250,6 +288,7 @@ def test_the_claim_is_dated_on_the_walks_clock_before_the_action_is_announced(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The claim is written before the agent taking the action is called in,
@@ -277,6 +316,7 @@ def test_the_claim_is_dated_on_the_walks_clock_before_the_action_is_announced(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append,
                                       now=a_clock_that_moves)) \
@@ -290,6 +330,7 @@ def test_a_refuted_action_carries_what_the_wait_judged_for_the_next_round(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # A later round is told each attempt and why it did not help. "The rule
@@ -315,6 +356,7 @@ def test_a_refuted_action_carries_what_the_wait_judged_for_the_next_round(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_reason_reported_is(some_reason))
 
@@ -326,6 +368,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     Scenario() \
@@ -343,6 +386,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.REFUTED))
 
@@ -354,6 +398,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     Scenario() \
@@ -371,6 +416,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_reported_is(Verdict.ESCALATED))
 
@@ -382,6 +428,7 @@ def test_an_unavailable_platform_is_published_where_the_walk_learnt_it(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Here because here is where it was learnt, and before the candidate that
@@ -412,6 +459,7 @@ def test_an_unavailable_platform_is_published_where_the_walk_learnt_it(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_platform_was_published_as_unavailable(
@@ -426,6 +474,7 @@ def test_an_escalated_action_publishes_nothing_about_a_platform(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The half that keeps the claim above honest. A walk that published this on
@@ -449,6 +498,7 @@ def test_an_escalated_action_publishes_nothing_about_a_platform(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_no_platform_was_published_as_unavailable(published))
@@ -461,6 +511,7 @@ def test_an_unreachable_platform_is_recorded_against_the_walk(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The one fact this verdict carries that no other does, and the walk cannot
@@ -484,6 +535,7 @@ def test_an_unreachable_platform_is_recorded_against_the_walk(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(all_of(
             _the_verdict_reported_is(Verdict.PLATFORM_UNREACHABLE),
@@ -498,6 +550,7 @@ def test_the_platform_recorded_is_the_one_the_action_acted_through(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Derived from the action, not named. The same verdict off a flag revert means
@@ -522,6 +575,7 @@ def test_the_platform_recorded_is_the_one_the_action_acted_through(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_platforms_recorded_as_unreachable([FLAG_PROVIDER]))
 
@@ -533,6 +587,7 @@ def test_an_escalated_action_says_nothing_about_any_platform(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The half that keeps the two above honest. A node that recorded a platform on
@@ -553,6 +608,7 @@ def test_an_escalated_action_says_nothing_about_any_platform(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_nothing_was_recorded_as_unreachable())
 
@@ -564,6 +620,7 @@ def test_the_node_that_takes_the_action_decides_no_status(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The verdict is what this node measured; where the incident stands as a
@@ -584,6 +641,7 @@ def test_the_node_that_takes_the_action_decides_no_status(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_no_status_was_decided())
 
@@ -595,6 +653,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The descriptor the write tier returned, not the one proposed: it is the
@@ -621,6 +680,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_action_row_records_the_way_back(some_undo_descriptor,
                                                    complete_action))
@@ -635,6 +695,7 @@ def test_the_action_row_records_whether_the_action_was_performed(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # What says the candidate was tried where nothing was judged: a person's
@@ -657,6 +718,7 @@ def test_the_action_row_records_whether_the_action_was_performed(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_action_row_records_whether_it_was_performed(performed, complete_action))
 
@@ -670,6 +732,7 @@ def test_the_action_row_records_whether_what_the_attempt_left_is_known(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # What tells a refusal that asked for no change from one whose answer was
@@ -693,6 +756,7 @@ def test_the_action_row_records_whether_what_the_attempt_left_is_known(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_action_row_records_whether_what_it_left_is_known(left_behind_known,
                                                                     complete_action))
@@ -705,6 +769,7 @@ def test_a_candidate_passed_over_untested_keeps_why_on_its_row_and_its_line(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The tier had nowhere to take the action, so nothing was tested - and the
@@ -731,6 +796,7 @@ def test_a_candidate_passed_over_untested_keeps_why_on_its_row_and_its_line(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(all_of(
             _the_candidate_was_left_untested_because(some_candidate, some_reason,
@@ -746,6 +812,7 @@ def test_the_action_row_and_its_line_keep_what_putting_it_back_did(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The row, so the cleanup after the incident does not put it back a second
@@ -773,6 +840,7 @@ def test_the_action_row_and_its_line_keep_what_putting_it_back_did(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(
             _putting_it_back_was_kept_as(Undone.RESTORED, some_flag_put_back, complete_action)
@@ -786,6 +854,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Withdrawn is not a verdict about the hypothesis. The action was taken and
@@ -808,6 +877,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_candidate_learned_nothing(record_outcome))
 
@@ -819,6 +889,7 @@ def test_a_candidate_nothing_was_measured_for_is_not_recorded_as_tested(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The same claim as the test above it, arriving under a word that does not
@@ -849,6 +920,7 @@ def test_a_candidate_nothing_was_measured_for_is_not_recorded_as_tested(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_candidate_learned_nothing(record_outcome))
 
@@ -860,6 +932,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The candidate learns nothing, but the action row must: the flag is still
@@ -885,6 +958,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_row_records_the_outcome((str(Verdict.STOPPED)), complete_action),
                      _the_action_row_records_the_way_back(some_undo_descriptor,
@@ -898,6 +972,7 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # An action was taken and the service was measured afterwards, so this
@@ -921,6 +996,7 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
                                       record_action=record_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_candidate_was_tested_and_settled(some_candidate,
                                                     str(Verdict.REFUTED),
@@ -934,6 +1010,7 @@ def test_the_moment_an_action_was_taken_travels_with_the_walk(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # A later round is told when each attempt was made, beside the flag
@@ -959,6 +1036,7 @@ def test_the_moment_an_action_was_taken_travels_with_the_walk(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_walk_carries_the_moment_the_action_was_announced(published))
@@ -975,6 +1053,7 @@ def test_an_attempt_that_ended_before_its_write_announces_no_action(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Announced ahead of the write, a rollback the platform never answered was
@@ -1000,6 +1079,7 @@ def test_an_attempt_that_ended_before_its_write_announces_no_action(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(all_of(
@@ -1016,6 +1096,7 @@ def test_the_verdict_on_a_change_made_says_it_was_made(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The same line, for the action that was performed: the verdict names it,
@@ -1036,6 +1117,7 @@ def test_the_verdict_on_a_change_made_says_it_was_made(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(
             _the_verdict_names_the_action_done(an_action_taking_incident, complete_action)
@@ -1051,6 +1133,7 @@ def test_the_verdict_says_whether_the_action_was_judged(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # An escalation is a wait nobody could read and a refutation whose undo
@@ -1072,6 +1155,7 @@ def test_the_verdict_says_whether_the_action_was_judged(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(
             _the_verdict_says_it_was_judged(judged, complete_action)
@@ -1084,6 +1168,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1108,6 +1193,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -1121,6 +1207,7 @@ def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1145,6 +1232,7 @@ def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(_the_walk_is_told_no_reason())
@@ -1157,6 +1245,7 @@ def test_a_walk_resumed_after_the_action_carries_the_moment_it_was_claimed(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The worker that acted is gone, and announced the action in a walk this
@@ -1179,6 +1268,7 @@ def test_a_walk_resumed_after_the_action_carries_the_moment_it_was_claimed(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_walk_carries(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN))
 
@@ -1189,6 +1279,7 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1215,6 +1306,7 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
@@ -1228,6 +1320,7 @@ def test_a_walk_that_claimed_the_action_takes_it(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1248,6 +1341,7 @@ def test_a_walk_that_claimed_the_action_takes_it(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_taken(take),
@@ -1260,6 +1354,7 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1285,6 +1380,7 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1302,6 +1398,7 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1326,6 +1423,7 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1340,11 +1438,146 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("verdict", [Verdict.CONFIRMED, Verdict.REFUTED])
+def test_the_action_is_taken_while_acting_for_the_row_this_walk_claimed(
+    verdict: Verdict,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Every write the action makes is marked with the row its claim wrote, so
+    # what it changed names the row that says what was done to it. A refuted
+    # change is put back inside the same taking, and its putting back is
+    # marked as the same action's.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_action_came_back(take, verdict)),
+            calling(lambda: _noting_when_it_is_taken(take, happened)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(happened),
+                                      change_landed=_nothing_landed(),
+                                      advance_action=advance_action,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _happened_in_order(happened, [
+                f"acting for {THE_ACTION_THIS_WALK_CLAIMED}",
+                "taken",
+                f"no longer acting for {THE_ACTION_THIS_WALK_CLAIMED}"
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_a_resumed_walk_acting_again_acts_for_the_row_the_earlier_attempt_claimed(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The row is the earlier attempt's, and this walk takes the action that row
+    # was claimed for - so its writes are marked with that row, the one that
+    # will say what came of them.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None)),
+            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            calling(lambda: _noting_when_it_is_taken(take, happened)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(happened),
+                                      change_landed=change_landed,
+                                      advance_action=advance_action,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _happened_in_order(happened, [
+                f"acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}",
+                "taken",
+                f"no longer acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}"
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_a_resumed_walk_that_does_not_act_again_acts_for_no_action(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Nothing is written to the platform, so nothing is marked - and an action
+    # acted for with nothing taken would put its id on whatever the walk asked
+    # the write tier next.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None)),
+            calling(lambda: _the_change_reached_the_provider(change_landed)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(happened),
+                                      change_landed=change_landed,
+                                      advance_action=advance_action,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _happened_in_order(happened, [])
+        )
+
+
+@pytest.mark.unit
 def test_a_claim_the_provider_cannot_answer_for_escalates(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1369,6 +1602,7 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1386,6 +1620,7 @@ def test_a_resumed_claim_is_asked_after_under_the_flag_the_action_names(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1419,6 +1654,7 @@ def test_a_resumed_claim_is_asked_after_under_the_flag_the_action_names(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1434,6 +1670,7 @@ def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1460,6 +1697,7 @@ def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1488,6 +1726,7 @@ def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_ab
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1515,6 +1754,7 @@ def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_ab
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1532,6 +1772,7 @@ def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1563,6 +1804,7 @@ def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1589,6 +1831,7 @@ def test_a_claim_already_told_as_made_escalates_without_asking_anybody(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1613,6 +1856,7 @@ def test_a_claim_already_told_as_made_escalates_without_asking_anybody(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1630,6 +1874,7 @@ def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     change_landed: MagicMock,
     advance_action: MagicMock,
     record_outcome: MagicMock,
@@ -1654,6 +1899,7 @@ def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
                                       record_outcome=record_outcome,
@@ -1670,6 +1916,7 @@ def test_the_change_is_put_on_the_claim_the_moment_the_agent_says_it_was_made(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -1695,6 +1942,7 @@ def test_the_change_is_put_on_the_claim_the_moment_the_agent_says_it_was_made(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(
             _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
@@ -1707,6 +1955,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_does_not_stop_the_attempt(
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock,
@@ -1735,6 +1984,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_does_not_stop_the_attempt(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(all_of(
             _the_verdict_reported_is(Verdict.CONFIRMED),
@@ -1749,6 +1999,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_att
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -1776,6 +2027,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_att
                                                  complete_action=complete_action,
                                                  record_outcome=record_outcome,
                                                  already_taken=already_taken,
+                                                 acting_for=acting_for,
                                                  still_wanted=still_wanted))) \
         .then(all_of(
             an_error_was_raised(RunLost),
@@ -1820,6 +2072,7 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The one moment production state changes. An account that omitted it
@@ -1843,6 +2096,7 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_exactly_one_action_was_announced(some_candidate, the_action, published))
@@ -1855,6 +2109,7 @@ def test_the_action_announced_says_the_number_of_the_candidate_it_was_for(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The number every telling says the candidate by. The move to mitigating
@@ -1880,6 +2135,7 @@ def test_the_action_announced_says_the_number_of_the_candidate_it_was_for(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(all_of(
@@ -1895,6 +2151,7 @@ def test_an_attempt_that_ended_before_its_write_says_the_candidate_it_was_for(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Announced by nothing else: the verdict's line is the one saying what was
@@ -1919,6 +2176,7 @@ def test_an_attempt_that_ended_before_its_write_says_the_candidate_it_was_for(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(
             _the_verdict_was_for_candidate(3, complete_action)
@@ -1932,6 +2190,7 @@ def test_the_graph_says_which_way_it_moved_the_flag(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # "A flag was changed" is the half of the sentence nobody can act on.
@@ -1953,6 +2212,7 @@ def test_the_graph_says_which_way_it_moved_the_flag(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_announced_action_moved_the_flag(the_action.enabled, published))
@@ -1965,6 +2225,7 @@ def test_the_graph_says_which_card_it_held_the_deployment_to(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # "The deployment was held to a card" is the half a reader cannot check.
@@ -1989,6 +2250,7 @@ def test_the_graph_says_which_card_it_held_the_deployment_to(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_announced_action_held_it_to(SOME_ACCELERATOR, published))
@@ -2001,6 +2263,7 @@ def test_the_graph_says_what_verdict_came_back(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The verdict is what the action was for, and it arrives after it - two
@@ -2021,6 +2284,7 @@ def test_the_graph_says_what_verdict_came_back(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_verdict_was_narrated(str(Verdict.REFUTED), complete_action))
 
@@ -2032,6 +2296,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The account is never part of the work, at this level as at every other.
@@ -2046,6 +2311,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
             complete_action=complete_action,
             record_outcome=record_outcome,
             already_taken=already_taken,
+            acting_for=acting_for,
             still_wanted=still_wanted,
             publisher=publisher,
             now=lambda: DONT_CARE_MOMENT_IT_WAS_TAKEN
@@ -2071,6 +2337,7 @@ def test_an_action_aimed_at_a_dependency_is_announced_as_one(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Argus restarted something it was never paged about, and the account has
@@ -2095,6 +2362,7 @@ def test_an_action_aimed_at_a_dependency_is_announced_as_one(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_action_was_announced_as_a_dependency_of("kuki-service", published))
@@ -2107,6 +2375,7 @@ def test_an_action_on_the_service_that_alerted_is_announced_as_nobodys_dependenc
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The ordinary incident, and the one that has to stay silent. Argus has
@@ -2129,6 +2398,7 @@ def test_an_action_on_the_service_that_alerted_is_announced_as_nobodys_dependenc
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_action_was_announced_as_a_dependency_of(None, published))
@@ -2141,6 +2411,7 @@ def test_a_flag_reverted_is_announced_as_nobodys_dependency(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # A flag is not an address. Its subject is the flag's own name, which is
@@ -2165,6 +2436,7 @@ def test_a_flag_reverted_is_announced_as_nobodys_dependency(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted,
                                       publisher=published.append)) \
         .then(_the_action_was_announced_as_a_dependency_of(None, published))
@@ -2177,6 +2449,7 @@ def test_the_minute_the_alert_dated_the_incident_to_reaches_the_agent(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Mitigation judges an incident whose minutes were never published by whether
@@ -2200,6 +2473,7 @@ def test_the_minute_the_alert_dated_the_incident_to_reaches_the_agent(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_onset_handed_over_is(SOME_ONSET_THE_ALERT_STATED, take))
 
@@ -2211,6 +2485,7 @@ def test_an_incident_no_alert_dated_hands_over_no_minute(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Every incident whose onset was measured rather than stated, which is almost
@@ -2232,6 +2507,7 @@ def test_an_incident_no_alert_dated_hands_over_no_minute(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_onset_handed_over_is(None, take))
 
@@ -2282,6 +2558,7 @@ def test_the_minute_the_investigation_dated_the_incident_from_reaches_the_agent(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # Mitigation looks for the service's recovery after the incident began, or a
@@ -2305,6 +2582,7 @@ def test_the_minute_the_investigation_dated_the_incident_from_reaches_the_agent(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_beginning_handed_over_is(the_incident_began, take))
 
@@ -2343,6 +2621,7 @@ def test_the_rule_a_series_alert_names_is_handed_to_the_agent(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # The rule that paged is what the action is judged by, where the alert is
@@ -2365,6 +2644,7 @@ def test_the_rule_a_series_alert_names_is_handed_to_the_agent(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_rule_handed_over_is(some_rule, take))
 
@@ -2376,6 +2656,7 @@ def test_a_finding_hands_the_agent_no_rule_to_wait_on(
     complete_action: MagicMock,
     record_outcome: MagicMock,
     already_taken: MagicMock,
+    acting_for: ports.ActingFor,
     still_wanted: MagicMock
 ) -> None:
     # A check that runs weekly resolves when it next runs, so waiting on its rule
@@ -2396,6 +2677,7 @@ def test_a_finding_hands_the_agent_no_rule_to_wait_on(
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
+                                      acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(_the_rule_handed_over_is(None, take))
 
@@ -2492,8 +2774,31 @@ def _the_action_came_back(take: MagicMock,
     take.side_effect = taking
 
 
+def _noting_when_it_is_taken(take: MagicMock, happened: list[str]) -> None:
+    """`take` answering as the case set it, and noting into `happened` when it
+    was asked - so a case can say what was in force around it."""
+    answering = take.side_effect
+
+    def taking(action: Action, /, **keywords: object) -> Outcome:
+        happened.append("taken")
+
+        return cast(Outcome, answering(action, **keywords))
+
+    take.side_effect = taking
+
+
+def _happened_in_order(happened: list[str], expected: list[str]) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if happened != expected:
+            raise AssertionError(f"Expected {expected} in that order, got {happened}.")
+
+        return True
+
+    return assertion
+
+
 def _this_walk_holds_the_claim(record_action: MagicMock) -> None:
-    record_action.return_value = True
+    record_action.return_value = THE_ACTION_THIS_WALK_CLAIMED
 
 
 def _an_earlier_attempt_holds_the_claim(
@@ -2511,9 +2816,10 @@ def _an_earlier_attempt_holds_the_claim(
     `progress` is how far the row says it got - a claim and nothing more,
     unless a case says otherwise.
     """
-    record_action.return_value = False
+    record_action.return_value = None
     already_taken.return_value = ports.ClaimedAction(
-        outcome=nothing_recorded, claimed_at=written_at, progress=progress)
+        outcome=nothing_recorded, claimed_at=written_at, progress=progress,
+        action_id=THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED)
 
 
 def _the_change_reached_the_provider(change_landed: MagicMock) -> None:

@@ -34,6 +34,7 @@ from typing import Any, Self
 
 from core import Fence
 from core.mcp_transport import (
+    ACTION_META_KEY,
     FENCE_META_KEY,
     TracedFastMCP,
     a_lost_run,
@@ -190,6 +191,15 @@ def build_double(port: int) -> TracedFastMCP:
         heard = Fence.heard(spoken) if isinstance(spoken, str) else None
 
         return {} if heard is None else {"run_id": heard.run_id, "epoch": heard.epoch}
+
+    @server.tool()
+    def the_action_i_was_sent(ctx: Context[Any, Any, Any]) -> dict[str, object]:
+        """Which action the call said it was made for, as the write tier hears
+        it - or nothing, where it said none."""
+        meta = ctx.request_context.meta
+        spoken = (meta.model_dump() if meta is not None else {}).get(ACTION_META_KEY)
+
+        return {"action_id": spoken} if isinstance(spoken, str) else {}
 
     @server.tool()
     async def dawdle(seconds: float) -> list[str]:

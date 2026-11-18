@@ -17,8 +17,8 @@ The descriptor is the other half. Only this module ever knows what the count was
 or whether reconciliation was on, so an undo hours later can put back exactly as
 much as this records and no more.
 
-How the count is read and the action run on Argo CD - the manifest, the action
-body, the count carried as text - is the adapter's, and pinned in its own suite.
+How the count is read and written on Argo CD - the manifest, the merge patch the
+count and the mark travel in - is the adapter's, and pinned in its own suite.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ from write_mcp_server.scaling import (
     scale_out,
 )
 
+from write_mcp_server_test.framework.marks import a_mark, every_write_carried
 from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
@@ -65,6 +66,10 @@ from write_mcp_server_test.framework.refusals import (
 )
 
 SOME_APPLICATION = "io-shop"
+# What every scale-out and restore here is made under. One for the file: which
+# action a write is for is the caller's, and what is asserted is only that the
+# writes carry it.
+SOME_MARK = a_mark()
 
 # What the deployment is running when anybody looks, and what one doubling of it
 # comes to. Three is the size the fixture's own values file asks for.
@@ -100,11 +105,11 @@ def a_platform(replicas: int = THE_COUNT_RUNNING,
 
 
 def _scaling_out(platform: Any) -> ReplicaUndo:
-    return scale_out(SOME_APPLICATION, platform)
+    return scale_out(SOME_APPLICATION, platform, SOME_MARK)
 
 
 def _restoring(descriptor: ReplicaUndo, platform: Any) -> CapacityRestored:
-    return restore_replica_count(descriptor, platform)
+    return restore_replica_count(descriptor, platform, SOME_MARK)
 
 
 @pytest.mark.unit
@@ -132,6 +137,34 @@ def test_reconciliation_is_suspended_before_the_count_is_changed() -> None:
         .given(platform) \
         .when(lambda: _scaling_out(platform)) \
         .then(_it_was_asked_in_order(platform, "suspend_sync", "scale"))
+
+
+@pytest.mark.unit
+def test_every_write_a_scale_out_makes_carries_its_actions_mark() -> None:
+    # The suspension and the count alike: either left on the platform unmarked
+    # is a change nobody can tell from a person's.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _scaling_out(platform)) \
+        .then(all_of(
+            every_write_carried(platform, "suspend_sync", SOME_MARK),
+            every_write_carried(platform, "scale", SOME_MARK)
+        ))
+
+
+@pytest.mark.unit
+def test_every_write_a_restore_makes_carries_its_mark() -> None:
+    platform = a_platform()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(a_descriptor, platform)) \
+        .then(all_of(
+            every_write_carried(platform, "scale", SOME_MARK),
+            every_write_carried(platform, "resume_sync", SOME_MARK)
+        ))
 
 
 @pytest.mark.unit
@@ -642,8 +675,10 @@ def _a_descriptor(was_syncing_itself: bool) -> ReplicaUndo:
 
 
 def _it_asked_for(platform: Any, replicas: int) -> Assertion[object]:
+    """One count asked for, of the application - the mark it carried is
+    `every_write_carried`'s to say."""
     def assertion(dont_care_result: object) -> bool:
-        asked = [call.args for call in platform.scale.call_args_list]
+        asked = [call.args[:2] for call in platform.scale.call_args_list]
 
         if asked != [(SOME_APPLICATION, replicas)]:
             raise AssertionError(

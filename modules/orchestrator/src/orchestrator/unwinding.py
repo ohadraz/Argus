@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Protocol
 
 from core import Connections
@@ -43,6 +44,9 @@ type TakenActionsOf = Callable[[str], list[TakenAction]]
 # What the unwind did with one change, kept on the change's row (by its id) and
 # said, as one write. A seam for the reason the reading is one.
 type RecordUndone = Callable[[str, ChangeUndone], None]
+# Which action the changes made inside it are for, by its row's id, so the write
+# tier marks a put-back as the action it puts back. The process's `Holding`.
+type ActingFor = Callable[[str], AbstractContextManager[None]]
 
 # What leaves a change needing nothing more from an unwind, whichever undo
 # wrote it - the walk's own after a refutation, or an earlier unwind: the change
@@ -139,8 +143,12 @@ def undone_recorded_through(connections: Connections,
 def unwind_incident(incident_id: str,
                     taken_actions_of: TakenActionsOf,
                     undo: UndoChange,
-                    record_undone: RecordUndone) -> None:
+                    record_undone: RecordUndone,
+                    acting_for: ActingFor) -> None:
     """Puts back every change the incident made, and says what became of each.
+
+    Each put back while acting for the row that made it, so the write tier marks
+    the put-back as that action's, as it marked the change.
 
     Except a change the walk already settled after refuting it - put back, or
     left as somebody else had since set it - which its verdict's own line has
@@ -218,7 +226,9 @@ def unwind_incident(incident_id: str,
 
             continue
 
-        attempt = undo(taken_action.undo_descriptor)
+        with acting_for(taken_action.id):
+            attempt = undo(taken_action.undo_descriptor)
+
         _said_in_the_log(attempt)
         record_undone(taken_action.id, ChangeUndone(
             incident_id=incident_id,

@@ -39,9 +39,11 @@ from mitigation import Verdict
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
+    ActingFor,
     ActionAlreadyTaken,
     AdvanceAction,
     ChangeLanded,
+    ClaimedAction,
     CompleteAction,
     RecordAction,
     RecordOutcome,
@@ -67,6 +69,7 @@ def mitigation_node(
     still_wanted: IsStillWanted,
     take: TakeAction,
     change_landed: ChangeLanded,
+    acting_for: ActingFor,
     publisher: Publisher = nobody,
     now: Callable[[], datetime] = utc_now
 ) -> StateDelta:
@@ -89,6 +92,9 @@ def mitigation_node(
     that the change was made, the moment the agent says so, with what would
     put it back - so a worker that dies during the wait leaves a row a
     withdrawal can undo and a write-up can call tried.
+
+    `acting_for` makes the claim's action the one the write tier marks every
+    change of this attempt with (`Holding.acting_for`).
     """
     # Both, because an action is taken *for* a candidate: one without the other
     # is not an attempt this node can account for, and recording it would leave
@@ -100,7 +106,8 @@ def mitigation_node(
     # The claim goes in before anything happens, so that a walk resumed inside
     # this node is refused by the database rather than by a check it could race
     # with. Losing it means an earlier attempt already acted on this candidate.
-    if not record_action(
+    # Its id is what every write the action makes is marked with.
+    action_id = record_action(
         state.incident_id,
         hypothesis_id=state.hypothesis.id,
         action_type=state.proposed_action.action_type,
@@ -118,16 +125,23 @@ def mitigation_node(
         # Dated by the claim, the action came before the agent that took it -
         # so what dates the action is its announcement.
         at=now()
-    ):
+    )
+
+    if action_id is None:
+        claimed = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
         resumed = _what_the_earlier_attempt_left(
-            state, already_taken, change_landed, advance_action, publisher
+            state, claimed, change_landed, advance_action, publisher
         )
 
         # `None` means the earlier attempt left nothing behind - the claim was
         # written and the change never reached the provider - so this walk
-        # takes the action that claim was for, on the claim already in hand.
+        # takes the action that claim was for, on the claim already in hand, and
+        # marks its writes as that claim's: the same action, so the same mark.
         if resumed is not None:
             return resumed
+
+        assert claimed is not None
+        action_id = claimed.action_id
 
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
     # The announcement, once the agent says the change was made - and none for
@@ -144,36 +158,40 @@ def mitigation_node(
     # wait has one more question to answer than a level: whether any of this
     # incident's own minutes were ever published. Read off the alert rather than
     # derived here, since the alert is the only thing that ever states one.
-    result = take(
-        state.proposed_action,
-        still_wanted=partial(still_wanted, state.incident_id),
-        incident_id=state.incident_id,
-        publisher=publisher,
-        onset=state.alert.stated_onset,
-        # The minute the investigation dated the incident from, so the recovery
-        # is never dated before it.
-        incident_began=state.onset.minute if state.onset is not None else None,
-        # The rule that paged, where the alert is about a series - the action is
-        # judged by whether it stops firing. A finding's check runs on its own
-        # schedule, so it keeps the confirmation it has.
-        rule=(
-            state.alert.rule
-            if state.alert.claim is AlarmClaim.A_SERIES_CONDITION
-            else None
-        ),
-        change_made=partial(
-            _the_change_was_made,
-            advance_action,
-            announced,
-            publisher,
-            now,
+    #
+    # Inside the claim's action, put-back of a refuted change included, so that
+    # every write the tier makes for it carries its mark.
+    with acting_for(action_id):
+        result = take(
+            state.proposed_action,
+            still_wanted=partial(still_wanted, state.incident_id),
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            candidate_number=state.hypothesis.number,
-            action=state.proposed_action,
-            alerting_service=state.alert.service
+            publisher=publisher,
+            onset=state.alert.stated_onset,
+            # The minute the investigation dated the incident from, so the
+            # recovery is never dated before it.
+            incident_began=state.onset.minute if state.onset is not None else None,
+            # The rule that paged, where the alert is about a series - the
+            # action is judged by whether it stops firing. A finding's check
+            # runs on its own schedule, so it keeps the confirmation it has.
+            rule=(
+                state.alert.rule
+                if state.alert.claim is AlarmClaim.A_SERIES_CONDITION
+                else None
+            ),
+            change_made=partial(
+                _the_change_was_made,
+                advance_action,
+                announced,
+                publisher,
+                now,
+                incident_id=state.incident_id,
+                hypothesis_id=state.hypothesis.id,
+                candidate_number=state.hypothesis.number,
+                action=state.proposed_action,
+                alerting_service=state.alert.service
+            )
         )
-    )
     # When the change was made, for the round that remembers the attempt - and
     # nothing where none was: an action never performed is no attempt a later
     # round may be told was refuted.
@@ -401,7 +419,7 @@ def _the_change_was_made(advance_action: AdvanceAction,
 
 
 def _what_the_earlier_attempt_left(state: IncidentState,
-                                   already_taken: ActionAlreadyTaken,
+                                   claimed: ClaimedAction | None,
                                    change_landed: ChangeLanded,
                                    advance_action: AdvanceAction,
                                    publisher: Publisher
@@ -433,7 +451,8 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     incident escalates as above.
 
     If the change never landed, nothing happened at all - so this walk takes
-    the action, on the claim already written.
+    the action, on the claim already written. That answer is only ever given
+    about a claim that was found, since the question needs its moment.
 
     A provider that cannot say is treated as the first case, not the second. An
     unanswerable question is not a "no", and acting on it would be acting on a
@@ -458,7 +477,6 @@ def _what_the_earlier_attempt_left(state: IncidentState,
     """
     assert state.hypothesis is not None and state.proposed_action is not None
 
-    claimed = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
     outcome = claimed.outcome if claimed is not None else None
 
     if isinstance(outcome, UnreadVerdict):

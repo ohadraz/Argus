@@ -47,7 +47,12 @@ from collections.abc import Callable
 
 from core.mcp_transport import an_exhausted_action
 from core.models import AutoscalerUndo, AutoscalingRestored
-from deployment_platform import Autoscaler, DeploymentPlatformError, DeploymentPlatformWrites
+from deployment_platform import (
+    Autoscaler,
+    DeploymentPlatformError,
+    DeploymentPlatformWrites,
+    Mark,
+)
 
 from write_mcp_server.refusing import a_platform_refusal
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
@@ -91,9 +96,10 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
 
 
 def pin_autoscaler(application: str,
-                   platform: DeploymentPlatformWrites) -> AutoscalerUndo:
+                   platform: DeploymentPlatformWrites,
+                   mark: Mark) -> AutoscalerUndo:
     """Raises `application`'s autoscaler floor to its ceiling, and reports what
-    that cost.
+    that cost - every write carrying `mark`.
 
     To the ceiling and no further, because the ceiling is a bound a human
     declared. What Argus is choosing here is not how many replicas should run -
@@ -142,7 +148,7 @@ def pin_autoscaler(application: str,
     # for: a failure here may have suspended the sync, where one there cannot.
     if was_syncing_itself:
         try:
-            platform.suspend_sync(application)
+            platform.suspend_sync(application, mark)
         except DeploymentPlatformError as error:
             raise _refusing(
                 f"could not suspend the sync of [{application}]: {error}", error,
@@ -160,7 +166,7 @@ def pin_autoscaler(application: str,
     )
 
     try:
-        platform.set_autoscaler_floor(application, autoscaler, the_floor_to_ask_for)
+        platform.set_autoscaler_floor(application, autoscaler, the_floor_to_ask_for, mark)
     except DeploymentPlatformError as error:
         logger.warning("autoscaler pin refused", extra={
             "application": application, "sync_suspended": was_syncing_itself
@@ -181,8 +187,10 @@ def pin_autoscaler(application: str,
 
 
 def restore_autoscaler_floor(descriptor: AutoscalerUndo,
-                             platform: DeploymentPlatformWrites) -> AutoscalingRestored:
-    """Puts back both of the things a pin changed, and says which it managed.
+                             platform: DeploymentPlatformWrites,
+                             mark: Mark) -> AutoscalingRestored:
+    """Puts back both of the things a pin changed, and says which it managed -
+    every write carrying `mark`, as the pin's did.
 
     A pair rather than an exception, for the reason the scale-out's restore answers
     one: a restore can half-succeed and the half that fails is the quiet one. The
@@ -206,7 +214,8 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
         lambda: platform.set_autoscaler_floor(
             application,
             _where_the_autoscaler_is(application, platform),
-            descriptor.was_min_replicas
+            descriptor.was_min_replicas,
+            mark
         )
     )
 
@@ -224,7 +233,7 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
             floor_put_back=floor,
             automated_sync_put_back=_tried(
                 application, "automated sync",
-                lambda: platform.resume_sync(application)
+                lambda: platform.resume_sync(application, mark)
             )
         ),
         application

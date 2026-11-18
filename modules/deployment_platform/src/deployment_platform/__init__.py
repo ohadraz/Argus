@@ -23,6 +23,7 @@ from deployment_platform.port import (
     DeploymentPlatformReads,
     DeploymentPlatformWrites,
     DeploymentRecord,
+    Mark,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "DeploymentPlatformReads",
     "DeploymentPlatformWrites",
     "DeploymentRecord",
+    "Mark",
     "PlatformRefused",
     "PlatformUnreachable"
 ]

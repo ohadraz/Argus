@@ -52,6 +52,7 @@ from write_mcp_server.accelerators import (
     restore_accelerator_pin,
 )
 
+from write_mcp_server_test.framework.marks import a_mark, every_write_carried
 from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
@@ -60,6 +61,10 @@ from write_mcp_server_test.framework.refusals import (
 )
 
 SOME_APPLICATION = "io-shop"
+# What every pin and restore here is made under. One for the file: which action
+# a write is for is the caller's, and what is asserted is only that the writes
+# carry it.
+SOME_MARK = a_mark()
 THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
 SOME_OTHER_CARD = "NVIDIA-A100-SXM4-40GB"
 
@@ -82,11 +87,11 @@ def a_platform(pinned_to: str | None = None, reconciling_itself: bool = True) ->
 
 
 def _pinning(platform: Any, to: str = THE_FLEETS_CARD) -> AcceleratorPinUndo:
-    return pin_to_accelerator(SOME_APPLICATION, to, platform)
+    return pin_to_accelerator(SOME_APPLICATION, to, platform, SOME_MARK)
 
 
 def _restoring(descriptor: AcceleratorPinUndo, platform: Any) -> AcceleratorPinRestored:
-    return restore_accelerator_pin(descriptor, platform)
+    return restore_accelerator_pin(descriptor, platform, SOME_MARK)
 
 
 @pytest.mark.unit
@@ -109,6 +114,34 @@ def test_reconciliation_is_suspended_before_the_pin() -> None:
         .given(platform) \
         .when(lambda: _pinning(platform)) \
         .then(_it_was_asked_in_order(platform, "suspend_sync", "pin_to_accelerator"))
+
+
+@pytest.mark.unit
+def test_every_write_a_pin_makes_carries_its_actions_mark() -> None:
+    # The suspension and the selector alike: either left on the platform
+    # unmarked is a change nobody can tell from a person's.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _pinning(platform)) \
+        .then(all_of(
+            every_write_carried(platform, "suspend_sync", SOME_MARK),
+            every_write_carried(platform, "pin_to_accelerator", SOME_MARK)
+        ))
+
+
+@pytest.mark.unit
+def test_every_write_a_restore_makes_carries_its_mark() -> None:
+    platform = a_platform()
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(descriptor, platform)) \
+        .then(all_of(
+            every_write_carried(platform, "pin_to_accelerator", SOME_MARK),
+            every_write_carried(platform, "resume_sync", SOME_MARK)
+        ))
 
 
 @pytest.mark.unit
@@ -513,8 +546,10 @@ def _a_descriptor(was_pinned_to: str | None = None,
 
 
 def _it_pinned(platform: Any, cards: list[str | None]) -> Assertion[object]:
+    """The cards pinned to, in turn - the mark each carried is
+    `every_write_carried`'s to say."""
     def assertion(dont_care_result: object) -> bool:
-        asked = [call.args for call in platform.pin_to_accelerator.call_args_list]
+        asked = [call.args[:2] for call in platform.pin_to_accelerator.call_args_list]
         expected = [(SOME_APPLICATION, card) for card in cards]
 
         if asked != expected:

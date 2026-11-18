@@ -23,9 +23,11 @@ def claim(
     action_type: ActionType,
     subject: str | None,
     at: datetime,
-) -> bool:
-    """Takes the right to act on one candidate, and says whether it got it
-    (spec §11.1, §13).
+) -> str | None:
+    """Takes the right to act on one candidate, and answers with the claim's id
+    where it got it, or `None` where an earlier attempt holds it (spec §11.1,
+    §13). The id is what the action's writes are marked with, so the platform
+    can say afterwards which action a change was.
 
     Written *before* the action is taken, which is what makes it a claim rather
     than a record: the unique index on the incident and the candidate is what
@@ -87,7 +89,8 @@ def claim(
             "                    has_a_way_back, taken_at, progress) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
-            "WHERE hypothesis_id IS NOT NULL DO NOTHING",
+            "WHERE hypothesis_id IS NOT NULL DO NOTHING "
+            "RETURNING id",
             (
                 incident_id,
                 hypothesis_id,
@@ -98,9 +101,9 @@ def claim(
                 ActionProgress.CLAIMED,
             ),
         )
-        claimed = cursor.rowcount == 1
+        claimed = cursor.fetchone()
 
-    return claimed
+    return None if claimed is None else str(claimed[0])
 
 
 def complete(

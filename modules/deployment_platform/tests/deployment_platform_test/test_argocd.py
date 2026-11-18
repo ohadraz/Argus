@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import httpx2
@@ -37,6 +37,7 @@ from deployment_platform import (
     AutoscalerBounds,
     DeploymentPlatformError,
     DeploymentRecord,
+    Mark,
     PlatformRefused,
     PlatformUnreachable,
 )
@@ -81,6 +82,23 @@ THE_DEPLOYMENT_SELECTORS = {
 THE_CARD_LABEL = "nvidia.com/gpu.product"
 SOME_CARD = "Tesla-V100-SXM2-16GB"
 SOME_OTHER_CARD = "NVIDIA-A100-SXM4-40GB"
+
+# The mark every write Argus makes is made under: the action row it is made for,
+# and when the write tier wrote it - to the millisecond here, so that a moment
+# said to the second is seen to be cut there.
+SOME_MARK = Mark(
+    action_id="6f1c1d2e-0000-4000-8000-0000000000a1",
+    written_at=datetime(2026, 11, 18, 13, 5, 0, 417000, tzinfo=UTC)
+)
+# The mark as it lands on the written object's own metadata. The moment is
+# spelled out rather than worked out from the one above: the spelling - UTC, to
+# the second, with a `Z` - is the wire shape this file pins.
+THE_MARKED_METADATA = {
+    "annotations": {
+        "argus/action": SOME_MARK.action_id,
+        "argus/written-at": "2026-11-18T13:05:00Z"
+    }
+}
 
 GET = "GET"
 POST = "POST"
@@ -512,15 +530,16 @@ def test_whether_an_application_syncs_itself_is_read_as_argo_cd_reads_it(
 
 
 @pytest.mark.unit
-def test_suspending_sync_merge_patches_the_switch_alone() -> None:
+def test_suspending_sync_merge_patches_the_switch_alone_beside_the_mark() -> None:
     # Not the spec route, which replaces the whole spec; and not an `automated`
     # object of Argus's own, which would replace the operator's prune and
-    # selfHeal.
+    # selfHeal. The mark rides in the same patch, on the application's own
+    # metadata, so the change and what says whose it was land together.
     platform = _Platform().answering(PATCH, THE_APPLICATION, _ok())
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(lambda: argo_cd.suspend_sync(SOME_APPLICATION)) \
+        .when(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK)) \
         .then(lambda _: _the_last_request_was(
             platform, PATCH, THE_APPLICATION,
             body=_a_sync_patch_setting_enabled_to(False)
@@ -528,14 +547,14 @@ def test_suspending_sync_merge_patches_the_switch_alone() -> None:
 
 
 @pytest.mark.unit
-def test_resuming_sync_removes_the_switch() -> None:
+def test_resuming_sync_removes_the_switch_beside_the_mark() -> None:
     # A merge patch's `null` removes the key, which the platform reads as on -
     # what was found, since an application syncing itself had it absent or true.
     platform = _Platform().answering(PATCH, THE_APPLICATION, _ok())
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(lambda: argo_cd.resume_sync(SOME_APPLICATION)) \
+        .when(lambda: argo_cd.resume_sync(SOME_APPLICATION, SOME_MARK)) \
         .then(lambda _: _the_last_request_was(
             platform, PATCH, THE_APPLICATION,
             body=_a_sync_patch_setting_enabled_to(None)
@@ -548,27 +567,75 @@ def test_resuming_sync_removes_the_switch() -> None:
 
 
 @pytest.mark.unit
-def test_scaling_runs_the_built_in_scale_action_with_the_count_as_text() -> None:
-    # Every resource-action parameter travels as a string, and the action's own
-    # Lua makes a number of it.
+def test_scaling_merge_patches_the_deployments_count_beside_the_mark() -> None:
+    # A merge patch on the Deployment rather than the built-in `scale` action,
+    # because an action's Lua writes only what it was written to and has no room
+    # for the mark - and a write that cannot say whose it was is one nobody can
+    # tell from a person's. The count is a number here: it is the manifest's own
+    # field, not an action's parameter.
     some_replicas = 6
-    platform = _Platform().answering(POST, THE_RESOURCE_ACTIONS, _ok())
+    platform = _Platform().answering(POST, THE_RESOURCE, _ok())
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(lambda: argo_cd.scale(SOME_APPLICATION, some_replicas)) \
+        .when(lambda: argo_cd.scale(SOME_APPLICATION, some_replicas, SOME_MARK)) \
         .then(lambda _: _the_last_request_was(
-            platform, POST, THE_RESOURCE_ACTIONS,
-            body={
-                "namespace": SOME_SCALE_NAMESPACE,
-                "resourceName": SOME_APPLICATION,
-                "group": "apps",
-                "kind": "Deployment",
-                "action": "scale",
-                "resourceActionParameters": [
-                    {"name": "replicas", "value": str(some_replicas)}
-                ]
-            }
+            platform, POST, THE_RESOURCE,
+            query={
+                **THE_DEPLOYMENT_SELECTORS,
+                "patchType": "application/merge-patch+json"
+            },
+            body=json.dumps({
+                "metadata": THE_MARKED_METADATA,
+                "spec": {"replicas": some_replicas}
+            })
+        ))
+
+
+@pytest.mark.unit
+def test_scaling_asks_nothing_of_the_resource_actions() -> None:
+    # One request, and the patch is it. A scale that still ran the action
+    # beside the patch would make the change twice, once unmarked.
+    some_replicas = 6
+    platform = _Platform() \
+        .answering(POST, THE_RESOURCE, _ok()) \
+        .answering(POST, THE_RESOURCE_ACTIONS, _ok())
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.scale(SOME_APPLICATION, some_replicas, SOME_MARK)) \
+        .then(lambda _: _only_these_were_asked(platform, [(POST, THE_RESOURCE)]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "written_at",
+    [
+        SOME_MARK.written_at.replace(microsecond=999999),
+        SOME_MARK.written_at.astimezone(timezone(timedelta(hours=2)))
+    ],
+    ids=["a moment late in its second", "a moment in another zone"]
+)
+def test_the_moment_a_write_was_made_is_said_in_utc_to_the_second(
+    written_at: datetime
+) -> None:
+    # One spelling whichever moment it was handed: an annotation read beside
+    # the platform's own timestamps, which are UTC to the second, and compared
+    # by a person against them.
+    platform = _Platform().answering(POST, THE_RESOURCE, _ok())
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.pin_to_accelerator(
+            SOME_APPLICATION, SOME_CARD,
+            Mark(action_id=SOME_MARK.action_id, written_at=written_at)
+        )) \
+        .then(lambda _: _the_last_request_was(
+            platform, POST, THE_RESOURCE,
+            body=json.dumps({
+                "metadata": THE_MARKED_METADATA,
+                "spec": {"template": {"spec": {"nodeSelector": {THE_CARD_LABEL: SOME_CARD}}}}
+            })
         ))
 
 
@@ -741,17 +808,17 @@ def test_an_autoscaler_missing_a_bound_is_refused() -> None:
 
 
 @pytest.mark.unit
-def test_raising_the_floor_merge_patches_the_floor_alone_as_text() -> None:
-    # The resource route's patch is a JSON-encoded *string*, and it says only the
-    # floor: a body carrying the ceiling would re-assert a human's declaration as
-    # though Argus had decided it.
+def test_raising_the_floor_merge_patches_the_floor_alone_as_text_beside_the_mark() -> None:
+    # The resource route's patch is a JSON-encoded *string*, and of the spec it
+    # says only the floor: a body carrying the ceiling would re-assert a human's
+    # declaration as though Argus had decided it.
     some_floor = 10
     platform = _Platform().answering(POST, THE_RESOURCE, _ok())
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
         .when(lambda: argo_cd.set_autoscaler_floor(
-            SOME_APPLICATION, SOME_AUTOSCALER, some_floor
+            SOME_APPLICATION, SOME_AUTOSCALER, some_floor, SOME_MARK
         )) \
         .then(lambda _: _the_last_request_was(
             platform, POST, THE_RESOURCE,
@@ -759,7 +826,10 @@ def test_raising_the_floor_merge_patches_the_floor_alone_as_text() -> None:
                 **THE_AUTOSCALER_SELECTORS,
                 "patchType": "application/merge-patch+json"
             },
-            body=json.dumps({"spec": {"minReplicas": some_floor}})
+            body=json.dumps({
+                "metadata": THE_MARKED_METADATA,
+                "spec": {"minReplicas": some_floor}
+            })
         ))
 
 
@@ -927,40 +997,43 @@ def test_a_deployment_with_no_selector_at_all_is_pinned_to_none() -> None:
 
 
 @pytest.mark.unit
-def test_pinning_merge_patches_the_card_label_alone_as_text() -> None:
+def test_pinning_merge_patches_the_card_label_alone_as_text_beside_the_mark() -> None:
     # The template's selector and, of it, only the card. A patch carrying the
     # whole selector would replace selectors somebody else declared.
     platform = _Platform().answering(POST, THE_RESOURCE, _ok())
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(lambda: argo_cd.pin_to_accelerator(SOME_APPLICATION, SOME_CARD)) \
+        .when(lambda: argo_cd.pin_to_accelerator(SOME_APPLICATION, SOME_CARD, SOME_MARK)) \
         .then(lambda _: _the_last_request_was(
             platform, POST, THE_RESOURCE,
             query={
                 **THE_DEPLOYMENT_SELECTORS,
                 "patchType": "application/merge-patch+json"
             },
-            body=json.dumps({"spec": {"template": {"spec": {"nodeSelector": {
-                THE_CARD_LABEL: SOME_CARD
-            }}}}})
+            body=json.dumps({
+                "metadata": THE_MARKED_METADATA,
+                "spec": {"template": {"spec": {"nodeSelector": {THE_CARD_LABEL: SOME_CARD}}}}
+            })
         ))
 
 
 @pytest.mark.unit
-def test_releasing_a_pin_removes_the_card_label_with_a_null() -> None:
+def test_releasing_a_pin_removes_the_card_label_with_a_null_beside_the_mark() -> None:
     # RFC 7386's own way of deleting a key, which is what an undo of a pin onto a
-    # deployment that had none has to send.
+    # deployment that had none has to send. The undo is a write of Argus's as
+    # much as the pin was, and is marked as one.
     platform = _Platform().answering(POST, THE_RESOURCE, _ok())
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(lambda: argo_cd.pin_to_accelerator(SOME_APPLICATION, None)) \
+        .when(lambda: argo_cd.pin_to_accelerator(SOME_APPLICATION, None, SOME_MARK)) \
         .then(lambda _: _the_last_request_was(
             platform, POST, THE_RESOURCE,
-            body=json.dumps({"spec": {"template": {"spec": {"nodeSelector": {
-                THE_CARD_LABEL: None
-            }}}}})
+            body=json.dumps({
+                "metadata": THE_MARKED_METADATA,
+                "spec": {"template": {"spec": {"nodeSelector": {THE_CARD_LABEL: None}}}}
+            })
         ))
 
 
@@ -981,7 +1054,7 @@ def test_a_platform_that_never_answered_is_unreachable(failure: Exception) -> No
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(never_answering)) \
-        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK))) \
         .then(an_error_was_raised(PlatformUnreachable))
 
 
@@ -994,7 +1067,7 @@ def test_a_platform_reporting_its_own_fault_is_unreachable(status: int) -> None:
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK))) \
         .then(an_error_was_raised(PlatformUnreachable))
 
 
@@ -1007,7 +1080,7 @@ def test_a_platform_rejecting_the_request_refused_it(status: int) -> None:
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK))) \
         .then(all_of(
             an_error_was_raised(PlatformRefused),
             _it_was_not(PlatformUnreachable)
@@ -1052,7 +1125,7 @@ def test_a_change_that_never_left_the_process_is_known_not_applied(
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(never_connecting)) \
-        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK))) \
         .then(_it_was_known_not_applied(True))
 
 
@@ -1075,7 +1148,7 @@ def test_a_change_whose_answer_was_lost_may_have_been_applied(failure: Exception
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(losing_the_answer)) \
-        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK))) \
         .then(_it_was_known_not_applied(False))
 
 
@@ -1091,7 +1164,7 @@ def test_a_change_the_platform_answered_it_did_not_handle_is_known_not_applied(
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK))) \
         .then(_it_was_known_not_applied(True))
 
 
@@ -1104,7 +1177,7 @@ def test_a_change_the_platform_failed_part_way_may_have_been_applied(status: int
 
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
-        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION, SOME_MARK))) \
         .then(_it_was_known_not_applied(False))
 
 
@@ -1168,12 +1241,14 @@ def _a_history_entry(history_id: int, deployed_at: str) -> dict[str, Any]:
 
 
 def _a_sync_patch_setting_enabled_to(enabled: bool | None) -> dict[str, Any]:
-    """`ApplicationPatchRequest`: the patch travels as a JSON-encoded string."""
+    """`ApplicationPatchRequest`: the patch travels as a JSON-encoded string, and
+    carries the mark on the application's own metadata beside the switch."""
     return {
         "name": SOME_APPLICATION,
-        "patch": json.dumps(
-            {"spec": {"syncPolicy": {"automated": {"enabled": enabled}}}}
-        ),
+        "patch": json.dumps({
+            "metadata": THE_MARKED_METADATA,
+            "spec": {"syncPolicy": {"automated": {"enabled": enabled}}}
+        }),
         "patchType": "merge"
     }
 
@@ -1186,7 +1261,9 @@ def _the_last_request_was(platform: _Platform,
     """The request as it left the process: every part the case names, compared.
 
     `query` and `body` are compared only where given, so a case about the route
-    does not also fix the body and the reverse.
+    does not also fix the body and the reverse. A patch carried as text is
+    compared as what it says (`_alike`), so the order its keys are written in -
+    which no server reads - is not pinned.
     """
     if not platform.asked:
         raise AssertionError(
@@ -1202,7 +1279,7 @@ def _the_last_request_was(platform: _Platform,
     if query is not None and dict(request.url.params) != query:
         wrong.append(f"carried the query {dict(request.url.params)}")
 
-    if body is not None and json.loads(request.content) != body:
+    if body is not None and not _alike(json.loads(request.content), body):
         wrong.append(f"carried the body {request.content.decode()}")
 
     if wrong:
@@ -1212,6 +1289,33 @@ def _the_last_request_was(platform: _Platform,
             f"{f' and the body {body!r}' if body is not None else ''}, "
             f"and the request {'; '.join(wrong)}."
         )
+
+    return True
+
+
+def _alike(sent: Any, expected: Any) -> bool:
+    """Whether `sent` is `expected`, text that encodes JSON compared as what it
+    encodes - and only ever against text: a patch sent as an object where the
+    route takes a string is still a different body."""
+    if isinstance(sent, str) and isinstance(expected, str):
+        try:
+            return bool(json.loads(sent) == json.loads(expected))
+        except ValueError:
+            return sent == expected
+
+    if isinstance(sent, dict) and isinstance(expected, dict):
+        return sent.keys() == expected.keys() and all(
+            _alike(sent[key], expected[key]) for key in expected
+        )
+
+    return bool(sent == expected)
+
+
+def _only_these_were_asked(platform: _Platform, expected: list[tuple[str, str]]) -> bool:
+    asked = [(request.method, request.url.path) for request in platform.asked]
+
+    if asked != expected:
+        raise AssertionError(f"Expected the platform asked only {expected}, got {asked}.")
 
     return True
 

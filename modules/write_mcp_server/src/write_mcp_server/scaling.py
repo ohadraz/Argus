@@ -57,7 +57,7 @@ from typing import Final
 
 from core.mcp_transport import an_exhausted_action
 from core.models import CapacityRestored, ReplicaUndo
-from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites, Mark
 
 from write_mcp_server.refusing import a_platform_refusal
 
@@ -111,8 +111,11 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
     ))
 
 
-def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUndo:
-    """Doubles what `application` is running, and reports what that cost.
+def scale_out(application: str,
+              platform: DeploymentPlatformWrites,
+              mark: Mark) -> ReplicaUndo:
+    """Doubles what `application` is running, and reports what that cost - every
+    write carrying `mark`.
 
     Doubling rather than a figure somebody chose: what a saturated deployment
     needs is more capacity than it has, and the multiple of its current size is
@@ -161,7 +164,7 @@ def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUn
     # for: a failure here may have suspended the sync, where one there cannot.
     if was_syncing_itself:
         try:
-            platform.suspend_sync(application)
+            platform.suspend_sync(application, mark)
         except DeploymentPlatformError as error:
             raise _refusing(
                 f"could not suspend the sync of [{application}]: {error}", error,
@@ -178,7 +181,7 @@ def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUn
     )
 
     try:
-        platform.scale(application, _twice(running))
+        platform.scale(application, _twice(running), mark)
     except DeploymentPlatformError as error:
         logger.warning("scale-out refused", extra={
             "application": application, "sync_suspended": was_syncing_itself
@@ -199,8 +202,10 @@ def scale_out(application: str, platform: DeploymentPlatformWrites) -> ReplicaUn
 
 
 def restore_replica_count(descriptor: ReplicaUndo,
-                          platform: DeploymentPlatformWrites) -> CapacityRestored:
-    """Puts back both of the things a scale-out changed, and says which it managed.
+                          platform: DeploymentPlatformWrites,
+                          mark: Mark) -> CapacityRestored:
+    """Puts back both of the things a scale-out changed, and says which it managed
+    - every write carrying `mark`, as the scale-out's did.
 
     A pair rather than an exception, for the reason the rollback's restore answers
     one: a restore can half-succeed and the half that fails is the quiet one. The
@@ -225,7 +230,8 @@ def restore_replica_count(descriptor: ReplicaUndo,
     application = descriptor.application
 
     count = _tried(
-        application, "count", lambda: platform.scale(application, descriptor.was_replicas)
+        application, "count",
+        lambda: platform.scale(application, descriptor.was_replicas, mark)
     )
 
     if not descriptor.was_syncing_itself:
@@ -242,7 +248,7 @@ def restore_replica_count(descriptor: ReplicaUndo,
             count_put_back=count,
             automated_sync_put_back=_tried(
                 application, "automated sync",
-                lambda: platform.resume_sync(application)
+                lambda: platform.resume_sync(application, mark)
             )
         ),
         application

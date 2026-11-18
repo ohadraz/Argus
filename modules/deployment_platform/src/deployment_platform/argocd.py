@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Final
 
@@ -26,7 +26,7 @@ from core.applying import known_not_applied
 from core.models import PodPlacement, RolloutProgress
 
 from deployment_platform.failures import PlatformRefused, PlatformUnreachable
-from deployment_platform.port import Autoscaler, AutoscalerBounds, DeploymentRecord
+from deployment_platform.port import Autoscaler, AutoscalerBounds, DeploymentRecord, Mark
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,17 @@ _USERNAME: Final = "username"
 # parses it.
 _MANIFEST: Final = "manifest"
 
+# Where an object carries what anybody wrote about it, in Kubernetes' own words,
+# and the two keys Argus marks a change of its own with. On the object's own
+# metadata and never on a pod template's, which would roll every pod. `argus`
+# is a valid prefix for a key: a DNS subdomain may be a single label.
+METADATA: Final = "metadata"
+ANNOTATIONS: Final = "annotations"
+ACTION_ANNOTATION: Final = "argus/action"
+WRITTEN_AT_ANNOTATION: Final = "argus/written-at"
+# How the moment is spelled: UTC to the second, as the platform spells its own.
+_WRITTEN_AT_FORMAT: Final = "%Y-%m-%dT%H:%M:%SZ"
+
 # Kubernetes' vocabulary for the parts of a Deployment and an autoscaler read here.
 _REPLICAS: Final = "replicas"
 _UPDATED_REPLICAS: Final = "updatedReplicas"
@@ -123,12 +134,11 @@ ACCELERATOR_LABEL: Final = "nvidia.com/gpu.product"
 TEMPLATE: Final = "template"
 NODE_SELECTOR: Final = "nodeSelector"
 
-# The built-in resource actions, by the names Argo CD registers them under, and
-# what they are run against: Argo CD dispatches its Lua by group and kind, and both
-# are written for `apps/Deployment`.
+# The built-in resource action a restart is, by the name Argo CD registers it
+# under, and what it is run against: Argo CD dispatches its Lua by group and kind,
+# and it is written for `apps/Deployment` - which is also what a patch of the
+# Deployment addresses.
 RESTART_ACTION: Final = "restart"
-SCALE_ACTION: Final = "scale"
-REPLICAS_PARAMETER: Final = "replicas"
 DEPLOYMENT_GROUP: Final = "apps"
 DEPLOYMENT_VERSION: Final = "v1"
 DEPLOYMENT_KIND: Final = "Deployment"
@@ -304,30 +314,28 @@ class ArgoCd:
 
         return automated is not None and automated.get(ENABLED) is not False
 
-    def suspend_sync(self, application: str, /) -> None:
-        self._set_sync(application, reconciling=False)
+    def suspend_sync(self, application: str, mark: Mark, /) -> None:
+        self._set_sync(application, reconciling=False, mark=mark)
 
-    def resume_sync(self, application: str, /) -> None:
-        self._set_sync(application, reconciling=True)
+    def resume_sync(self, application: str, mark: Mark, /) -> None:
+        self._set_sync(application, reconciling=True, mark=mark)
 
-    def scale(self, application: str, replicas: int, /) -> None:
-        """Runs the built-in `scale` action, with the count spelled as text.
+    def scale(self, application: str, replicas: int, mark: Mark, /) -> None:
+        """A merge patch of the Deployment's count, beside the mark.
 
-        Every resource-action parameter travels as a string, and the action's own
-        Lua makes a number of it.
+        Not the built-in `scale` action: its Lua writes the count and nothing
+        else, so a resize made through it could not say whose it was. The count
+        is a number here, being the manifest's own field.
         """
         self._send(
             "POST",
-            self._settings.argocd_resource_action_path,
+            self._settings.argocd_resource_path,
             application,
-            body={
-                **self._a_deployment_action(
-                    SCALE_ACTION, self._settings.scale_namespace, application
-                ),
-                "resourceActionParameters": [
-                    {"name": REPLICAS_PARAMETER, "value": str(replicas)}
-                ]
-            }
+            params={
+                **self._the_deployment_of(application),
+                PATCH_REQUEST_TYPE: RESOURCE_MERGE_PATCH
+            },
+            body=json.dumps({**_marked(mark), SPEC: {_REPLICAS: replicas}})
         )
 
     def roll_back(self, application: str, to_history_id: int, /) -> None:
@@ -422,21 +430,23 @@ class ArgoCd:
                              application: str,
                              autoscaler: Autoscaler,
                              floor: int,
+                             mark: Mark,
                              /) -> None:
-        """A merge patch of the floor alone, as the resource route carries one.
+        """A merge patch of the floor alone, beside the mark, as the resource
+        route carries one.
 
         A JSON-encoded *string* rather than an object - the vendor's own shape for
         this body, and the mirror of the manifest arriving as text from the same
-        route. One field, because a merge patch says only what changes: a body
-        carrying the ceiling would re-assert a human's declaration as though Argus
-        had decided it.
+        route. One field of the spec, because a merge patch says only what
+        changes: a body carrying the ceiling would re-assert a human's
+        declaration as though Argus had decided it.
         """
         self._send(
             "POST",
             self._settings.argocd_resource_path,
             application,
             params={**_addressing(autoscaler), PATCH_REQUEST_TYPE: RESOURCE_MERGE_PATCH},
-            body=json.dumps({SPEC: {_MIN_REPLICAS: floor}})
+            body=json.dumps({**_marked(mark), SPEC: {_MIN_REPLICAS: floor}})
         )
 
     def accelerator_pin_of(self, application: str, /) -> str | None:
@@ -453,13 +463,19 @@ class ArgoCd:
 
         return _parsed(pinned_to, f"[{application}]'s node selector")
 
-    def pin_to_accelerator(self, application: str, accelerator: str | None, /) -> None:
-        """A merge patch of the card label alone, on the pod template's selector.
+    def pin_to_accelerator(self,
+                           application: str,
+                           accelerator: str | None,
+                           mark: Mark,
+                           /) -> None:
+        """A merge patch of the card label alone, on the pod template's selector,
+        beside the mark on the Deployment's own metadata.
 
-        The label and nothing else, because a merge patch says only what changes:
-        a body carrying the whole selector would replace selectors somebody else
-        declared. A `None` is sent as a null, which RFC 7386 reads as removing the
-        key - how a pin onto a deployment that had none is let go.
+        The label and nothing else of the template, because a merge patch says
+        only what changes: a body carrying the whole selector would replace
+        selectors somebody else declared. A `None` is sent as a null, which RFC
+        7386 reads as removing the key - how a pin onto a deployment that had
+        none is let go.
         """
         self._send(
             "POST",
@@ -469,9 +485,10 @@ class ArgoCd:
                 **self._the_deployment_of(application),
                 PATCH_REQUEST_TYPE: RESOURCE_MERGE_PATCH
             },
-            body=json.dumps(
-                {SPEC: {TEMPLATE: {SPEC: {NODE_SELECTOR: {ACCELERATOR_LABEL: accelerator}}}}}
-            )
+            body=json.dumps({
+                **_marked(mark),
+                SPEC: {TEMPLATE: {SPEC: {NODE_SELECTOR: {ACCELERATOR_LABEL: accelerator}}}}
+            })
         )
 
     def _the_deployment_of(self, application: str) -> dict[str, str]:
@@ -488,8 +505,9 @@ class ArgoCd:
             _KIND: DEPLOYMENT_KIND
         }
 
-    def _set_sync(self, application: str, reconciling: bool) -> None:
-        """A merge patch of the switch alone, on the application route.
+    def _set_sync(self, application: str, reconciling: bool, mark: Mark) -> None:
+        """A merge patch of the switch alone, beside the mark, on the application
+        route.
 
         Not the spec route: that takes its body as the *whole* spec and replaces
         the application's with it. And not an `automated` object of Argus's own:
@@ -506,7 +524,7 @@ class ArgoCd:
             body={
                 PATCH_REQUEST_NAME: application,
                 PATCH_REQUEST_PATCH: json.dumps(
-                    {SPEC: {SYNC_POLICY: {AUTOMATED: {ENABLED: switch}}}}
+                    {**_marked(mark), SPEC: {SYNC_POLICY: {AUTOMATED: {ENABLED: switch}}}}
                 ),
                 PATCH_REQUEST_TYPE: APPLICATION_MERGE_PATCH
             }
@@ -590,6 +608,21 @@ class ArgoCd:
             ) from error
 
         return response
+
+
+def _marked(mark: Mark) -> dict[str, Any]:
+    """The part of a merge patch that marks the object as Argus's: both
+    annotations on its own metadata, the moment in UTC to the second."""
+    return {
+        METADATA: {
+            ANNOTATIONS: {
+                ACTION_ANNOTATION: mark.action_id,
+                WRITTEN_AT_ANNOTATION: mark.written_at.astimezone(UTC).strftime(
+                    _WRITTEN_AT_FORMAT
+                )
+            }
+        }
+    }
 
 
 def _headers_for(auth_token: str) -> dict[str, str]:

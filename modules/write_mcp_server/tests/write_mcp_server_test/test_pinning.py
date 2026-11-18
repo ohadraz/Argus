@@ -66,6 +66,7 @@ from write_mcp_server.pinning import (
 )
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 
+from write_mcp_server_test.framework.marks import a_mark, every_write_carried
 from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
@@ -74,6 +75,10 @@ from write_mcp_server_test.framework.refusals import (
 )
 
 SOME_APPLICATION = "io-shop"
+# What every pin and restore here is made under. One for the file: which action
+# a write is for is the caller's, and what is asserted is only that the writes
+# carry it.
+SOME_MARK = a_mark()
 
 # What the autoscaler is called and where it lives, as the platform reports them.
 # Deliberately not the application's name: an autoscaler named after its
@@ -114,11 +119,11 @@ def a_platform(floor: int = THE_FLOOR,
 
 
 def _pinning(platform: Any) -> AutoscalerUndo:
-    return pin_autoscaler(SOME_APPLICATION, platform)
+    return pin_autoscaler(SOME_APPLICATION, platform, SOME_MARK)
 
 
 def _restoring(descriptor: AutoscalerUndo, platform: Any) -> AutoscalingRestored:
-    return restore_autoscaler_floor(descriptor, platform)
+    return restore_autoscaler_floor(descriptor, platform, SOME_MARK)
 
 
 @pytest.mark.unit
@@ -132,6 +137,34 @@ def test_a_pin_raises_the_floor_to_the_ceiling() -> None:
         .given(platform) \
         .when(lambda: _pinning(platform)) \
         .then(_it_asked_for_a_floor_of(platform, THE_CEILING))
+
+
+@pytest.mark.unit
+def test_every_write_a_pin_makes_carries_its_actions_mark() -> None:
+    # The suspension and the floor alike: either left on the platform unmarked
+    # is a change nobody can tell from a person's.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: _pinning(platform)) \
+        .then(all_of(
+            every_write_carried(platform, "suspend_sync", SOME_MARK),
+            every_write_carried(platform, "set_autoscaler_floor", SOME_MARK)
+        ))
+
+
+@pytest.mark.unit
+def test_every_write_a_restore_makes_carries_its_mark() -> None:
+    platform = a_platform()
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: _restoring(descriptor, platform)) \
+        .then(all_of(
+            every_write_carried(platform, "set_autoscaler_floor", SOME_MARK),
+            every_write_carried(platform, "resume_sync", SOME_MARK)
+        ))
 
 
 @pytest.mark.unit
@@ -799,9 +832,10 @@ def _a_descriptor(was_syncing_itself: bool) -> AutoscalerUndo:
 
 
 def _it_asked_for_a_floor_of(platform: Any, floor: int) -> Assertion[object]:
-    """One floor written, to the autoscaler the platform named."""
+    """One floor written, to the autoscaler the platform named - the mark it
+    carried is `every_write_carried`'s to say."""
     def assertion(dont_care_result: object) -> bool:
-        asked = [call.args for call in platform.set_autoscaler_floor.call_args_list]
+        asked = [call.args[:3] for call in platform.set_autoscaler_floor.call_args_list]
 
         if asked != [(SOME_APPLICATION, SOME_AUTOSCALER, floor)]:
             raise AssertionError(

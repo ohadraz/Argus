@@ -8,7 +8,8 @@ call.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from datetime import datetime
 from typing import Protocol
 
@@ -212,10 +213,11 @@ class TakeAction(Protocol):
 class RecordAction(Protocol):
     """Claims the right to act on one candidate, before anything is done.
 
-    Answers whether this walk is the one that took the action. `False` means an
-    earlier attempt already claimed it - which a walk only ever sees when it has
-    been resumed inside this node, since the claim is written before the action
-    and outlives the worker that wrote it.
+    Answers with the claim's id where this walk is the one that took the
+    action - what its writes are marked with. `None` means an earlier attempt
+    already claimed it - which a walk only ever sees when it has been resumed
+    inside this node, since the claim is written before the action and outlives
+    the worker that wrote it.
     """
 
     def __call__(
@@ -237,7 +239,12 @@ class RecordAction(Protocol):
         # database's - the one a replay's simulated clock moves. Not when the
         # action was taken: that is its announcement's.
         at: datetime
-    ) -> bool: ...
+    ) -> str | None: ...
+
+
+# Makes the action named, by its claim's id, the one every change made inside the
+# block is for - so the write tier marks each with it. `Holding.acting_for`.
+type ActingFor = Callable[[str], AbstractContextManager[None]]
 
 
 class CompleteAction(Protocol):
@@ -346,8 +353,12 @@ class ClaimedAction(BaseModel):
     `progress` is how far the attempt got, which is what a claim with no
     outcome is decided on: a change already told as made needs no provider to
     say so, and one nobody could account for stays that way.
+
+    `action_id` is the claim's own id, which a walk acting again under it marks
+    its writes with - the same action, so the same mark.
     """
 
+    action_id: str
     outcome: Verdict | UnreadVerdict | None
     claimed_at: datetime
     progress: ActionProgress = ActionProgress.CLAIMED

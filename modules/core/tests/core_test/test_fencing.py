@@ -260,6 +260,57 @@ def test_a_run_is_held_only_for_as_long_as_it_is_walked() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_is_acted_for_only_for_as_long_as_it_is_being_taken() -> None:
+    # Whatever the write tier is asked while it is taken carries its id, and
+    # nothing asked after it does - however the taking ended. An action left
+    # acted for would put its id on the next one's writes.
+    some_action_id = "6f1c1d2e-0000-4000-8000-0000000000a1"
+    holding = Holding()
+    seen: list[str | None] = []
+
+    def taken_until_it_fails() -> None:
+        with holding.acting_for(some_action_id):
+            seen.append(holding.current_action())
+
+            raise RuntimeError("dont care")
+
+    Scenario() \
+        .given(
+            calling(lambda: seen.append(holding.current_action()))
+        ) \
+        .when(attempting(taken_until_it_fails)) \
+        .then(
+            lambda _: _acted_for_in_turn(seen + [holding.current_action()],
+                                         [None, some_action_id, None])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_is_acted_for_inside_the_run_holding_it_and_leaves_the_run_held() -> None:
+    # Two things held, each for its own block: an action ending is not the run
+    # ending, and the walk's writes after it are still the run's.
+    some_fence = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    some_action_id = "6f1c1d2e-0000-4000-8000-0000000000a1"
+    holding = Holding()
+    seen: list[tuple[Fence | None, str | None]] = []
+
+    def walked_and_acting() -> None:
+        with holding.of(some_fence):
+            with holding.acting_for(some_action_id):
+                seen.append((holding.current(), holding.current_action()))
+
+            seen.append((holding.current(), holding.current_action()))
+
+    Scenario() \
+        .when(walked_and_acting) \
+        .then(
+            lambda _: _held_and_acted_for_in_turn(
+                seen, [(some_fence, some_action_id), (some_fence, None)]
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_fence_is_heard_back_as_the_claim_it_was_spoken_for() -> None:
     # Spoken by a worker onto its connections and into its calls to the write
     # tier, and heard by the tier deciding whether to make a change - two
@@ -561,6 +612,27 @@ def _held_in_turn(seen: list[Fence | None], expected: list[Fence | None]) -> boo
         raise AssertionError(
             f"Expected nothing held before the walk, its run during it and nothing "
             f"after, {expected}; got {seen}."
+        )
+
+    return True
+
+
+def _acted_for_in_turn(seen: list[str | None], expected: list[str | None]) -> bool:
+    if seen != expected:
+        raise AssertionError(
+            f"Expected no action before it was taken, its id while it was and none "
+            f"after, {expected}; got {seen}."
+        )
+
+    return True
+
+
+def _held_and_acted_for_in_turn(seen: list[tuple[Fence | None, str | None]],
+                                expected: list[tuple[Fence | None, str | None]]) -> bool:
+    if seen != expected:
+        raise AssertionError(
+            f"Expected the run held throughout and the action only while it was "
+            f"taken, {expected}; got {seen}."
         )
 
     return True

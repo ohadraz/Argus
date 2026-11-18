@@ -35,6 +35,7 @@ from argus_testkit import (
     attempting,
     calling,
     one_record_was_logged,
+    the_answer_was,
 )
 from core import Connections, Holding, LLMSettings, get_settings
 from core.mcp_transport import McpClient
@@ -228,6 +229,25 @@ def test_a_process_that_searches_no_memory_still_files_what_was_tried() -> None:
 
 
 @pytest.mark.unit
+def test_the_action_a_walk_acts_for_is_held_by_the_process_holding_its_run() -> None:
+    # Where the write client reads it as each call is made. Acting for an
+    # action anywhere else would mark nothing the walk wrote.
+    holding = Holding()
+    some_action_id = "6f1c1d2e-0000-4000-8000-0000000000a1"
+
+    Scenario() \
+        .given(
+            collaborators := against(_connections_that_must_not_be_opened(),
+                                     _a_client_that_must_not_be_reached(),
+                                     _a_client_that_must_not_be_reached(),
+                                     None,
+                                     holding)
+        ) \
+        .when(lambda: _the_action_held_while(collaborators, some_action_id, holding)) \
+        .then(the_answer_was(some_action_id))
+
+
+@pytest.mark.unit
 def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -246,6 +266,14 @@ def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
             one_record_was_logged(caplog, "orchestrator.walk.assembling", logging.INFO,
                                   "incident memory disabled")
         )
+
+
+def _the_action_held_while(collaborators: Collaborators,
+                           action_id: str,
+                           holding: Holding) -> str | None:
+    """Which action the process holds while the walk acts for `action_id`."""
+    with collaborators.acting_for(action_id):
+        return holding.current_action()
 
 
 def _what_is_held_inside(held: AbstractContextManager[Any]) -> Any:

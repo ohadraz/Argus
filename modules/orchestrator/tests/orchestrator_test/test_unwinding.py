@@ -21,7 +21,8 @@ somebody's to go and look at.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
@@ -78,6 +79,7 @@ def test_every_change_the_incident_recorded_is_put_back(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -110,6 +112,7 @@ def test_a_change_the_walk_already_settled_is_passed_over(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -138,6 +141,7 @@ def test_a_change_the_walk_could_not_establish_is_tried_again(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -164,6 +168,7 @@ def test_an_action_that_changed_nothing_has_nothing_to_put_back(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed_nothing),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -206,6 +211,7 @@ def test_a_change_made_or_maybe_made_with_nothing_kept_to_undo_it_is_said(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_kept_nothing),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -247,6 +253,7 @@ def test_what_each_undo_found_is_published_on_the_incident(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -285,6 +292,7 @@ def test_one_change_that_cannot_be_read_does_not_stop_the_others(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -329,6 +337,7 @@ def test_withdrawing_an_incident_that_discarded_figures_says_none_was_owed(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_discarded),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_saying_into(published)
             )
         ) \
@@ -362,6 +371,7 @@ def test_a_change_settled_by_the_unwind_is_logged(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_kept_nowhere
             )
         ) \
@@ -393,6 +403,7 @@ def test_a_change_the_unwind_could_not_settle_is_logged_as_an_error(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_changed),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_kept_nowhere
             )
         ) \
@@ -426,6 +437,7 @@ def test_what_the_unwind_did_with_a_change_is_kept_on_its_row(
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading([a_change]),
                 undo=undo,
+                acting_for=_acting_for_whichever,
                 record_undone=_keeping(kept)
             )
         ) \
@@ -449,6 +461,7 @@ def test_a_change_owing_nothing_back_is_kept_as_owing_nothing() -> None:
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(an_incident_that_discarded),
                 undo=_an_undo_never_asked(),
+                acting_for=_acting_for_whichever,
                 record_undone=_keeping(kept)
             )
         ) \
@@ -471,6 +484,7 @@ def test_a_change_with_nothing_kept_to_undo_it_is_kept_as_not_established() -> N
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading([a_change_that_kept_nothing]),
                 undo=_an_undo_never_asked(),
+                acting_for=_acting_for_whichever,
                 record_undone=_keeping(kept)
             )
         ) \
@@ -499,12 +513,121 @@ def test_a_row_the_unwind_passes_over_is_left_as_it_was() -> None:
                 _DONT_CARE_INCIDENT_ID,
                 taken_actions_of=_reading(rows_passed_over),
                 undo=_an_undo_never_asked(),
+                acting_for=_acting_for_whichever,
                 record_undone=_keeping(kept)
             )
         ) \
         .then(
             _what_was_kept_is(kept, [])
         )
+
+
+@pytest.mark.unit
+def test_each_change_is_put_back_while_acting_for_the_row_that_made_it(
+    undo: MagicMock
+) -> None:
+    # Every write a putting back makes is marked with the row of the action it
+    # puts back, so the platform's object names the row that says both what was
+    # done to it and what undid it.
+    happened: list[str] = []
+    a_first_change = _a_taken_action_carrying(_an_undo_descriptor_for("monthly-spend-feature"))
+    a_second_change = _a_taken_action_carrying(_an_undo_descriptor_for("checkout-kill-switch"))
+    undo.side_effect = _undoing_noted_into(happened)
+
+    Scenario() \
+        .given(
+            an_incident := [a_first_change, a_second_change]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident),
+                undo=undo,
+                acting_for=_acting_for_noted_into(happened),
+                record_undone=_kept_nowhere
+            )
+        ) \
+        .then(
+            _happened_in_order(happened, [
+                f"acting for {a_first_change.id}",
+                "put back monthly-spend-feature",
+                f"no longer acting for {a_first_change.id}",
+                f"acting for {a_second_change.id}",
+                "put back checkout-kill-switch",
+                f"no longer acting for {a_second_change.id}"
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_a_row_no_undo_is_asked_of_is_acted_for_by_nobody() -> None:
+    # Nothing is written for it, so nothing is marked - and an action acted for
+    # with nothing written would put its id on whatever was asked next.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            rows_no_undo_is_asked_of := [
+                *_an_incident_that_discarded_cached_figures("io-shop"),
+                _a_taken_action_carrying(None),
+                _a_taken_action_carrying(None, progress=ActionProgress.NOT_PERFORMED)
+            ]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(rows_no_undo_is_asked_of),
+                undo=_an_undo_never_asked(),
+                acting_for=_acting_for_noted_into(happened),
+                record_undone=_kept_nowhere
+            )
+        ) \
+        .then(
+            _happened_in_order(happened, [])
+        )
+
+
+def _acting_for_whichever(dont_care_action_id: str) -> AbstractContextManager[None]:
+    """Where a case about something else acts for the change being put back."""
+    return nullcontext()
+
+
+def _acting_for_noted_into(
+    happened: list[str]
+) -> Callable[[str], AbstractContextManager[None]]:
+    """Acts for whichever row it is handed, noting into `happened` when each
+    began and ended."""
+    @contextmanager
+    def acting_for(action_id: str) -> Generator[None]:
+        happened.append(f"acting for {action_id}")
+
+        try:
+            yield
+        finally:
+            happened.append(f"no longer acting for {action_id}")
+
+    return acting_for
+
+
+def _undoing_noted_into(happened: list[str]) -> Callable[[UndoDescriptor], UndoAttempt]:
+    """An undo that puts each flag back, noting into `happened` when it did."""
+    def undoing(undo_descriptor: UndoDescriptor, /) -> UndoAttempt:
+        flag = undo_descriptor.flag if isinstance(undo_descriptor, FlagUndo) else None
+        happened.append(f"put back {flag}")
+
+        return _restored(str(flag))
+
+    return undoing
+
+
+def _happened_in_order(happened: list[str], expected: list[str]) -> Assertion[None]:
+    def assertion(_unwound: None) -> bool:
+        if happened != expected:
+            raise AssertionError(f"Expected {expected} in that order, got {happened}.")
+
+        return True
+
+    return assertion
 
 
 def _kept_nowhere(dont_care_action_id: str, dont_care_said: ChangeUndone) -> None:

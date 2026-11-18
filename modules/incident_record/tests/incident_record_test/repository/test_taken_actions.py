@@ -63,6 +63,71 @@ def test_an_action_is_claimed_at_the_instant_its_claim_is_handed() -> None:
 
 
 @pytest.mark.integration
+def test_a_claim_answers_with_the_id_of_the_row_it_wrote() -> None:
+    # The id every write the action makes is marked with, so the platform's
+    # object names the row that says what was done to it. Answered by the
+    # claim itself, because it is the write that made the row.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, dont_care_alert)
+            ) \
+            .given(
+                hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT
+                )
+            ) \
+            .then(
+                _the_id_of_the_row_claimed_for(conn, incident_id, hypothesis_id)
+            )
+
+
+@pytest.mark.integration
+def test_a_candidate_already_claimed_is_answered_with_no_row() -> None:
+    # The row is the earlier attempt's, and so is its id: a second claim
+    # handed it would mark this attempt's writes as that one's.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        def claimed() -> str | None:
+            return taken_actions.claim(
+                conn,
+                incident_id,
+                hypothesis_id=hypothesis_id,
+                action_type="roll-back-deployment",
+                subject="io-shop",
+                at=DONT_CARE_INSTANT
+            )
+
+        Scenario() \
+            .given(
+                calling(claimed)
+            ) \
+            .when(
+                claimed
+            ) \
+            .then(
+                the_answer_was(None)
+            )
+
+
+@pytest.mark.integration
 def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None:
     # The record of an incident has to say what was changed and what would put
     # it back. An outcome alone leaves a human reading the row afterwards
@@ -1159,6 +1224,30 @@ def _the_action_read_back_was_claimed_at(conn: psycopg.Connection,
         if [taken.taken_at for taken in read_back] != [instant]:
             raise AssertionError(f"Expected one action claimed at [{instant}], got "
                                  f"{[str(taken.taken_at) for taken in read_back]}.")
+
+        return True
+
+    return assertion
+
+
+def _the_id_of_the_row_claimed_for(conn: psycopg.Connection,
+                                   incident_id: str,
+                                   hypothesis_id: str) -> Assertion[str | None]:
+    """The answer is the id of the one row the candidate has, read back."""
+    def assertion(answered: str | None) -> bool:
+        row = taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+
+        if row is None:
+            raise AssertionError(
+                f"Expected the claim answered with its row's id, and no row was "
+                f"written; it answered [{answered}]."
+            )
+
+        if answered != row.id:
+            raise AssertionError(
+                f"Expected the claim answered with its row's id [{row.id}], got "
+                f"[{answered}]."
+            )
 
         return True
 

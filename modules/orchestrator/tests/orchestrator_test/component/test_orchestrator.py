@@ -15,7 +15,8 @@ theirs to answer, one module down.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -92,6 +93,7 @@ SOME_FLAG = "monthly-spend-feature"
 SOME_OTHER_FLAG = "legacy-checkout-fallback"
 DONT_CARE_ALERT = Alert(service="kuki-service", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "dont-care"
+DONT_CARE_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a0"
 DONT_CARE_WORDS = "the kuki flag was flipped at noon"
 
 EVERY_ROUND = get_settings().investigation_max_rounds
@@ -127,9 +129,10 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         admitted=lambda dont_care_action: True,
         attempts_per_subject=EVERY_ATTEMPT_A_WALK_MAKES,
         take=_an_action_that(Verdict.CONFIRMED),
-        record_action=lambda *dont_care_args, **dont_care_keywords: True,
+        record_action=lambda *dont_care_args, **dont_care_keywords: DONT_CARE_ACTION_ID,
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
+        acting_for=lambda dont_care_action_id: nullcontext(),
         advance_action=lambda *dont_care_args, **dont_care_keywords: None,
         change_landed=_a_change_that_never_landed(),
         propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: (
@@ -197,6 +200,35 @@ def test_the_change_the_agent_tells_of_is_put_on_the_claim_the_walk_holds(
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_recording_its_claims)) \
         .then(
             _one_claim_was_moved_on_to_performed_carrying_a_way_back_for(advanced, SOME_FLAG)
+        )
+
+
+@pytest.mark.component
+def test_the_action_is_taken_acting_for_the_row_its_claim_wrote(
+    collaborators: Collaborators
+) -> None:
+    # The wiring, whole: the graph hands its mitigation node the deployment's
+    # way of acting for an action, and the claim's row is what it acts for - so
+    # what the write tier marks is the row a reader of the incident finds.
+    some_action_id = "6f1c1d2e-0000-4000-8000-0000000000a1"
+    acted_for: list[str] = []
+
+    @contextmanager
+    def acting_for(action_id: str) -> Generator[None]:
+        acted_for.append(action_id)
+        yield
+
+    Scenario() \
+        .given(
+            a_walk_acting_for_its_claims := replace(
+                collaborators,
+                record_action=lambda *dont_care_args, **dont_care_keywords: some_action_id,
+                acting_for=acting_for
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_acting_for_its_claims)) \
+        .then(
+            _it_acted_for(acted_for, [some_action_id])
         )
 
 
@@ -939,6 +971,19 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
                        left_behind_known=True)
 
     return take
+
+
+def _it_acted_for(acted_for: list[str], expected: list[str]) -> Assertion[Walked]:
+    def assertion(_walked: Walked) -> bool:
+        if acted_for != expected:
+            raise AssertionError(
+                f"Expected the walk to act for the actions {expected}, it acted for "
+                f"{acted_for}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _one_claim_was_moved_on_to_performed_carrying_a_way_back_for(

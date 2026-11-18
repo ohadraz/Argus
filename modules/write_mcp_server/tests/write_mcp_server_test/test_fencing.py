@@ -24,6 +24,7 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from core import Fence
 from core.mcp_transport import (
+    ACTION_META_KEY,
     FENCE_META_KEY,
     LEFT_BEHIND_KNOWN_MARKER,
     RUN_LOST_MARKER,
@@ -35,7 +36,10 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, TextContent
 from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
 
+from write_mcp_server_test.framework.marks import marked_are
+
 SOME_FENCE = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
 WHAT_THE_CHANGE_ANSWERS = ["changed"]
 DONT_CARE_WHY = "another change for the run is still being made"
 
@@ -244,6 +248,90 @@ def test_a_change_refused_for_a_lost_run_is_said_inside_the_call_it_refused(
 
 
 @pytest.mark.unit
+def test_a_marked_change_naming_its_action_is_made() -> None:
+    made: list[str] = []
+    asked: list[Fence] = []
+
+    Scenario() \
+        .given(
+            server := _a_tier_making(made, _a_hold_answering(True, asked))
+        ) \
+        .when(
+            lambda: _asked(server, "make_a_marked_change",
+                           _sent(SOME_FENCE, acting_for=SOME_ACTION_ID))
+        ) \
+        .then(all_of(
+            _answered_with(WHAT_THE_CHANGE_ANSWERS),
+            _the_change_was_made(made, times=1),
+            _the_run_was_asked_about(asked, [SOME_FENCE])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("action", [None, 42], ids=["no-action", "not-an-action"])
+def test_a_marked_change_naming_no_action_is_refused_before_the_run_is_asked_after(
+    action: object
+) -> None:
+    # Made unmarked, it would be a write on the platform nobody could tell from a
+    # person's - so it is not made. A caller that forgot to say which action it
+    # is taking is a bug rather than a lost run, and it says it left nothing,
+    # because the tool never ran. Refused before the hold is asked for, because
+    # the hold is a connection and a run kept still for a change never made.
+    made: list[str] = []
+    asked: list[Fence] = []
+    meta = _sent(SOME_FENCE) if action is None else {
+        **_sent(SOME_FENCE), ACTION_META_KEY: action
+    }
+
+    Scenario() \
+        .given(
+            server := _a_tier_making(made, _a_hold_answering(True, asked))
+        ) \
+        .when(
+            lambda: _asked(server, "make_a_marked_change", meta)
+        ) \
+        .then(all_of(
+            _refused(as_a_lost_run=False),
+            _refused_with(LEFT_BEHIND_KNOWN_MARKER),
+            _the_change_was_made(made, times=0),
+            _the_run_was_asked_about(asked, [])
+        ))
+
+
+@pytest.mark.unit
+def test_an_unmarked_change_naming_no_action_is_made() -> None:
+    # A branch, a pull request, a flag: changes whose own record says whose they
+    # were, and which are not refused for naming no action.
+    made: list[str] = []
+
+    Scenario() \
+        .given(
+            server := _a_tier_making(made, _a_hold_answering(True))
+        ) \
+        .when(
+            lambda: _asked(server, "make_a_change", _sent(SOME_FENCE))
+        ) \
+        .then(all_of(
+            _answered_with(WHAT_THE_CHANGE_ANSWERS),
+            _the_change_was_made(made, times=1)
+        ))
+
+
+@pytest.mark.unit
+def test_only_the_changes_registered_as_marked_are_marked() -> None:
+    Scenario() \
+        .given(
+            server := _a_tier_making([], _a_hold_answering(True))
+        ) \
+        .when(
+            lambda: server.marked
+        ) \
+        .then(
+            marked_are({"make_a_marked_change"})
+        )
+
+
+@pytest.mark.unit
 def test_a_read_is_answered_without_asking_after_any_run() -> None:
     # A read changes nothing a second walk could get wrong, and is asked by
     # whoever needs it, holding a run or not.
@@ -264,12 +352,18 @@ def test_a_read_is_answered_without_asking_after_any_run() -> None:
 
 
 def _a_tier_making(made: list[str], hold: HoldForAChange) -> FencedFastMCP:
-    """A tier with a change, which says it was made into `made`, a change whose
-    platform is not there, and a read."""
+    """A tier with a change, which says it was made into `made`, the same change
+    marked, a change whose platform is not there, and a read."""
     server = FencedFastMCP("some-tier", hold_for_a_change=hold)
 
     @server.change()
     def make_a_change() -> list[str]:
+        made.append("changed")
+
+        return WHAT_THE_CHANGE_ANSWERS
+
+    @server.change(marked=True)
+    def make_a_marked_change() -> list[str]:
         made.append("changed")
 
         return WHAT_THE_CHANGE_ANSWERS
@@ -338,8 +432,15 @@ def _a_hold_that_cannot_be_let_go() -> HoldForAChange:
     return hold
 
 
-def _sent(held: Fence) -> dict[str, Any]:
-    return {FENCE_META_KEY: held.spoken()}
+def _sent(held: Fence, acting_for: str | None = None) -> dict[str, Any]:
+    """The `_meta` a walk's call carries: the claim it is made under, and the
+    action it is taken for where it names one."""
+    sent: dict[str, Any] = {FENCE_META_KEY: held.spoken()}
+
+    if acting_for is not None:
+        sent[ACTION_META_KEY] = acting_for
+
+    return sent
 
 
 def _asked(server: FencedFastMCP, tool: str, meta: dict[str, Any] | None) -> CallToolResult:

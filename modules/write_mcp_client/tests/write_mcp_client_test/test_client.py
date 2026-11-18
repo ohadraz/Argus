@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import nullcontext
 from typing import Any
 
 import pytest
@@ -53,6 +54,12 @@ DONT_CARE_ACTOR = "dont-care-actor"
 SOME_HUMAN = "admin"
 SOME_APPLICATION = "io-shop"
 SOME_CARD = "Tesla-V100-SXM2-16GB"
+# The action row a walk's platform writes are made for.
+SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
+# Where the mark lands on what the platform was asked to write. Spelled out
+# rather than imported: the wire shape is the adapter's suite's to pin, and this
+# one asserts the action travelled the whole way to it.
+THE_ACTION_ANNOTATION = "argus/action"
 
 # A claim of the server's run from before it was last taken back.
 A_CLAIM_THE_RUN_MOVED_PAST = Fence(run_id=THE_RUN_HELD.run_id, epoch=THE_RUN_HELD.epoch - 1)
@@ -408,6 +415,45 @@ def test_restoring_a_pin_reaches_the_platform_through_the_real_write_server(
         ))
 
 
+@pytest.mark.integration
+def test_a_platform_write_carries_the_action_it_was_made_for_to_the_platform(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The whole path the mark travels: the action the walk acts for, into the
+    # call's `_meta` by the client, out of it by the tool, and onto the object
+    # the platform was asked to write. Read off the suspension, which is the
+    # rollback's own merge patch and so what the platform keeps.
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: roll_back_deployment(
+                SOME_APPLICATION, client=client
+            ))
+        ) \
+        .then(
+            _every_sync_patch_was_for(running_write_mcp_over_a_platform, SOME_ACTION_ID)
+        )
+
+
+@pytest.mark.integration
+def test_a_platform_write_made_while_no_action_is_taken_is_refused_and_changes_nothing(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # Made, it would be a write on the platform nobody could tell from a
+    # person's. Refused as an ordinary refusal - the run is still held, so not a
+    # lost one - and before anything was asked to change.
+    Scenario() \
+        .when(attempting(
+            _asking_the_server_as(THE_RUN_HELD, lambda client: roll_back_deployment(
+                SOME_APPLICATION, client=client
+            ))
+        )) \
+        .then(all_of(
+            an_error_was_raised(McpToolError),
+            _it_did_not_come_back_as(RunLost),
+            _the_sync_policy_was_never_patched(running_write_mcp_over_a_platform)
+        ))
+
+
 def _it_came_back_as_an_unreachable_platform() -> Assertion[Exception | None]:
     def assertion(raised: Exception | None) -> bool:
         if not isinstance(raised, PlatformUnreachable):
@@ -470,6 +516,40 @@ def test_a_change_made_while_no_run_is_held_is_refused_and_changes_nothing(
         ))
 
 
+def _every_sync_patch_was_for(handler: type[FakeDeploymentPlatformHandler],
+                              action_id: str) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        marked = [
+            patch.get("metadata", {}).get("annotations", {}).get(THE_ACTION_ANNOTATION)
+            for patch in handler.sync_patches_received
+        ]
+
+        if not marked or any(each != action_id for each in marked):
+            raise AssertionError(
+                f"Expected every sync patch marked as made for [{action_id}], got the "
+                f"marks {marked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_sync_policy_was_never_patched(
+    handler: type[FakeDeploymentPlatformHandler]
+) -> Assertion[Exception | None]:
+    def assertion(dont_care_error: Exception | None) -> bool:
+        if handler.sync_patches_received:
+            raise AssertionError(
+                f"Expected the sync policy left alone, and it was patched "
+                f"{handler.sync_patches_received}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_did_not_come_back_as(excluded: type[Exception]) -> Assertion[Exception | None]:
     def assertion(raised: Exception | None) -> bool:
         if isinstance(raised, excluded):
@@ -494,15 +574,17 @@ def _undoing(undo_descriptor: UndoDescriptor,
 
 
 def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
-    """`_asking_the_server_as` the claim that holds the server's run, as a
-    walk's worker asks it."""
-    return _asking_the_server_as(THE_RUN_HELD, ask)
+    """`_asking_the_server_as` the claim that holds the server's run, acting for
+    an action, as a walk's worker asks it."""
+    return _asking_the_server_as(THE_RUN_HELD, ask, acting_for=SOME_ACTION_ID)
 
 
 def _asking_the_server_as[T](held: Fence | None,
-                             ask: Callable[[McpClient], T]) -> Callable[[], T]:
+                             ask: Callable[[McpClient], T],
+                             acting_for: str | None = None) -> Callable[[], T]:
     """One client to the subprocess the fixture started, held for one `when`,
-    by a process holding `held` - or holding no run, for `None`.
+    by a process holding `held` - or holding no run, for `None` - and acting for
+    the action `acting_for` names, where it names one.
 
     Where the subprocess is listening is read through `get_settings` rather than
     named here, because the fixture is what decides the port - it sets the
@@ -514,12 +596,12 @@ def _asking_the_server_as[T](held: Fence | None,
     def step() -> T:
         holding = Holding()
 
-        with write_mcp(WriteMcpEndpoint.of(get_settings()), holding=holding) as client:
-            if held is None:
-                return ask(client)
-
-            with holding.of(held):
-                return ask(client)
+        with (
+            write_mcp(WriteMcpEndpoint.of(get_settings()), holding=holding) as client,
+            holding.of(held) if held is not None else nullcontext(),
+            holding.acting_for(acting_for) if acting_for is not None else nullcontext()
+        ):
+            return ask(client)
 
     return step
 
