@@ -40,6 +40,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "argus-core[migrations]",
+    "argus-argus_testkit",
 ]
 
 [tool.uv.sources]
@@ -51,6 +52,7 @@ argus-repository_index = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-chat_platform = { workspace = true }
 argus-postmortem_rendering = { workspace = true }
+argus-argus_testkit = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

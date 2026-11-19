@@ -23,14 +23,18 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Iterator
-from typing import cast
+from typing import Final, cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
+from argus_testkit import refuse_the_e2e_stacks_project
 from core import connect_from_env
 from core.schema import reset_schema
 from orchestrator.walk import ports
 from psycopg import sql
+
+# The compose service this suite brings up, and the only one it stops.
+_POSTGRES: Final = "postgres"
 
 
 @pytest.fixture
@@ -57,14 +61,20 @@ def postgres() -> Iterator[None]:
 
     Started from an empty schema rather than an adopted one: the container may
     be a previous run's, and a run that was killed left its rows behind.
+
+    Refused in the e2e stack's compose project, where the reset would empty the
+    database a running stack's worker is attached to. Stops only the database
+    on the way out, so a project shared by mistake still keeps its other
+    services.
     """
-    subprocess.run(["docker", "compose", "up", "-d", "--wait", "postgres"], check=True)
+    refuse_the_e2e_stacks_project("test_module(module='orchestrator')")
+    subprocess.run(["docker", "compose", "up", "-d", "--wait", _POSTGRES], check=True)
     try:
         with connect_from_env() as conn:
             reset_schema(conn)
         yield
     finally:
-        subprocess.run(["docker", "compose", "stop"], check=True)
+        subprocess.run(["docker", "compose", "stop", _POSTGRES], check=True)
 
 
 @pytest.fixture

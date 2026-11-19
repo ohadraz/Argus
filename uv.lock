@@ -137,6 +137,12 @@ requires-dist = [
 name = "argus-argus-testkit"
 version = "0.1.0"
 source = { editable = "test_support/argus_testkit" }
+dependencies = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pytest", specifier = ">=8.0" }]
 
 [[package]]
 name = "argus-chat-platform"
@@ -1003,6 +1009,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-argus-testkit" },
     { name = "argus-core", extra = ["migrations"] },
 ]
 
@@ -1025,7 +1032,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-core", extras = ["migrations"], editable = "modules/core" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
+]
 
 [[package]]
 name = "argus-workspace"

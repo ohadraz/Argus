@@ -3,7 +3,12 @@ name = "argus-argus_testkit"
 version = "0.1.0"
 requires-python = ">=3.14"
 
-dependencies = []
+# pytest alone, for `compose_projects`, which ends a run the way pytest ends
+# one. Nothing of this workspace: depending back on a package the kit is used
+# to test would close a cycle.
+dependencies = [
+    "pytest>=8.0",
+]
 
 
 [build-system]

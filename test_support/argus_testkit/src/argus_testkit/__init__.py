@@ -10,6 +10,7 @@ from argus_testkit.assertions import (
     the_same_error_reached_the_caller,
 )
 from argus_testkit.collecting import Kept
+from argus_testkit.compose_projects import refuse_the_e2e_stacks_project
 from argus_testkit.doubles import (
     a_factory_that_must_not_be_called,
     dont_care_sleep,
@@ -35,6 +36,7 @@ __all__ = [
     "nothing_was_collected",
     "one_record_was_logged",
     "raising",
+    "refuse_the_e2e_stacks_project",
     "returning",
     "the_answer_was",
     "the_error_mentioned",

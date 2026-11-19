@@ -14,11 +14,16 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Iterator
+from typing import Final
 
 import pytest
+from argus_testkit import refuse_the_e2e_stacks_project
 from core import connect_from_env
 from core.schema import reset_schema
 from psycopg import sql
+
+# The compose service this suite brings up, and the only one it stops.
+_POSTGRES: Final = "postgres"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -28,14 +33,20 @@ def postgres() -> Iterator[None]:
     The schema is created rather than assumed: a fresh clone has a volume with
     nothing in it, and a suite that required someone to have run the stack once
     before would pass or fail on the history of the machine it ran on.
+
+    Refused in the e2e stack's compose project, where the reset would empty the
+    database a running stack's worker is attached to. Stops only the database
+    on the way out, so a project shared by mistake still keeps its other
+    services.
     """
-    subprocess.run(["docker", "compose", "up", "-d", "--wait", "postgres"], check=True)
+    refuse_the_e2e_stacks_project("integration")
+    subprocess.run(["docker", "compose", "up", "-d", "--wait", _POSTGRES], check=True)
     try:
         with connect_from_env() as conn:
             reset_schema(conn)
         yield
     finally:
-        subprocess.run(["docker", "compose", "stop"], check=True)
+        subprocess.run(["docker", "compose", "stop", _POSTGRES], check=True)
 
 
 @pytest.fixture(autouse=True)

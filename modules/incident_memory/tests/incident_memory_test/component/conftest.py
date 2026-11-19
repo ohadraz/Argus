@@ -22,6 +22,11 @@ Readiness is polled here rather than left to Compose. The Qdrant image is
 distroless, so there is no shell inside it to run a healthcheck with, and
 `up --wait` therefore returns when the container is running - a little before it
 will answer. Polling `/readyz` from outside is what closes that gap.
+
+Both fixtures are refused in the e2e stack's compose project, and each stops
+only the service it brought up. There, the store's emptying and the schema's
+reset would wipe what a running stack's worker is using, and a bare stop would
+take the whole stack down.
 """
 
 from __future__ import annotations
@@ -30,10 +35,12 @@ import os
 import subprocess
 import time
 from collections.abc import Iterator
+from typing import Final
 
 import httpx2
 import psycopg
 import pytest
+from argus_testkit import refuse_the_e2e_stacks_project
 from core import connect_from_env
 from core.schema import reset_schema
 from psycopg import sql
@@ -44,6 +51,13 @@ from qdrant_client import QdrantClient
 # suite that fails there fails for a reason that has nothing to do with the code.
 LONGEST_WAIT_SECONDS = 60.0
 BETWEEN_POLLS_SECONDS = 0.5
+
+# The compose services this suite brings up, and the only ones it stops.
+_QDRANT: Final = "qdrant"
+_POSTGRES: Final = "postgres"
+
+# The session that gives this suite a compose project of its own.
+_THIS_SUITES_SESSION: Final = "test_module(module='incident_memory')"
 
 
 def _the_stores_url() -> str:
@@ -61,13 +75,14 @@ def _the_stores_url() -> str:
 @pytest.fixture(scope="session")
 def qdrant() -> Iterator[str]:
     """The store, up for the whole suite and stopped after it."""
-    subprocess.run(["docker", "compose", "up", "-d", "--wait", "qdrant"], check=True)
+    refuse_the_e2e_stacks_project(_THIS_SUITES_SESSION)
+    subprocess.run(["docker", "compose", "up", "-d", "--wait", _QDRANT], check=True)
 
     try:
         _wait_until_it_answers(_the_stores_url())
         yield _the_stores_url()
     finally:
-        subprocess.run(["docker", "compose", "stop"], check=True)
+        subprocess.run(["docker", "compose", "stop", _QDRANT], check=True)
 
 
 @pytest.fixture(scope="session")
@@ -77,7 +92,8 @@ def postgres() -> Iterator[None]:
     Started from an empty schema rather than an adopted one: the container may
     be a previous run's, and a run that was killed left its rows behind.
     """
-    subprocess.run(["docker", "compose", "up", "-d", "--wait", "postgres"], check=True)
+    refuse_the_e2e_stacks_project(_THIS_SUITES_SESSION)
+    subprocess.run(["docker", "compose", "up", "-d", "--wait", _POSTGRES], check=True)
 
     try:
         with connect_from_env() as conn:
@@ -85,7 +101,7 @@ def postgres() -> Iterator[None]:
 
         yield
     finally:
-        subprocess.run(["docker", "compose", "stop"], check=True)
+        subprocess.run(["docker", "compose", "stop", _POSTGRES], check=True)
 
 
 @pytest.fixture
