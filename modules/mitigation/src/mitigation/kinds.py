@@ -164,6 +164,17 @@ class UndoableKind[U](Protocol):
         """
         ...
 
+    def said(self, action: Any, descriptor: U, /) -> str:
+        """The change made, in words, from the action and what puts it back.
+
+        What `perform` says of its own write, and what a walk holding only the
+        action and the row's way back says of the same change - so a change put
+        back by a resumed walk is said in the words the walk that made it used.
+        From the descriptor rather than the plan, since the write reports what
+        it found, which is what the change was made from.
+        """
+        ...
+
     def undo(self, descriptor: U, putting_back: PuttingBack, /) -> UndoAttempt:
         """Puts one change of this kind back, where it is still Argus's to put
         back, and says what became of it."""
@@ -201,10 +212,14 @@ class RevertFeatureFlagKind:
                 action: RevertFeatureFlag,
                 planned: Planned[FlagUndo],
                 writes: PerformingWrites, /) -> Performed:
-        return Performed(
-            said=f"set flag [{action.flag}] {state_name(action.enabled)}",
-            undo_descriptor=writes.set_state(planned, action.enabled)
-        )
+        made = writes.set_state(planned, action.enabled)
+
+        # Said off the plan's flag rather than the write's answer, which the
+        # setter types as any change: a flag's sentence reads only the action.
+        return Performed(said=self.said(action, planned.descriptor), undo_descriptor=made)
+
+    def said(self, action: RevertFeatureFlag, descriptor: FlagUndo, /) -> str:
+        return f"set flag [{action.flag}] {state_name(action.enabled)}"
 
     def intent(self, action: RevertFeatureFlag, /) -> str:
         return f"set flag [{action.flag}] {state_name(action.enabled)}"
@@ -328,19 +343,16 @@ class RollBackDeploymentKind:
                 writes: PerformingWrites, /) -> Performed:
         rolled_back = writes.roll_back(planned)
 
-        return Performed(
-            said=(
-                # The revision it came *from*, which is what the descriptor
-                # records and what a reader needs to know was undone - by
-                # its commit, which a reader can look up, and not by the
-                # platform's entry for it, which is an address nobody can
-                # read once the history moves on. Where it went is "the
-                # one before", by construction.
-                f"rolled [{action.application}] back off revision "
-                f"[{rolled_back.was_on_revision}]"
-            ),
-            undo_descriptor=rolled_back
-        )
+        return Performed(said=self.said(action, rolled_back), undo_descriptor=rolled_back)
+
+    def said(self, action: RollBackDeployment, descriptor: DeploymentRollbackUndo, /) -> str:
+        # The revision it came *from*, which is what the descriptor records and
+        # what a reader needs to know was undone - by its commit, which a reader
+        # can look up, and not by the platform's entry for it, which is an
+        # address nobody can read once the history moves on. Where it went is
+        # "the one before", by construction.
+        return (f"rolled [{action.application}] back off revision "
+                f"[{descriptor.was_on_revision}]")
 
     def intent(self, action: RollBackDeployment, /) -> str:
         return f"roll [{action.application}] back to its previous revision"
@@ -475,23 +487,20 @@ class ScaleOutKind:
                 writes: PerformingWrites, /) -> Performed:
         scaled = writes.scale_out(planned)
 
-        return Performed(
-            said=(
-                # The count it came *from*, which is what the descriptor
-                # records and what a reader needs to know was undone. Where
-                # it went is the tier's to have decided, and it reports that
-                # figure nowhere a verdict can quote it.
-                #
-                # The write's count and not the plan's: an autoscaler moves a
-                # count between the two as a matter of course, the write
-                # scales out from the count it finds, and the plan's figure is
-                # one the deployment was no longer running when Argus changed
-                # it.
-                f"scaled [{action.application}] out from "
-                f"[{scaled.was_replicas}] {_replicas(scaled.was_replicas)}"
-            ),
-            undo_descriptor=scaled
-        )
+        return Performed(said=self.said(action, scaled), undo_descriptor=scaled)
+
+    def said(self, action: ScaleOut, descriptor: ReplicaUndo, /) -> str:
+        # The count it came *from*, which is what the descriptor records and
+        # what a reader needs to know was undone. Where it went is the tier's to
+        # have decided, and it reports that figure nowhere a verdict can quote
+        # it.
+        #
+        # The write's count and not the plan's: an autoscaler moves a count
+        # between the two as a matter of course, the write scales out from the
+        # count it finds, and the plan's figure is one the deployment was no
+        # longer running when Argus changed it.
+        return (f"scaled [{action.application}] out from "
+                f"[{descriptor.was_replicas}] {_replicas(descriptor.was_replicas)}")
 
     def intent(self, action: ScaleOut, /) -> str:
         return f"scale [{action.application}] out"
@@ -632,29 +641,25 @@ class PinAutoscalerKind:
                 writes: PerformingWrites, /) -> Performed:
         pinned = writes.pin(planned)
 
-        return Performed(
-            said=(
-                # The floor it came *from*, named as the floor it came from
-                # rather than as the floor it is now - which is the whole care
-                # of this line. The descriptor records the prior floor, and a
-                # sentence that used it to assert a present state would be
-                # false the moment the pin succeeded: "scaling below three"
-                # was already true before Argus acted.
-                #
-                # Where it went, by its number and not by the name of a
-                # bound. The tier asks for whichever is smaller of the
-                # autoscaler's declared ceiling and the most replicas Argus
-                # may hold a deployment at - so "to its ceiling" is false
-                # exactly where Argus's own cap was the binding one, and names
-                # a figure belonging to somebody else's declaration rather
-                # than to anything Argus wrote. The tier records what it
-                # asked for, which is why this can say it.
-                f"raised [{action.application}]'s autoscaler floor from "
-                f"[{pinned.was_min_replicas}] {_replicas(pinned.was_min_replicas)} to "
-                f"[{pinned.min_replicas_asked_for}]"
-            ),
-            undo_descriptor=pinned
-        )
+        return Performed(said=self.said(action, pinned), undo_descriptor=pinned)
+
+    def said(self, action: PinAutoscaler, descriptor: AutoscalerUndo, /) -> str:
+        # The floor it came *from*, named as the floor it came from rather than
+        # as the floor it is now - which is the whole care of this line. The
+        # descriptor records the prior floor, and a sentence that used it to
+        # assert a present state would be false the moment the pin succeeded:
+        # "scaling below three" was already true before Argus acted.
+        #
+        # Where it went, by its number and not by the name of a bound. The tier
+        # asks for whichever is smaller of the autoscaler's declared ceiling and
+        # the most replicas Argus may hold a deployment at - so "to its ceiling"
+        # is false exactly where Argus's own cap was the binding one, and names a
+        # figure belonging to somebody else's declaration rather than to
+        # anything Argus wrote. The tier records what it asked for, which is why
+        # this can say it.
+        return (f"raised [{action.application}]'s autoscaler floor from "
+                f"[{descriptor.was_min_replicas}] {_replicas(descriptor.was_min_replicas)} "
+                f"to [{descriptor.min_replicas_asked_for}]")
 
     def intent(self, action: PinAutoscaler, /) -> str:
         return f"stop [{action.application}]'s autoscaler scaling it down"
@@ -807,17 +812,15 @@ class PinToAcceleratorKind:
                 writes: PerformingWrites, /) -> Performed:
         held = writes.pin_to_accelerator(planned)
 
-        return Performed(
-            said=(
-                # Where the pods were held before, because that is what a
-                # withdrawal puts back - and "held to the V100" alone reads
-                # as though they had been held to something else.
-                f"held [{action.application}]'s pods to [{action.accelerator}], "
+        return Performed(said=self.said(action, held), undo_descriptor=held)
+
+    def said(self, action: PinToAccelerator, descriptor: AcceleratorPinUndo, /) -> str:
+        # Where the pods were held before, because that is what a withdrawal
+        # puts back - and "held to the V100" alone reads as though they had been
+        # held to something else.
+        return (f"held [{action.application}]'s pods to [{action.accelerator}], "
                 f"where they had been held to "
-                f"{_the_card_in_words(held.was_pinned_to)}"
-            ),
-            undo_descriptor=held
-        )
+                f"{_the_card_in_words(descriptor.was_pinned_to)}")
 
     def intent(self, action: PinToAccelerator, /) -> str:
         return f"hold [{action.application}]'s pods to [{action.accelerator}]"

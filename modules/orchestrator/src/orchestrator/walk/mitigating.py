@@ -47,6 +47,7 @@ from orchestrator.walk.ports import (
     ChangeLanded,
     ClaimedAction,
     CompleteAction,
+    OweAPutBack,
     PlanAction,
     RecordAction,
     RecordOutcome,
@@ -68,6 +69,7 @@ def mitigation_node(
     complete_action: CompleteAction,
     already_taken: ActionAlreadyTaken,
     advance_action: AdvanceAction,
+    owe_a_put_back: OweAPutBack,
     record_outcome: RecordOutcome,
     still_wanted: IsStillWanted,
     take: TakeAction,
@@ -94,8 +96,13 @@ def mitigation_node(
 
     `advance_action` writes on the claim what is learnt before the verdict:
     that the change was made, the moment the agent says so, with what would
-    put it back - so a worker that dies during the wait leaves a row a
-    withdrawal can undo and a write-up can call tried.
+    put it back and when the walk recorded it - so a worker that dies during
+    the wait leaves a row a withdrawal can undo and a write-up can call tried.
+
+    `owe_a_put_back` writes on the claim that the wait refuted a change that
+    left something to put back, with what it found, before the put-back is
+    attempted - so a worker that dies putting it back leaves the change owed
+    back on record.
 
     `acting_for` makes the claim's action the one the write tier marks every
     change of this attempt with (`Holding.acting_for`).
@@ -190,7 +197,7 @@ def mitigation_node(
     else:
         result = _take_on_the_claim(
             state, take, planned, action_id, acting_for, still_wanted, advance_action,
-            announced, publisher, now
+            owe_a_put_back, announced, publisher, now
         )
     # When the change was made, for the round that remembers the attempt - and
     # nothing where none was: an action never performed is no attempt a later
@@ -213,6 +220,7 @@ def _take_on_the_claim(state: IncidentState,
                        acting_for: ActingFor,
                        still_wanted: IsStillWanted,
                        advance_action: AdvanceAction,
+                       owe_a_put_back: OweAPutBack,
                        announced: list[ActionTaken],
                        publisher: Publisher,
                        now: Callable[[], datetime]) -> Outcome:
@@ -266,6 +274,12 @@ def _take_on_the_claim(state: IncidentState,
                 candidate_number=state.hypothesis.number,
                 action=state.proposed_action,
                 alerting_service=state.alert.service
+            ),
+            put_back_owed=partial(
+                _the_put_back_is_owed,
+                owe_a_put_back,
+                incident_id=state.incident_id,
+                hypothesis_id=state.hypothesis.id
             )
         )
 
@@ -473,8 +487,13 @@ def _the_change_was_made(advance_action: AdvanceAction,
     so it can narrate would put a field in the domain for the account's benefit.
     """
     try:
+        # The walk's own moment for the change, read for the row just before it
+        # is written - the clock the walk dates everything by, so a walk resumed
+        # after this one dies dates the action by it. The announcement keeps the
+        # reading it takes below, after the row.
         advance_action(incident_id, hypothesis_id=hypothesis_id,
-                       to=ActionProgress.PERFORMED, undo_descriptor=undo_descriptor)
+                       to=ActionProgress.PERFORMED, undo_descriptor=undo_descriptor,
+                       performed_at=now())
     except Exception as error:
         if was_lost(error):
             raise
@@ -496,6 +515,32 @@ def _the_change_was_made(advance_action: AdvanceAction,
     )
     publish(announcement, publisher)
     announced.append(announcement)
+
+
+def _the_put_back_is_owed(owe_a_put_back: OweAPutBack,
+                          because: str,
+                          *,
+                          incident_id: str,
+                          hypothesis_id: str) -> None:
+    """Puts on the claim that its change was refuted and is owed back, with what
+    the wait found - before the put-back is attempted.
+
+    A write that fails is logged and the attempt goes on, for
+    `_the_change_was_made`'s reason: the put-back is what the refutation is
+    owed, and the completion writes the verdict whatever the early copy did -
+    abandoning the attempt over a record would leave a refuted change standing.
+    All but a write refused for a lost run: the walk no longer holds its run,
+    and a put-back from here would be nobody's walk changing production.
+    """
+    try:
+        owe_a_put_back(incident_id, hypothesis_id=hypothesis_id, because=because)
+    except Exception as error:
+        if was_lost(error):
+            raise
+
+        logger.warning("the put-back could not be recorded as owed before it was attempted",
+                       exc_info=True,
+                       extra={"incident_id": incident_id, "hypothesis_id": hypothesis_id})
 
 
 def _what_the_earlier_attempt_left(state: IncidentState,
@@ -605,9 +650,11 @@ def _what_the_earlier_attempt_left(state: IncidentState,
         )
 
     # Already answered on the claim, so nobody is asked. Made is made, whoever
-    # the provider would credit with it; and unknown was an earlier resume's
-    # answer that nobody can say, which asking again cannot improve on.
-    if claimed is not None and claimed.progress is ActionProgress.PERFORMED:
+    # the provider would credit with it - a change owed back was made too, and
+    # judged, and until a walk puts it back it is handed over the same way; and
+    # unknown was an earlier resume's answer that nobody can say, which asking
+    # again cannot improve on.
+    if claimed is not None and claimed.progress.its_change_was_made() is True:
         return _the_resumed_walk_stops(landed=True)
 
     if claimed is not None and claimed.progress is ActionProgress.UNKNOWN:

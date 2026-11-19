@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, assert_never
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -23,7 +23,10 @@ class ActionProgress(StrEnum):
 
     `claimed` is the row from its claim until anything more is known: the action
     about to be taken, or taken by a worker that stopped before it could say.
-    `performed` is the change made, whatever came of it after. `not-performed`
+    `performed` is the change made, whatever came of it after. `putting-back` is
+    a change made that the wait refuted and that left something to put back,
+    recorded as owed back before the walk's own put-back is attempted - a
+    completed row still here is one whose put-back never ran. `not-performed`
     is an attempt that ended before the action itself was done - a platform that
     did not answer, an action with nowhere left to go, an incident a person
     ended first, a write that raised - though it may have changed something on
@@ -38,8 +41,29 @@ class ActionProgress(StrEnum):
 
     CLAIMED = "claimed"
     PERFORMED = "performed"
+    PUTTING_BACK = "putting-back"
     NOT_PERFORMED = "not-performed"
     UNKNOWN = "unknown"
+
+    def its_change_was_made(self) -> bool | None:
+        """Whether the change was made: yes, no, or nobody can say.
+
+        The one answer every reader of a progress asks, given here so a step
+        added later is a type error in this `match` rather than a comparison
+        some reader made with the steps it knew. A change owed back was made;
+        a claim, and a claim nobody will answer, may or may not have been.
+        Whether a made change is still out there is not this question - that
+        is read off what putting it back did.
+        """
+        match self:
+            case ActionProgress.PERFORMED | ActionProgress.PUTTING_BACK:
+                return True
+            case ActionProgress.NOT_PERFORMED:
+                return False
+            case ActionProgress.CLAIMED | ActionProgress.UNKNOWN:
+                return None
+            case _:
+                assert_never(self)
 
 
 class TakenAction(BaseModel):
@@ -75,6 +99,18 @@ class TakenAction(BaseModel):
     # after: it is a plan, never a change made, which is `undo_descriptor`'s.
     # `None` for a kind that plans nothing - a restart, a discard.
     planned: Planned[UndoDescriptor] | None = None
+    # When the walk recorded the change made, on the walk's own clock, never the
+    # platform's: what a resumed walk dates the action by (its `acted_at`) where
+    # the walk that announced it is gone. `None` until the change is recorded
+    # made, and where a resumed walk only learnt that it landed.
+    performed_at: datetime | None = None
+    # What the wait found that left the change owing its put-back, in the
+    # wait's own words - written with `putting-back` and never cleared.
+    put_back_because: str | None = None
+
+    def its_change_was_made(self) -> bool | None:
+        """Whether this row's change was made, as its progress says."""
+        return self.progress.its_change_was_made()
 
     @model_validator(mode="before")
     @classmethod

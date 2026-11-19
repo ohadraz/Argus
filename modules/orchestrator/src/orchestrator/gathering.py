@@ -54,7 +54,6 @@ from core.models import (
     CHAT_THREAD,
     AcceleratorPinUndo,
     ActionIdentity,
-    ActionProgress,
     ActionType,
     Alert,
     AutoscalerUndo,
@@ -913,7 +912,7 @@ def _whether_it_left_a_way_back(taken_action: TakenAction) -> bool:
     leaves, for an action performed, and what it left on the way, for one that
     never was: a rollback the platform refused has nothing to put back, unless
     it suspended the sync first."""
-    if taken_action.progress is ActionProgress.NOT_PERFORMED:
+    if taken_action.its_change_was_made() is False:
         return taken_action.undo_descriptor is not None
 
     return taken_action.has_a_way_back
@@ -925,7 +924,7 @@ def _whether_what_it_left_is_known(taken_action: TakenAction) -> bool:
     Only for an action never performed, whose way back is what it left on the
     way: one performed has its kind's way back, and how far it got already
     says what is in doubt about it."""
-    if taken_action.progress is ActionProgress.NOT_PERFORMED:
+    if taken_action.its_change_was_made() is False:
         return taken_action.left_behind_known
 
     return True
@@ -935,10 +934,16 @@ def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:
     """The application whose automatic sync the action stopped, where it is
     still stopped: the change stands, and sync was on when Argus found it.
 
-    A change put back puts sync back with it, and an application nobody had
-    syncing was not stopped by Argus - so neither owes anybody anything.
+    A change put back puts sync back with it, and so does one left as found -
+    somebody else's since, with nothing of Argus's standing - and an application
+    nobody had syncing was not stopped by Argus: none of them owes anybody
+    anything. Read off what putting it back did, never off the verdict: a
+    refuted change whose put-back never ran - the incident was ended first -
+    still has sync stopped, and so does one left standing or whose put-back
+    could not be established.
     """
-    if not taken_action.has_a_way_back or taken_action.outcome is Verdict.REFUTED:
+    if not taken_action.has_a_way_back or taken_action.undone in (Undone.RESTORED,
+                                                                  Undone.LEFT_AS_FOUND):
         return None
 
     match taken_action.undo_descriptor:
@@ -962,13 +967,13 @@ def _what_it_did(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> 
         return what_was_done(line.action_type, line.subject or "", line.accelerator)
 
     known = next((tag for tag in get_args(ActionType.__value__) if tag == taken_action.type), None)
-    if known is not None and taken_action.progress is ActionProgress.NOT_PERFORMED:
+    made = taken_action.its_change_was_made()
+    if known is not None and made is False:
         return what_was_not_done(known, taken_action.subject or "")
 
     # A claim that never said more: nobody knows whether it was done, so it is
     # named as the thing it does rather than said in either tense.
-    if known is not None and taken_action.progress in (ActionProgress.CLAIMED,
-                                                       ActionProgress.UNKNOWN):
+    if known is not None and made is None:
         named = what_the_action_does(known, taken_action.subject or "")
         return named[:1].upper() + named[1:]
 
@@ -1170,8 +1175,12 @@ def what_became_of(taken_action: TakenAction) -> str:
     A flag revert is the one whose undo is its own write: nothing changes
     before it, so a flag revert carrying one was taken by the provider and
     never seen evaluating - made, not "not made".
+
+    Whether a refuted change is back is read off what put it back, never off
+    how far the walk got: one the walk's own put-back never ran for - a person
+    ended the incident first - is still in place, and says why.
     """
-    if taken_action.progress is ActionProgress.NOT_PERFORMED:
+    if taken_action.its_change_was_made() is False:
         if isinstance(taken_action.undo_descriptor, FlagUndo):
             return "made at the provider but never seen in effect; still in place"
 
@@ -1210,23 +1219,33 @@ def what_became_of(taken_action: TakenAction) -> str:
     if _whether_it_was_put_back(taken_action):
         return "put back when it did not help"
 
+    # Refuted, and nothing ever put it back: a person ended the incident before
+    # the walk's own put-back ran, and nothing that ends in a postmortem is
+    # unwound.
+    if taken_action.outcome is Verdict.REFUTED and taken_action.undone is None:
+        return ("did not help, and was not put back: the incident was ended before "
+                "it could be, so it is still in place")
+
     if taken_action.outcome is None:
-        if taken_action.progress is ActionProgress.PERFORMED:
+        made = taken_action.its_change_was_made()
+
+        if made is True:
             return "may still be in place"
 
-        if taken_action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
+        if made is None:
             return "not known whether it was made"
 
     return "still in place"
 
 
 def _whether_it_was_put_back(taken_action: TakenAction) -> bool:
-    """Whether Mitigation put the action's change back itself, having found it
-    did not help - with a way back, refuted, and neither left as found nor left
-    standing because somebody had changed its subject since."""
+    """Whether the action's change was put back, having been found not to help
+    - with a way back, refuted, and restored: what put it back says so, whether
+    that was Mitigation itself or the cleanup after a put-back that never ran.
+    Never read off how far the walk got."""
     return (taken_action.has_a_way_back
             and taken_action.outcome is Verdict.REFUTED
-            and taken_action.undone not in (Undone.LEFT_AS_FOUND, Undone.LEFT_STANDING))
+            and taken_action.undone is Undone.RESTORED)
 
 
 def _how_far_the_logs_were_read(account: list[IncidentEvent]) -> datetime | None:

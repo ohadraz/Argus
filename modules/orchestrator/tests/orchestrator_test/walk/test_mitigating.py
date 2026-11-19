@@ -76,7 +76,7 @@ from core.models import (
     the_subject_of,
 )
 from incident_record import IsStillWanted
-from mitigation import ChangeMade
+from mitigation import ChangeMade, PutBackOwed
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
@@ -97,6 +97,12 @@ SOME_ONSET_THE_ALERT_STATED = datetime(2026, 9, 4, 21, 48, tzinfo=UTC)
 SOME_ACCELERATOR = "Tesla-V100-SXM2-16GB"
 SOME_APPLICATION = "io-shop"
 DONT_CARE_MOMENT_IT_WAS_TAKEN = datetime(2026, 9, 4, 22, 16, tzinfo=UTC)
+# The walk's clock as it records the change made, and as it announces
+# it after - two readings, in that order, as today's announcement is dated.
+SOME_MOMENT_IT_WAS_MADE = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN + timedelta(seconds=4)
+SOME_MOMENT_IT_WAS_ANNOUNCED = SOME_MOMENT_IT_WAS_MADE + timedelta(milliseconds=3)
+# What the watch found that left a change owing its put-back, in its words.
+SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
 
 # The two ways a resumed walk hands an incident over, in the words a person reads.
 A_CHANGE_MADE_AND_NEVER_RECORDED = ("an earlier attempt carried out this action and "
@@ -185,6 +191,11 @@ def advance_action() -> MagicMock:
     return cast(MagicMock, create_autospec(ports.AdvanceAction, instance=True))
 
 
+@pytest.fixture
+def owe_a_put_back() -> MagicMock:
+    return cast(MagicMock, create_autospec(ports.OweAPutBack, instance=True))
+
+
 @pytest.mark.unit
 def test_a_confirmed_action_reports_the_verdict_it_measured(
     take: MagicMock,
@@ -207,6 +218,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -245,6 +257,7 @@ def test_the_verdict_an_action_reached_is_logged(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -291,6 +304,7 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -335,6 +349,7 @@ def test_the_claim_is_dated_on_the_walks_clock_before_the_action_is_announced(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -376,6 +391,7 @@ def test_a_refuted_action_carries_what_the_wait_judged_for_the_next_round(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -407,6 +423,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -438,6 +455,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -482,6 +500,7 @@ def test_an_unavailable_platform_is_published_where_the_walk_learnt_it(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -522,6 +541,7 @@ def test_an_escalated_action_publishes_nothing_about_a_platform(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -560,6 +580,7 @@ def test_an_unreachable_platform_is_recorded_against_the_walk(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -601,6 +622,7 @@ def test_the_platform_recorded_is_the_one_the_action_acted_through(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -635,6 +657,7 @@ def test_an_escalated_action_says_nothing_about_any_platform(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -669,6 +692,7 @@ def test_the_node_that_takes_the_action_decides_no_status(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -709,6 +733,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -748,6 +773,7 @@ def test_the_action_row_records_whether_the_action_was_performed(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -787,6 +813,7 @@ def test_the_action_row_records_whether_what_the_attempt_left_is_known(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -828,6 +855,7 @@ def test_a_candidate_passed_over_untested_keeps_why_on_its_row_and_its_line(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -873,6 +901,7 @@ def test_the_action_row_and_its_line_keep_what_putting_it_back_did(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -911,6 +940,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -955,6 +985,7 @@ def test_a_candidate_nothing_was_measured_for_is_not_recorded_as_tested(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -994,6 +1025,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -1033,6 +1065,7 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -1074,6 +1107,7 @@ def test_the_moment_an_action_was_taken_travels_with_the_walk(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1118,6 +1152,7 @@ def test_an_attempt_that_ended_before_its_write_announces_no_action(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1157,6 +1192,7 @@ def test_the_verdict_on_a_change_made_says_it_was_made(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1196,6 +1232,7 @@ def test_the_verdict_says_whether_the_action_was_judged(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1239,6 +1276,7 @@ def test_the_plan_is_made_before_the_claim_and_written_on_it(
                                       plan_action=planning,
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1279,6 +1317,7 @@ def test_the_action_is_taken_on_the_plan_its_claim_carries(
                                       plan_action=_planning_answering(some_plan),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1315,6 +1354,7 @@ def test_an_action_with_nothing_to_plan_is_claimed_and_taken_with_no_plan(
                                       plan_action=_planning_answering(None),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1362,6 +1402,7 @@ def test_a_plan_refused_is_recorded_as_the_attempt_and_the_action_is_not_taken(
                                       ),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1409,6 +1450,7 @@ def test_a_plan_refused_as_spent_passes_the_candidate_over_untested_saying_why(
                                       ),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1451,6 +1493,7 @@ def test_a_plan_whose_platform_was_not_there_narrows_the_walk(
                                       ),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1513,6 +1556,7 @@ def test_a_resumed_walk_acting_again_acts_on_the_plan_the_earlier_claim_carries(
                                       ),
                                       change_landed=change_landed,
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1553,6 +1597,7 @@ def test_a_plan_refused_after_a_person_ended_the_incident_is_recorded_as_the_sto
                                       ),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1599,6 +1644,7 @@ def test_a_resumed_walk_reports_the_earlier_outcome_whatever_its_own_plan_found(
                                       ),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1641,6 +1687,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -1681,6 +1728,7 @@ def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -1717,6 +1765,7 @@ def test_a_walk_resumed_after_the_action_carries_the_moment_it_was_claimed(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1757,6 +1806,7 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -1793,6 +1843,7 @@ def test_a_walk_that_claimed_the_action_takes_it(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -1839,6 +1890,7 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -1883,6 +1935,7 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_taken(take),
@@ -1930,6 +1983,7 @@ def test_the_action_is_taken_while_acting_for_the_row_this_walk_claimed(
                                       acting_for=_Acting(happened),
                                       change_landed=_nothing_landed(),
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(
@@ -1978,6 +2032,7 @@ def test_a_resumed_walk_acting_again_acts_for_the_row_the_earlier_attempt_claime
                                       acting_for=_Acting(happened),
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(
@@ -2024,6 +2079,7 @@ def test_a_resumed_walk_that_does_not_act_again_acts_for_no_action(
                                       acting_for=_Acting(happened),
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(
@@ -2066,6 +2122,7 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -2119,6 +2176,7 @@ def test_a_resumed_claim_is_asked_after_under_the_flag_the_action_names(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(_the_provider_was_asked_about(
@@ -2163,6 +2221,7 @@ def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -2221,6 +2280,7 @@ def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_ab
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -2272,6 +2332,7 @@ def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -2290,8 +2351,11 @@ def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
     ],
     ids=["flag-revert", "rollback"]
 )
+@pytest.mark.parametrize("progress", [ActionProgress.PERFORMED, ActionProgress.PUTTING_BACK],
+                         ids=["made", "owed-back"])
 def test_a_claim_already_told_as_made_escalates_without_asking_anybody(
     some_action: Action,
+    progress: ActionProgress,
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -2305,12 +2369,14 @@ def test_a_claim_already_told_as_made_escalates_without_asking_anybody(
     # The dead worker said the change was made before its wait, and recorded
     # nothing after. Made is made whoever the provider would credit with it -
     # and a rollback has no provider to ask at all - so nobody is asked and
-    # nothing is written: the claim already says what there is to say.
+    # nothing is written: the claim already says what there is to say. A
+    # claim owing its put-back says more - the change was made and judged -
+    # and until a resumed walk puts it back, it is handed over the same way.
     Scenario() \
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
                 record_action, already_taken, nothing_recorded=None,
-                progress=ActionProgress.PERFORMED)),
+                progress=progress)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=some_action,
                 about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
@@ -2325,6 +2391,7 @@ def test_a_claim_already_told_as_made_escalates_without_asking_anybody(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -2369,6 +2436,7 @@ def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
                                       acting_for=acting_for,
                                       change_landed=change_landed,
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
@@ -2406,6 +2474,7 @@ def test_the_change_is_put_on_the_claim_the_moment_the_agent_says_it_was_made(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2449,6 +2518,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_does_not_stop_the_attempt(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2493,6 +2563,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_att
                                                  plan_action=_a_plan_nobody_checks(),
                                                  change_landed=_nothing_landed(),
                                                  advance_action=advance_action,
+                                                 owe_a_put_back=_an_owing_nobody_checks(),
                                                  record_action=record_action,
                                                  complete_action=complete_action,
                                                  record_outcome=record_outcome,
@@ -2563,6 +2634,7 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2603,6 +2675,7 @@ def test_the_action_announced_says_the_number_of_the_candidate_it_was_for(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2645,6 +2718,7 @@ def test_an_attempt_that_ended_before_its_write_says_the_candidate_it_was_for(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2682,6 +2756,7 @@ def test_the_graph_says_which_way_it_moved_the_flag(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2721,6 +2796,7 @@ def test_the_graph_says_which_card_it_held_the_deployment_to(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2756,6 +2832,7 @@ def test_the_graph_says_what_verdict_came_back(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2784,6 +2861,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
             plan_action=_a_plan_nobody_checks(),
             change_landed=_nothing_landed(),
             advance_action=_an_advance_nobody_checks(),
+            owe_a_put_back=_an_owing_nobody_checks(),
             record_action=record_action,
             complete_action=complete_action,
             record_outcome=record_outcome,
@@ -2836,6 +2914,7 @@ def test_an_action_aimed_at_a_dependency_is_announced_as_one(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2873,6 +2952,7 @@ def test_an_action_on_the_service_that_alerted_is_announced_as_nobodys_dependenc
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2912,6 +2992,7 @@ def test_a_flag_reverted_is_announced_as_nobodys_dependency(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2950,6 +3031,7 @@ def test_the_minute_the_alert_dated_the_incident_to_reaches_the_agent(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -2985,6 +3067,7 @@ def test_an_incident_no_alert_dated_hands_over_no_minute(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -3061,6 +3144,7 @@ def test_the_minute_the_investigation_dated_the_incident_from_reaches_the_agent(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -3124,6 +3208,7 @@ def test_the_rule_a_series_alert_names_is_handed_to_the_agent(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -3158,6 +3243,7 @@ def test_a_finding_hands_the_agent_no_rule_to_wait_on(
                                       plan_action=_a_plan_nobody_checks(),
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -3644,16 +3730,24 @@ def _the_walk_says(expected: str) -> Assertion[StateDelta]:
 def _the_claim_was_advanced_to(expected: ActionProgress,
                                state: IncidentState,
                                advance_action: MagicMock,
-                               undo_descriptor: UndoDescriptor | None = None
+                               undo_descriptor: UndoDescriptor | None = None,
+                               performed_at: datetime | None = None
                                ) -> Assertion[StateDelta]:
     """The claim on this incident's candidate moved on once, to `expected`,
-    carrying `undo_descriptor`."""
+    carrying `undo_descriptor` - and made at `performed_at`, where a case is
+    about the moment; a case that is not compares everything else."""
     def assertion(dont_care_result: StateDelta) -> bool:
         assert state.hypothesis is not None
-        made = [(call.args, call.kwargs) for call in advance_action.call_args_list]
-        wanted = [((state.incident_id,), {"hypothesis_id": state.hypothesis.id,
-                                           "to": expected,
-                                           "undo_descriptor": undo_descriptor})]
+        made = [(call.args,
+                 {name: value for name, value in call.kwargs.items()
+                  if performed_at is not None or name != "performed_at"})
+                for call in advance_action.call_args_list]
+        wanted_keywords: dict[str, object] = {"hypothesis_id": state.hypothesis.id,
+                                              "to": expected,
+                                              "undo_descriptor": undo_descriptor}
+        if performed_at is not None:
+            wanted_keywords["performed_at"] = performed_at
+        wanted = [((state.incident_id,), wanted_keywords)]
         if made != wanted:
             raise AssertionError(f"Expected the claim moved on once, to [{expected}] "
                                  f"carrying [{undo_descriptor}], got {made}.")
@@ -4296,6 +4390,230 @@ def _no_platform_was_published_as_unavailable(
             raise AssertionError(
                 f"Expected nothing published about a platform, and {said} was."
             )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_the_change_made_is_put_on_the_claim_with_the_walk_s_clock_before_it_is_announced(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The row says when the change was made, on the clock the walk dates its
+    # minutes by - read for the row, just before it is written; the
+    # announcement keeps the reading it has always taken, after the row, so
+    # the account a replay compares is dated as it was.
+    some_way_back = FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
+    readings = iter([SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, SOME_MOMENT_IT_WAS_MADE,
+                     SOME_MOMENT_IT_WAS_ANNOUNCED])
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            take := _an_agent_that_tells_of_the_change(some_way_back, Verdict.CONFIRMED),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      change_landed=_nothing_landed(),
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=lambda: next(readings))) \
+        .then(all_of(
+            _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
+                                       advance_action, undo_descriptor=some_way_back,
+                                       performed_at=SOME_MOMENT_IT_WAS_MADE),
+            _the_walk_carries(SOME_MOMENT_IT_WAS_ANNOUNCED)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_owed_back_is_put_on_the_claim_with_what_the_watch_found(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    owe_a_put_back: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Before the put-back, on the row this walk claimed: a worker that dies
+    # putting it back leaves a claim saying the change is owed back and why.
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            take := _an_agent_that_owes_a_put_back(FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True),
+                                                   SOME_FINDING),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=owe_a_put_back,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _the_put_back_was_owed_on_the_claim(an_action_taking_incident, owe_a_put_back,
+                                                SOME_FINDING)
+        )
+
+
+@pytest.mark.unit
+def test_a_put_back_that_could_not_be_put_on_the_claim_as_owed_does_not_stop_the_attempt(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    owe_a_put_back: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The change made being recorded early is the reasoning here too: the
+    # put-back is what the refutation is owed, and the completion writes the
+    # verdict whatever the early copy did. Abandoning the attempt over it
+    # would leave a refuted change standing.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.WARNING)),
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_put_back_cannot_be_owed(owe_a_put_back)),
+            take := _an_agent_that_owes_a_put_back(FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True),
+                                                   SOME_FINDING),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=owe_a_put_back,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(
+            _the_verdict_reported_is(Verdict.REFUTED),
+            _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action),
+            one_record_was_logged(caplog, "orchestrator.walk.mitigating", logging.WARNING,
+                                  "the put-back could not be recorded as owed before it was "
+                                  "attempted")
+        ))
+
+
+@pytest.mark.unit
+def test_a_put_back_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_attempt(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    owe_a_put_back: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The run is another claim's now: the put-back is that walk's to make or
+    # not, and a completion from here would be refused for the same reason.
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_put_back_is_refused_for_a_lost_run(owe_a_put_back)),
+            take := _an_agent_that_owes_a_put_back(FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True),
+                                                   SOME_FINDING),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(attempting(lambda: mitigation_node(an_action_taking_incident,
+                                                 take=take,
+                                                 plan_action=_a_plan_nobody_checks(),
+                                                 change_landed=_nothing_landed(),
+                                                 advance_action=_an_advance_nobody_checks(),
+                                                 owe_a_put_back=owe_a_put_back,
+                                                 record_action=record_action,
+                                                 complete_action=complete_action,
+                                                 record_outcome=record_outcome,
+                                                 already_taken=already_taken,
+                                                 acting_for=acting_for,
+                                                 still_wanted=still_wanted))) \
+        .then(all_of(
+            an_error_was_raised(RunLost),
+            _no_action_row_was_completed(complete_action)
+        ))
+
+
+def _an_owing_nobody_checks() -> MagicMock:
+    """Somewhere for a put-back to be owed, in a case about something else."""
+    return cast(MagicMock, create_autospec(ports.OweAPutBack, instance=True))
+
+
+def _the_put_back_cannot_be_owed(owe_a_put_back: MagicMock) -> None:
+    owe_a_put_back.side_effect = RuntimeError("the database went away")
+
+
+def _the_put_back_is_refused_for_a_lost_run(owe_a_put_back: MagicMock) -> None:
+    owe_a_put_back.side_effect = RunLost("a newer claim holds this run")
+
+
+def _an_agent_that_owes_a_put_back(undo_descriptor: UndoDescriptor,
+                                   because: str) -> ports.TakeAction:
+    """An agent that makes the change, says so, finds against it, says it is
+    owed back with what it found, and puts it back - as the real one does, in
+    that order."""
+    def take(dont_care_action: Action, /, *,
+             change_made: ChangeMade = lambda _: None,
+             put_back_owed: PutBackOwed = lambda _: None,
+             **dont_care_keywords: object) -> Outcome:
+        change_made(undo_descriptor)
+        put_back_owed(because)
+
+        return Outcome(verdict=Verdict.REFUTED, detail="dont care", because=because,
+                       undo_descriptor=undo_descriptor, undone=Undone.RESTORED,
+                       left_behind_known=True)
+
+    return cast(ports.TakeAction, take)
+
+
+def _the_put_back_was_owed_on_the_claim(state: IncidentState,
+                                        owe_a_put_back: MagicMock,
+                                        because: str) -> Assertion[StateDelta]:
+    """The claim on this incident's candidate was told once that its change is
+    owed back, because of `because`."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        assert state.hypothesis is not None
+        made = [(call.args, call.kwargs) for call in owe_a_put_back.call_args_list]
+        wanted = [((state.incident_id,), {"hypothesis_id": state.hypothesis.id,
+                                           "because": because})]
+        if made != wanted:
+            raise AssertionError(f"Expected the claim told once its change is owed back "
+                                 f"because [{because}], got {made}.")
 
         return True
 

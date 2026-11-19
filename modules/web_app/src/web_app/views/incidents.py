@@ -26,6 +26,7 @@ from core.models import (
     IncidentStatus,
     TakenAction,
     Undone,
+    Verdict,
 )
 from incident_record import when_it_was_taken
 from narration import (
@@ -53,6 +54,10 @@ class Attempt(BaseModel):
     # else had since set it, with the reconciliation Argus suspended still
     # suspended or not - and `None` where nothing put it back.
     undone: Undone | None
+    # Refuted, with something to put back, and nothing ever put it back: a
+    # person ended the incident before the walk's own put-back ran. Read off
+    # the row's record of a put-back, never off how far the walk got.
+    not_put_back: bool = False
     taken_at: datetime
     # Whether a verdict may still come: none is recorded and the incident is
     # still being worked. With the incident over, a missing verdict is one that
@@ -207,6 +212,10 @@ def _an_attempt(taken_action: TakenAction,
     nothing back, and a refuted flag somebody changed since was left as they
     set it - both `REFUTED`, and neither put back. Nor from the verdict the
     other way: a change a withdrawal put back is `STOPPED`, and was put back.
+    And a refuted change with a way back that nothing put back is said to be
+    not put back: shown as refuted alone, it read as one put back. Never for
+    an attempt with no verdict, whose put-back may have run before its run was
+    lost.
 
     The outcome is shown as the page was handed it, which is the spelling the
     column holds even where no verdict spells it. A row an older version wrote
@@ -217,6 +226,9 @@ def _an_attempt(taken_action: TakenAction,
         action_type=taken_action.type,
         outcome=taken_action.outcome,
         undone=taken_action.undone,
+        not_put_back=(taken_action.outcome is Verdict.REFUTED
+                      and taken_action.has_a_way_back
+                      and taken_action.undone is None),
         taken_at=when_it_was_taken(taken_action, account),
         awaiting_a_verdict=taken_action.outcome is None and still_worked
     )

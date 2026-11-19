@@ -360,12 +360,8 @@ class ArgoCd:
         """
         answered = self._send("GET", self._settings.argocd_application_path, application)
 
-        def moment() -> datetime:
-            dated = parsedate_to_datetime(answered.headers[_DATE])
-
-            return dated if dated.tzinfo is not None else dated.replace(tzinfo=UTC)
-
-        return _parsed(moment, f"the date [{application}] was served with")
+        return _parsed(lambda: _the_date_on(answered),
+                       f"the date [{application}] was served with")
 
     def sync_operations_of(self, application: str, /) -> SyncOperations:
         """The application's `operation` and its `status.operationState`.
@@ -450,14 +446,15 @@ class ArgoCd:
     def resume_sync(self, application: str, mark: Mark, /) -> None:
         self._set_sync(application, reconciling=True, mark=mark)
 
-    def scale(self, application: str, replicas: int, mark: Mark, /) -> None:
-        """A merge patch of the Deployment's count, beside the mark.
+    def scale(self, application: str, replicas: int, mark: Mark, /) -> datetime | None:
+        """A merge patch of the Deployment's count, beside the mark, answered
+        with the answer's `Date` - see `roll_back`.
 
         Not the built-in `scale` action: its Lua writes the count and nothing
         else, so a resize made through it could not say whose it was. The count
         is a number here, being the manifest's own field.
         """
-        self._send(
+        return self._a_write_dated(
             "POST",
             self._settings.argocd_resource_path,
             application,
@@ -468,8 +465,15 @@ class ArgoCd:
             body=json.dumps({**_marked(mark), SPEC: {_REPLICAS: replicas}})
         )
 
-    def roll_back(self, application: str, to_history_id: int, /) -> None:
-        self._send(
+    def roll_back(self, application: str, to_history_id: int, /) -> datetime | None:
+        """The rollback route, answered with the answer's `Date`.
+
+        Read as `now` reads it, off the answer to the write itself, so dating
+        the change costs no read of its own. `None` where the answer carries no
+        readable `Date`: the change landed, so it is never refused for that,
+        and this process's clock is no stand-in for the platform's.
+        """
+        return self._a_write_dated(
             "POST",
             self._settings.argocd_rollback_path,
             application,
@@ -561,9 +565,9 @@ class ArgoCd:
                              autoscaler: Autoscaler,
                              floor: int,
                              mark: Mark,
-                             /) -> None:
+                             /) -> datetime | None:
         """A merge patch of the floor alone, beside the mark, as the resource
-        route carries one.
+        route carries one - answered with the answer's `Date`, as `roll_back` is.
 
         A JSON-encoded *string* rather than an object - the vendor's own shape for
         this body, and the mirror of the manifest arriving as text from the same
@@ -571,7 +575,7 @@ class ArgoCd:
         changes: a body carrying the ceiling would re-assert a human's
         declaration as though Argus had decided it.
         """
-        self._send(
+        return self._a_write_dated(
             "POST",
             self._settings.argocd_resource_path,
             application,
@@ -642,9 +646,10 @@ class ArgoCd:
                            application: str,
                            accelerator: str | None,
                            mark: Mark,
-                           /) -> None:
+                           /) -> datetime | None:
         """A merge patch of the card label alone, on the pod template's selector,
-        beside the mark on the Deployment's own metadata.
+        beside the mark on the Deployment's own metadata - answered with the
+        answer's `Date`, as `roll_back` is.
 
         The label and nothing else of the template, because a merge patch says
         only what changes: a body carrying the whole selector would replace
@@ -652,7 +657,7 @@ class ArgoCd:
         7386 reads as removing the key - how a pin onto a deployment that had
         none is let go.
         """
-        self._send(
+        return self._a_write_dated(
             "POST",
             self._settings.argocd_resource_path,
             application,
@@ -734,6 +739,23 @@ class ArgoCd:
             return parsed
 
         return _parsed(manifest, f"[{application}]'s live manifest")
+
+    def _a_write_dated(self,
+                       method: str,
+                       route: str,
+                       application: str,
+                       params: dict[str, str] | None = None,
+                       body: Any = None) -> datetime | None:
+        """One write, answered with its answer's `Date` where it carries a
+        readable one and `None` where it does not."""
+        answered = self._send(method, route, application, params=params, body=body)
+
+        try:
+            return _the_date_on(answered)
+        except (KeyError, TypeError, ValueError):
+            logger.info("write answered undated", extra={"application": application})
+
+            return None
 
     def _get(self,
              route: str,
@@ -920,6 +942,15 @@ def _the_node_named_in(pod: dict[str, Any]) -> str | None:
             return str(item[INFO_VALUE])
 
     return None
+
+
+def _the_date_on(answered: httpx2.Response) -> datetime:
+    """The answer's `Date`, in every format RFC 9110 (5.6.7) has a recipient
+    accept; the asctime one names no zone, and HTTP's dates are UTC. Raises
+    where there is none, or none readable - the caller decides what that is."""
+    dated = parsedate_to_datetime(answered.headers[_DATE])
+
+    return dated if dated.tzinfo is not None else dated.replace(tzinfo=UTC)
 
 
 def _parsed[T](read: Callable[[], T], what: str) -> T:

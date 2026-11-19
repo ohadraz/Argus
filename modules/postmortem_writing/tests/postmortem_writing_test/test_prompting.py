@@ -7486,3 +7486,25 @@ def _a_deploy_of(revision: str, files_address: str | None) -> ChangeEvent:
                            repository_address="https://github.invalid/acme/shop",
                            revision_address=f"https://github.invalid/acme/shop/commit/{revision}",
                            files_address=files_address))
+
+
+@pytest.mark.unit
+def test_an_action_owing_its_put_back_is_listed_among_the_actions_it_took() -> None:
+    # Refuted, and the put-back never ran - the incident was ended first, or
+    # the run lost. Either way the change was made, so it is an action taken,
+    # and leaving it off every list said nothing of a change that may still be
+    # standing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Reverted the feature flag some-flag", verdict=Verdict.REFUTED,
+                          standing="did not help, and was not put back").model_copy(
+                    update={"progress": ActionProgress.PUTTING_BACK})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("Actions it took:\n  - [M1] Reverted the feature flag some-flag"),
+            _does_not_say("nobody can say were taken"),
+            _does_not_say("did not take")))

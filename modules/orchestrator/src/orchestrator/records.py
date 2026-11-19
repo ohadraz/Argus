@@ -189,13 +189,17 @@ class Records:
         incident_id: str,
         hypothesis_id: str,
         to: ActionProgress,
-        undo_descriptor: UndoDescriptor | None
+        undo_descriptor: UndoDescriptor | None,
+        performed_at: datetime | None = None
     ) -> None:
         """Moves a claimed action on, and says nothing about it.
 
         Nothing said, unlike a completion: the change being made is announced
         before it is taken, and a resumed walk's answer is narrated by the walk
         that reached it. This is the row catching up.
+
+        `performed_at` is the walk's moment for the change, on its own clock -
+        `None` for a resumed walk's answer, which was not there when it was made.
         """
         with unit_of_work(self._connections) as conn:
             taken_actions.advance(
@@ -203,7 +207,25 @@ class Records:
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 to=to,
-                undo_descriptor=undo_descriptor
+                undo_descriptor=undo_descriptor,
+                performed_at=performed_at
+            )
+
+    def owe_a_put_back(self, incident_id: str, hypothesis_id: str, because: str) -> None:
+        """Records a refuted change as owed back, with what the wait found, and
+        says nothing about it.
+
+        Committed on its own, before the put-back is attempted, so a worker that
+        dies during the put-back leaves the change owed back on record. Nothing
+        said, as `advance_action` says nothing: the verdict is narrated once,
+        when the attempt completes.
+        """
+        with unit_of_work(self._connections) as conn:
+            taken_actions.owe_a_put_back(
+                conn,
+                incident_id,
+                hypothesis_id=hypothesis_id,
+                because=because
             )
 
     def claimed_action(self,

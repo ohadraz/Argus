@@ -936,3 +936,35 @@ def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None,
         progress=progress,
         undone=undone
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.PUTTING_BACK, ActionProgress.PERFORMED],
+                         ids=["completed-while-owed-back", "completed-from-made"])
+def test_a_refuted_change_whose_put_back_never_ran_is_put_back(
+    progress: ActionProgress, undo: MagicMock, published: list[IncidentEvent]
+) -> None:
+    # Refuted, and the incident withdrawn before the walk's own put-back ran -
+    # its row still owing it, or left at made where the write saying it was
+    # owed failed. Nothing has settled it either way, so the withdrawal puts
+    # it back: the one thing that will.
+    some_change = _an_undo_descriptor_for("monthly-spend-feature")
+    undo.return_value = _restored("dont care")
+
+    Scenario() \
+        .given(
+            an_incident_owing_a_put_back := [_a_taken_action_carrying(some_change,
+                                                                      progress=progress)]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_owing_a_put_back),
+                undo=undo,
+                acting_for=_acting_for_whichever,
+                record_undone=_saying_into(published)
+            )
+        ) \
+        .then(
+            _the_changes_put_back(undo, some_change)
+        )

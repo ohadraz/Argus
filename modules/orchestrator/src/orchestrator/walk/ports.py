@@ -47,7 +47,7 @@ from core.models import (
 from core.replay import Recorder
 from core.replay import nobody as records_nothing
 from incident_memory.records import RememberedIncident
-from mitigation import Action, ChangeMade, Outcome, Verdict
+from mitigation import Action, ChangeMade, Outcome, PutBackOwed, Verdict
 from pydantic import BaseModel
 
 
@@ -197,6 +197,11 @@ class TakeAction(Protocol):
     # with what would put it back - the walk binds the row it claimed into it,
     # so a worker that dies during the wait leaves the change on record.
     #
+    # `put_back_owed` is told once the wait has refuted a change that left
+    # something to put back, with what the wait found, before the put-back -
+    # the walk binds the same row into it, so a worker that dies putting the
+    # change back leaves it owed back on record.
+    #
     # `plan` is the change `PlanAction` worked out and the claim carries, `None`
     # for an action with nothing to plan. Not defaulted: an action taken on a
     # plan nobody chose would be compared against a state nothing wrote down.
@@ -212,7 +217,8 @@ class TakeAction(Protocol):
         onset: datetime | None = None,
         incident_began: str | None = None,
         rule: str | None = None,
-        change_made: ChangeMade = ...
+        change_made: ChangeMade = ...,
+        put_back_owed: PutBackOwed = ...
     ) -> Outcome: ...
 
 
@@ -302,9 +308,10 @@ class AdvanceAction(Protocol):
     """Moves a claimed action on to what has since been learnt about it.
 
     Two moments write it: the change being made, before the wait, with what
-    would put it back; and a resumed walk's answer about a dead worker's claim.
-    Only a claim moves - a completed row, or one nobody can account for, is
-    left saying what it says.
+    would put it back and when the walk recorded it, on its own clock; and a
+    resumed walk's answer about a dead worker's claim, which has no moment to
+    give. Only a claim moves - a completed row, or one nobody can account for,
+    is left saying what it says.
     """
 
     def __call__(
@@ -312,8 +319,20 @@ class AdvanceAction(Protocol):
         incident_id: str,
         hypothesis_id: str,
         to: ActionProgress,
-        undo_descriptor: UndoDescriptor | None
+        undo_descriptor: UndoDescriptor | None,
+        performed_at: datetime | None = None
     ) -> None: ...
+
+
+class OweAPutBack(Protocol):
+    """Records a change the wait refuted as owed back, with what the wait
+    found, before the put-back is attempted.
+
+    Only a change made and not yet completed moves: a worker that dies putting
+    it back leaves a claim saying the change is owed back and why.
+    """
+
+    def __call__(self, incident_id: str, hypothesis_id: str, because: str) -> None: ...
 
 
 class Admitted(Protocol):

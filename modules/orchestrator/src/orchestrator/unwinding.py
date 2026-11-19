@@ -22,7 +22,6 @@ from typing import Protocol
 from core import Connections
 from core.events import ChangeUndone
 from core.models import (
-    ActionProgress,
     TakenAction,
     UndoDescriptor,
     Undone,
@@ -101,12 +100,13 @@ def _a_change_nothing_was_kept_to_undo(taken_action: TakenAction) -> UndoAttempt
         return None
 
     subject = taken_action.subject or ""
+    made = taken_action.its_change_was_made()
 
-    if taken_action.progress is ActionProgress.PERFORMED:
+    if made is True:
         return UndoAttempt(subject=subject, outcome=Undone.NOT_ESTABLISHED,
                            detail="was changed, and nothing was kept to put it back")
 
-    if taken_action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
+    if made is None:
         return UndoAttempt(subject=subject, outcome=Undone.NOT_ESTABLISHED,
                            detail="may have been changed, and nothing was kept to put "
                                   "it back")

@@ -367,9 +367,9 @@ class IncidentEvidence(BaseModel):
 
     @property
     def first_acted_at(self) -> datetime | None:
-        """When Argus first changed anything - the earliest action performed -
-        or `None` where it performed none. Not one never performed, nor one
-        nobody can say was: said as the minute Argus acted, either says a
-        change was made."""
+        """When Argus first changed anything - the earliest action whose change
+        was made, one owed back after a refutation included - or `None` where
+        it made none. Not one never performed, nor one nobody can say was:
+        said as the minute Argus acted, either says a change was made."""
         return min((action.taken_at for action in self.actions
-                    if action.progress is ActionProgress.PERFORMED), default=None)
+                    if action.progress.its_change_was_made() is True), default=None)

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
@@ -1802,3 +1803,59 @@ def _it_was_not(failure: type[Exception]) -> Assertion[Exception | None]:
         return True
 
     return assertion
+
+
+# A count a write asks for, which no case here reads.
+DONT_CARE_COUNT = 6
+
+# Each write that makes a change Argus records a way back for, with the route it
+# is sent to - asked of the adapter, for the cases about when the platform says
+# it was made.
+EVERY_WRITE_ARGUS_PUTS_BACK = [
+    pytest.param(POST, THE_ROLLBACK,
+                 lambda argo_cd: argo_cd.roll_back(SOME_APPLICATION, SOME_HISTORY_ID),
+                 id="rollback"),
+    pytest.param(POST, THE_RESOURCE,
+                 lambda argo_cd: argo_cd.scale(SOME_APPLICATION, DONT_CARE_COUNT, SOME_MARK),
+                 id="scale-out"),
+    pytest.param(POST, THE_RESOURCE,
+                 lambda argo_cd: argo_cd.set_autoscaler_floor(SOME_APPLICATION, SOME_AUTOSCALER,
+                                                              DONT_CARE_COUNT, SOME_MARK),
+                 id="autoscaler-floor"),
+    pytest.param(POST, THE_RESOURCE,
+                 lambda argo_cd: argo_cd.pin_to_accelerator(SOME_APPLICATION, SOME_CARD,
+                                                            SOME_MARK),
+                 id="card-pin")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("method", "route", "write"), EVERY_WRITE_ARGUS_PUTS_BACK)
+def test_a_write_answers_with_the_moment_the_platform_dated_its_answer(
+        method: str, route: str, write: Callable[[ArgoCd], datetime | None]) -> None:
+    # What the change's way back is dated by, on the platform's own clock - the
+    # clock a later look at its record compares with - and read off the answer
+    # to the write itself, which needs no read of its own.
+    platform = _Platform().answering(method, route, _ok_dated(THE_IMF_FIXDATE))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: write(argo_cd)) \
+        .then(the_answer_was(THE_MOMENT_RFC_9110_SPELLS))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("method", "route", "write"), EVERY_WRITE_ARGUS_PUTS_BACK)
+@pytest.mark.parametrize("date", [None, "not a moment"], ids=["no date", "a date that is not one"])
+def test_a_write_whose_answer_does_not_say_when_answers_with_no_moment(
+        method: str, route: str, write: Callable[[ArgoCd], datetime | None],
+        date: str | None) -> None:
+    # The change was made, so refusing here would report a change that landed
+    # as one that did not. Nor is Argus's clock a stand-in for the platform's:
+    # absent says nobody knows when, which is what a reader asks of it.
+    platform = _Platform().answering(method, route, _ok_dated(date))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: write(argo_cd)) \
+        .then(the_answer_was(None))

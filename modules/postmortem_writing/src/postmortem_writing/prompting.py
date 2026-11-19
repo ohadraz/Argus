@@ -38,7 +38,6 @@ from core.anomaly import the_end_of_the_onset
 from core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ActionItemType,
-    ActionProgress,
     Ask,
     ChangeEvent,
     ChannelReading,
@@ -1519,11 +1518,11 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                                        for action in evidence.actions]),
                             evidence.actions, strict=True))
     actions = [line for line, action in every_action
-               if action.progress is ActionProgress.PERFORMED]
+               if action.progress.its_change_was_made() is True]
     not_taken = [line for line, action in every_action
-                 if action.progress is ActionProgress.NOT_PERFORMED]
+                 if action.progress.its_change_was_made() is False]
     unanswered = [line for line, action in every_action
-                  if action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN)]
+                  if action.progress.its_change_was_made() is None]
     load_confirmed = _the_load_confirmed(evidence)
     cause_measured = the_cause_measured_labelled(evidence, measured)
     looked_into = the_deployment_changes_labelled(evidence)

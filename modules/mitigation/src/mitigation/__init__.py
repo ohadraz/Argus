@@ -77,10 +77,13 @@ from mitigation.tools import (
 )
 from mitigation.trying import (
     ChangeMade,
+    PutBackOwed,
     UndoChange,
     plan_action,
+    settle_the_refutation,
     stopped_before_it_was_taken,
     take_action,
+    watch_what_was_performed,
 )
 
 __all__ = [
@@ -96,6 +99,7 @@ __all__ = [
     "Outcome",
     "PerformingWrites",
     "PinToAcceleratorStrategy",
+    "PutBackOwed",
     "Reasons",
     "RestartDependencyStrategy",
     "RestartServiceStrategy",
@@ -126,8 +130,10 @@ __all__ = [
     "rollout_progress_over",
     "rules_read_over",
     "propose_action",
+    "settle_the_refutation",
     "stopped_before_it_was_taken",
     "take_action",
+    "watch_what_was_performed",
     "why_no_mitigation_answers",
     "why_nothing_was_proposed"
 ]

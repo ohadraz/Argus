@@ -81,8 +81,8 @@ from mitigation.tools import (
     nothing_to_wait_for,
 )
 
-__all__ = ["ChangeMade", "UndoChange", "plan_action", "stopped_before_it_was_taken",
-           "take_action"]
+__all__ = ["ChangeMade", "PutBackOwed", "UndoChange", "plan_action", "settle_the_refutation",
+           "stopped_before_it_was_taken", "take_action", "watch_what_was_performed"]
 
 # Told that the action's change was made, with what the tier said would put it
 # back - `None` for a change that leaves nothing to restore. Called once, the
@@ -91,6 +91,17 @@ __all__ = ["ChangeMade", "UndoChange", "plan_action", "stopped_before_it_was_tak
 # the longest stretch of an attempt, and the one a worker is likeliest to die
 # in.
 type ChangeMade = Callable[[UndoDescriptor | None], None]
+
+# Told that the watch refuted a change that left something to put back, with
+# what the watch found - before the put-back is attempted, so a caller can
+# record the change as owed back while the worker that owes it is still alive
+# to say so. Not told for a refutation with nothing to put back, nor for any
+# other verdict.
+type PutBackOwed = Callable[[str], None]
+
+# What a refuted change says of its put-back where a person ended the incident
+# after the watch refuted it and before it could be put back.
+_NOT_PUT_BACK = "was not put back: a person ended the incident before it could be"
 
 # How often the service is re-read while waiting for it to answer an action.
 # Metrics are aggregated per minute, so a tighter interval only re-reads the
@@ -129,6 +140,10 @@ def _nobody_told(undo_descriptor: UndoDescriptor | None) -> None:
     """A change made with nobody to tell, for a caller recording nothing."""
 
 
+def _nobody_owed(because: str) -> None:
+    """A put-back owed with nobody to tell, for a caller recording nothing."""
+
+
 def take_action(action: Action,
                 settings: MitigationSettings,
                 thresholds: AnomalyThresholds,
@@ -148,6 +163,7 @@ def take_action(action: Action,
                 writes: PerformingWrites,
                 undo: UndoChange,
                 change_made: ChangeMade = _nobody_told,
+                put_back_owed: PutBackOwed = _nobody_owed,
                 kinds: KindOf = kind_of,
                 undoing_kinds: UndoingKindOf = kind_undoing) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
@@ -226,6 +242,11 @@ def take_action(action: Action,
     caller's - this does not guard it, since whether a failure to record may
     be survived is the recorder's judgement and not the Mitigator's.
 
+    `put_back_owed` is told once the wait has refuted a change that left
+    something to put back, with what the wait found, before the put-back - see
+    `watch_what_was_performed`, which is this from the moment the write landed.
+    Unguarded for `change_made`'s reason.
+
     `plan` is the change `plan_action` worked out and the claim carries, which
     the write compares the estate with before it changes anything - `None` for
     an action with nothing to plan, a restart or a discard. Required, `None`
@@ -272,6 +293,48 @@ def take_action(action: Action,
     # the action's failure to happen - the change is made by now.
     change_made(performed.undo_descriptor)
 
+    return watch_what_was_performed(
+        action, performed, settings, thresholds, fetch_metrics, now, sleep, still_wanted,
+        arrivals, incident_id, publisher, onset=onset, incident_began=incident_began,
+        rule=rule, read_rule=read_rule, undo=undo, put_back_owed=put_back_owed,
+        undoing_kinds=undoing_kinds
+    )
+
+
+def watch_what_was_performed(action: Action,
+                             performed: Performed,
+                             settings: MitigationSettings,
+                             thresholds: AnomalyThresholds,
+                             fetch_metrics: MetricsFetcher,
+                             now: Clock = utc_now,
+                             sleep: Sleeper = sleep_on_the_clock,
+                             still_wanted: StillWanted = wanted_throughout,
+                             arrivals: ArrivalFor = nothing_to_wait_for,
+                             incident_id: str | None = None,
+                             publisher: Publisher = nobody,
+                             *,
+                             onset: datetime | None = None,
+                             incident_began: str | None = None,
+                             rule: str | None = None,
+                             read_rule: RuleReader | None = None,
+                             undo: UndoChange,
+                             put_back_owed: PutBackOwed = _nobody_owed,
+                             undoing_kinds: UndoingKindOf = kind_undoing) -> Outcome:
+    """Watches a change already made, judges it, and puts it back where the
+    watch refutes it - `take_action` from the moment its write has landed.
+
+    Its own entry point because a change can be made by one walk and watched by
+    another: a walk resumed after the one that made it died holds the change,
+    and making it again would be a second write. Every parameter is
+    `take_action`'s, said there; `performed` is what the write produced.
+
+    A refutation that left something to put back is told to `put_back_owed`
+    with what the watch found, *before* anything else is done about it, so a
+    worker that dies putting it back leaves a record saying the change is owed
+    back and why. Then `settle_the_refutation` puts it back. A refutation that
+    left nothing to put back - a restart, a discard - owes nobody anything and
+    is said as such, with no question asked.
+    """
     settled = _what_watching_the_service_settled(
         # Read for the rule that paged, so the recovery is dated on its series.
         partial(fetch_metrics, rule), arrivals(action), now, sleep, still_wanted, settings,
@@ -339,7 +402,56 @@ def take_action(action: Action,
             judged=False,
         )
 
-    return _undone(performed, undo, undoing_kinds, action.action_type, settled.because)
+    # Told before anything is done about it, and before anybody is asked
+    # whether it is still wanted: a worker that dies from here on leaves a
+    # change owed back, said why, rather than one to watch again.
+    if performed.undo_descriptor is not None:
+        put_back_owed(settled.because)
+
+    return settle_the_refutation(action.action_type, performed, settled.because,
+                                 undo=undo, still_wanted=still_wanted,
+                                 undoing_kinds=undoing_kinds)
+
+
+def settle_the_refutation(action_type: ActionType,
+                          performed: Performed,
+                          because: str,
+                          *,
+                          undo: UndoChange,
+                          still_wanted: StillWanted = wanted_throughout,
+                          undoing_kinds: UndoingKindOf = kind_undoing) -> Outcome:
+    """Puts back a change the watch refuted, and says what came of it - the
+    attempt from the moment its refutation was recorded as owed back.
+
+    Its own entry point because a walk resumed after the one that refuted the
+    change died holds a change already judged: it puts it back, and does not
+    watch it again. `because` is what the watch found, as the watch said it.
+
+    Asked once more whether anybody still wants it, immediately before the
+    put-back - it is a change to the world, and the walk asks before every
+    one. Where a person has ended the incident the verdict the watch reached
+    stands, refuted and judged, and nothing is put back: the outcome carries
+    the change so a withdrawal's unwinding puts it back, and says it was not.
+    A refutation with nothing to put back asks nothing, since nothing follows.
+    """
+    undo_descriptor = performed.undo_descriptor
+
+    if undo_descriptor is not None and not still_wanted():
+        logger.info("refuted change not put back, incident no longer wanted")
+
+        return Outcome(
+            verdict=Verdict.REFUTED,
+            left_behind_known=True,
+            because=because,
+            # No undo answered, so there is no subject of one to quote: the
+            # kind's words for the change already say what it was done to.
+            detail=f"{performed.said}, but {because}, and it {_NOT_PUT_BACK}",
+            undo_descriptor=undo_descriptor,
+            undone=None,
+            undone_detail=_NOT_PUT_BACK,
+        )
+
+    return _undone(performed, undo, undoing_kinds, action_type, because)
 
 
 def plan_action(action: Action, *, writes: PerformingWrites) -> Planned[Any] | Outcome | None:

@@ -243,6 +243,12 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     it was, and the refusal says nothing it cannot establish - not marked as
     known, and carrying the suspension where this claim's still stands.
 
+    The answer is the plan dated, on the platform's own clock, by when the
+    change was made: the rollback's answer, for one written here; for one
+    already made, Argus's entry in the history, else the start of the sync
+    Argus asked for, else nothing - a sync still only asked has no moment yet.
+    `None` is unknown, never a time.
+
     Raises rather than half-succeeding. A platform that refuses the rollback
     after sync was suspended leaves the suspension in place and says so -
     quietly restoring it would hide a state somebody has to know about.
@@ -378,12 +384,14 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
         logger.info("deployment already rolled back", extra={
             "application": application, "to_history_id": target_entry
         })
-        return descriptor
+        return descriptor.model_copy(update={
+            "written_at": _when_argus_s_rollback_landed(this_rollback_s, run)
+        })
 
     suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
 
     try:
-        platform.roll_back(application, target_entry)
+        answered_at = platform.roll_back(application, target_entry)
     except DeploymentPlatformError as error:
         logger.warning("rollback refused", extra={
             "application": application, "sync_suspended": descriptor.was_syncing_itself
@@ -402,7 +410,22 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
         "to_history_id": target_entry
     })
 
-    return descriptor
+    return descriptor.model_copy(update={"written_at": answered_at})
+
+
+def _when_argus_s_rollback_landed(entries: list[DeploymentRecord],
+                                  run: SyncRun | None) -> datetime | None:
+    """When the platform says this rollback, already made, was made - on its own
+    clock: its history entry where it has written one, else when it started the
+    sync Argus asked for, else `None` for a sync still only asked.
+
+    The first entry, as the change is dated by its first landing. Never the mark's
+    moment, which is Argus's clock.
+    """
+    if entries:
+        return datetime.fromisoformat(entries[0].deployed_at)
+
+    return run.started_at if run is not None else None
 
 
 def _asked_by_argus(operations: SyncOperations, revision: str, argus_account: str) -> bool:
@@ -741,7 +764,7 @@ def _said(restored: DeploymentRestored, application: str) -> DeploymentRestored:
     return restored
 
 
-def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
+def _tried(application: str, step: str, call: Callable[[], object]) -> bool:
     try:
         call()
     except Exception:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -59,6 +60,11 @@ SOME_PLANNED_ROLLBACK = Planned(descriptor=SOME_ROLLBACK_PLAN, since=SOME_MOMENT
 THE_ROLLBACK_AS_MADE = SOME_ROLLBACK_PLAN.model_copy(
     update={"written_at": SOME_MOMENT_ARGUS_WROTE}
 )
+# The walk's clock when it said the change was made - what the row dates
+# the change by, as the announcement does.
+SOME_MOMENT_IT_WAS_ANNOUNCED = SOME_MOMENT_ARGUS_WROTE + timedelta(seconds=1)
+# What the watch found that left a change owing its put-back, in its words.
+SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
 
 
 @pytest.mark.integration
@@ -1203,40 +1209,49 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
     # called, and one that is called and puts NULL there, both satisfy a guard
     # that only asks whether a writer exists in the source.
     #
-    # One action with everything an action can have: a claim with its plan, a
-    # candidate, a subject, a verdict, a change with a way back, and the walk's
-    # own putting back of it after the refutation. A row legitimately lacking
-    # one of those is a different case with its own test above; this asks
-    # whether the complete case reaches the table complete.
+    # One action with everything an action can have, written the way the walk
+    # writes it: a claim with its plan, a candidate and a subject; the change
+    # made, with what puts it back and when the walk recorded it, on its clock;
+    # owing its put-back once the watch refuted it, with why; and completed
+    # with the verdict and the walk's own putting back of it. A row
+    # legitimately lacking one of those is a different case with its own test
+    # above; this asks whether the complete case reaches the table complete.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     the_flag_that_was_changed = "monthly-spend-feature"
     some_plan = FlagUndo(flag=the_flag_that_was_changed, was_enabled=True)
+    some_change_made = some_plan.model_copy(update={"written_at": SOME_MOMENT_ARGUS_WROTE})
 
     with connect_from_env() as conn:
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        def claimed_made_and_owing_its_put_back() -> None:
+            taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
+                                action_type="revert-feature-flag",
+                                subject=the_flag_that_was_changed, at=DONT_CARE_INSTANT,
+                                planned=Planned(descriptor=some_plan,
+                                                since=SOME_MOMENT_ITS_STATE_WAS_READ))
+            taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
+                                  to=ActionProgress.PERFORMED,
+                                  undo_descriptor=some_change_made,
+                                  performed_at=SOME_MOMENT_IT_WAS_ANNOUNCED)
+            taken_actions.owe_a_put_back(conn, incident_id, hypothesis_id=hypothesis_id,
+                                         because=SOME_FINDING)
 
         Scenario() \
             .given(
-                incident_id := an_incident_created_for(conn, some_alert)
-            ) \
-            .given(
-                hypothesis_id := a_hypothesis_recorded_for(incident_id)
+                calling(claimed_made_and_owing_its_put_back)
             ) \
             .when(
-                lambda: taken_actions.record(
+                lambda: taken_actions.complete(
                     conn,
                     incident_id,
                     hypothesis_id=hypothesis_id,
-                    action_type="revert-feature-flag",
-                    subject=the_flag_that_was_changed,
                     outcome=Verdict.REFUTED,
-                    undo_descriptor=some_plan.model_copy(
-                        update={"written_at": SOME_MOMENT_ARGUS_WROTE}
-                    ),
-                    at=DONT_CARE_INSTANT,
+                    undo_descriptor=some_change_made,
                     left_behind_known=True,
-                    undone=Undone.RESTORED,
-                    planned=Planned(descriptor=some_plan, since=SOME_MOMENT_ITS_STATE_WAS_READ)
+                    undone=Undone.RESTORED
                 )
             ) \
             .then(
@@ -1719,6 +1734,394 @@ def _the_outcome_read_back_is(expected: Verdict | UnreadVerdict | None
                 f"Expected the outcome to read back as [{expected!r}], got "
                 f"[{action.outcome!r}]."
             )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.integration
+def test_a_change_made_is_recorded_with_the_moment_the_walk_said_it_was_made() -> None:
+    # On the walk's clock, as the announcement is: what a resumed walk watches
+    # the change afresh from, against minutes the walk's own clock dates.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_claim(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.advance(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    to=ActionProgress.PERFORMED,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE,
+                    performed_at=SOME_MOMENT_IT_WAS_ANNOUNCED
+                )
+            ) \
+            .then(all_of(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.PERFORMED]),
+                _it_was_made_at(conn, incident_id, SOME_MOMENT_IT_WAS_ANNOUNCED)
+            ))
+
+
+@pytest.mark.integration
+def test_a_change_a_resumed_walk_found_made_is_recorded_with_no_moment() -> None:
+    # A resumed walk that learns a dead worker's change landed was not there
+    # when it was made, and its own clock now is no stand-in: absent says so.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_claim(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.advance(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    to=ActionProgress.PERFORMED,
+                    undo_descriptor=None
+                )
+            ) \
+            .then(
+                _it_was_made_at(conn, incident_id, None)
+            )
+
+
+@pytest.mark.integration
+def test_a_change_the_watch_refuted_comes_to_owe_its_put_back_with_why() -> None:
+    # Written before the put-back is attempted, so a worker that dies between
+    # the two leaves a row saying the change is owed back and why - which a
+    # resumed walk puts it back on without watching it again. No verdict yet:
+    # that is the put-back's to complete.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_made(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.owe_a_put_back(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    because=SOME_FINDING
+                )
+            ) \
+            .then(all_of(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.PUTTING_BACK]),
+                _it_owes_its_put_back_because(conn, incident_id, SOME_FINDING),
+                _the_undo_read_back_is(conn, incident_id, THE_ROLLBACK_AS_MADE),
+                _it_was_made_at(conn, incident_id, SOME_MOMENT_IT_WAS_ANNOUNCED),
+                _the_outcome_read_back_is_absent(conn, incident_id)
+            ))
+
+
+# How far an action got before a put-back is owed, built before the case that
+# names them, since its parameters are read as the module loads.
+def _a_claim(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    """A rollback claimed on its plan, and nothing said since."""
+    taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
+                        action_type="roll-back-deployment", subject="io-shop",
+                        at=DONT_CARE_INSTANT, planned=SOME_PLANNED_ROLLBACK)
+
+
+def _a_claim_nobody_answered(conn: psycopg.Connection,
+                             incident_id: str,
+                             hypothesis_id: str) -> None:
+    _a_claim(conn, incident_id, hypothesis_id)
+    taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
+                          to=ActionProgress.UNKNOWN, undo_descriptor=None)
+
+
+def _an_action_never_performed(conn: psycopg.Connection,
+                               incident_id: str,
+                               hypothesis_id: str) -> None:
+    _a_claim(conn, incident_id, hypothesis_id)
+    taken_actions.complete(conn, incident_id, hypothesis_id=hypothesis_id,
+                           outcome=Verdict.PLATFORM_UNREACHABLE, undo_descriptor=None,
+                           performed=False, left_behind_known=True)
+
+
+def _an_action_completed(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    _a_change_made(conn, incident_id, hypothesis_id)
+    taken_actions.complete(conn, incident_id, hypothesis_id=hypothesis_id,
+                           outcome=Verdict.CONFIRMED, undo_descriptor=THE_ROLLBACK_AS_MADE,
+                           left_behind_known=True)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("got_as_far_as", "stays"), [
+    pytest.param(_a_claim, ActionProgress.CLAIMED, id="a-claim"),
+    pytest.param(_a_claim_nobody_answered, ActionProgress.UNKNOWN, id="a-claim-nobody-answered"),
+    pytest.param(_an_action_never_performed, ActionProgress.NOT_PERFORMED, id="never-performed"),
+    pytest.param(_an_action_completed, ActionProgress.PERFORMED, id="already-completed")
+])
+def test_only_a_change_made_and_not_yet_completed_comes_to_owe_its_put_back(
+        got_as_far_as: Callable[[psycopg.Connection, str, str], None],
+        stays: ActionProgress) -> None:
+    # A claim may never have changed anything, and a row that already says
+    # more is the attempt's own account: a later write owing a put-back must
+    # not overwrite either with something they never were.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: got_as_far_as(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.owe_a_put_back(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    because=SOME_FINDING
+                )
+            ) \
+            .then(
+                _the_progress_read_back_is(conn, incident_id, [stays])
+            )
+
+
+@pytest.mark.integration
+def test_an_action_owing_its_put_back_is_not_moved_back_by_an_advance() -> None:
+    # Only a claim advances. A resumed walk's answer about a claim is never an
+    # answer about a change already owed back.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_owing_its_put_back(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.advance(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    to=ActionProgress.UNKNOWN,
+                    undo_descriptor=None
+                )
+            ) \
+            .then(all_of(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.PUTTING_BACK]),
+                _the_undo_read_back_is(conn, incident_id, THE_ROLLBACK_AS_MADE)
+            ))
+
+
+@pytest.mark.integration
+def test_a_put_back_that_never_ran_completes_the_action_still_owing_it() -> None:
+    # A person ended the incident between the refutation and the put-back. The
+    # verdict is the watch's and is recorded; the step stays where it was,
+    # since it is what says the change was never put back - and so a
+    # withdrawal's cleanup puts it back.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_owing_its_put_back(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.complete(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    outcome=Verdict.REFUTED,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE,
+                    left_behind_known=True,
+                    undone=None
+                )
+            ) \
+            .then(all_of(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.PUTTING_BACK]),
+                _the_outcome_read_back_is_on(conn, incident_id, Verdict.REFUTED),
+                _what_was_undone_is_read_back_as(conn, incident_id, None)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("undone", "verdict"), [
+    pytest.param(Undone.RESTORED, Verdict.REFUTED, id="restored"),
+    pytest.param(Undone.LEFT_AS_FOUND, Verdict.REFUTED, id="left-as-found"),
+    pytest.param(Undone.LEFT_STANDING, Verdict.ESCALATED, id="left-standing"),
+    pytest.param(Undone.NOT_ESTABLISHED, Verdict.ESCALATED, id="not-established")
+])
+def test_a_put_back_that_ran_completes_the_action_as_performed(undone: Undone,
+                                                               verdict: Verdict) -> None:
+    # Whatever the put-back found, it ran - so the row is the attempt's whole
+    # account, as every completed change made is.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_owing_its_put_back(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.complete(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    outcome=verdict,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE,
+                    left_behind_known=True,
+                    undone=undone
+                )
+            ) \
+            .then(all_of(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.PERFORMED]),
+                _what_was_undone_is_read_back_as(conn, incident_id, undone),
+                _it_owes_its_put_back_because(conn, incident_id, SOME_FINDING)
+            ))
+
+
+@pytest.mark.integration
+def test_settling_an_incidents_claims_leaves_an_action_owing_its_put_back_where_it_is() -> None:
+    # A run lost between the refutation and the put-back leaves its row owing
+    # the put-back, which says more than unknown: the change was made, and why
+    # it is owed back is known.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_owing_its_put_back(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.settle_claims(conn, incident_id)
+            ) \
+            .then(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.PUTTING_BACK])
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("column", ["put_back_because", "undo_descriptor"])
+def test_the_table_refuses_an_action_owing_its_put_back_without_why_or_what_puts_it_back(
+        column: str) -> None:
+    # A change is owed back only once the watch refuted it, which it says why,
+    # and only where there is something to put back: a row at that step
+    # missing either is not one any writer here made.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_owing_its_put_back(conn, incident_id, hypothesis_id))
+            ) \
+            .when(attempting(
+                lambda: _emptying(conn, incident_id, column)
+            )) \
+            .then(
+                an_error_was_raised(psycopg.errors.CheckViolation)
+            )
+
+
+def _a_change_made(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    """A rollback claimed on its plan and made, dated on the walk's clock."""
+    taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
+                        action_type="roll-back-deployment", subject="io-shop",
+                        at=DONT_CARE_INSTANT, planned=SOME_PLANNED_ROLLBACK)
+    taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
+                          to=ActionProgress.PERFORMED, undo_descriptor=THE_ROLLBACK_AS_MADE,
+                          performed_at=SOME_MOMENT_IT_WAS_ANNOUNCED)
+
+
+def _a_change_owing_its_put_back(conn: psycopg.Connection,
+                                 incident_id: str,
+                                 hypothesis_id: str) -> None:
+    """A rollback made and refuted, not yet put back."""
+    _a_change_made(conn, incident_id, hypothesis_id)
+    taken_actions.owe_a_put_back(conn, incident_id, hypothesis_id=hypothesis_id,
+                                 because=SOME_FINDING)
+
+
+def _it_was_made_at(conn: psycopg.Connection,
+                    incident_id: str,
+                    expected: datetime | None) -> Assertion[object]:
+    """When the walk recorded the change made, on its clock, through the
+    read every reader makes."""
+    def assertion(_result: object) -> bool:
+        found = [action.performed_at
+                 for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if found != [expected]:
+            raise AssertionError(f"Expected one action read back as made at [{expected}], "
+                                 f"got {found}")
+
+        return True
+
+    return assertion
+
+
+def _it_owes_its_put_back_because(conn: psycopg.Connection,
+                                  incident_id: str,
+                                  expected: str) -> Assertion[object]:
+    """Why the change is owed back, through the read a resumed walk makes."""
+    def assertion(_result: object) -> bool:
+        found = [action.put_back_because
+                 for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if found != [expected]:
+            raise AssertionError(f"Expected one action read back owing its put-back because "
+                                 f"[{expected}], got {found}")
+
+        return True
+
+    return assertion
+
+
+def _the_outcome_read_back_is_on(conn: psycopg.Connection,
+                                 incident_id: str,
+                                 expected: Verdict) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        found = [action.outcome for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if found != [expected]:
+            raise AssertionError(f"Expected one action read back with the outcome "
+                                 f"[{expected}], got {found}")
 
         return True
 

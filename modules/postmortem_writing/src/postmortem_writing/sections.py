@@ -848,7 +848,7 @@ def what_it_came_to(verdict: str | None, progress: ActionProgress) -> str:
         return NO_VERDICT_RECORDED
 
     if verdict == Verdict.STOPPED:
-        return NOT_TAKEN if progress is ActionProgress.NOT_PERFORMED else NOT_JUDGED
+        return NOT_TAKEN if progress.its_change_was_made() is False else NOT_JUDGED
 
     return verdict
 
@@ -986,13 +986,15 @@ class OneCause:
         investigation ran out or Argus declined."""
         if not self.decided.tested:
             progress = self.decided.progress
+            made = None if progress is None else progress.its_change_was_made()
 
             # Acted on and never measured - a person ended the incident while
             # the service was watched, or no look at it was answered. Tried,
             # so never "never tried". With no verdict on file at all, the
-            # worker died with the change made, and nobody knows whether a
+            # worker died with the change made - during the wait, or with it
+            # owed back after a refutation - and nobody knows whether a
             # verdict was reached.
-            if progress is ActionProgress.PERFORMED:
+            if made is True:
                 return (TRIED_NOT_JUDGED if self.decided.verdict_recorded
                         else TRIED_NO_VERDICT_RECORDED)
 
@@ -1000,10 +1002,10 @@ class OneCause:
             # claim at that before a write-up is written, and a claim nobody
             # could answer reads the same. Either may have changed the service,
             # so never "never tried" either.
-            if progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
+            if progress is not None and made is None:
                 return NOT_KNOWN_WHETHER_TRIED
 
-            untried = ACTION_NOT_TAKEN if progress is ActionProgress.NOT_PERFORMED else NEVER_TRIED
+            untried = ACTION_NOT_TAKEN if made is False else NEVER_TRIED
             why = self.decided.result
             return f"{untried}: {why}" if why else untried
 

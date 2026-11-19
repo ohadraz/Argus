@@ -965,3 +965,24 @@ def _does_not_say(unwanted: str) -> Assertion[str]:
         return True
 
     return assertion
+
+
+@pytest.mark.unit
+def test_an_action_owing_its_put_back_says_what_it_came_to_on_earlier_incidents() -> None:
+    # The change was made - the put-back is what never ran - so it repeated
+    # an experiment an earlier incident made, and is said to have.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(SOME_ACTION, verdict=Verdict.REFUTED,
+                          standing="did not help, and was not put back",
+                          progress=ActionProgress.PUTTING_BACK,
+                          tried_before=[Verdict.REFUTED])])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("On an earlier incident like this one, Argus had also reverted the feature "
+                  "flag checkout-v2, and it was refuted there.")
+        )

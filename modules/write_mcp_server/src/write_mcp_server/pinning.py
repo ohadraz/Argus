@@ -190,6 +190,9 @@ def pin_autoscaler(planned: Planned[AutoscalerUndo],
     may ask for - and refused plainly, nothing written, where it is not: the plan
     is the caller's data, and the bounds are this tier's.
 
+    A pin written here is answered dated by the platform's answer to it, on its
+    own clock; one already made is answered undated, as `scale_out`'s is.
+
     Raises rather than half-succeeding. A platform that refuses the patch after
     sync was suspended leaves the suspension in place and says so - quietly
     restoring it would hide a state somebody has to know about.
@@ -252,12 +255,13 @@ def pin_autoscaler(planned: Planned[AutoscalerUndo],
         logger.info("autoscaler floor already raised", extra={
             "application": application, "to_floor": asked_for
         })
-        return descriptor
+        # Undated, as `scaling`'s made answer is.
+        return descriptor.model_copy(update={"written_at": None})
 
     suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
 
     try:
-        platform.set_autoscaler_floor(application, autoscaler, asked_for, mark)
+        answered_at = platform.set_autoscaler_floor(application, autoscaler, asked_for, mark)
     except DeploymentPlatformError as error:
         logger.warning("autoscaler pin refused", extra={
             "application": application, "sync_suspended": descriptor.was_syncing_itself
@@ -275,7 +279,7 @@ def pin_autoscaler(planned: Planned[AutoscalerUndo],
         "to_floor": asked_for
     })
 
-    return descriptor
+    return descriptor.model_copy(update={"written_at": answered_at})
 
 
 def _the_highest_floor_within(bounds: AutoscalerBounds) -> int:
@@ -467,7 +471,7 @@ def _where_the_autoscaler_is(application: str,
     return autoscaler
 
 
-def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
+def _tried(application: str, step: str, call: Callable[[], object]) -> bool:
     try:
         call()
     except Exception:

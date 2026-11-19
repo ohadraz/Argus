@@ -20,6 +20,9 @@ from argus_testkit import Assertion, Scenario, all_of
 from core import new_id
 from core.events import ActionTaken, IncidentEvent
 from core.models import (
+    RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
+    ActionProgress,
     Alert,
     Evidence,
     FailureMode,
@@ -487,15 +490,21 @@ def _a_candidate(incident_id: str,
 def _an_attempt(incident_id: str,
                 hypothesis_id: str | None,
                 outcome: Verdict | None,
-                undone: Undone | None = None) -> TakenAction:
+                undone: Undone | None = None,
+                progress: ActionProgress = ActionProgress.PERFORMED,
+                has_a_way_back: bool = True) -> TakenAction:
+    """A flag revert, made - unless a case says how far it got, or that it
+    was of a kind that leaves nothing to put back."""
     return TakenAction(
         id=new_id(),
         incident_id=incident_id,
         hypothesis_id=hypothesis_id,
-        type="revert-feature-flag",
+        type=REVERT_FEATURE_FLAG if has_a_way_back else RESTART_SERVICE,
         subject=None,
-        has_a_way_back=True,
-        undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
+        has_a_way_back=has_a_way_back,
+        undo_descriptor=(FlagUndo(flag="dont-care", was_enabled=True)
+                         if has_a_way_back else None),
+        progress=progress,
         outcome=outcome,
         taken_at=_OPENED_AT + timedelta(minutes=1),
         undone=undone
@@ -711,6 +720,67 @@ def _the_first_candidate_names(summary: str, subject: str, evidence: list[str],
         if named != expected:
             raise AssertionError(f"Expected the candidate's claim, subject, findings and "
                                  f"links {expected}, got {named}.")
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("outcome", "undone", "progress", "has_a_way_back", "not_put_back"), [
+    pytest.param(REFUTED, None, ActionProgress.PUTTING_BACK, True, True,
+                 id="refuted-and-ended-while-owed-back"),
+    pytest.param(REFUTED, None, ActionProgress.PERFORMED, True, True,
+                 id="refuted-and-ended-after-the-owed-write-failed"),
+    pytest.param(REFUTED, Undone.RESTORED, ActionProgress.PUTTING_BACK, True, False,
+                 id="put-back-by-the-cleanup-since"),
+    pytest.param(None, None, ActionProgress.PUTTING_BACK, True, False,
+                 id="a-run-lost-while-it-was-owed-back"),
+    pytest.param(REFUTED, None, ActionProgress.PERFORMED, False, False,
+                 id="refuted-with-nothing-to-put-back")
+])
+def test_an_attempt_refuted_and_never_put_back_is_shown_as_not_put_back(
+        outcome: Verdict | None,
+        undone: Undone | None,
+        progress: ActionProgress,
+        has_a_way_back: bool,
+        not_put_back: bool) -> None:
+    # A refutation the incident was ended before is a change of Argus's still
+    # standing, and shown as "refuted" alone it read as one put back. Told by
+    # the row's own record of a put-back - none on a change that has a way
+    # back - rather than by how far the walk got, which a failed write can
+    # leave short. Not said where something put it back since, nor where the
+    # attempt never completed: a run lost while the change was owed back may
+    # have put it back before it stopped.
+    an_incident = _an_incident()
+    a_candidate_acted_on = _a_candidate(an_incident.id, subject="dont care", rank=1)
+
+    Scenario() \
+        .given(
+            an_attempt := [_an_attempt(an_incident.id, a_candidate_acted_on.id, outcome=outcome,
+                                       undone=undone, progress=progress,
+                                       has_a_way_back=has_a_way_back)]
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_acted_on],
+            attempts=an_attempt,
+            account=NOTHING_WAS_SAID
+        )) \
+        .then(all_of(
+            _the_attempts_were_not_put_back([not_put_back]),
+            _the_attempts_were_undone([undone])
+        ))
+
+
+def _the_attempts_were_not_put_back(expected: list[bool]) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        shown = [attempt.not_put_back
+                 for candidate in detail.candidates
+                 for attempt in candidate.attempts]
+
+        if shown != expected:
+            raise AssertionError(f"Expected {expected} not put back, got {shown}.")
 
         return True
 

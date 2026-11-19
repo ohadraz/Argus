@@ -159,6 +159,10 @@ def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
     A plan naming the card it found the pods held to is refused plainly, nothing
     written: the plan is the caller's data, and the rule is this tier's.
 
+    A pin written here is answered dated by the platform's answer to it, on its
+    own clock; one already made is answered undated, since the platform keeps no
+    moment of its own for a patch and the mark's moment is Argus's.
+
     Raises rather than half-succeeding. A platform that refuses the pin after
     sync was suspended leaves the suspension in place and says so - quietly
     restoring it would hide a state somebody has to know about.
@@ -209,12 +213,14 @@ def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
         logger.info("deployment already pinned to accelerator", extra={
             "application": application, "accelerator": accelerator
         })
-        return descriptor
+        # Undated: the platform keeps no moment of its own for the patch, and
+        # the mark's is Argus's clock.
+        return descriptor.model_copy(update={"written_at": None})
 
     suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
 
     try:
-        platform.pin_to_accelerator(application, accelerator, mark)
+        answered_at = platform.pin_to_accelerator(application, accelerator, mark)
     except DeploymentPlatformError as error:
         logger.warning("accelerator pin refused", extra={
             "application": application, "sync_suspended": descriptor.was_syncing_itself
@@ -230,7 +236,7 @@ def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
         "application": application, "accelerator": accelerator
     })
 
-    return descriptor
+    return descriptor.model_copy(update={"written_at": answered_at})
 
 
 def _refusing_a_change(said: str, error: DeploymentPlatformError) -> AcceleratorPinRefused:
@@ -376,7 +382,7 @@ def _said(restored: AcceleratorPinRestored, application: str) -> AcceleratorPinR
     return restored
 
 
-def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
+def _tried(application: str, step: str, call: Callable[[], object]) -> bool:
     try:
         call()
     except Exception:

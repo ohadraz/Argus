@@ -216,6 +216,10 @@ def scale_out(planned: Planned[ReplicaUndo],
     count - and refused plainly, nothing written, where it is not: the plan is
     the caller's data, and the rule is this tier's.
 
+    A scale-out written here is answered dated by the platform's answer to it,
+    on its own clock; one already made is answered undated, since the platform
+    keeps no moment of its own for a patch and the mark's moment is Argus's.
+
     Raises rather than half-succeeding. A platform that refuses the action after
     sync was suspended leaves the suspension in place and says so - quietly
     restoring it would hide a state somebody has to know about.
@@ -276,7 +280,9 @@ def scale_out(planned: Planned[ReplicaUndo],
         logger.info("deployment already scaled out", extra={
             "application": application, "to_replicas": asked_for
         })
-        return descriptor
+        # Undated: the platform keeps no moment of its own for the patch, and
+        # the mark's is Argus's clock.
+        return descriptor.model_copy(update={"written_at": None})
 
     undo, to_replicas = descriptor, asked_for
 
@@ -302,7 +308,7 @@ def scale_out(planned: Planned[ReplicaUndo],
     suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
 
     try:
-        platform.scale(application, to_replicas, mark)
+        answered_at = platform.scale(application, to_replicas, mark)
     except DeploymentPlatformError as error:
         logger.warning("scale-out refused", extra={
             "application": application, "sync_suspended": undo.was_syncing_itself
@@ -319,7 +325,7 @@ def scale_out(planned: Planned[ReplicaUndo],
         "to_replicas": to_replicas
     })
 
-    return undo
+    return undo.model_copy(update={"written_at": answered_at})
 
 
 def _refuse_where_it_is_as_large_as_it_may_be(application: str, running: int) -> None:
@@ -519,7 +525,7 @@ def _twice(replicas: int) -> int:
     return min(replicas * 2, THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
 
 
-def _tried(application: str, step: str, call: Callable[[], None]) -> bool:
+def _tried(application: str, step: str, call: Callable[[], object]) -> bool:
     try:
         call()
     except Exception:

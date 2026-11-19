@@ -202,12 +202,19 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
         """Lets the platform reconcile the application again."""
         ...
 
-    def scale(self, application: str, replicas: int, mark: Mark, /) -> None:
-        """Asks for `replicas` of the application's Deployment."""
+    def scale(self, application: str, replicas: int, mark: Mark, /) -> datetime | None:
+        """Asks for `replicas` of the application's Deployment, and answers
+        with when the platform answered, by its own clock - see `roll_back`."""
         ...
 
-    def roll_back(self, application: str, to_history_id: int, /) -> None:
-        """Returns the application to the recorded deployment named."""
+    def roll_back(self, application: str, to_history_id: int, /) -> datetime | None:
+        """Returns the application to the recorded deployment named, and answers
+        with when the platform answered, by its own clock.
+
+        What the change's way back is dated by. `None` where the answer did not
+        say when: the change landed, so it is not refused, and no other clock
+        stands in for the platform's - a reader takes absent as unknown.
+        """
         ...
 
     def restart(self, service: str, /) -> None:
@@ -238,8 +245,9 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
                              autoscaler: Autoscaler,
                              floor: int,
                              mark: Mark,
-                             /) -> None:
-        """Raises or lowers the autoscaler's floor, and nothing else about it."""
+                             /) -> datetime | None:
+        """Raises or lowers the autoscaler's floor, and nothing else about it -
+        answering with when the platform answered, as `roll_back` does."""
         ...
 
     def accelerator_pin_of(self, application: str, /) -> str | None:
@@ -251,9 +259,10 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
                            application: str,
                            accelerator: str | None,
                            mark: Mark,
-                           /) -> None:
+                           /) -> datetime | None:
         """Holds the Deployment's pods to one card, or releases them where
-        `accelerator` is `None` - and changes nothing else it selects on."""
+        `accelerator` is `None` - and changes nothing else it selects on.
+        Answers with when the platform answered, as `roll_back` does."""
         ...
 
     def images_running(self, application: str, /) -> dict[str, str]:

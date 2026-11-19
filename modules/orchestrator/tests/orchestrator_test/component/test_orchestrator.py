@@ -58,7 +58,7 @@ from core.replay import nobody as records_nothing
 from incident_record import EndedByAPerson, WaitForPeople
 from investigation_agent import Findings
 from langgraph.checkpoint.memory import MemorySaver
-from mitigation import Action, ChangeMade, Outcome, Verdict
+from mitigation import Action, ChangeMade, Outcome, PutBackOwed, Verdict
 from orchestrator.walk import ports
 from orchestrator.walk.assembling import Collaborators
 from orchestrator.walk.graph import (
@@ -135,6 +135,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         already_taken=lambda incident_id, hypothesis_id: None,
         acting_for=lambda dont_care_action_id: nullcontext(),
         advance_action=lambda *dont_care_args, **dont_care_keywords: None,
+        owe_a_put_back=lambda *dont_care_args, **dont_care_keywords: None,
         change_landed=_a_change_that_never_landed(),
         propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: (
             ProposedFix(pull_request=None, explanation=None)),
@@ -190,7 +191,8 @@ def test_the_change_the_agent_tells_of_is_put_on_the_claim_the_walk_holds(
     advanced: list[tuple[ActionProgress, UndoDescriptor | None]] = []
 
     def advance_action(incident_id: str, hypothesis_id: str, to: ActionProgress,
-                       undo_descriptor: UndoDescriptor | None) -> None:
+                       undo_descriptor: UndoDescriptor | None,
+                       performed_at: datetime | None = None) -> None:
         advanced.append((to, undo_descriptor))
 
     Scenario() \
@@ -958,7 +960,8 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
              onset: datetime | None = None,
              incident_began: str | None = None,
              rule: str | None = None,
-             change_made: ChangeMade = lambda dont_care_undo_descriptor: None) -> Outcome:
+             change_made: ChangeMade = lambda dont_care_undo_descriptor: None,
+             put_back_owed: PutBackOwed = lambda dont_care_because: None) -> Outcome:
         # Only one kind of action leaves anything behind, and the stand-in
         # hands back exactly what the real one would - and tells of it as the
         # change is made, as the real one does.

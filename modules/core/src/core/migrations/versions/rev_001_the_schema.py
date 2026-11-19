@@ -127,16 +127,27 @@ CREATE TABLE IF NOT EXISTS action (
     outcome TEXT,
     -- How far the action got (`ActionProgress`): `claimed` from the claim on;
     -- `performed` the moment the change is made, before the wait and so
-    -- before any verdict, with `undo_descriptor` written beside it;
-    -- `not-performed` where the attempt ended before the action itself was
-    -- done - a platform that did not answer, an action with nowhere left to
-    -- go, an incident a person ended first, a write that raised - though it
-    -- may have changed something on the way, which `undo_descriptor` carries
-    -- where Argus knows what was left; `unknown` for a claim no walk will ever
-    -- answer. The candidate the row names was tried only where this is
-    -- `performed`, and no verdict says it: a stop is the word for an ending
-    -- before the write and for one during the wait.
+    -- before any verdict, with `undo_descriptor` and `performed_at` written
+    -- beside it; `putting-back` once the wait has refuted a change that left
+    -- something to put back, with `put_back_because` written beside it, before
+    -- the walk's own put-back is attempted - a completed row still here is one
+    -- whose put-back never ran; `not-performed` where the attempt ended
+    -- before the action itself was done - a platform that did not answer, an
+    -- action with nowhere left to go, an incident a person ended first, a
+    -- write that raised - though it may have changed something on the way,
+    -- which `undo_descriptor` carries where Argus knows what was left;
+    -- `unknown` for a claim no walk will ever answer. The candidate the row
+    -- names was tried only where this is `performed` or `putting-back`, and
+    -- no verdict says it: a stop is the word for an ending before the write
+    -- and for one during the wait.
     progress TEXT NOT NULL,
+    -- When the walk recorded the change made, on the walk's clock: what a
+    -- resumed walk dates the action by where the walk that announced it is
+    -- gone. NULL until then, and where a resumed walk only learnt it landed.
+    performed_at TIMESTAMPTZ,
+    -- What the wait found that left the change owing its put-back, in the
+    -- wait's own words. Written with `putting-back`, never cleared.
+    put_back_because TEXT,
     -- Whether `undo_descriptor` is the whole of what the attempt left behind -
     -- nothing, where it is NULL. False from the claim, since a worker that
     -- stopped after it may have made the change; true for a change made, and
@@ -163,7 +174,13 @@ CREATE TABLE IF NOT EXISTS action (
     -- A plan and the moment it was read at are one fact in two columns: a
     -- plan nobody can date cannot be asked whether anything landed after it,
     -- and a moment with no plan dates nothing.
-    CONSTRAINT action_plan_is_dated CHECK ((plan IS NULL) = (since IS NULL))
+    CONSTRAINT action_plan_is_dated CHECK ((plan IS NULL) = (since IS NULL)),
+    -- A change owed back says why, and what puts it back: one with neither is
+    -- a row nothing could resume the put-back from.
+    CONSTRAINT action_owed_back_says_why CHECK (
+        progress <> 'putting-back'
+        OR (put_back_because IS NOT NULL AND undo_descriptor IS NOT NULL)
+    )
 );
 
 -- What makes one action one action. A partial index rather than a table

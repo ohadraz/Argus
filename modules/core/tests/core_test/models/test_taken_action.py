@@ -26,7 +26,7 @@ from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from core.ids import new_id
 from core.models.action import UnreadVerdict, Verdict
 from core.models.planned import Planned
-from core.models.taken_action import TakenAction
+from core.models.taken_action import ActionProgress, TakenAction
 from core.models.undo_descriptor import (
     ROLL_BACK_DEPLOYMENT_TOOL,
     DeploymentRollbackUndo,
@@ -42,6 +42,10 @@ THE_MOMENT_IT_WAS_CLAIMED = datetime(2026, 9, 19, 11, 4, tzinfo=UTC)
 SOME_MOMENT_THE_STATE_WAS_READ = datetime(2026, 9, 19, 11, 3, 52, tzinfo=UTC)
 SOME_APPLICATION = "io-shop"
 SOME_ENTRY_IT_WAS_ON = 2
+# What the watch found that left a change owing its put-back, in its own words.
+SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
+# When the walk recorded the change made, on its own clock.
+SOME_MOMENT_IT_WAS_MADE = datetime(2026, 9, 19, 11, 4, 3, tzinfo=UTC)
 SOME_PLAN_AS_THE_COLUMN_HOLDS_IT = {
     "kind": "feature-flag",
     "flag": "monthly-spend-feature",
@@ -223,6 +227,121 @@ def _it_planned(expected: Planned[UndoDescriptor] | None) -> Assertion[TakenActi
             raise AssertionError(
                 f"Expected the plan to read back as [{expected!r}], got "
                 f"[{action.planned!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("progress", "made"), [
+    pytest.param(ActionProgress.CLAIMED, None, id="claimed"),
+    pytest.param(ActionProgress.PERFORMED, True, id="performed"),
+    pytest.param(ActionProgress.PUTTING_BACK, True, id="putting-back"),
+    pytest.param(ActionProgress.NOT_PERFORMED, False, id="not-performed"),
+    pytest.param(ActionProgress.UNKNOWN, None, id="unknown")
+])
+def test_how_far_an_action_got_says_whether_its_change_was_made(progress: ActionProgress,
+                                                                made: bool | None) -> None:
+    # One answer every reader asks, so a step added later cannot fall through
+    # a comparison some reader made with the steps it knew. A change owing its
+    # put-back was made; a claim and a claim nobody answered may have been.
+    Scenario() \
+        .given(
+            progress
+        ) \
+        .when(
+            lambda: progress.its_change_was_made()
+        ) \
+        .then(
+            _whether_it_was_made_is(made)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", list(ActionProgress))
+def test_a_row_says_whether_its_change_was_made_as_its_progress_does(
+        progress: ActionProgress) -> None:
+    # Over every step there is, so a step added without an answer fails here.
+    a_row = {**_a_row_whose_outcome_is(None), "progress": progress.value}
+
+    Scenario() \
+        .given(
+            a_row
+        ) \
+        .when(
+            lambda: TakenAction(**a_row).its_change_was_made()
+        ) \
+        .then(
+            _whether_it_was_made_is(progress.its_change_was_made())
+        )
+
+
+@pytest.mark.unit
+def test_a_row_owing_its_put_back_reads_back_what_the_watch_found_and_when_it_was_made() -> None:
+    # The two facts a resumed walk goes on from: why the change is owed back,
+    # said as the watch said it, and when it was made, on the walk's own
+    # clock - the one its minutes are read on.
+    a_row = {
+        **_a_row_whose_outcome_is(None),
+        "progress": ActionProgress.PUTTING_BACK.value,
+        "performed_at": to_iso(SOME_MOMENT_IT_WAS_MADE),
+        "put_back_because": SOME_FINDING
+    }
+
+    Scenario() \
+        .given(
+            a_row
+        ) \
+        .when(
+            lambda: TakenAction(**a_row)
+        ) \
+        .then(
+            _it_owes_its_put_back(because=SOME_FINDING,
+                                  performed_at=SOME_MOMENT_IT_WAS_MADE)
+        )
+
+
+@pytest.mark.unit
+def test_a_row_claimed_and_never_moved_on_knows_neither_when_it_was_made_nor_why_it_is_owed(
+) -> None:
+    Scenario() \
+        .given(
+            a_row := _a_row_whose_outcome_is(None)
+        ) \
+        .when(
+            lambda: TakenAction(**a_row)
+        ) \
+        .then(
+            _it_owes_its_put_back(because=None, performed_at=None)
+        )
+
+
+def _whether_it_was_made_is(expected: bool | None) -> Assertion[bool | None]:
+    def assertion(made: bool | None) -> bool:
+        # `is`, because `None` and `False` are the two answers this keeps
+        # apart, and `0 == False`.
+        if made is not expected:
+            raise AssertionError(
+                f"Expected whether the change was made to be [{expected}], got [{made}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_owes_its_put_back(because: str | None,
+                          performed_at: datetime | None) -> Assertion[TakenAction]:
+    def assertion(action: TakenAction) -> bool:
+        wanted = {"put_back_because": because, "performed_at": performed_at}
+        wrong = {field: (expected, getattr(action, field))
+                 for field, expected in wanted.items()
+                 if getattr(action, field) != expected}
+        if wrong:
+            raise AssertionError(
+                f"Expected {wanted}, and {wrong} differed (expected, got)."
             )
 
         return True

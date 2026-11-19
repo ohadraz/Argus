@@ -152,7 +152,10 @@ def complete(
 
     Whether it was performed is written again here, over whatever `advance`
     wrote when the change was made: this is the attempt's own whole account, and
-    a change put back after a refutation is a change that was still made.
+    a change put back after a refutation is a change that was still made. Except
+    a row owing its put-back that is completed with no undo: the put-back never
+    ran - a person ended the incident first - and `putting-back` is kept, as is
+    why it was owed.
 
     And whether the descriptor is the whole of what the attempt left behind:
     what tells a refusal that asked for no change from one whose change
@@ -170,18 +173,23 @@ def complete(
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE action SET outcome = %s, undo_descriptor = %s, progress = %s, "
-            "                  left_behind_known = %s, undone = %s "
-            " WHERE incident_id = %s AND hypothesis_id = %s",
-            (
-                outcome,
-                _as_column(undo_descriptor),
-                ActionProgress.PERFORMED if performed else ActionProgress.NOT_PERFORMED,
-                left_behind_known,
-                undone,
-                incident_id,
-                hypothesis_id,
-            ),
+            "UPDATE action SET outcome = %(outcome)s, undo_descriptor = %(undo)s, "
+            "                  progress = CASE WHEN progress = %(owed)s "
+            "                                   AND %(undone)s::text IS NULL "
+            "                                  THEN %(owed)s ELSE %(progress)s END, "
+            "                  left_behind_known = %(known)s, undone = %(undone)s "
+            " WHERE incident_id = %(incident)s AND hypothesis_id = %(hypothesis)s",
+            {
+                "outcome": outcome,
+                "undo": _as_column(undo_descriptor),
+                "owed": ActionProgress.PUTTING_BACK,
+                "progress": (ActionProgress.PERFORMED if performed
+                             else ActionProgress.NOT_PERFORMED),
+                "known": left_behind_known,
+                "undone": undone,
+                "incident": incident_id,
+                "hypothesis": hypothesis_id,
+            },
         )
 
 
@@ -191,6 +199,8 @@ def advance(
     hypothesis_id: str,
     to: ActionProgress,
     undo_descriptor: UndoDescriptor | None,
+    *,
+    performed_at: datetime | None = None
 ) -> None:
     """Moves a claim on to what has since been learnt about it, and leaves any
     row that already says more alone.
@@ -210,18 +220,59 @@ def advance(
     answer that the change landed comes without the descriptor that went with
     the dead worker, and a row moved to `unknown` is one nobody answered.
 
+    `performed_at` is when the walk recorded the change made, on the walk's own
+    clock - what a resumed walk dates the action by (its `acted_at`) where the
+    walk that made it is gone. `None` for a resumed walk's answer that a dead
+    worker's change landed: it was not there when the change was made, and its
+    own clock now is no stand-in.
+
     Committing is the caller's, as `complete`'s is.
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE action SET progress = %s, undo_descriptor = %s "
+            "UPDATE action SET progress = %s, undo_descriptor = %s, performed_at = %s "
             " WHERE incident_id = %s AND hypothesis_id = %s AND progress = %s",
             (
                 to,
                 _as_column(undo_descriptor),
+                performed_at,
                 incident_id,
                 hypothesis_id,
                 ActionProgress.CLAIMED,
+            ),
+        )
+
+
+def owe_a_put_back(conn: psycopg.Connection,
+                   incident_id: str,
+                   hypothesis_id: str,
+                   because: str) -> None:
+    """A change made that the wait refuted, recorded as owed back before the
+    walk's own put-back is attempted, with what the wait found.
+
+    Written in between because that is where a worker can die with a change
+    out there it already knows it must put back: a row left here says so, and
+    why, where `performed` would send a resumed walk to watch it again.
+
+    Only from `performed` with no outcome yet. A claim may never have changed
+    anything, and a completed row - a confirmed change is `performed` too - is
+    the attempt's own account, which a later write must not overwrite with
+    something it never was. `because` is never cleared: `complete` moves the
+    row on and keeps it.
+
+    Committing is the caller's, as `advance`'s is.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE action SET progress = %s, put_back_because = %s "
+            " WHERE incident_id = %s AND hypothesis_id = %s "
+            "   AND progress = %s AND outcome IS NULL",
+            (
+                ActionProgress.PUTTING_BACK,
+                because,
+                incident_id,
+                hypothesis_id,
+                ActionProgress.PERFORMED,
             ),
         )
 
@@ -302,7 +353,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
             "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
-            "       undone, plan, since "
+            "       undone, plan, since, performed_at, put_back_because "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id),
@@ -323,7 +374,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
             "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
-            "       undone, plan, since "
+            "       undone, plan, since, performed_at, put_back_because "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",

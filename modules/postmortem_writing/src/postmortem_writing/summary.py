@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Final
 
-from core.models import ActionProgress, ResolutionStep, whether_it_can_be_put_back
+from core.models import ResolutionStep, whether_it_can_be_put_back
 
 from postmortem_writing.estimate import LatencyLevels
 from postmortem_writing.evidence import ActionRecord, IncidentEvidence
@@ -329,7 +329,7 @@ def _what_argus_did(evidence: IncidentEvidence,
     said = [f"What Argus did: {'; '.join(taken)}."] if taken else []
     said.extend(_what_it_came_to_before(action)
                 for action in evidence.actions
-                if action.tried_before and action.progress is ActionProgress.PERFORMED)
+                if action.tried_before and action.progress.its_change_was_made() is True)
 
     credited = evidence.credited_action
     if measured.back_before_the_action and credited is not None:
@@ -344,7 +344,7 @@ def _changed_nothing(action: ActionRecord) -> bool:
     """Whether an action is known to have changed nothing: never performed,
     nothing of it to put back, and what it left known. For one never
     performed, something to put back is something it left on the way."""
-    return (action.progress is ActionProgress.NOT_PERFORMED
+    return (action.progress.its_change_was_made() is False
             and not action.has_a_way_back
             and action.left_behind_known)
 

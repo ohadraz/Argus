@@ -170,6 +170,14 @@ SOME_MESSAGE = Reference(source="some-chat", kind="some-kind", value="some-messa
 
 # The flag the actions here act on. Any name does.
 SOME_FLAG = "monthly-spend-feature"
+# What the watch found that left a change owing its put-back, in its words.
+SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
+# How a refuted change the incident was ended before is said to stand: not put
+# back, and why, and that it is still out there.
+NOT_PUT_BACK = ("did not help, and was not put back: the incident was ended before "
+                "it could be, so it is still in place")
+# When the walk recorded a change made, in the cases that read nothing of it.
+DONT_CARE_MOMENT_IT_WAS_MADE = DONT_CARE_TAKEN_AT
 SOME_OTHER_FLAG = "legacy-checkout-fallback"
 
 # A rollback that suspended the sync of an application that had been syncing
@@ -1806,7 +1814,8 @@ def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_databas
 
 @pytest.mark.component
 def test_an_action_that_did_not_help_is_said_to_be_put_back(a_clean_database: None) -> None:
-    # Mitigation puts a refuted change back itself, before the walk moves on.
+    # Mitigation puts a refuted change back itself, before the walk moves on,
+    # and the row keeps that it did.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
@@ -1814,7 +1823,8 @@ def test_an_action_that_did_not_help_is_said_to_be_put_back(a_clean_database: No
             .given(
                 calling(lambda: _an_action_taken(
                     conn, incident_id, REVERT_FEATURE_FLAG, Verdict.REFUTED,
-                    FlagUndo(flag=SOME_FLAG, was_enabled=True)))
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                    undone=Undone.RESTORED))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)
@@ -1899,7 +1909,9 @@ def test_an_action_left_standing_says_it_was_left_as_set_with_argus_s_suspension
 @pytest.mark.component
 @pytest.mark.parametrize(("action_type", "outcome", "undo", "undone", "put_back"), [
     pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
-                 None, True, id="put-back"),
+                 Undone.RESTORED, True, id="put-back"),
+    pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                 None, False, id="never-put-back"),
     pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
                  Undone.LEFT_AS_FOUND, False, id="left-as-found"),
     pytest.param(REVERT_FEATURE_FLAG, Verdict.CONFIRMED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
@@ -2168,14 +2180,16 @@ def test_an_action_with_no_way_back_is_said_to_leave_nothing_to_put_back(
 
 
 @pytest.mark.component
-@pytest.mark.parametrize(("outcome", "was_syncing_itself", "paused"), [
-    pytest.param(Verdict.CONFIRMED, True, "io-shop", id="standing-with-sync-stopped"),
-    pytest.param(Verdict.REFUTED, True, None, id="put-back"),
-    pytest.param(Verdict.CONFIRMED, False, None, id="sync-found-stopped")
+@pytest.mark.parametrize(("outcome", "was_syncing_itself", "undone", "paused"), [
+    pytest.param(Verdict.CONFIRMED, True, None, "io-shop", id="standing-with-sync-stopped"),
+    pytest.param(Verdict.REFUTED, True, Undone.RESTORED, None, id="put-back"),
+    pytest.param(Verdict.REFUTED, True, None, "io-shop", id="never-put-back"),
+    pytest.param(Verdict.CONFIRMED, False, None, None, id="sync-found-stopped")
 ])
 def test_an_action_standing_with_automatic_sync_stopped_says_whose(
     outcome: Verdict,
     was_syncing_itself: bool,
+    undone: Undone | None,
     paused: str | None,
     a_clean_database: None
 ) -> None:
@@ -2193,7 +2207,8 @@ def test_an_action_standing_with_automatic_sync_stopped_says_whose(
                         application="io-shop",
                         was_on_history_id=2,
                         was_on_revision="7c3ca00c7528df68d533f6e87acd4f23a55ab342",
-                        was_syncing_itself=was_syncing_itself)))
+                        was_syncing_itself=was_syncing_itself),
+                    undone=undone))
             ) \
             .when(
                 lambda: [action.paused_sync_of
@@ -4341,3 +4356,169 @@ def _the_judge_read(read: list[Transcript], expected: list[str]) -> Assertion[ob
         return True
 
     return assertion
+
+
+# How a refuted change the walk never put back reached its row's last step:
+# completed while still owed back, the ordinary stop; or completed from made,
+# where the write saying it was owed back failed, or the one saying it was made
+# did - the walk carries on past both. What it says has to be the same, since
+# the change is out there either way.
+def _owed_back_and_completed(conn: psycopg.Connection, incident_id: str) -> None:
+    _an_action_owed_back(conn, incident_id, completed_as=Verdict.REFUTED)
+
+
+def _completed_from_made(conn: psycopg.Connection, incident_id: str) -> None:
+    _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.REFUTED,
+                     A_ROLLBACK_THAT_SUSPENDED_SYNC)
+
+
+EVERY_ROW_A_STOPPED_PUT_BACK_LEAVES = [
+    pytest.param(_owed_back_and_completed, id="completed-while-owed-back"),
+    pytest.param(_completed_from_made, id="completed-from-made")
+]
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("a_stopped_put_back", EVERY_ROW_A_STOPPED_PUT_BACK_LEAVES)
+def test_an_action_the_incident_ended_before_it_was_put_back_is_said_to_stand_not_put_back(
+        a_stopped_put_back: Callable[[psycopg.Connection, str], None],
+        a_clean_database: None) -> None:
+    # Refuted, and a person resolved the incident before the put-back ran.
+    # Nothing that ends in a postmortem is unwound, so the change is out there,
+    # and so is the suspension of sync the put-back would have lifted: said as
+    # put back, a reader would take the subject for theirs again.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: a_stopped_put_back(conn, incident_id))
+            ) \
+            .when(
+                lambda: [(action.standing, action.put_back, action.paused_sync_of)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([(NOT_PUT_BACK, False, A_ROLLBACK_THAT_SUSPENDED_SYNC.application)])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("a_stopped_put_back", EVERY_ROW_A_STOPPED_PUT_BACK_LEAVES)
+def test_an_action_the_cleanup_put_back_after_the_walk_never_did_is_said_to_be_put_back(
+        a_stopped_put_back: Callable[[psycopg.Connection, str], None],
+        a_clean_database: None) -> None:
+    # The walk's own put-back never ran, and the cleanup after the incident put
+    # it back and said so on the row: whether the change is back is told by
+    # what put it back, not by how far the walk got.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: a_stopped_put_back(conn, incident_id)),
+                calling(lambda: _put_back_by_the_cleanup(conn, incident_id))
+            ) \
+            .when(
+                lambda: [(action.standing, action.put_back, action.paused_sync_of)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("put back when it did not help", True, None)])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("undone", "paused"), [
+    pytest.param(None, A_ROLLBACK_THAT_SUSPENDED_SYNC.application, id="never-put-back"),
+    pytest.param(Undone.LEFT_STANDING, A_ROLLBACK_THAT_SUSPENDED_SYNC.application,
+                 id="left-standing"),
+    pytest.param(Undone.NOT_ESTABLISHED, A_ROLLBACK_THAT_SUSPENDED_SYNC.application,
+                 id="not-established"),
+    pytest.param(Undone.RESTORED, None, id="restored"),
+    pytest.param(Undone.LEFT_AS_FOUND, None, id="left-as-found")
+])
+def test_a_refuted_action_s_sync_is_said_stopped_unless_its_put_back_resumed_it(
+    undone: Undone | None,
+    paused: str | None,
+    a_clean_database: None
+) -> None:
+    # A refutation alone does not say the sync came back on. It does only with
+    # a put-back that resumed it - restored, or left as found with the
+    # suspension lifted - and stays off where none ran, where somebody's change
+    # was left standing over it, or where what it holds could not be read.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.REFUTED,
+                    A_ROLLBACK_THAT_SUSPENDED_SYNC, undone=undone))
+            ) \
+            .when(
+                lambda: [action.paused_sync_of
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([paused])
+            )
+
+
+@pytest.mark.component
+def test_an_action_whose_run_was_lost_while_it_was_owed_back_may_still_be_in_place(
+        a_clean_database: None) -> None:
+    # The run was lost between the refutation and the verdict: the put-back
+    # may have run before it stopped, or may not. Said as made, and as maybe
+    # still out there - never as not known whether it was made, which it was.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_owed_back(conn, incident_id, completed_as=None))
+            ) \
+            .when(
+                lambda: [(action.standing, action.progress)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("may still be in place", ActionProgress.PUTTING_BACK)])
+            )
+
+
+def _an_action_owed_back(conn: psycopg.Connection,
+                         incident_id: str,
+                         completed_as: Verdict | None) -> None:
+    """One rollback made, refuted and owed back, on a candidate of its own -
+    completed as `completed_as` with the put-back never run, or left there by a
+    run lost first where `None`."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary="dont care",
+                           failure_mode=FailureMode.BAD_DEPLOYMENT,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                        action_type=ROLL_BACK_DEPLOYMENT,
+                        subject=A_ROLLBACK_THAT_SUSPENDED_SYNC.application,
+                        at=DONT_CARE_TAKEN_AT)
+    taken_actions.advance(conn, incident_id, hypothesis_id=candidate.id,
+                          to=ActionProgress.PERFORMED,
+                          undo_descriptor=A_ROLLBACK_THAT_SUSPENDED_SYNC,
+                          performed_at=DONT_CARE_MOMENT_IT_WAS_MADE)
+    taken_actions.owe_a_put_back(conn, incident_id, hypothesis_id=candidate.id,
+                                 because=SOME_FINDING)
+
+    if completed_as is not None:
+        taken_actions.complete(conn, incident_id, hypothesis_id=candidate.id,
+                               outcome=completed_as,
+                               undo_descriptor=A_ROLLBACK_THAT_SUSPENDED_SYNC,
+                               left_behind_known=True)
+
+
+def _put_back_by_the_cleanup(conn: psycopg.Connection, incident_id: str) -> None:
+    """What the cleanup after the incident keeps on the incident's one action
+    once it has put it back."""
+    (the_action,) = taken_actions.get_by_incident(conn, incident_id)
+    taken_actions.record_undone(conn, the_action.id, Undone.RESTORED)

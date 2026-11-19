@@ -59,7 +59,9 @@ from mitigation import (
     UndoAttempt,
     Undone,
     Verdict,
+    settle_the_refutation,
     take_action,
+    watch_what_was_performed,
 )
 from mitigation.kinds import ActionKind, KindOf, Performed, UndoableKind, UndoingKindOf
 from mitigation.tools import (
@@ -149,6 +151,24 @@ DONT_CARE_REFUSAL = "dont care why it refused"
 DONT_CARE_RULE_FAILURE = "the rule could not be read"
 DONT_CARE_HOW_IT_IS_PUT_BACK = "to dont care"
 DONT_CARE_WHAT_THE_UNDO_FOUND = "dont care what the undo found"
+
+# What the watch says where the service was still at the incident's level when
+# the time it was given ran out - the finding a refuted change is owed back for,
+# quoted rather than paraphrased because the finding is what the row keeps.
+THE_SERVICE_WAS_STILL_FAILING = (
+    "the service was still at the incident's level when the verification wait "
+    "ran out"
+)
+# What a refuted change the incident ended before it was put back carries as
+# the undo's words, beside no undo at all.
+IT_WAS_NOT_PUT_BACK = "was not put back: a person ended the incident before it could be"
+# How often an attempt refuted on its one look asks whether it is still
+# wanted: once before the write, and on the look - as it begins, once the
+# service is read, and before what was read is acted on.
+THE_QUESTIONS_A_ONE_LOOK_REFUTATION_ASKS = 4
+# The two moments a refutation's ending is noted at, in the order they happen.
+_OWED = "owed back"
+_PUT_BACK = "put back"
 
 # A plan nothing in a case reads: the kind hands it to a write that is stood
 # in, and the case is about what came after. A case taking an action with no
@@ -6040,3 +6060,374 @@ def test_an_undo_that_failed_is_logged_as_an_error(caplog: pytest.LogCaptureFixt
                                   "change could not be put back",
                                   values={"action_type": an_action.action_type})
         )
+
+
+@pytest.mark.unit
+def test_a_refuted_change_is_told_as_owed_back_with_what_the_watch_found_before_it_is_put_back(
+) -> None:
+    # Told before the put-back, so a worker that dies putting it back leaves a
+    # row saying the change is owed back and why - which a resumed walk puts
+    # back on, without watching it again.
+    happened: list[tuple[str, str | None]] = []
+
+    Scenario() \
+        .given(
+            undo := _an_undo_noting_in(happened)
+        ) \
+        .when(lambda: take_action(
+            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
+            plan=DONT_CARE_PLAN,
+            writes=the_writes(),
+            fetch_metrics=metrics_reading(a_still_failing_window()),
+            now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+            sleep=dont_care_sleep,
+            undo=undo,
+            put_back_owed=_each_put_back_owed_kept_in(happened),
+            kinds=_every_action_is(
+                _a_kind_that_did(DONT_CARE_WHAT_IT_DID, an_undo_descriptor_for(DONT_CARE_FLAG))
+            )
+        )) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _it_happened_in_order(happened, [(_OWED, THE_SERVICE_WAS_STILL_FAILING),
+                                             (_PUT_BACK, None)])
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_change_the_incident_ended_before_it_was_put_back_stays_owed_and_is_said_so(
+) -> None:
+    # A person ended the incident between the refutation and the put-back.
+    # Asked after the change is told as owed back, so the row says the put-back
+    # never ran rather than reading as a refutation with nothing to put back -
+    # and the verdict is the watch's, which finished: only the put-back was
+    # prevented. The change is carried so a withdrawal puts it back.
+    #
+    # No undo answered, so there is no subject of one to quote: the sentence
+    # names the change in the kind's own words for it, which say what it was
+    # done to, and ends in the words the row's line carries after the subject.
+    happened: list[tuple[str, str | None]] = []
+    some_change = an_undo_descriptor_for(DONT_CARE_FLAG)
+    some_words_for_the_change = f"set flag [{DONT_CARE_FLAG}] ON"
+
+    Scenario() \
+        .given(
+            undo := _an_undo_noting_in(happened)
+        ) \
+        .when(lambda: take_action(
+            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
+            plan=DONT_CARE_PLAN,
+            writes=the_writes(),
+            fetch_metrics=metrics_reading(a_still_failing_window()),
+            now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+            sleep=dont_care_sleep,
+            still_wanted=_wanted_until_a_put_back_is_owed(happened),
+            undo=undo,
+            put_back_owed=_each_put_back_owed_kept_in(happened),
+            kinds=_every_action_is(_a_kind_that_did(some_words_for_the_change, some_change))
+        )) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_reason_is(THE_SERVICE_WAS_STILL_FAILING),
+            _the_detail_is(f"{some_words_for_the_change}, but {THE_SERVICE_WAS_STILL_FAILING}, "
+                           f"and it {IT_WAS_NOT_PUT_BACK}"),
+            _nothing_was_put_back_through(undo),
+            _it_was_not_put_back_and_says(IT_WAS_NOT_PUT_BACK),
+            _it_carries_back(some_change),
+            _it_says_it_was_performed(True),
+            _it_was_judged()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("a_read", "a_clock", "still_wanted", "verdict"),
+    [
+        pytest.param(lambda: metrics_reading(a_recovered_window()), a_clock_frozen_at,
+                     wanted_throughout, Verdict.CONFIRMED, id="confirmed"),
+        pytest.param(lambda: metrics_reading(a_still_failing_window()), a_clock_frozen_at,
+                     nobody_wants_it_any_more(), Verdict.STOPPED, id="stopped-while-watched"),
+        pytest.param(lambda: _a_read_that_never_answers(), a_clock_that_runs_out_after_one_look,
+                     wanted_throughout, Verdict.ESCALATED, id="nothing-measured")
+    ]
+)
+def test_a_change_the_watch_did_not_refute_is_owed_back_by_nobody(
+        a_read: Callable[[], MetricsFetcher],
+        a_clock: Callable[[datetime], Callable[[], datetime]],
+        still_wanted: StillWanted,
+        verdict: Verdict) -> None:
+    # Confirmed, it stands; stopped or never measured, what to do with it is a
+    # person's - so nothing is told as owed back.
+    happened: list[tuple[str, str | None]] = []
+
+    Scenario() \
+        .given(
+            a_listener := _each_put_back_owed_kept_in(happened)
+        ) \
+        .when(lambda: take_action(
+            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
+            plan=DONT_CARE_PLAN,
+            writes=the_writes(),
+            fetch_metrics=a_read(),
+            now=a_clock(ACTION_TIME),
+            sleep=dont_care_sleep,
+            still_wanted=still_wanted,
+            undo=an_undo_nobody_calls(),
+            put_back_owed=a_listener,
+            kinds=_every_action_is(
+                _a_kind_that_did(DONT_CARE_WHAT_IT_DID, an_undo_descriptor_for(DONT_CARE_FLAG))
+            )
+        )) \
+        .then(all_of(
+            the_verdict_is(verdict),
+            _it_happened_in_order(happened, [])
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_change_that_left_nothing_to_put_back_is_owed_back_by_nobody() -> None:
+    # A restart leaves nothing behind, so its refutation owes no put-back and
+    # asks nobody whether one is still wanted: an incident a person ended once
+    # the watch had judged the restart still reads as refuted with nothing to
+    # put back.
+    happened: list[tuple[str, str | None]] = []
+
+    Scenario() \
+        .given(
+            a_listener := _each_put_back_owed_kept_in(happened)
+        ) \
+        .when(lambda: take_action(
+            an_action_restarting(SOME_APPLICATION),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
+            plan=None,
+            writes=the_writes(),
+            fetch_metrics=metrics_reading(a_still_failing_window()),
+            now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+            sleep=dont_care_sleep,
+            still_wanted=_wanted_for(THE_QUESTIONS_A_ONE_LOOK_REFUTATION_ASKS),
+            undo=an_undo_nobody_calls(),
+            put_back_owed=a_listener,
+            kinds=_every_action_is(_a_kind_that_did(DONT_CARE_WHAT_IT_DID, None))
+        )) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_closes_with("there was nothing to put back"),
+            _it_happened_in_order(happened, [])
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_already_made_is_watched_and_judged_as_one_just_made_is() -> None:
+    # The chain entered after the write, as a resumed walk enters it for a
+    # change an earlier worker made: watched, judged, and not made again.
+    Scenario() \
+        .given(
+            the_change_made := an_undo_descriptor_for(DONT_CARE_FLAG)
+        ) \
+        .when(lambda: watch_what_was_performed(
+            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            Performed(said=DONT_CARE_WHAT_IT_DID, undo_descriptor=the_change_made),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
+            fetch_metrics=metrics_reading(a_recovered_window()),
+            now=a_clock_frozen_at(ACTION_TIME),
+            sleep=dont_care_sleep,
+            undo=an_undo_nobody_calls()
+        )) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_refutation_owed_back_is_settled_on_its_own_as_the_whole_attempt_settles_it() -> None:
+    # The chain entered at the put-back, as a resumed walk enters it for a
+    # change owed back: asked whether it is still wanted, put back, and said
+    # in the same words.
+    some_change = an_undo_descriptor_for(DONT_CARE_FLAG)
+
+    Scenario() \
+        .given(
+            undo := an_undo_that_put_it_back()
+        ) \
+        .when(lambda: settle_the_refutation(
+            an_action_setting(DONT_CARE_FLAG, enabled=True).action_type,
+            Performed(said=DONT_CARE_WHAT_IT_DID, undo_descriptor=some_change),
+            THE_SERVICE_WAS_STILL_FAILING,
+            undo=undo
+        )) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_reason_is(THE_SERVICE_WAS_STILL_FAILING),
+            _the_change_was_put_back_through(undo),
+            _the_detail_opens_with(f"{DONT_CARE_WHAT_IT_DID}, but {THE_SERVICE_WAS_STILL_FAILING}")
+        ))
+
+
+@pytest.mark.unit
+def test_a_refutation_settled_on_its_own_for_an_incident_somebody_ended_is_not_put_back(
+) -> None:
+    some_change = an_undo_descriptor_for(DONT_CARE_FLAG)
+    some_words_for_the_change = f"set flag [{DONT_CARE_FLAG}] ON"
+
+    Scenario() \
+        .given(
+            undo := an_undo_nobody_calls()
+        ) \
+        .when(lambda: settle_the_refutation(
+            an_action_setting(DONT_CARE_FLAG, enabled=True).action_type,
+            Performed(said=some_words_for_the_change, undo_descriptor=some_change),
+            THE_SERVICE_WAS_STILL_FAILING,
+            undo=undo,
+            still_wanted=nobody_wanted_it_before_it_was_taken()
+        )) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_is(f"{some_words_for_the_change}, but {THE_SERVICE_WAS_STILL_FAILING}, "
+                           f"and it {IT_WAS_NOT_PUT_BACK}"),
+            _nothing_was_put_back_through(undo),
+            _it_was_not_put_back_and_says(IT_WAS_NOT_PUT_BACK),
+            _it_carries_back(some_change)
+        ))
+
+
+def _each_put_back_owed_kept_in(happened: list[tuple[str, str | None]]
+                                ) -> Callable[[str], None]:
+    """Keeps each change told as owed back, with what the watch found, in the
+    order it was told among everything else kept beside it."""
+    def put_back_owed(because: str) -> None:
+        happened.append((_OWED, because))
+
+    return put_back_owed
+
+
+def _an_undo_noting_in(happened: list[tuple[str, str | None]]) -> MagicMock:
+    """An undo that puts the change back, and notes when it did."""
+    undo: MagicMock = create_autospec(UndoChange, instance=True)
+
+    def put_back(dont_care_descriptor: UndoDescriptor, /) -> UndoAttempt:
+        happened.append((_PUT_BACK, None))
+
+        return UndoAttempt(subject=DONT_CARE_FLAG, outcome=Undone.RESTORED,
+                           detail=DONT_CARE_WHAT_THE_UNDO_FOUND)
+
+    undo.side_effect = put_back
+
+    return undo
+
+
+def _wanted_until_a_put_back_is_owed(happened: list[tuple[str, str | None]]) -> StillWanted:
+    """A walk somebody ended once its change was told as owed back - wanted
+    through the write and the watch."""
+    def still_wanted() -> bool:
+        return not any(kind == _OWED for kind, _ in happened)
+
+    return still_wanted
+
+
+def _it_happened_in_order(happened: list[tuple[str, str | None]],
+                          expected: list[tuple[str, str | None]]) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        if happened != expected:
+            raise AssertionError(f"Expected {expected} in that order, got {happened}.")
+
+        return True
+
+    return assertion
+
+
+def _it_was_not_put_back_and_says(said: str) -> Assertion[Outcome]:
+    """No undo was attempted, and the undo's words say why."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.undone is not None or outcome.undone_detail != said:
+            raise AssertionError(
+                f"Expected the outcome to carry no undo, saying [{said}], got "
+                f"[{outcome.undone}] saying [{outcome.undone_detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_judged() -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if not outcome.judged:
+            raise AssertionError(f"Expected the outcome judged, got [{outcome.judged}].")
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_a_put_back_owed_on_the_claim_of_a_lost_run_stops_the_attempt_before_it_is_put_back(
+) -> None:
+    # The run is another claim's now: the put-back is that walk's to make or
+    # leave, and a put-back from here would be nobody's walk changing
+    # production.
+    def owed_on_a_lost_run(dont_care_because: str) -> None:
+        raise RunLost("a newer claim holds this run")
+
+    Scenario() \
+        .given(
+            undo := an_undo_nobody_calls()
+        ) \
+        .when(attempting(lambda: take_action(
+            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
+            plan=DONT_CARE_PLAN,
+            writes=the_writes(),
+            fetch_metrics=metrics_reading(a_still_failing_window()),
+            now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+            sleep=dont_care_sleep,
+            undo=undo,
+            put_back_owed=owed_on_a_lost_run,
+            kinds=_every_action_is(
+                _a_kind_that_did(DONT_CARE_WHAT_IT_DID, an_undo_descriptor_for(DONT_CARE_FLAG))
+            )
+        ))) \
+        .then(all_of(
+            an_error_was_raised(RunLost),
+            _the_undo_was_never_asked(undo)
+        ))
+
+
+def _wanted_for(questions: int) -> StillWanted:
+    """A walk wanted for the first `questions` times it is asked, and ended from
+    then on."""
+    asked: list[bool] = []
+
+    def still_wanted() -> bool:
+        asked.append(len(asked) < questions)
+        return asked[-1]
+
+    return still_wanted
+
+
+def _the_detail_is(expected: str) -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.detail != expected:
+            raise AssertionError(f"Expected the detail [{expected}], got [{outcome.detail}].")
+
+        return True
+
+    return assertion
+
+
+def _the_undo_was_never_asked(undo: MagicMock) -> Assertion[Exception | None]:
+    def assertion(dont_care_error: Exception | None) -> bool:
+        if undo.called:
+            raise AssertionError(f"Expected nothing put back, got {undo.call_args_list}.")
+
+        return True
+
+    return assertion

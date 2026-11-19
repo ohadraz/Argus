@@ -119,6 +119,8 @@ SOME_MARK = a_mark()
 SOME_PLATFORM_TIME = datetime(2026, 11, 18, 13, 4, tzinfo=UTC)
 BEFORE_THE_PLAN = SOME_PLATFORM_TIME - timedelta(hours=1)
 AFTER_THE_PLAN = SOME_PLATFORM_TIME + timedelta(minutes=1)
+# When the platform answered the rollback it was asked for, by its own clock.
+THE_MOMENT_THE_PLATFORM_ANSWERED = AFTER_THE_PLAN + timedelta(seconds=2)
 
 THE_ENTRY_RUNNING = 2
 THE_ENTRY_BEFORE_IT = 1
@@ -675,7 +677,7 @@ def test_a_rollback_argus_made_since_the_plan_is_answered_as_made() -> None:
         .when(lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
         .then(all_of(
             _no_write_was_asked(platform),
-            _it_answered_with(planned.descriptor)
+            _it_answered_with(_dated(planned.descriptor, AFTER_THE_PLAN))
         ))
 
 
@@ -697,7 +699,7 @@ def test_a_rollback_argus_made_in_the_plan_s_own_second_is_answered_as_made() ->
         .when(lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
         .then(all_of(
             _no_write_was_asked(platform),
-            _it_answered_with(planned.descriptor)
+            _it_answered_with(_dated(planned.descriptor, SOME_PLATFORM_TIME))
         ))
 
 
@@ -741,7 +743,7 @@ def test_a_rollback_argus_s_sync_started_since_the_plan_is_answered_as_made(
         .when(lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
         .then(all_of(
             _no_write_was_asked(platform),
-            _it_answered_with(planned.descriptor)
+            _it_answered_with(_dated(planned.descriptor, AFTER_THE_PLAN))
         ))
 
 
@@ -2200,3 +2202,39 @@ def _it_says_what_it_left_behind(
         return True
 
     return assertion
+
+
+@pytest.mark.unit
+def test_a_rollback_made_is_answered_dated_by_the_platform_s_answer_to_it() -> None:
+    # What the way back is dated by, on the platform's own clock: a later look
+    # at its history asks what landed since Argus wrote, and a moment on any
+    # other clock can fall the wrong side of an entry.
+    platform = a_platform(syncing_itself=True)
+    platform.roll_back.return_value = THE_MOMENT_THE_PLATFORM_ANSWERED
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
+        .then(
+            _it_answered_with(_dated(planned.descriptor, THE_MOMENT_THE_PLATFORM_ANSWERED))
+        )
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_answer_said_no_moment_is_answered_undated() -> None:
+    # The rollback landed, and nobody can say when by the platform's clock:
+    # absent says so, and a reader takes it as unknown, never as a time.
+    platform = a_platform(syncing_itself=True)
+    platform.roll_back.return_value = None
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
+        .then(
+            _it_answered_with(_dated(planned.descriptor, None))
+        )
+
+
+def _dated(descriptor: DeploymentRollbackUndo, at: datetime | None) -> DeploymentRollbackUndo:
+    """`descriptor` as a rollback made at `at` answers with it."""
+    return descriptor.model_copy(update={"written_at": at})

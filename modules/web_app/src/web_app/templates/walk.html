@@ -122,10 +122,13 @@
              withdrawal or a failed run: restored, left as somebody else had
              set it since, or left so with the reconciliation Argus suspended
              still suspended - left standing, which somebody has to decide.
-             Nothing for any other - a refuted restart put nothing back. #}
+             And not put back where a person ended the incident before the
+             walk's own put-back of a refuted change ran. Nothing for any
+             other - a refuted restart put nothing back. #}
           {% if attempt.undone == "restored" %}<span class="undone">put back</span>
           {% elif attempt.undone == "left-as-found" %}<span class="undone">left as found</span>
           {% elif attempt.undone == "left-standing" %}<span class="undone">left standing</span>
+          {% elif attempt.not_put_back %}<span class="undone">not put back</span>
           {% endif %}
           <span class="when">{{ attempt.taken_at | time }} UTC</span>
         </li>

@@ -48,7 +48,7 @@ as text - is the adapter's, and pinned in its own suite.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -115,6 +115,8 @@ SOME_MARK = a_mark()
 
 # The platform's own clock when a plan reads it.
 SOME_TIME_ON_THE_PLATFORM = datetime(2026, 11, 18, 13, 4, 30, tzinfo=UTC)
+# When the platform answered the write it was asked for, by its own clock.
+THE_MOMENT_THE_PLATFORM_ANSWERED = SOME_TIME_ON_THE_PLATFORM + timedelta(seconds=2)
 # When a plan handed to a write was read. The write compares what it finds with
 # what the plan says, never with when.
 DONT_CARE_SINCE = datetime(2026, 11, 18, 13, 0, tzinfo=UTC)
@@ -160,6 +162,8 @@ def a_platform(floor: int = THE_FLOOR,
     )
     platform.is_syncing_itself.return_value = reconciling_itself
     platform.now.return_value = SOME_TIME_ON_THE_PLATFORM
+    # A write whose answer said no moment, unless a case gives it one.
+    platform.set_autoscaler_floor.return_value = None
 
     marks = marked or {}
     platform.mark_on.side_effect = lambda application, kind: marks.get(kind)
@@ -1629,3 +1633,18 @@ def _it_says_what_it_left_behind(
         return True
 
     return assertion
+
+
+@pytest.mark.unit
+def test_a_pin_made_is_answered_dated_by_the_platform_s_answer_to_it() -> None:
+    # What the way back is dated by, on the platform's own clock - never the
+    # mark's moment, which is Argus's.
+    platform = a_platform(floor=THE_FLOOR)
+    platform.set_autoscaler_floor.return_value = THE_MOMENT_THE_PLATFORM_ANSWERED
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(_it_answered_with(
+            a_plan.descriptor.model_copy(update={"written_at": THE_MOMENT_THE_PLATFORM_ANSWERED})
+        ))

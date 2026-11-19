@@ -3565,3 +3565,24 @@ def test_a_line_from_outside_the_walk_is_said_as_it_was_written() -> None:
         .then(
             the_answer_was(a_line)
         )
+
+
+@pytest.mark.unit
+def test_a_candidate_whose_change_was_owed_back_when_the_run_was_lost_was_tried_with_none_recorded(
+) -> None:
+    # The watch refuted the change and the run was lost before the verdict was
+    # written: the change was made, so the cause was tried - and nothing on
+    # file says what came of it. "Never tried" would say the service was left
+    # alone.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={
+                    "progress": ActionProgress.PUTTING_BACK, "verdict_recorded": False})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["tried, no verdict recorded"])
+        )

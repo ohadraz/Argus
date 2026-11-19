@@ -72,6 +72,8 @@ SOME_STATUS = IncidentStatus.MITIGATING
 
 DONT_CARE_ALERT = Alert(service="kuki-service", alert_name="HighErrorRate")
 DONT_CARE_FLAG = "dont-care-flag"
+# What the watch found that left a change owing its put-back, in its words.
+SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
 DONT_CARE_UNDO_DESCRIPTOR = FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
 DONT_CARE_WORDS = "the kuki flag was flipped at noon"
 DONT_CARE_OTHER_WORDS = "it is the database again"
@@ -1283,6 +1285,94 @@ def _the_leads_are(expected: list[ThreadMessage]) -> Assertion[list[ThreadMessag
                 f"Expected the leads {[lead.message for lead in expected]}, and "
                 f"the record answered {[lead.message for lead in leads]}."
             )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.component
+def test_a_change_made_is_on_the_claim_with_the_moment_it_was_made(
+    a_clean_database: None
+) -> None:
+    # The walk's moment for the change, committed with it before the wait, so a
+    # walk resumed after a worker died there watches it afresh from then.
+    some_flag = "monthly-spend-feature"
+    some_way_back = FlagUndo(flag=some_flag, was_enabled=True)
+    some_moment_it_was_made = utc_now()
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=some_flag,
+                            at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.advance_action(incident_id, hypothesis_id=a_candidate.id,
+                                           to=ActionProgress.PERFORMED,
+                                           undo_descriptor=some_way_back,
+                                           performed_at=some_moment_it_was_made)
+        ) \
+        .then(
+            _the_action_is_seen_made_at(incident_id, some_moment_it_was_made)
+        )
+
+
+@pytest.mark.component
+def test_a_change_owed_back_is_on_the_claim_for_anybody_who_reads_it_next(
+    a_clean_database: None
+) -> None:
+    # Written before the put-back so a worker dying during it leaves the change
+    # owed back on record - which is only so if it is committed by then, and so
+    # seen from another connection.
+    some_flag = "monthly-spend-feature"
+    some_way_back = FlagUndo(flag=some_flag, was_enabled=True)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=some_flag,
+                            at=utc_now())
+        taken_actions.advance(conn, incident_id, hypothesis_id=a_candidate.id,
+                              to=ActionProgress.PERFORMED, undo_descriptor=some_way_back,
+                              performed_at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.owe_a_put_back(incident_id, hypothesis_id=a_candidate.id,
+                                           because=SOME_FINDING)
+        ) \
+        .then(all_of(
+            _the_action_is_seen_as(incident_id, ActionProgress.PUTTING_BACK, some_way_back),
+            _nothing_was_narrated(incident_id)
+        ))
+
+
+def _the_action_is_seen_made_at(incident_id: str, expected: datetime) -> Assertion[None]:
+    """When the incident's one action was made, as a connection of its own reads it."""
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            seen = [taken.performed_at
+                    for taken in taken_actions.get_by_incident(conn, incident_id)]
+
+        if seen != [expected]:
+            raise AssertionError(f"Expected one action seen as made at [{expected}], "
+                                 f"got {seen}.")
 
         return True
 

@@ -88,6 +88,7 @@ from orchestrator.walk.ports import (
     FetchFlagChanges,
     Investigate,
     LeadsOf,
+    OweAPutBack,
     PlanAction,
     ProposeFix,
     RecallSimilar,
@@ -141,6 +142,8 @@ class Collaborators:
     complete_action: CompleteAction
     already_taken: ActionAlreadyTaken
     advance_action: AdvanceAction
+    # A refuted change recorded as owed back on its claim, before the put-back.
+    owe_a_put_back: OweAPutBack
     change_landed: ChangeLanded
     # Which action the changes made inside it are for, so the write tier marks
     # each with it. The process's own `Holding`, which the write client reads.
@@ -397,6 +400,7 @@ def against(connections: Connections,
         complete_action=records.complete_action,
         already_taken=records.claimed_action,
         advance_action=records.advance_action,
+        owe_a_put_back=records.owe_a_put_back,
         change_landed=partial(argus_changed_flag_since, client=write),
         acting_for=holding.acting_for,
         # Both tiers, because proposing a fix is the one act that spans them:

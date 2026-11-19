@@ -2979,3 +2979,40 @@ def _each_kind_waits_for(expected: dict[str, Arrival]) -> Assertion[dict[str, Ar
         return True
 
     return each_kind_waits_for
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "a_plan", "write", "spec"),
+                         EVERY_KIND_OF_PLANNED_WRITE)
+def test_a_change_made_is_said_from_its_action_and_its_way_back_as_its_write_said_it(
+    kind: UndoableKind[Any], an_action: Callable[[], Action],
+    a_plan: Callable[[], Planned[Any]], write: str, spec: type
+) -> None:
+    # One sentence for a change, whoever builds it: the write that made it, and
+    # a resumed walk holding only the action and the row's way back - which
+    # puts the change back, or watches it, in the words the first walk would
+    # have used.
+    the_action = an_action()
+    some_change_made = a_plan().descriptor
+    as_its_write_said_it = kind.perform(
+        the_action, a_plan(), the_writes(**{write: _a_write_answering(spec, some_change_made)})
+    ).said
+
+    Scenario() \
+        .given(
+            the_action
+        ) \
+        .when(
+            lambda: kind.said(the_action, some_change_made)
+        ) \
+        .then(
+            the_answer_was(as_its_write_said_it)
+        )
+
+
+def _a_write_answering(spec: type, change_made: UndoDescriptor) -> MagicMock:
+    """`spec`, answering that it made `change_made`."""
+    write: MagicMock = create_autospec(spec, instance=True)
+    write.return_value = change_made
+
+    return write
