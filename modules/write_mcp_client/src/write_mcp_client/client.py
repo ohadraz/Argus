@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Final
 
 from core import Holding, WriteMcpEndpoint, to_iso
-from core.mcp_transport import McpClient
+from core.mcp_transport import Asking, McpClient
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -95,7 +95,9 @@ _A_BRANCH: Final = TypeAdapter(str)
 _MCP_PATH: Final = "/mcp"
 
 
-def write_mcp(endpoint: WriteMcpEndpoint, holding: Holding | None = None) -> McpClient:
+def write_mcp(endpoint: WriteMcpEndpoint,
+              holding: Holding | None = None,
+              builds_client: Callable[..., McpClient] = McpClient) -> McpClient:
     """A client holding one session to `argus-write-mcp`.
 
     Built where a process starts, and separate from the read tier's client
@@ -106,8 +108,18 @@ def write_mcp(endpoint: WriteMcpEndpoint, holding: Holding | None = None) -> Mcp
     A process that walks runs hands over what it is `holding`, and each call
     says the claim held as it is made: the tier makes a change only for the
     claim that holds its run. A process holding none can still read.
+
+    Each call waits as long as the endpoint says for its answer: above the
+    slowest tool this tier serves, which is `restart_service` - two requests,
+    then up to sixty looks at the platform a second apart, each under its
+    ten-second timeout, about eleven and a half minutes, after up to five
+    seconds' wait for its run to be free. `builds_client` builds it, and is a
+    parameter so that what it was built with can be asserted without building
+    one.
     """
-    return McpClient(f"{endpoint.write_mcp_url}{_MCP_PATH}", holding=holding)
+    return builds_client(f"{endpoint.write_mcp_url}{_MCP_PATH}",
+                         answered_within=endpoint.write_mcp_answered_within_seconds,
+                         holding=holding)
 
 
 def plan_flag(flag: str,
@@ -128,6 +140,7 @@ def plan_flag(flag: str,
     return client.call(
         "plan_flag",
         _PLANNED_FLAG.validate_python,
+        asking=Asking.READ,
         flag=flag,
         enabled=enabled
     )
@@ -161,6 +174,7 @@ def set_feature_flag(planned: Planned[FlagUndo],
     return client.call(
         "set_feature_flag",
         parse_undo_descriptor,
+        asking=Asking.CHANGE,
         planned=planned.model_dump(mode="json"),
         enabled=enabled
     )
@@ -192,10 +206,16 @@ def discard_cache_entries(keys: Sequence[str],
     whose own answer does that. A store reporting how many of the named keys
     existed and are now gone has stated the thing the incident was about, so
     nothing afterwards has to be watched for.
+
+    Not asked again where its answer was lost: a second asking finds nothing
+    of the first to answer by, and discards whatever was written under the
+    keys since. Such a call is `LostAfterSending`, and a walk told so cannot
+    say whether the entries went.
     """
     return client.call(
         "discard_cache_entries",
         _CACHE_ENTRIES_DISCARDED.validate_python,
+        asking=Asking.CHANGE_ASKED_ONCE,
         keys=list(keys)
     )
 
@@ -218,10 +238,16 @@ def restart_service(service: str,
     formed against a service nothing was done to would describe an experiment
     that never ran, and would read a leak still climbing as evidence that
     restarting a leaking service does not work.
+
+    Not asked again where its answer was lost: a restart is the platform's own
+    resource action and carries no mark a second asking could find, so a
+    second asking is a second restart. Such a call is `LostAfterSending`, and a
+    walk told so cannot say whether the service was restarted.
     """
     return client.call(
         "restart_service",
         _RESTARTED_SERVICE.validate_python,
+        asking=Asking.CHANGE_ASKED_ONCE,
         service=service
     )
 
@@ -241,6 +267,7 @@ def plan_rollback(application: str,
     return client.call(
         "plan_rollback",
         _PLANNED_ROLLBACK.validate_python,
+        asking=Asking.READ,
         application=application
     )
 
@@ -276,6 +303,7 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     descriptor = client.call(
         "roll_back_deployment",
         parse_undo_descriptor,
+        asking=Asking.CHANGE,
         planned=planned.model_dump(mode="json")
     )
 
@@ -307,6 +335,7 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     return client.call(
         "restore_deployment",
         _DEPLOYMENT_RESTORED.validate_python,
+        asking=Asking.CHANGE,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -324,6 +353,7 @@ def plan_scale_out(application: str,
     return client.call(
         "plan_scale_out",
         _PLANNED_SCALE_OUT.validate_python,
+        asking=Asking.READ,
         application=application
     )
 
@@ -359,6 +389,7 @@ def scale_out(planned: Planned[ReplicaUndo],
     descriptor = client.call(
         "scale_out",
         parse_undo_descriptor,
+        asking=Asking.CHANGE,
         planned=planned.model_dump(mode="json")
     )
 
@@ -390,6 +421,7 @@ def restore_replica_count(descriptor: ReplicaUndo,
     return client.call(
         "restore_replica_count",
         _CAPACITY_RESTORED.validate_python,
+        asking=Asking.CHANGE,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -407,6 +439,7 @@ def plan_autoscaler_pin(application: str,
     return client.call(
         "plan_autoscaler_pin",
         _PLANNED_AUTOSCALER_PIN.validate_python,
+        asking=Asking.READ,
         application=application
     )
 
@@ -441,6 +474,7 @@ def pin_autoscaler(planned: Planned[AutoscalerUndo],
     descriptor = client.call(
         "pin_autoscaler",
         parse_undo_descriptor,
+        asking=Asking.CHANGE,
         planned=planned.model_dump(mode="json")
     )
 
@@ -472,6 +506,7 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
     return client.call(
         "restore_autoscaler_floor",
         _AUTOSCALING_RESTORED.validate_python,
+        asking=Asking.CHANGE,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -493,6 +528,7 @@ def plan_accelerator_pin(application: str,
     return client.call(
         "plan_accelerator_pin",
         _PLANNED_ACCELERATOR_PIN.validate_python,
+        asking=Asking.READ,
         application=application,
         accelerator=accelerator
     )
@@ -521,6 +557,7 @@ def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
     descriptor = client.call(
         "pin_to_accelerator",
         parse_undo_descriptor,
+        asking=Asking.CHANGE,
         planned=planned.model_dump(mode="json")
     )
 
@@ -551,6 +588,7 @@ def restore_accelerator_pin(descriptor: AcceleratorPinUndo,
     return client.call(
         "restore_accelerator_pin",
         _ACCELERATOR_PIN_RESTORED.validate_python,
+        asking=Asking.CHANGE,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -576,6 +614,7 @@ def get_recent_flag_changes(since: str,
     return client.call(
         "get_recent_flag_changes",
         _FLAG_CHANGES.validate_python,
+        asking=Asking.READ,
         since=since
     )
 
@@ -596,6 +635,7 @@ def whether_flag_was_made(planned: Planned[FlagUndo],
     return client.call(
         "whether_flag_was_made",
         _MADE_FLAG.validate_python,
+        asking=Asking.READ,
         planned=planned.model_dump(mode="json")
     )
 
@@ -615,6 +655,7 @@ def flag_still_argus_s(planned: Planned[FlagUndo],
     return client.call(
         "flag_still_argus_s",
         _CHANGE_FOUND.validate_python,
+        asking=Asking.READ,
         planned=planned.model_dump(mode="json"),
         descriptor=descriptor.model_dump(mode="json")
     )
@@ -632,6 +673,7 @@ def whether_rollback_was_made(planned: Planned[DeploymentRollbackUndo],
     return client.call(
         "whether_rollback_was_made",
         _MADE_ROLLBACK.validate_python,
+        asking=Asking.READ,
         planned=planned.model_dump(mode="json")
     )
 
@@ -645,6 +687,7 @@ def rollback_still_argus_s(descriptor: DeploymentRollbackUndo,
     return client.call(
         "rollback_still_argus_s",
         _CHANGE_FOUND.validate_python,
+        asking=Asking.READ,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -659,6 +702,7 @@ def whether_scale_out_was_made(planned: Planned[ReplicaUndo],
     return client.call(
         "whether_scale_out_was_made",
         _MADE_SCALE_OUT.validate_python,
+        asking=Asking.READ,
         planned=planned.model_dump(mode="json")
     )
 
@@ -669,6 +713,7 @@ def scale_out_still_argus_s(descriptor: ReplicaUndo, *, client: McpClient) -> Ch
     return client.call(
         "scale_out_still_argus_s",
         _CHANGE_FOUND.validate_python,
+        asking=Asking.READ,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -684,6 +729,7 @@ def whether_autoscaler_pin_was_made(planned: Planned[AutoscalerUndo],
     return client.call(
         "whether_autoscaler_pin_was_made",
         _MADE_AUTOSCALER_PIN.validate_python,
+        asking=Asking.READ,
         planned=planned.model_dump(mode="json")
     )
 
@@ -697,6 +743,7 @@ def autoscaler_pin_still_argus_s(descriptor: AutoscalerUndo,
     return client.call(
         "autoscaler_pin_still_argus_s",
         _CHANGE_FOUND.validate_python,
+        asking=Asking.READ,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -712,6 +759,7 @@ def whether_accelerator_pin_was_made(planned: Planned[AcceleratorPinUndo],
     return client.call(
         "whether_accelerator_pin_was_made",
         _MADE_ACCELERATOR_PIN.validate_python,
+        asking=Asking.READ,
         planned=planned.model_dump(mode="json")
     )
 
@@ -725,6 +773,7 @@ def accelerator_pin_still_argus_s(descriptor: AcceleratorPinUndo,
     return client.call(
         "accelerator_pin_still_argus_s",
         _CHANGE_FOUND.validate_python,
+        asking=Asking.READ,
         descriptor=descriptor.model_dump(mode="json")
     )
 
@@ -742,6 +791,7 @@ def was_flag_changed_by_others_since(flag: str,
     return client.call(
         "was_flag_changed_by_others_since",
         _AN_ANSWER_OR_NONE.validate_python,
+        asking=Asking.READ,
         flag=flag,
         since=to_iso(since)
     )
@@ -771,6 +821,7 @@ def commit_to_new_branch(branch: str,
     return client.call(
         "commit_to_new_branch",
         _A_BRANCH.validate_python,
+        asking=Asking.CHANGE,
         branch=branch,
         base_branch=base_branch,
         files=dict(files),
@@ -806,6 +857,7 @@ def open_pull_request(head_branch: str,
     return client.call(
         "open_pull_request",
         _OPENED_PULL_REQUEST.validate_python,
+        asking=Asking.CHANGE,
         head_branch=head_branch,
         base_branch=base_branch,
         title=title,

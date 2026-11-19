@@ -20,6 +20,7 @@ which trace it found itself in.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -30,8 +31,9 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, Final, Self
 
+import uvicorn
 from core import Fence
 from core.mcp_transport import (
     ACTION_META_KEY,
@@ -46,8 +48,11 @@ from core.mcp_transport import (
 )
 from core.models import DeploymentRollbackUndo
 from mcp.server.fastmcp import Context
+from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from starlette.responses import Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 TRANSPORT_DOUBLE_PORT = 8194
 
@@ -59,6 +64,33 @@ POLL_SECONDS = 0.2
 # else. It is what lets a test say a refusal was *not* retried: a client that
 # quietly asked again would leave two here where the test made one call.
 _times_refused = 0
+# The same, for the askings a call that may not be asked twice must not repeat:
+# one tool that counts every asking it answers, and one that counts each asking
+# before it stalls past whatever a client will wait for.
+_times_counted = 0
+_times_stalled = 0
+# The askings of the tools that stall at their first asking and answer or refuse
+# every later one, counted together: a server serves one test, and one test asks
+# one.
+_times_asked_stalling_first = 0
+# Whether the next ping answered ends its session, and every session ended so:
+# a server that forgot them answers whatever arrives over one with the 404 a
+# server answers a session it does not hold.
+_forgetting_after_the_next_ping = False
+# What a tool refusing as a lost run says, as a write tier refuses one.
+A_NEWER_CLAIM_HOLDS_THE_RUN: Final = "a newer claim holds this run"
+_sessions_forgotten: set[bytes] = set()
+
+# How the session a request is made over is named - the SDK's own header - as
+# ASGI hands headers over: bytes.
+_SESSION_HEADER: Final = MCP_SESSION_ID_HEADER.encode()
+# What a server says to a request over a session it does not hold, in the SDK's
+# own words and code.
+_SESSION_NOT_FOUND = (
+    b'{"jsonrpc":"2.0","id":"server-error",'
+    b'"error":{"code":-32600,"message":"Session not found"}}'
+)
+_A_PING: Final = "ping"
 
 # What the refusals that changed something leave behind: one suspension, as the
 # rollback's shape leaves it.
@@ -181,7 +213,7 @@ def build_double(port: int) -> TracedFastMCP:
         global _times_refused
         _times_refused += 1
 
-        raise RuntimeError(a_lost_run("a newer claim holds this run"))
+        raise RuntimeError(a_lost_run(A_NEWER_CLAIM_HOLDS_THE_RUN))
 
     @server.tool()
     def refuse_as_changed_since() -> list[str]:
@@ -235,6 +267,101 @@ def build_double(port: int) -> TracedFastMCP:
         return ["eventually"]
 
     @server.tool()
+    def count_an_asking() -> int:
+        """Counts each asking it answers, and answers with the count so far.
+
+        Counted in this process, so a server restarted beneath a client starts
+        again from nothing: an asking its stale session sent and the new server
+        turned away is one this never counted.
+        """
+        global _times_counted
+        _times_counted += 1
+
+        return _times_counted
+
+    @server.tool()
+    async def stall(seconds: float) -> list[str]:
+        """Counted, and then still working long after a client stopped waiting
+        for it - a call the server received and may yet carry out."""
+        global _times_stalled
+        _times_stalled += 1
+        await asyncio.sleep(seconds)
+
+        return ["eventually"]
+
+    @server.tool()
+    def times_stalled() -> int:
+        return _times_stalled
+
+    @server.tool()
+    async def stall_then_refuse_saying_it_left_nothing(seconds: float) -> list[str]:
+        """Stalls at its first asking, as a write whose answer is lost, and
+        refuses at every later one saying it left nothing - a second asking the
+        tier turned away before it changed anything."""
+        await _stalling_at_the_first_asking(seconds)
+
+        raise RuntimeError(a_refusal_saying_what_it_left(
+            "could not read some-application"
+        ))
+
+    @server.tool()
+    async def stall_then_refuse_as_changed_since(seconds: float) -> list[str]:
+        """Stalls at its first asking, and refuses at every later one as
+        `refuse_as_changed_since` does - a second asking that found somebody
+        else acting on the service since the plan."""
+        await _stalling_at_the_first_asking(seconds)
+
+        raise RuntimeError(a_change_made_since(
+            "some-application was changed by somebody else since it was planned",
+            _A_SUSPENSION
+        ))
+
+    @server.tool()
+    async def stall_then_answer(seconds: float) -> list[str]:
+        """Stalls at its first asking, as a write whose answer is lost, and
+        answers every later one - a second asking that found the change made."""
+        await _stalling_at_the_first_asking(seconds)
+
+        return ["something"]
+
+    @server.tool()
+    async def stall_then_refuse_as_lost_run(seconds: float) -> list[str]:
+        """Stalls at its first asking, and refuses every later one as
+        `refuse_as_lost_run` does - a second asking made after the run moved on."""
+        await _stalling_at_the_first_asking(seconds)
+
+        raise RuntimeError(a_lost_run(A_NEWER_CLAIM_HOLDS_THE_RUN))
+
+    @server.tool()
+    def times_asked_stalling_first() -> int:
+        return _times_asked_stalling_first
+
+    @server.tool()
+    def end_the_server_on_being_asked() -> list[str]:
+        """Ends this server's process before answering - a server gone the
+        moment it had a call, with no answer on its way. Nothing is counted: a
+        count would die with the process.
+
+        Ended from inside the asking rather than stopped from outside, so no
+        test has to watch for the asking to have arrived before it stops it."""
+        os._exit(0)
+
+    @server.tool()
+    def forget_a_session_after_the_next_ping() -> list[str]:
+        """Has the server forget the session the next ping it answers was made
+        over, once.
+
+        The ping is answered, so a client that pings before it sends finds its
+        session answering; whatever it sends over that session next is answered
+        404 "Session not found", as a server restarted between the two would
+        answer it - turned away before any tool is asked anything.
+        """
+        global _forgetting_after_the_next_ping
+        _forgetting_after_the_next_ping = True
+
+        return ["the next ping's session will be forgotten"]
+
+    @server.tool()
     def the_trace_i_am_in() -> dict[str, str]:
         """Which trace this call was answered in, and which span it answered under.
 
@@ -252,6 +379,80 @@ def build_double(port: int) -> TracedFastMCP:
         }
 
     return server
+
+
+async def _stalling_at_the_first_asking(seconds: float) -> None:
+    """Counts one asking, and stalls `seconds` where it is the first."""
+    global _times_asked_stalling_first
+    _times_asked_stalling_first += 1
+
+    if _times_asked_stalling_first == 1:
+        await asyncio.sleep(seconds)
+
+
+class _ForgettingSessionsAfterAPing:
+    """The server's app behind a door that forgets a session when armed to
+    (`forget_a_session_after_the_next_ping`).
+
+    In front of the SDK's session manager rather than inside it, because a
+    client meets nothing more than this: a 404 over a session the server
+    answered a ping over a moment before.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        global _forgetting_after_the_next_ping
+
+        session = dict(scope["headers"]).get(_SESSION_HEADER) if scope["type"] == "http" else None
+
+        if session is not None and session in _sessions_forgotten:
+            await Response(_SESSION_NOT_FOUND, status_code=404,
+                           media_type="application/json")(scope, receive, send)
+            return
+
+        if not _forgetting_after_the_next_ping or session is None or scope["method"] != "POST":
+            await self._app(scope, receive, send)
+            return
+
+        body, receive_again = await _read_whole(receive)
+        asked = json.loads(body) if body else None
+
+        # Forgotten before the ping is passed on, so nothing sent over the
+        # session once the ping is answered can arrive before it is forgotten.
+        if isinstance(asked, dict) and asked.get("method") == _A_PING:
+            _sessions_forgotten.add(session)
+            _forgetting_after_the_next_ping = False
+
+        await self._app(scope, receive_again, send)
+
+
+async def _read_whole(receive: Receive) -> tuple[bytes, Receive]:
+    """A request's whole body, and a `receive` that hands it over again before
+    whatever arrives after it."""
+    chunks: list[bytes] = []
+    more = True
+
+    while more:
+        message = await receive()
+        chunks.append(message.get("body", b""))
+        more = bool(message.get("more_body", False))
+
+    body = b"".join(chunks)
+    handed_over = False
+
+    async def receive_again() -> Message:
+        nonlocal handed_over
+
+        if handed_over:
+            return await receive()
+
+        handed_over = True
+
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return body, receive_again
 
 
 class RunningDouble:
@@ -352,4 +553,10 @@ if __name__ == "__main__":
     # An SDK of the double's own, exporting nowhere: what makes the server's
     # span a real one with a parent to report, rather than the API's no-op.
     trace.set_tracer_provider(TracerProvider())
-    build_double(int(sys.argv[1])).run(transport="streamable-http")
+    # Served as FastMCP serves itself over streamable HTTP, behind the door that
+    # can forget a session.
+    double = build_double(int(sys.argv[1]))
+    uvicorn.run(_ForgettingSessionsAfterAPing(double.streamable_http_app()),
+                host=double.settings.host,
+                port=double.settings.port,
+                log_level=double.settings.log_level.lower())

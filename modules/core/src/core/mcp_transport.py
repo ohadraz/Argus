@@ -20,7 +20,11 @@ every call after it - a server restart or an idle timeout would otherwise leave
 a worker holding a session nothing can be asked over. So a call that fails on
 the transport rebuilds the session once and asks again. A tool that was reached
 and reported an error is not that, and is not retried: it answered, and asking a
-second time over a new session would turn one refusal into two.
+second time over a new session would turn one refusal into two. Nor is a change
+the caller says may be asked only once, where its failure does not prove it
+never ran: a restart asked again is a second restart, so that call is lost after
+sending, said so, and left to the walk. A caller says which kind of call each
+is (`Asking`): a read changes nothing, and is never lost after sending.
 
 Both surfaces run over that one session. `call` blocks the calling thread until
 the answer arrives; `acall` awaits it, so a route on a FastAPI loop reaches a
@@ -46,14 +50,18 @@ import time
 from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager, suppress
+from datetime import timedelta
+from enum import Enum
 from types import TracebackType
 from typing import Any, Final, Self
 from urllib.parse import urlsplit
 
+import httpx
 import uvicorn
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
+from mcp.shared.exceptions import McpError
 from mcp.types import (
     CallToolResult,
     ContentBlock,
@@ -103,6 +111,28 @@ STRUCTURED_RESULT_KEY: Final = "result"
 # waiting. Bounded because closing is something a process does on its way out,
 # and a server that has stopped answering must not be able to keep it alive.
 SHUTDOWN_SECONDS: Final = 5.0
+
+# How long a held session has to answer a ping before a change asked once is
+# sent over it. Short, because a live server answers one in milliseconds and
+# what is being found out is whether the session is still one: a session found
+# gone is replaced before anything is sent, where the call itself, sent over
+# it, would end as lost after sending.
+PING_SECONDS: Final = 5.0
+
+# How long an HTTP request waits for everything but a read - connecting,
+# writing, a connection from the pool: the SDK's own bound for them
+# (`mcp.shared._httpx_utils.MCP_DEFAULT_TIMEOUT`). The read is the answer bound.
+_HTTP_SECONDS: Final = 30.0
+
+# The MCP SDK's answer to a request a server turned away as made over a session
+# it does not hold - a server restarted beneath a held session answers 404, and
+# the SDK says so as this JSON-RPC error (mcp 1.29,
+# `client/streamable_http.py`, `_send_session_terminated_error`; the server's
+# 404 is `server/streamable_http_manager.py`'s "Session not found"). The one
+# failure after sending that proves the tool never ran. Pinned to that SDK
+# version: its words, as much as its code, are what is matched.
+SESSION_TERMINATED_CODE: Final = 32600
+SESSION_TERMINATED_WORDS: Final = "Session terminated"
 
 
 # What a server puts at the front of a refusal it wants recognised as an answer
@@ -342,6 +372,87 @@ class McpUnreachable(RuntimeError):
     """
 
 
+class Asking(Enum):
+    """What kind of call a tool call is, which decides what a call whose answer
+    was lost comes to.
+
+    A read changes nothing, so however its answer was lost it is asked once
+    more, and a second failure is raised as it came. A change may have been
+    carried out by an asking whose answer was lost, so where nothing can say
+    whether it was, it is `LostAfterSending`: asked once more where a second
+    asking finds its own mark and is answered as made (`CHANGE`), and never
+    where a second asking would carry it out twice (`CHANGE_ASKED_ONCE`).
+    """
+
+    READ = "read"
+    CHANGE = "change"
+    CHANGE_ASKED_ONCE = "change asked once"
+
+
+class LostAfterSending(RuntimeError):
+    """A change was sent, and no answer came back.
+
+    Neither a tool's refusal - nothing answered - nor an unreachable server -
+    something was reached, and may be carrying the call out still. A restart
+    and a discard leave no mark a second asking could find, so asking again is
+    a second restart; what a caller is told instead is that nothing can say
+    whether the call was carried out, and the tool is named for whoever reads
+    why.
+
+    Never raised for a read (`Asking.READ`), which changes nothing. Raised for
+    a change asked once where the failure does not prove the call never ran
+    (`_never_sent`); and for any change whose first asking may have been sent
+    and whose second ended in neither an answer nor an answer about the world
+    (`ChangedSince`, `RunLost`); and for any change whose second asking failed
+    without proving it never ran.
+    """
+
+
+def an_http_client_waiting(answered_within: float) -> httpx.AsyncClient:
+    """The HTTP client a held session is opened over, waiting `answered_within`
+    seconds to read.
+
+    A tool written as a plain function says nothing on its stream until it
+    returns, so the read timeout is how long a tool's answer may take. Left at
+    httpx's own five seconds, or the SDK's five minutes, an answer the tier is
+    still working on is dropped - and the SDK, which swallows a stream that
+    ends, leaves the call waiting for it for ever. Everything that is not a
+    read keeps the bound the SDK gives it, and redirects are followed as the
+    SDK's own client follows them.
+    """
+    return httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(_HTTP_SECONDS, read=answered_within)
+    )
+
+
+class _NothingSent(McpUnreachable):
+    """No session to send a call over, said before anything was sent.
+
+    An `McpUnreachable` to every caller; its own type here because it is one
+    of the two failures that prove a call never ran (`_never_sent`).
+    """
+
+
+def _never_sent(failed: Exception) -> bool:
+    """Whether a failed call is one that certainly never reached its tool.
+
+    Two failures prove it: there was no session to send it over, or the server
+    turned it away as made over a session it does not hold - the SDK's
+    "Session terminated", which a server restarted beneath a held session
+    answers before any tool is asked anything. Any other failure may have come
+    after the tool began, a read that timed out among them.
+    """
+    if isinstance(failed, _NothingSent):
+        return True
+
+    return (
+        isinstance(failed, McpError)
+        and failed.error.code == SESSION_TERMINATED_CODE
+        and failed.error.message == SESSION_TERMINATED_WORDS
+    )
+
+
 def an_exhausted_action(said: str) -> str:
     """`said`, marked so a caller recognises a refusal that is an answer.
 
@@ -542,15 +653,32 @@ class McpClient:
     `holding` one holds it: the write tier makes a change only for the claim
     that holds the run. Read as the call is made rather than when the client is
     built, because one client serves every run its process walks.
+
+    `answered_within` is how many seconds a call waits for its answer before it
+    is taken to be lost, and it has no default here: how long the slowest tool
+    a server serves may take is the server's tier's to know, so each tier sets
+    its own where it builds its client. A call that meets it was sent, and is
+    asked again only where asking again is harmless (`call`).
+
+    `http_client_waiting` builds the HTTP client each session is opened over,
+    handed `answered_within`; it defaults to `an_http_client_waiting`, and is a
+    parameter so that what a session travels over, and that it is closed with
+    the session, can be asserted.
     """
 
     def __init__(self,
                  url: str,
+                 answered_within: float,
                  tracer: Tracer | None = None,
                  meter: Meter | None = None,
                  clock: Clock = time.monotonic,
-                 holding: Holding | None = None) -> None:
+                 holding: Holding | None = None,
+                 http_client_waiting: Callable[[float], httpx.AsyncClient] = (
+                     an_http_client_waiting
+                 )) -> None:
         self._url = url
+        self._answered_within = answered_within
+        self._http_client_waiting = http_client_waiting
         self._holding = holding
         self._tracer = tracer if tracer is not None else trace.get_tracer(_SCOPE)
         measured_by = meter if meter is not None else metrics.get_meter(_SCOPE)
@@ -579,6 +707,8 @@ class McpClient:
     def call[T](self,
                 name: str,
                 returns: Callable[[Any], T],
+                *,
+                asking: Asking,
                 **kwargs: object) -> T:
         """Calls one tool and reads its answer as `returns` says it should be.
 
@@ -591,15 +721,29 @@ class McpClient:
         passed as it stands, and the union's own adapter stays where it belongs.
         Reading happens on the calling thread, never on the client's loop: that
         loop exists to hold a session, not to validate models.
+
+        `asking` says what kind of call this is (`Asking`), and has no default:
+        a call left to one would be a read lost as a change, or a change asked
+        as a read. A read is asked once more where its answer was lost, and
+        never `LostAfterSending`. A change is asked once more too, since a
+        write whose second asking finds its own mark is answered as made. A
+        change asked once is a tool a second asking would carry out twice -
+        its failures are then asked again only where they prove the call never
+        ran, and any other is `LostAfterSending`; and the held session is
+        pinged before it is sent, so a session found gone is replaced before
+        anything leaves this process. Every other keyword is the tool's own
+        argument.
         """
         with self._a_tool_call(name) as meta:
-            answer = self._submitted(name, kwargs, meta).result()
+            answer = self._submitted(name, kwargs, meta, asking).result()
 
         return returns(answer)
 
     async def acall[T](self,
                        name: str,
                        returns: Callable[[Any], T],
+                       *,
+                       asking: Asking,
                        **kwargs: object) -> T:
         """The same call, awaited rather than waited on.
 
@@ -607,10 +751,12 @@ class McpClient:
         node - where `call` would block that loop's thread for the length of a
         retrieval. Nothing in Argus needs this yet, and it is here rather than
         waiting to be needed because the alternative it replaces failed loudly
-        and this one would fail quietly.
+        and this one would fail quietly. `asking` is `call`'s.
         """
         with self._a_tool_call(name) as meta:
-            answer = await asyncio.wrap_future(self._submitted(name, kwargs, meta))
+            answer = await asyncio.wrap_future(
+                self._submitted(name, kwargs, meta, asking)
+            )
 
         return returns(answer)
 
@@ -710,10 +856,11 @@ class McpClient:
     def _submitted(self,
                    name: str,
                    arguments: dict[str, object],
-                   meta: dict[str, Any]) -> Future[object]:
+                   meta: dict[str, Any],
+                   asking: Asking) -> Future[object]:
         """One tool call, handed to the loop that holds the session."""
         return asyncio.run_coroutine_threadsafe(
-            self._call(name, arguments, meta), self._running_loop()
+            self._call(name, arguments, meta, asking), self._running_loop()
         )
 
     def _running_loop(self) -> asyncio.AbstractEventLoop:
@@ -782,12 +929,24 @@ class McpClient:
         A session that cannot be opened is published as the failure it was.
         Callers see `McpUnreachable` rather than waiting for a connection that
         is not coming, and the next rebuild request tries again.
+
+        Its HTTP client is one this opens and closes itself, waiting to read as
+        long as an answer may take (`an_http_client_waiting`): one the SDK
+        built would drop an answer after five minutes and leave its call
+        waiting for ever. Every request over the session waits that long too,
+        and no longer, so a call that got no answer ends rather than waits.
         """
         while True:
             try:
                 async with (
-                    streamable_http_client(self._url) as (read, write, _),
-                    ClientSession(read, write) as session
+                    self._http_client_waiting(self._answered_within) as http_client,
+                    streamable_http_client(
+                        self._url, http_client=http_client
+                    ) as (read, write, _),
+                    ClientSession(
+                        read, write,
+                        read_timeout_seconds=timedelta(seconds=self._answered_within)
+                    ) as session
                 ):
                     await session.initialize()
                     await self._publish(session, None)
@@ -819,7 +978,8 @@ class McpClient:
     async def _call(self,
                     name: str,
                     arguments: dict[str, object],
-                    meta: dict[str, Any]) -> object:
+                    meta: dict[str, Any],
+                    asking: Asking) -> object:
         """One tool call, however it ends - including the client closing under it.
 
         A cancellation here is the client being closed and nothing else: no
@@ -829,7 +989,9 @@ class McpClient:
         a walk would look like the walk being cancelled instead.
         """
         try:
-            return await self._asked_again_if_the_connection_failed(name, arguments, meta)
+            return await self._asked_again_if_the_connection_failed(
+                name, arguments, meta, asking
+            )
         except asyncio.CancelledError:
             if not self._closing:
                 raise
@@ -839,7 +1001,7 @@ class McpClient:
             ) from None
 
     async def _asked_again_if_the_connection_failed(
-        self, name: str, arguments: dict[str, object], meta: dict[str, Any]
+        self, name: str, arguments: dict[str, object], meta: dict[str, Any], asking: Asking
     ) -> object:
         """One tool call, and the one retry a held session needs.
 
@@ -849,25 +1011,96 @@ class McpClient:
         session this call was made over is no longer one - which is what a
         restarted server or an idle timeout looks like from here - and the answer
         is a new session rather than a failed incident.
+
+        A read ends there: it changed nothing, so a second failure is raised as
+        it came. A change asked once whose failure does not prove it never ran
+        may be running still, and is `LostAfterSending` rather than asked again.
+
+        And for a change whose first asking may have been sent, the call ends in
+        whatever the second answers for the world: its answer, a `ChangedSince`
+        as it came - the tier read the estate after whatever the first did - or
+        `RunLost`. Anything else speaks for the second asking alone, while the
+        first may be carrying the change out still, so it is `LostAfterSending`.
+        So is a second asking of a change that failed without proving it never
+        ran, after a first that provably did not: it was sent, and there is no
+        third.
         """
         try:
-            return await self._ask(name, arguments, meta)
+            return await self._ask(name, arguments, meta, asking)
         except (McpToolError, RunLost):
             raise
-        except Exception:
+        except Exception as failed:
+            if asking is Asking.CHANGE_ASKED_ONCE and not _never_sent(failed):
+                raise self._lost_after_sending(name, failed) from failed
+
+            may_have_been_sent = not _never_sent(failed)
             logger.warning("tool call asked again over a new session", exc_info=True,
                            extra={"tool": name})
-            await self._rebuilt()
-            return await self._ask(name, arguments, meta)
+
+        await self._rebuilt()
+
+        try:
+            return await self._ask(name, arguments, meta, asking)
+        except (ChangedSince, RunLost):
+            raise
+        except McpToolError as refused:
+            if asking is not Asking.READ and may_have_been_sent:
+                raise self._lost_after_sending(name, refused) from refused
+
+            raise
+        except Exception as failed:
+            # Either asking of a change may have been sent: the second's own
+            # failure is lost after sending where it does not prove it never
+            # ran - there is no third asking.
+            if asking is not Asking.READ and (may_have_been_sent or not _never_sent(failed)):
+                raise self._lost_after_sending(name, failed) from failed
+
+            raise
+
+    def _lost_after_sending(self, name: str, failed: Exception) -> LostAfterSending:
+        """`name`'s call, said to be lost after it was sent, with what ended it."""
+        return LostAfterSending(
+            f"[{name}] was sent to [{self._url}] and its answer never came back, "
+            f"so nothing can say whether it was carried out: "
+            f"{str(failed) or type(failed).__name__}"
+        )
 
     async def _ask(self,
                    name: str,
                    arguments: dict[str, object],
-                   meta: dict[str, Any]) -> object:
-        """Calls the tool over whatever session is currently published."""
+                   meta: dict[str, Any],
+                   asking: Asking) -> object:
+        """Calls the tool over whatever session is currently published - one
+        found answering first, for a change asked once."""
         session = await self._the_session_for(name)
 
+        if asking is Asking.CHANGE_ASKED_ONCE:
+            session = await self._still_answering(session, name)
+
         return _answered(name, await session.call_tool(name, arguments=arguments, meta=meta))
+
+    async def _still_answering(self, session: ClientSession, asking: str) -> ClientSession:
+        """`session`, where it answers a ping within `PING_SECONDS` - or the
+        session that replaces it.
+
+        Asked before a change asked once, because a held session whose server
+        has gone is found gone only by sending something over it:
+        the call itself, sent over it, would end as lost after sending - a write
+        server stopped for a moment would hand the next restart Argus asked for
+        to a person, over a restart that never left this process. A ping lost
+        the same way costs nothing, and nothing has been sent.
+        """
+        try:
+            async with asyncio.timeout(PING_SECONDS):
+                await session.send_ping()
+        except Exception:
+            logger.warning("held session did not answer a ping, opened another",
+                           exc_info=True, extra={"tool": asking, "url": self._url})
+            await self._rebuilt()
+
+            return await self._the_session_for(asking)
+
+        return session
 
     async def _listed(self) -> list[Tool]:
         """Every tool listed, and the one retry a held session needs - for
@@ -901,12 +1134,12 @@ class McpClient:
             session, failure = self._session, self._failure
 
         if self._closing:
-            raise McpUnreachable(
+            raise _NothingSent(
                 f"the client for [{self._url}] closed while [{asking}] was in flight"
             )
 
         if session is None:
-            raise McpUnreachable(f"no session to [{self._url}]") from failure
+            raise _NothingSent(f"no session to [{self._url}]") from failure
 
         return session
 

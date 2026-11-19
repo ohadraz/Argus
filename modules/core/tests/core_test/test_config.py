@@ -248,7 +248,8 @@ def test_a_change_lookback_no_wider_than_the_log_ceiling_is_rejected() -> None:
 def test_a_slice_carries_only_the_fields_it_declares() -> None:
     # The whole point of slicing. A process that cannot change the platform does
     # not name the credential that could - not because the environment withheld
-    # it, but because the type has no field to put it in.
+    # it, but because the type has no field to put it in. What it does carry is
+    # where the read tier is and how long a caller waits for its answers.
     Scenario() \
         .given(
             settings_holding_every_credential := Settings(
@@ -260,7 +261,12 @@ def test_a_slice_carries_only_the_fields_it_declares() -> None:
             lambda: ReadMcpEndpoint.of(settings_holding_every_credential)
         ) \
         .then(
-            _it_carries_exactly({"read_mcp_host", "read_mcp_port", "read_mcp_url"})
+            _it_carries_exactly({
+                "read_mcp_host",
+                "read_mcp_port",
+                "read_mcp_url",
+                "read_mcp_answered_within_seconds"
+            })
         )
 
 

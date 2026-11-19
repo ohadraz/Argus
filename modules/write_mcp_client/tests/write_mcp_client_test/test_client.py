@@ -3,13 +3,20 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import nullcontext
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
+from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
 from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings, parse_iso, to_iso
-from core.mcp_transport import ChangedSince, McpClient, McpToolError, PlatformUnreachable
+from core.mcp_transport import (
+    Asking,
+    ChangedSince,
+    McpClient,
+    McpToolError,
+    PlatformUnreachable,
+)
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -30,8 +37,11 @@ from deployment_platform.argocd import AUTOMATED, ENABLED
 from write_mcp_client import (
     accelerator_pin_still_argus_s,
     autoscaler_pin_still_argus_s,
+    commit_to_new_branch,
+    discard_cache_entries,
     flag_still_argus_s,
     get_recent_flag_changes,
+    open_pull_request,
     pin_autoscaler,
     pin_to_accelerator,
     plan_accelerator_pin,
@@ -41,7 +51,9 @@ from write_mcp_client import (
     plan_scale_out,
     restart_service,
     restore_accelerator_pin,
+    restore_autoscaler_floor,
     restore_deployment,
+    restore_replica_count,
     roll_back_deployment,
     rollback_still_argus_s,
     scale_out,
@@ -67,7 +79,6 @@ from write_mcp_client_test.fake_deployment_platform import (
     THE_REVISION_BEFORE_IT,
     THE_REVISION_RUNNING_NOW,
     FakeDeploymentPlatformHandler,
-    a_gitops_sync_policy,
     a_running_platform,
 )
 from write_mcp_client_test.fake_feature_flag_provider import (
@@ -148,6 +159,152 @@ EVERY_PLATFORM_PLAN = [
 
 # A claim of the server's run from before it was last taken back.
 A_CLAIM_THE_RUN_MOVED_PAST = Fence(run_id=THE_RUN_HELD.run_id, epoch=THE_RUN_HELD.epoch - 1)
+
+# A plan and a descriptor nothing in a case reads, for the cases about how a
+# write is asked rather than what it writes.
+DONT_CARE_PLANNED_FLAG = Planned(descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                                 since=THE_PROVIDER_S_TIME)
+DONT_CARE_SERVICE = "dont-care-service"
+DONT_CARE_CACHE_KEY = "dont-care:cache:key"
+DONT_CARE_BRANCH = "argus/dont-care"
+DONT_CARE_BASE = "main"
+DONT_CARE_TEXT = "dont care"
+
+# Where a write tier is, waiting for its answers a bound that is not the one
+# the settings default to - so a client built waiting it waited for what its
+# endpoint said, and not for a figure of its own.
+SOME_ANSWER_BOUND = 690.0
+DONT_CARE_HOST = "dont-care-host"
+DONT_CARE_PORT = 8199
+DONT_CARE_URL = "http://dont-care-host:8199"
+AN_ENDPOINT_WAITING_SOME_BOUND = WriteMcpEndpoint(
+    write_mcp_host=DONT_CARE_HOST,
+    write_mcp_port=DONT_CARE_PORT,
+    write_mcp_url=DONT_CARE_URL,
+    write_mcp_answered_within_seconds=SOME_ANSWER_BOUND
+)
+
+# A flag switched off from on, as the provider records it once it has the
+# change under the name Argus writes as: after the plan's read.
+THE_FLAG_SET_AND_ASKED_AGAIN = FlagUndo(flag=SOME_FLAG, was_enabled=True,
+                                        written_at=AFTER_THE_PROVIDER_S_PLAN)
+
+# The two writes a second asking would make twice: neither leaves a mark a
+# second asking could find. A restart is Argo CD's own resource action, and a
+# discard removes what it names.
+EVERY_WRITE_NOT_TO_BE_ASKED_TWICE = [
+    pytest.param(lambda client: restart_service(DONT_CARE_SERVICE, client=client),
+                 id="restart"),
+    pytest.param(lambda client: discard_cache_entries([DONT_CARE_CACHE_KEY], client=client),
+                 id="discard")
+]
+# Every other write: each finds its own mark at its target, or what it wrote,
+# and answers a second asking as made.
+EVERY_WRITE_ASKED_AGAIN_AS_MADE = [
+    pytest.param(lambda client: set_feature_flag(
+        DONT_CARE_PLANNED_FLAG, not DONT_CARE_PLANNED_FLAG.descriptor.was_enabled, client=client),
+                 id="flag"),
+    pytest.param(lambda client: roll_back_deployment(
+        Planned(descriptor=THE_ROLLBACK_PLANNED, since=THE_PLATFORM_S_TIME), client=client),
+                 id="rollback"),
+    pytest.param(lambda client: restore_deployment(THE_ROLLBACK_PLANNED, client=client),
+                 id="rollback-put-back"),
+    pytest.param(lambda client: scale_out(
+        Planned(descriptor=THE_SCALE_OUT_PLANNED, since=THE_PLATFORM_S_TIME), client=client),
+                 id="scale-out"),
+    pytest.param(lambda client: restore_replica_count(THE_SCALE_OUT_PLANNED, client=client),
+                 id="scale-out-put-back"),
+    pytest.param(lambda client: pin_autoscaler(
+        Planned(descriptor=THE_AUTOSCALER_PIN_PLANNED, since=THE_PLATFORM_S_TIME),
+        client=client),
+                 id="autoscaler-pin"),
+    pytest.param(lambda client: restore_autoscaler_floor(THE_AUTOSCALER_PIN_PLANNED,
+                                                         client=client),
+                 id="autoscaler-pin-put-back"),
+    pytest.param(lambda client: pin_to_accelerator(
+        Planned(descriptor=THE_ACCELERATOR_PIN_PLANNED, since=THE_PLATFORM_S_TIME),
+        client=client),
+                 id="accelerator-pin"),
+    pytest.param(lambda client: restore_accelerator_pin(THE_ACCELERATOR_PIN_PLANNED,
+                                                        client=client),
+                 id="accelerator-pin-put-back"),
+    pytest.param(lambda client: commit_to_new_branch(
+        DONT_CARE_BRANCH, DONT_CARE_BASE, {DONT_CARE_TEXT: DONT_CARE_TEXT}, DONT_CARE_TEXT,
+        client=client),
+                 id="branch"),
+    pytest.param(lambda client: open_pull_request(
+        DONT_CARE_BRANCH, DONT_CARE_BASE, DONT_CARE_TEXT, DONT_CARE_TEXT, client=client),
+                 id="pull-request")
+]
+
+# Every read the write tier serves: the plans, whether a claim's change was
+# made, whether a change made is still Argus's, and the flag provider's log.
+DONT_CARE_PLANNED_ROLLBACK = Planned(descriptor=THE_ROLLBACK_PLANNED, since=THE_PLATFORM_S_TIME)
+DONT_CARE_PLANNED_SCALE_OUT = Planned(descriptor=THE_SCALE_OUT_PLANNED,
+                                      since=THE_PLATFORM_S_TIME)
+DONT_CARE_PLANNED_AUTOSCALER_PIN = Planned(descriptor=THE_AUTOSCALER_PIN_PLANNED,
+                                           since=THE_PLATFORM_S_TIME)
+DONT_CARE_PLANNED_ACCELERATOR_PIN = Planned(descriptor=THE_ACCELERATOR_PIN_PLANNED,
+                                            since=THE_PLATFORM_S_TIME)
+EVERY_READ_OF_THE_WRITE_TIER = [
+    pytest.param(lambda client: plan_flag(SOME_FLAG, False, client=client), id="plan-flag"),
+    pytest.param(lambda client: plan_rollback(SOME_APPLICATION, client=client),
+                 id="plan-rollback"),
+    pytest.param(lambda client: plan_scale_out(SOME_APPLICATION, client=client),
+                 id="plan-scale-out"),
+    pytest.param(lambda client: plan_autoscaler_pin(SOME_APPLICATION, client=client),
+                 id="plan-autoscaler-pin"),
+    pytest.param(lambda client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD,
+                                                     client=client),
+                 id="plan-accelerator-pin"),
+    pytest.param(lambda client: whether_flag_was_made(DONT_CARE_PLANNED_FLAG, client=client),
+                 id="whether-flag-was-made"),
+    pytest.param(lambda client: whether_rollback_was_made(DONT_CARE_PLANNED_ROLLBACK,
+                                                          client=client),
+                 id="whether-rollback-was-made"),
+    pytest.param(lambda client: whether_scale_out_was_made(DONT_CARE_PLANNED_SCALE_OUT,
+                                                           client=client),
+                 id="whether-scale-out-was-made"),
+    pytest.param(lambda client: whether_autoscaler_pin_was_made(
+        DONT_CARE_PLANNED_AUTOSCALER_PIN, client=client), id="whether-autoscaler-pin-was-made"),
+    pytest.param(lambda client: whether_accelerator_pin_was_made(
+        DONT_CARE_PLANNED_ACCELERATOR_PIN, client=client), id="whether-accelerator-pin-was-made"),
+    pytest.param(lambda client: flag_still_argus_s(
+        DONT_CARE_PLANNED_FLAG, DONT_CARE_PLANNED_FLAG.descriptor, client=client),
+                 id="flag-still-argus-s"),
+    pytest.param(lambda client: rollback_still_argus_s(THE_ROLLBACK_PLANNED, client=client),
+                 id="rollback-still-argus-s"),
+    pytest.param(lambda client: scale_out_still_argus_s(THE_SCALE_OUT_PLANNED, client=client),
+                 id="scale-out-still-argus-s"),
+    pytest.param(lambda client: autoscaler_pin_still_argus_s(THE_AUTOSCALER_PIN_PLANNED,
+                                                             client=client),
+                 id="autoscaler-pin-still-argus-s"),
+    pytest.param(lambda client: accelerator_pin_still_argus_s(THE_ACCELERATOR_PIN_PLANNED,
+                                                              client=client),
+                 id="accelerator-pin-still-argus-s"),
+    pytest.param(lambda client: get_recent_flag_changes(SINCE, client=client),
+                 id="recent-flag-changes"),
+    pytest.param(lambda client: was_flag_changed_by_others_since(
+        SOME_FLAG, THE_PROVIDER_S_TIME, client=client), id="flag-changed-by-others")
+]
+
+# Every platform write a second asking answers as made, how it is planned,
+# whether the case needs an autoscaler staged beside the Deployment, and the
+# change it plans.
+EVERY_PLATFORM_WRITE_ASKED_AGAIN = [
+    pytest.param(lambda client: plan_rollback(SOME_APPLICATION, client=client),
+                 lambda planned, client: roll_back_deployment(planned, client=client),
+                 False, THE_ROLLBACK_PLANNED, id="rollback"),
+    pytest.param(lambda client: plan_scale_out(SOME_APPLICATION, client=client),
+                 lambda planned, client: scale_out(planned, client=client),
+                 False, THE_SCALE_OUT_PLANNED, id="scale-out"),
+    pytest.param(lambda client: plan_autoscaler_pin(SOME_APPLICATION, client=client),
+                 lambda planned, client: pin_autoscaler(planned, client=client),
+                 True, THE_AUTOSCALER_PIN_PLANNED, id="autoscaler-pin"),
+    pytest.param(lambda client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD, client=client),
+                 lambda planned, client: pin_to_accelerator(planned, client=client),
+                 False, THE_ACCELERATOR_PIN_PLANNED, id="accelerator-pin")
+]
 
 
 @pytest.fixture
@@ -656,6 +813,138 @@ def test_a_platform_write_made_while_no_action_is_taken_is_refused_and_changes_n
         ))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("asking", EVERY_WRITE_NOT_TO_BE_ASKED_TWICE)
+def test_a_write_a_second_asking_would_make_twice_is_asked_not_to_be_asked_again(
+    asking: Callable[[McpClient], object]
+) -> None:
+    # The transport asks a call once more over a new session where the first
+    # got no answer. For a restart, that is a second restart: so this write
+    # says it is not to be asked again, and a lost answer reaches the walk as
+    # lost rather than as a service restarted twice.
+    Scenario() \
+        .given(
+            client := _a_client_answering_anything()
+        ) \
+        .when(
+            attempting(lambda: asking(client))
+        ) \
+        .then(
+            _it_was_asked(client, kind=Asking.CHANGE_ASKED_ONCE)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("asking", EVERY_WRITE_ASKED_AGAIN_AS_MADE)
+def test_a_write_a_second_asking_answers_as_made_is_left_to_be_asked_again(
+    asking: Callable[[McpClient], object]
+) -> None:
+    # The other half: a write whose second asking finds what the first made is
+    # how a lost answer is recovered, and marking it not to be asked again
+    # would hand an incident to a person over a change that is known.
+    Scenario() \
+        .given(
+            client := _a_client_answering_anything()
+        ) \
+        .when(
+            attempting(lambda: asking(client))
+        ) \
+        .then(
+            _it_was_asked(client, kind=Asking.CHANGE)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("asking", EVERY_READ_OF_THE_WRITE_TIER)
+def test_a_read_of_the_write_tier_is_asked_as_a_read(
+    asking: Callable[[McpClient], object]
+) -> None:
+    # A plan, whether a claim's change was made, whether a change is still
+    # Argus's: none changes anything, so a lost answer is no change nobody can
+    # account for - asked again, and failing as that asking failed.
+    Scenario() \
+        .given(
+            client := _a_client_answering_anything()
+        ) \
+        .when(
+            attempting(lambda: asking(client))
+        ) \
+        .then(
+            _it_was_asked(client, kind=Asking.READ)
+        )
+
+
+@pytest.mark.unit
+def test_a_write_client_waits_for_an_answer_as_long_as_its_endpoint_says() -> None:
+    # Above the slowest tool this tier serves, a restart: waited for less, a
+    # restart still being made is handed to a person as lost. The figure is the
+    # endpoint's, which the settings give it, and not one the client keeps.
+    Scenario() \
+        .given(
+            builds := create_autospec(McpClient)
+        ) \
+        .when(
+            lambda: write_mcp(AN_ENDPOINT_WAITING_SOME_BOUND, builds_client=builds)
+        ) \
+        .then(
+            _it_was_built_waiting(builds, SOME_ANSWER_BOUND)
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("plan", "write", "with_an_autoscaler", "planned"),
+                         EVERY_PLATFORM_WRITE_ASKED_AGAIN)
+def test_a_platform_write_asked_again_for_the_same_action_is_answered_as_made_and_writes_nothing(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
+    plan: Callable[[McpClient], Planned[Any]],
+    write: Callable[[Planned[Any], McpClient], UndoDescriptor],
+    with_an_autoscaler: bool,
+    planned: UndoDescriptor
+) -> None:
+    # What the transport's second asking of a write is, as the tier hears it:
+    # the same tool, the same plan, under the same action. The first asking
+    # landed; the second finds the change at its target under this action's
+    # mark and answers as made, writing nothing - so asking again is how a lost
+    # answer is recovered, never how a change is made twice.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            calling(_an_autoscaler_staged_on(handler, with_an_autoscaler))
+        ) \
+        .when(
+            _asking_the_server(_asked_twice(handler, plan, write))
+        ) \
+        .then(all_of(
+            _answered_again_as(planned),
+            _the_second_asking_wrote_nothing()
+        ))
+
+
+@pytest.mark.integration
+def test_a_flag_set_asked_again_for_the_same_action_is_answered_as_made(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # The flag's second asking, once the provider has recorded the first under
+    # the name Argus writes as - which the stand-in leaves the case to stage, as
+    # a real provider records it. Answered as made, dated by that record rather
+    # than by a write of its own: the provider's clock stands still at the
+    # moment a write would be dated.
+    Scenario() \
+        .given(
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
+        ) \
+        .when(
+            _asking_the_server(lambda client: _set_and_asked_again(
+                running_write_mcp, THE_FLAG_SET_AND_ASKED_AGAIN, client
+            ))
+        ) \
+        .then(all_of(
+            _answered_as_exactly(THE_FLAG_SET_AND_ASKED_AGAIN),
+            the_provider_now_reports_enabled(running_write_mcp, [])
+        ))
+
+
 def _it_came_back_as_an_unreachable_platform() -> Assertion[Exception | None]:
     def assertion(raised: Exception | None) -> bool:
         if not isinstance(raised, PlatformUnreachable):
@@ -759,7 +1048,9 @@ def _planned_and_then_deployed_over_after_a_suspension(
     somebody else's recorded after the plan; then the rollback asked again from
     the plan."""
     planned = plan_rollback(SOME_APPLICATION, client=client)
-    _the_sync_suspended_under(handler, SOME_ACTION_ID)()
+    handler.sync_policy = {AUTOMATED: {"selfHeal": True, ENABLED: False}}
+    handler.syncs_itself = False
+    handler.application_annotations = {THE_ACTION_ANNOTATION: SOME_ACTION_ID}
     handler.history = handler.history + [{
         "id": handler.history[-1]["id"] + 1,
         "revision": A_REVISION_SOMEBODY_DEPLOYED,
@@ -768,19 +1059,6 @@ def _planned_and_then_deployed_over_after_a_suspension(
     }]
 
     return roll_back_deployment(planned, client=client)
-
-
-def _the_sync_suspended_under(handler: type[FakeDeploymentPlatformHandler],
-                              action_id: str) -> Callable[[], None]:
-    """The application's automated sync switched off, the rest of the policy
-    as declared, under the mark of the action `action_id` names - as a write
-    whose worker died after its suspension leaves it."""
-    def step() -> None:
-        handler.sync_policy = {AUTOMATED: {**a_gitops_sync_policy()[AUTOMATED], ENABLED: False}}
-        handler.syncs_itself = False
-        handler.application_annotations = {THE_ACTION_ANNOTATION: action_id}
-
-    return step
 
 
 def _an_autoscaler_staged_on(handler: type[FakeDeploymentPlatformHandler],
@@ -937,6 +1215,149 @@ def _it_answered_as(planned: UndoDescriptor) -> Assertion[UndoDescriptor]:
                 f"Expected the write to answer with the change planned, {planned!r}, and "
                 f"it answered {answered!r}."
             )
+
+        return True
+
+    return assertion
+
+
+def _a_client_answering_anything() -> Any:
+    """A client whose every call is answered, with something no write reads -
+    for the cases about how a write is asked rather than what comes back."""
+    return create_autospec(McpClient, instance=True)
+
+
+def _it_was_asked(client: Any, *, kind: Asking) -> Assertion[object]:
+    """The one call made said what kind of call it is - a read, a change that
+    may be asked again, or a change asked once - and said it outright, rather
+    than leaving it to whatever the transport assumes."""
+    def assertion(dont_care_result: object) -> bool:
+        if not client.call.called:
+            raise AssertionError(f"Expected one call asked as [{kind}], and none was made.")
+
+        said = client.call.call_args.kwargs.get("asking", "nothing")
+
+        if said is not kind:
+            raise AssertionError(
+                f"Expected [{client.call.call_args.args[0]}] asked as [{kind}], and it was "
+                f"asked as [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_built_waiting(builds: Any, seconds: float) -> Assertion[object]:
+    """The one client built was told to wait `seconds` for each answer."""
+    def assertion(dont_care_client: object) -> bool:
+        if builds.call_args is None:
+            raise AssertionError(
+                f"Expected a client built waiting [{seconds}]s for an answer, and none was "
+                f"built."
+            )
+
+        waits = builds.call_args.kwargs.get("answered_within")
+
+        if waits != seconds:
+            raise AssertionError(
+                f"Expected the client built waiting [{seconds}]s for an answer, and it "
+                f"was built waiting [{waits}]s."
+            )
+
+        return True
+
+    return assertion
+
+
+class _AskedAgain(NamedTuple):
+    """What the second asking of a write answered, and what the platform had
+    been asked to write after the first asking and after both."""
+
+    answered_again: UndoDescriptor
+    written_after_the_first: dict[str, int]
+    written_after_both: dict[str, int]
+
+
+def _written_to(handler: type[FakeDeploymentPlatformHandler]) -> dict[str, int]:
+    """How many of each kind of write the platform has been asked for."""
+    return {
+        "sync patches": len(handler.sync_patches_received),
+        "resource patches": len(handler.resource_patches_received),
+        "rollbacks": len(handler.rolled_back_to),
+        "actions": len(handler.actions_run)
+    }
+
+
+def _asked_twice(handler: type[FakeDeploymentPlatformHandler],
+                 plan: Callable[[McpClient], Planned[Any]],
+                 write: Callable[[Planned[Any], McpClient], UndoDescriptor]
+                 ) -> Callable[[McpClient], _AskedAgain]:
+    """Planned once, and written from that plan twice over one session under
+    one action - the second asking as the transport makes it."""
+    def both_askings(client: McpClient) -> _AskedAgain:
+        planned = plan(client)
+        write(planned, client)
+        written_after_the_first = _written_to(handler)
+
+        return _AskedAgain(answered_again=write(planned, client),
+                           written_after_the_first=written_after_the_first,
+                           written_after_both=_written_to(handler))
+
+    return both_askings
+
+
+def _answered_again_as(planned: UndoDescriptor) -> Assertion[_AskedAgain]:
+    def assertion(asked: _AskedAgain) -> bool:
+        return _it_answered_as(planned)(asked.answered_again)
+
+    return assertion
+
+
+def _the_second_asking_wrote_nothing() -> Assertion[_AskedAgain]:
+    def assertion(asked: _AskedAgain) -> bool:
+        if not any(asked.written_after_the_first.values()):
+            raise AssertionError(
+                f"Expected the first asking to write to the platform, and it wrote "
+                f"nothing: {asked.written_after_the_first}."
+            )
+
+        if asked.written_after_both != asked.written_after_the_first:
+            raise AssertionError(
+                f"Expected the second asking to write nothing, and the platform's writes "
+                f"went from {asked.written_after_the_first} to {asked.written_after_both}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _set_and_asked_again(handler: type[FakeUnleashHandler],
+                         recorded: FlagUndo,
+                         client: McpClient) -> UndoDescriptor:
+    """`recorded`'s flag planned away from the state it was in and set from
+    its plan, the provider recording that under the name Argus writes as at
+    `recorded`'s moment, and the same write asked again from the same plan;
+    what the second asking answered."""
+    assert recorded.written_at is not None
+
+    asked = not recorded.was_enabled
+    planned = plan_flag(recorded.flag, asked, client=client)
+    set_feature_flag(planned, asked, client=client)
+    the_provider_recorded(handler, [
+        a_disabling_of(recorded.flag, at=to_iso(recorded.written_at), by=THE_ARGUS_ACTOR)
+    ])()
+
+    return set_feature_flag(planned, asked, client=client)
+
+
+def _answered_as_exactly(expected: UndoDescriptor) -> Assertion[UndoDescriptor]:
+    """Every field, the moment it was written included."""
+    def assertion(answered: UndoDescriptor) -> bool:
+        if answered != expected:
+            raise AssertionError(f"Expected the write to answer [{expected!r}], and it "
+                                 f"answered [{answered!r}].")
 
         return True
 
@@ -1896,75 +2317,6 @@ def test_a_platform_change_planned_and_never_made_is_found_not_made_through_the_
         ))
 
 
-@pytest.mark.integration
-@pytest.mark.parametrize(("plan", "ask"), EVERY_PLATFORM_KIND_PLANNED_AND_ASKED_AFTER)
-def test_a_platform_change_whose_suspension_alone_landed_is_found_not_made_carrying_its_plan(
-    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
-    plan: Callable[[type[FakeDeploymentPlatformHandler], McpClient], Planned[Any]],
-    ask: Callable[[Planned[Any], McpClient], Made[Any] | NotMade[Any]]
-) -> None:
-    # The worker died between the suspension and the change: the sync is off
-    # under this action's mark, and the change itself never landed. Not made -
-    # carrying the plan back across the wire, which is what puts the suspension
-    # back - and asking wrote nothing.
-    handler = running_write_mcp_over_a_platform
-
-    Scenario() \
-        .given(
-            the_plan := _asking_the_server_as(None, lambda client: plan(handler, client))(),
-            calling(_the_sync_suspended_under(handler, SOME_ACTION_ID)),
-            written_by_then := _what_was_written_to(handler)
-        ) \
-        .when(
-            _asking_the_server(lambda client: ask(the_plan, client))
-        ) \
-        .then(all_of(
-            _nothing_landed(left_behind=the_plan.descriptor),
-            _nothing_more_was_written_to(handler, written_by_then)
-        ))
-
-
-@pytest.mark.integration
-def test_a_scale_out_whose_mark_names_no_moment_is_found_made_undated_through_the_real_server(
-    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
-) -> None:
-    # The count asked for under this action's mark, and the sync off under it
-    # too - but the mark carries no moment. Made, and undated across the wire:
-    # `None` is unknown, never a time.
-    handler = running_write_mcp_over_a_platform
-
-    Scenario() \
-        .given(
-            the_plan := _asking_the_server_as(None, lambda client: plan_scale_out(
-                SOME_APPLICATION, client=client
-            ))(),
-            calling(_the_sync_suspended_under(handler, SOME_ACTION_ID)),
-            calling(_the_count_set_under_a_mark_with_no_moment(
-                handler, the_plan.descriptor.replicas_asked_for, SOME_ACTION_ID
-            ))
-        ) \
-        .when(
-            _asking_the_server(lambda client: whether_scale_out_was_made(the_plan, client=client))
-        ) \
-        .then(all_of(
-            _it_was_made_as(THE_SCALE_OUT_PLANNED),
-            _it_was_made_undated()
-        ))
-
-
-def _the_count_set_under_a_mark_with_no_moment(handler: type[FakeDeploymentPlatformHandler],
-                                               replicas: int | None,
-                                               action_id: str) -> Callable[[], None]:
-    """The Deployment running `replicas`, marked as made for `action_id` with no
-    moment beside the mark."""
-    def step() -> None:
-        assert replicas is not None
-        handler.replicas = replicas
-        handler.deployment_annotations = {THE_ACTION_ANNOTATION: action_id}
-
-    return step
-
-
 def _as_recorded_at(planned: Planned[FlagUndo], written_at: datetime) -> FlagUndo:
     """The plan's change as the row records it once made: dated by when the
     provider recorded the write."""
@@ -2055,18 +2407,6 @@ def _it_was_dated() -> Assertion[Made[Any] | NotMade[Any]]:
     def assertion(found: Made[Any] | NotMade[Any]) -> bool:
         if not isinstance(found, Made) or found.made_at is None:
             raise AssertionError(f"Expected the change found made and dated, got [{found!r}].")
-
-        return True
-
-    return assertion
-
-
-def _it_was_made_undated() -> Assertion[Made[Any] | NotMade[Any]]:
-    def assertion(found: Made[Any] | NotMade[Any]) -> bool:
-        if not isinstance(found, Made) or found.made_at is not None:
-            raise AssertionError(
-                f"Expected the change found made with no moment, got [{found!r}]."
-            )
 
         return True
 

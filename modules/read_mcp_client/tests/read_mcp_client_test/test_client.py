@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from typing import NamedTuple
+from typing import Any, NamedTuple
+from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of, the_answer_was
-from argus_testkit.scenario import Scenario, calling
+from argus_testkit.scenario import Scenario, attempting, calling
 from core import ReadMcpEndpoint, get_settings, parse_iso
-from core.mcp_transport import McpClient
+from core.mcp_transport import Asking, McpClient
 from core.models import (
     ChangeEvent,
     CodeOutsideThePatch,
@@ -21,12 +22,23 @@ from core.models import (
 )
 from read_mcp_client import (
     branch_contains_revision,
+    get_alert_rule,
     get_change_events,
     get_code_outside_the_patch,
+    get_enabled_flags,
     get_log_lines,
     get_metrics_summary,
     get_placements,
+    get_repository_index_freshness,
+    get_rollout_progress,
+    get_rollout_state,
+    get_service_dependencies,
+    get_what_a_deployment_changed,
+    list_repository_files,
     read_mcp,
+    read_repository_file,
+    search_repository,
+    search_repository_by_meaning,
 )
 from read_mcp_server.alert_rules import (
     CONDITION,
@@ -56,6 +68,66 @@ from read_mcp_client_test.framework.builders import (
 
 SOME_BRANCH = "main"
 SOME_REVISION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
+
+# Where a read tier is, waiting for its answers a bound that is not the one the
+# settings default to - so a client built waiting it waited for what its
+# endpoint said, and not for a figure of its own.
+SOME_ANSWER_BOUND = 90.0
+DONT_CARE_HOST = "dont-care-host"
+DONT_CARE_PORT = 8199
+DONT_CARE_URL = "http://dont-care-host:8199"
+AN_ENDPOINT_WAITING_SOME_BOUND = ReadMcpEndpoint(
+    read_mcp_host=DONT_CARE_HOST,
+    read_mcp_port=DONT_CARE_PORT,
+    read_mcp_url=DONT_CARE_URL,
+    read_mcp_answered_within_seconds=SOME_ANSWER_BOUND
+)
+
+# What every read is asked about, where nothing in a case reads it.
+DONT_CARE_SERVICE = "dont-care-service"
+DONT_CARE_RULE = "dont-care-rule"
+DONT_CARE_TEXT = "dont care"
+DONT_CARE_PATH = "src/dont_care.py"
+
+# Every read the read tier serves, asked as a caller asks it.
+EVERY_READ = [
+    pytest.param(lambda client: get_log_lines(client=client), id="log-lines"),
+    pytest.param(lambda client: get_metrics_summary(client=client), id="metrics-summary"),
+    pytest.param(lambda client: get_change_events(DONT_CARE_SERVICE, DONT_CARE_TEXT,
+                                                  DONT_CARE_TEXT, client=client),
+                 id="change-events"),
+    pytest.param(lambda client: get_what_a_deployment_changed(DONT_CARE_SERVICE, SOME_REVISION,
+                                                              client=client),
+                 id="what-a-deployment-changed"),
+    pytest.param(lambda client: get_rollout_state(DONT_CARE_SERVICE, client=client),
+                 id="rollout-state"),
+    pytest.param(lambda client: get_rollout_progress(DONT_CARE_SERVICE, client=client),
+                 id="rollout-progress"),
+    pytest.param(lambda client: get_alert_rule(DONT_CARE_RULE, client=client), id="alert-rule"),
+    pytest.param(lambda client: get_placements(DONT_CARE_SERVICE, client=client),
+                 id="placements"),
+    pytest.param(lambda client: branch_contains_revision(SOME_BRANCH, SOME_REVISION,
+                                                         client=client),
+                 id="branch-contains-revision"),
+    pytest.param(lambda client: get_enabled_flags(client=client), id="enabled-flags"),
+    pytest.param(lambda client: get_service_dependencies(DONT_CARE_SERVICE, client=client),
+                 id="service-dependencies"),
+    pytest.param(lambda client: search_repository(DONT_CARE_TEXT, SOME_BRANCH, client=client),
+                 id="search-repository"),
+    pytest.param(lambda client: get_repository_index_freshness(SOME_BRANCH, client=client),
+                 id="index-freshness"),
+    pytest.param(lambda client: search_repository_by_meaning(DONT_CARE_TEXT, SOME_BRANCH,
+                                                             client=client),
+                 id="search-by-meaning"),
+    pytest.param(lambda client: get_code_outside_the_patch({DONT_CARE_PATH: DONT_CARE_TEXT},
+                                                           SOME_BRANCH, client=client),
+                 id="code-outside-the-patch"),
+    pytest.param(lambda client: list_repository_files(SOME_BRANCH, client=client),
+                 id="list-files"),
+    pytest.param(lambda client: read_repository_file(DONT_CARE_PATH, SOME_BRANCH,
+                                                     client=client),
+                 id="read-file")
+]
 
 
 @pytest.mark.integration
@@ -309,6 +381,83 @@ def test_the_code_outside_a_patch_reaches_the_caller_through_the_client(
                 defined={"average": [some_summary]}
             ))
         )
+
+
+@pytest.mark.unit
+def test_a_read_client_waits_for_an_answer_as_long_as_its_endpoint_says() -> None:
+    # Above the slowest tool this tier serves, a read of a whole repository's
+    # archive: waited for less, that read is asked again and lost again. The
+    # figure is the endpoint's, which the settings give it, and not one the
+    # client keeps.
+    Scenario() \
+        .given(
+            builds := create_autospec(McpClient)
+        ) \
+        .when(
+            lambda: read_mcp(AN_ENDPOINT_WAITING_SOME_BOUND, builds_client=builds)
+        ) \
+        .then(
+            _it_was_built_waiting(builds, SOME_ANSWER_BOUND)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("asking", EVERY_READ)
+def test_every_read_is_asked_as_a_read(asking: Callable[[McpClient], object]) -> None:
+    # A read changes nothing, so one whose answer was lost is asked again and
+    # fails as that asking failed - never as a change nobody can account for.
+    # Said outright on every call, rather than left to whatever the transport
+    # assumes.
+    Scenario() \
+        .given(
+            client := create_autospec(McpClient, instance=True)
+        ) \
+        .when(
+            attempting(lambda: asking(client))
+        ) \
+        .then(
+            _it_was_asked_as_a_read(client)
+        )
+
+
+def _it_was_asked_as_a_read(client: Any) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        if not client.call.called:
+            raise AssertionError("Expected one call asked as a read, and none was made.")
+
+        said = client.call.call_args.kwargs.get("asking", "nothing")
+
+        if said is not Asking.READ:
+            raise AssertionError(
+                f"Expected [{client.call.call_args.args[0]}] asked as [{Asking.READ}], and it "
+                f"was asked as [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_built_waiting(builds: Any, seconds: float) -> Assertion[object]:
+    """The one client built was told to wait `seconds` for each answer."""
+    def assertion(dont_care_client: object) -> bool:
+        if builds.call_args is None:
+            raise AssertionError(
+                f"Expected a client built waiting [{seconds}]s for an answer, and none was "
+                f"built."
+            )
+
+        waits = builds.call_args.kwargs.get("answered_within")
+
+        if waits != seconds:
+            raise AssertionError(
+                f"Expected the client built waiting [{seconds}]s for an answer, and it "
+                f"was built waiting [{waits}]s."
+            )
+
+        return True
+
+    return assertion
 
 
 def _github_archives(handler: type[FakeTargetServiceHandler],

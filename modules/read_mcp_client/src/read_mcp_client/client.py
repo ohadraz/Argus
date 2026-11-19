@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Final
 
 from core import ReadMcpEndpoint
-from core.mcp_transport import McpClient
+from core.mcp_transport import Asking, McpClient
 from core.models import (
     AlertRuleStanding,
     ChangeEvent,
@@ -44,15 +45,24 @@ _CODE_OUTSIDE: Final = TypeAdapter(CodeOutsideThePatch)
 _MCP_PATH: Final = "/mcp"
 
 
-def read_mcp(endpoint: ReadMcpEndpoint) -> McpClient:
+def read_mcp(endpoint: ReadMcpEndpoint,
+             builds_client: Callable[..., McpClient] = McpClient) -> McpClient:
     """A client holding one session to `argus-read-mcp`.
 
     Built where a process starts, held for as long as that process reads
     anything, and closed on the way out. The endpoint is read once, here, so
     that nothing below this line has to know how an address is configured -
     which is the whole of what a tool function needs from a deployment.
+
+    Each call waits as long as the endpoint says for its answer: above the
+    slowest tool this tier serves, a read of the repository's whole archive
+    (`get_code_outside_the_patch`) under a thirty-second timeout of its own.
+    Every read may be asked again, so one that meets it is asked once more.
+    `builds_client` builds it, and is a parameter so that what it was built
+    with can be asserted without building one.
     """
-    return McpClient(f"{endpoint.read_mcp_url}{_MCP_PATH}")
+    return builds_client(f"{endpoint.read_mcp_url}{_MCP_PATH}",
+                         answered_within=endpoint.read_mcp_answered_within_seconds)
 
 
 def get_log_lines(alert_time: str | None = None,
@@ -71,6 +81,7 @@ def get_log_lines(alert_time: str | None = None,
     return client.call(
         "get_log_lines",
         _LOG_LINES.validate_python,
+        asking=Asking.READ,
         alert_time=alert_time,
         window_start=window_start,
         window_end=window_end,
@@ -95,6 +106,7 @@ def get_metrics_summary(alert_time: str | None = None,
     return client.call(
         "get_metrics_summary",
         _METRIC_BUCKETS.validate_python,
+        asking=Asking.READ,
         alert_time=alert_time,
         window_start=window_start,
         window_end=window_end,
@@ -119,6 +131,7 @@ def get_change_events(service: str,
     return client.call(
         "get_change_events",
         _CHANGE_EVENTS.validate_python,
+        asking=Asking.READ,
         service=service,
         window_start=window_start,
         window_end=window_end,
@@ -155,6 +168,7 @@ def get_what_a_deployment_changed(service: str,
     return client.call(
         "get_what_a_deployment_changed",
         _WHAT_A_DEPLOYMENT_CHANGED.validate_python,
+        asking=Asking.READ,
         service=service,
         revision=revision,
     )
@@ -187,6 +201,7 @@ def get_rollout_state(service: str, *, client: McpClient) -> RolloutAccount:
     return client.call(
         "get_rollout_state",
         _ROLLOUT_STATE.validate_python,
+        asking=Asking.READ,
         service=service
     )
 
@@ -215,6 +230,7 @@ def get_rollout_progress(service: str, *, client: McpClient) -> RolloutProgress:
     return client.call(
         "get_rollout_progress",
         _ROLLOUT_PROGRESS.validate_python,
+        asking=Asking.READ,
         service=service
     )
 
@@ -228,7 +244,8 @@ def get_alert_rule(rule: str, *, client: McpClient) -> AlertRuleStanding:
     alert carried, whichever vendor's rule it is. Raises rather than answering
     normal when the rule cannot be read.
     """
-    return client.call("get_alert_rule", _ALERT_RULE.validate_python, rule=rule)
+    return client.call("get_alert_rule", _ALERT_RULE.validate_python, asking=Asking.READ,
+                       rule=rule)
 
 
 def get_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
@@ -247,6 +264,7 @@ def get_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
     return client.call(
         "get_placements",
         _PLACEMENTS.validate_python,
+        asking=Asking.READ,
         service=service
     )
 
@@ -263,8 +281,8 @@ def branch_contains_revision(branch: str, revision: str, *, client: McpClient) -
     makes about the code, on a fact nobody established.
     """
     return client.call(
-        "branch_contains_revision", _CONTAINED.validate_python, branch=branch,
-        revision=revision
+        "branch_contains_revision", _CONTAINED.validate_python, asking=Asking.READ,
+        branch=branch, revision=revision
     )
 
 
@@ -280,7 +298,7 @@ def get_enabled_flags(*, client: McpClient) -> list[str]:
     reached: an outage read as "no flag is on" would look like an environment
     with nothing to revert.
     """
-    return client.call("get_enabled_flags", _FLAG_NAMES.validate_python)
+    return client.call("get_enabled_flags", _FLAG_NAMES.validate_python, asking=Asking.READ)
 
 
 def get_service_dependencies(service: str,
@@ -310,6 +328,7 @@ def get_service_dependencies(service: str,
     return client.call(
         "get_service_dependencies",
         _SERVICE_DEPENDENCIES.validate_python,
+        asking=Asking.READ,
         service=service,
     )
 
@@ -331,6 +350,7 @@ def search_repository(query: str, ref: str, *, client: McpClient) -> list[str]:
     return client.call(
         "search_repository",
         _FILE_PATHS.validate_python,
+        asking=Asking.READ,
         query=query,
         ref=ref,
     )
@@ -349,6 +369,7 @@ def get_repository_index_freshness(ref: str, *, client: McpClient) -> str:
     return client.call(
         "get_repository_index_freshness",
         _NOTICE.validate_python,
+        asking=Asking.READ,
         ref=ref,
     )
 
@@ -379,6 +400,7 @@ def search_repository_by_meaning(description: str,
     return client.call(
         "search_repository_by_meaning",
         _PASSAGES.validate_python,
+        asking=Asking.READ,
         description=description,
         ref=ref,
     )
@@ -404,6 +426,7 @@ def get_code_outside_the_patch(files: dict[str, str],
     return client.call(
         "get_code_outside_the_patch",
         _CODE_OUTSIDE.validate_python,
+        asking=Asking.READ,
         files=files,
         ref=ref,
     )
@@ -422,6 +445,7 @@ def list_repository_files(ref: str, *, client: McpClient) -> list[str]:
     return client.call(
         "list_repository_files",
         _FILE_PATHS.validate_python,
+        asking=Asking.READ,
         ref=ref,
     )
 
@@ -441,6 +465,7 @@ def read_repository_file(path: str, ref: str, *, client: McpClient) -> str:
     return client.call(
         "read_repository_file",
         _SOURCE.validate_python,
+        asking=Asking.READ,
         path=path,
         ref=ref,
     )

@@ -50,6 +50,7 @@ from core.events import (
     VerdictReached,
     nobody,
 )
+from core.mcp_transport import LostAfterSending
 from core.models import (
     DEPLOYMENT_PLATFORM,
     FLAG_PROVIDER,
@@ -123,6 +124,12 @@ A_CHANGE_NOBODY_CAN_ACCOUNT_FOR = ("an earlier attempt claimed this action and n
 # And a row that says its change was made and keeps nothing to go on with it.
 A_CHANGE_MADE_AND_NEVER_RECORDED = ("an earlier attempt carried out this action and stopped "
                                     "before recording what came of it")
+# And the way this walk hands one over when the tier was asked, never answered,
+# and could not be asked again without doing the thing twice.
+A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR = ("this action was asked for and its answer never came "
+                                        "back, so nothing can say whether it was carried out")
+# What the transport says of a call it sent and got no answer to.
+DONT_CARE_WHAT_THE_TRANSPORT_SAID = "the call was sent and its answer never came back"
 
 # The action rows a claim answers with: the one this walk writes, and the one a
 # worker that is gone wrote before it.
@@ -2158,6 +2165,125 @@ def test_a_change_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_att
         ))
 
 
+# A cache entry a discard names, which nothing in a case reads.
+DONT_CARE_CACHE_KEY = "kuki:1"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("some_action", "its_plan"), [
+    # Lambdas, so the builders they call can be defined further down.
+    pytest.param(RestartService(service=SOME_APPLICATION), lambda dont_care_action: None,
+                 id="restart"),
+    pytest.param(DiscardCacheEntries(service=SOME_APPLICATION, keys=(DONT_CARE_CACHE_KEY,)),
+                 lambda dont_care_action: None, id="discard"),
+    pytest.param(RollBackDeployment(application=SOME_APPLICATION),
+                 lambda action: _a_plan_of(action), id="rollback-on-its-plan")
+])
+def test_an_action_whose_answer_was_lost_after_it_was_sent_is_kept_as_nobody_can_say_and_escalates(
+    some_action: Action,
+    its_plan: Callable[[Action], Planned[Any] | None],
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Asked for and never answered: a restart or a discard the transport would
+    # not ask again, or a rollback asked again that got no answer either. The
+    # change may have been made, or not. The claim keeps that nobody can say -
+    # the same answer a resumed walk gives a claim it cannot account for, so the
+    # walk resumed after this one reads it and asks nothing again - with what
+    # may be out there: the plan, for a rollback, whose way back it is; nothing,
+    # for a restart or a discard, which plan none. The incident goes to a
+    # person. No verdict is written: there is no outcome to write, and a
+    # completed row would say the attempt ended in one. Nothing is announced,
+    # since nothing is known to have been done.
+    published: list[IncidentEvent] = []
+    the_plan = its_plan(some_action)
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            take := _an_agent_whose_answer_was_lost(),
+            an_action_taking_incident := _a_mitigating_incident(proposing=some_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_planning_answering(the_plan),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(all_of(
+            _the_claim_was_advanced_to(
+                ActionProgress.UNKNOWN, an_action_taking_incident, advance_action,
+                undo_descriptor=the_plan.descriptor if the_plan is not None else None
+            ),
+            _the_incident_was_escalated(),
+            _the_walk_says(A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR),
+            _no_verdict_was_written(complete_action, record_outcome),
+            _no_action_was_announced(published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_resumed_claim_taken_again_whose_answer_was_lost_keeps_its_plan_and_escalates(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A claim nothing of which landed, taken again on its plan as the live walk
+    # takes it - and the rollback asked again got no answer either. As the
+    # live walk's: the claim keeps that nobody can say, with the plan whose way
+    # back it is, and the incident goes to a person with nothing completed.
+    a_rollback = RollBackDeployment(application=SOME_APPLICATION)
+    the_plan = _a_plan_of(a_rollback)
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=the_plan)),
+            take := _an_agent_whose_answer_was_lost(),
+            an_action_taking_incident := _a_resumed_incident(proposing=a_rollback)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_claim_was_advanced_to(ActionProgress.UNKNOWN, an_action_taking_incident,
+                                       advance_action, undo_descriptor=the_plan.descriptor),
+            _the_incident_was_escalated(),
+            _the_walk_says(A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR),
+            _no_verdict_was_written(complete_action, record_outcome),
+            _no_action_was_announced(published)
+        ))
+
+
 @pytest.mark.unit
 def test_an_action_that_stopped_the_symptom_goes_on_to_look_for_a_fix() -> None:
     # The path that did not exist before. A mitigation that worked used to end
@@ -3263,6 +3389,32 @@ def _the_claim_cannot_be_written(advance_action: MagicMock) -> None:
 
 def _the_claim_is_refused_for_a_lost_run(advance_action: MagicMock) -> None:
     advance_action.side_effect = RunLost(A_NEWER_CLAIM_HOLDS_THE_RUN)
+
+
+def _an_agent_whose_answer_was_lost() -> MagicMock:
+    """An agent whose write the tier was asked for and never answered, and that
+    the transport could not ask again for an answer."""
+    take = cast(MagicMock, create_autospec(ports.TakeAction, instance=True))
+    take.side_effect = LostAfterSending(DONT_CARE_WHAT_THE_TRANSPORT_SAID)
+
+    return take
+
+
+def _no_verdict_was_written(complete_action: MagicMock,
+                            record_outcome: MagicMock) -> Assertion[StateDelta]:
+    """Neither the claim's verdict nor the candidate's: nothing was judged, and
+    nothing is known to have been done."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        written = {"the claim's verdict": complete_action.call_args_list,
+                   "the candidate's outcome": record_outcome.call_args_list}
+        written = {what: calls for what, calls in written.items() if calls}
+
+        if written:
+            raise AssertionError(f"Expected no verdict written, and it was: {written}")
+
+        return True
+
+    return assertion
 
 
 def _no_action_row_was_completed(complete_action: MagicMock) -> Assertion[Exception | None]:

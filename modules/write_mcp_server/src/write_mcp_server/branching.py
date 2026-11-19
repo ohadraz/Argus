@@ -20,6 +20,11 @@ caller needs to tell them apart - a push that was rejected and a proposal that
 was never made are different situations, and a module doing both would report
 them through one exception.
 
+It can be asked twice: a call whose answer was lost on its way back to the walk
+is asked again over a new session, and by then the branch may be there. So the
+branch is looked for before it is created, and told apart by the tree it holds
+- the fix already written, or somebody else's work under the name, left alone.
+
 **No path here is off-limits, tests included.** A fix that arrives with the test
 exposing the bug is the fix a person can trust, and that test belongs wherever
 the service's tests live - so a tier second-guessing which files a patch may
@@ -37,7 +42,14 @@ from typing import Any, Final
 
 import httpx2
 
-from write_mcp_server.github_writes import HttpGet, HttpPost, Sleep, said_of, with_retries
+from write_mcp_server.github_writes import (
+    HttpGet,
+    HttpPost,
+    Sleep,
+    TakenByOtherWork,
+    said_of,
+    with_retries,
+)
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 
 logger = logging.getLogger(__name__)
@@ -114,7 +126,12 @@ def commit_to_new_branch(branch: str,
     Each step is asked again where GitHub failed it for a moment, as
     configured. The reads and the two objects are asked again as they are - an
     object written twice is one more nothing points at - and the branch is
-    looked for first: a 500 can come back for one GitHub created.
+    looked for before each try of it, the first included: a 500 can come back
+    for one GitHub created, and this call can be the second asking of one
+    whose answer was lost after the branch was made. Found at the tree this
+    call wrote, it is the fix already on its branch, whichever commit holds
+    it; found at any other, it is work nobody reviewed as this fix, and the
+    branch is refused and left as it is.
     """
     def again[T](step: Callable[[], T], landed: Callable[[], T | None] | None = None) -> T:
         return with_retries(step, retries=settings.github_write_retries,
@@ -127,10 +144,13 @@ def commit_to_new_branch(branch: str,
     tree = again(lambda: _write_tree(files, base_tree, settings, post))
     commit = again(lambda: _write_commit(tree, base_head, message, settings, post))
 
-    again(lambda: _create_branch(branch, commit, settings, post),
-          landed=lambda: _the_branch_at(branch, commit, settings, get))
+    try:
+        on = again(lambda: _create_branch(branch, commit, settings, post),
+                   landed=lambda: _the_branch_holding(branch, tree, settings, get))
+    except TakenByOtherWork as taken:
+        raise BranchNotWritten(str(taken)) from taken
 
-    logger.info("branch written", extra={"branch": branch, "commit": commit})
+    logger.info("branch written", extra={"branch": branch, "commit": on})
 
     return branch
 
@@ -163,7 +183,8 @@ def _head_of(base_branch: str,
 def _tree_of(commit: str,
              settings: RepositoryWriteSettings,
              get: HttpGet) -> str:
-    """The tree the base commit points at, which the fix is written over.
+    """The tree `commit` points at: the base's, which the fix is written over,
+    or that of a branch found already there, which says whose work it holds.
 
     Read rather than assumed, because a new tree must be written over a *tree*
     and what the ref gives back is a *commit*. Written over nothing instead, the
@@ -274,7 +295,7 @@ def _create_branch(branch: str,
                    settings: RepositoryWriteSettings,
                    post: HttpPost) -> str:
     """Points a new branch at the finished commit - the last thing written -
-    and returns it.
+    and returns the commit it points at.
 
     Until this call nothing in the repository refers to the fix at all. That
     ordering is the module's safety: `main` is never a ref this writes, and a
@@ -295,18 +316,25 @@ def _create_branch(branch: str,
             f"could not create branch [{branch}] at [{at}]: {said_of(error)}"
         ) from error
 
-    return branch
+    return at
 
 
-def _the_branch_at(branch: str,
-                   at: str,
-                   settings: RepositoryWriteSettings,
-                   get: HttpGet) -> str | None:
-    """`branch`, where it exists pointing at `at` - the branch this module was
-    creating, created after all - or `None`.
+def _the_branch_holding(branch: str,
+                        tree: str,
+                        settings: RepositoryWriteSettings,
+                        get: HttpGet) -> str | None:
+    """The commit `branch` points at, where that commit's tree is `tree` - the
+    fix this call wrote, on its branch already - or `None` where the look for
+    the branch is answered with anything but a 200: no branch, or a look that
+    found nothing it can read.
 
-    One pointing anywhere else is not the fix's, and is left for the write to
-    be refused over.
+    By the tree rather than the commit: an earlier asking of the same call
+    wrote the same tree over the same base, but GitHub dates a commit as it
+    writes it, so that asking's commit is another sha for the same fix.
+
+    Raises `TakenByOtherWork` where the branch holds any other tree - the base
+    moved between the askings, or the name was somebody else's first - naming
+    the branch, which a person has to look at.
     """
     url = f"{_repository(settings)}/git/ref/heads/{branch}"
     response = get(url, headers=_headers(settings), timeout=REQUEST_TIMEOUT_SECONDS)
@@ -314,9 +342,18 @@ def _the_branch_at(branch: str,
     if response.status_code != httpx2.codes.OK:
         return None
 
-    answered: dict[str, Any] = response.json()
+    found: dict[str, Any] = response.json()
+    at = str(found[OBJECT_FIELD][SHA_FIELD])
+    holding = _tree_of(at, settings, get)
 
-    return branch if answered.get(OBJECT_FIELD, {}).get(SHA_FIELD) == at else None
+    if holding != tree:
+        raise TakenByOtherWork(
+            f"could not create branch [{branch}]: the branch already exists, at a "
+            f"commit whose tree is not the one this call wrote - [{at}], holding "
+            f"[{holding}] where this call wrote [{tree}]"
+        )
+
+    return at
 
 
 def _repository(settings: RepositoryWriteSettings) -> str:

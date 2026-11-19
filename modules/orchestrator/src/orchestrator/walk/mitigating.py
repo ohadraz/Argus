@@ -20,6 +20,7 @@ from core.events import (
     nobody,
     publish,
 )
+from core.mcp_transport import LostAfterSending
 from core.models import (
     Action,
     ActionProgress,
@@ -93,6 +94,12 @@ _NOBODY_CAN_SAY_IT_STILL_STANDS: Final = (
 _THE_METRICS_NO_LONGER_REACH_BACK: Final = (
     "the metrics kept no longer reach back to when the incident began, so whether the "
     "change helped cannot be judged"
+)
+# What a person reading the incident is told of an action asked for whose
+# answer never came back.
+_A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR: Final = (
+    "this action was asked for and its answer never came back, so nothing can "
+    "say whether it was carried out"
 )
 
 
@@ -221,10 +228,16 @@ def mitigation_node(
         result = (refused if still_wanted(state.incident_id)
                   else stopped_before_it_was_taken())
     else:
-        result = _take_on_the_claim(
-            state, take, planned, action_id, acting_for, still_wanted, advance_action,
-            owe_a_put_back, announced, publisher, now
-        )
+        try:
+            result = _take_on_the_claim(
+                state, take, planned, action_id, acting_for, still_wanted, advance_action,
+                owe_a_put_back, announced, publisher, now
+            )
+        except LostAfterSending:
+            logger.warning("the action was asked for and its answer was lost",
+                           exc_info=True, extra={"incident_id": state.incident_id})
+
+            return _nobody_can_say_whether_it_was_carried_out(state, advance_action, planned)
     # When the change was made, for the round that remembers the attempt - and
     # nothing where none was: an action never performed is no attempt a later
     # round may be told was refuted.
@@ -334,6 +347,34 @@ def _what_the_wait_is_handed(state: IncidentState,
             else None
         )
     }
+
+
+def _nobody_can_say_whether_it_was_carried_out(state: IncidentState,
+                                               advance_action: AdvanceAction,
+                                               planned: Planned[Any] | None) -> StateDelta:
+    """The incident handed to a person, its claim kept as nobody can say, after
+    the action was asked for and its answer never came back.
+
+    The claim's answer is the one a resumed walk gives a claim it cannot
+    account for, so a walk resumed after this one reads it and asks nothing
+    again. No verdict is written - there is no outcome, and a completed row
+    would say the attempt ended in one - and nothing is announced, since
+    nothing is known to have been done. A claim that cannot be moved on is
+    logged and the incident handed over all the same (`_the_claim_is_told`).
+
+    The claim keeps its plan's descriptor as what may be left behind, where
+    the action had a plan: a suspension before its write may have landed, and
+    the unwind's put-back reads the estate before it writes, so it puts back
+    only what is Argus's. A restart or a discard has no plan, and keeps nothing.
+    """
+    _the_claim_is_told(state, advance_action, ActionProgress.UNKNOWN,
+                       undo_descriptor=planned.descriptor if planned is not None else None)
+
+    return StateDelta(
+        status=IncidentStatus.ESCALATED,
+        narration=Narration(action="mitigation attempted",
+                            detail=_A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR)
+    )
 
 
 def _the_attempt_recorded(state: IncidentState,
@@ -823,9 +864,18 @@ def _the_claim_taken(state: IncidentState,
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION),
             resumption.publisher)
     announced: list[ActionTaken] = []
-    result = _taken(state, resumption.take, planned, resumption.still_wanted,
-                    resumption.advance_action, resumption.owe_a_put_back, announced,
-                    resumption.publisher, resumption.now)
+
+    try:
+        result = _taken(state, resumption.take, planned, resumption.still_wanted,
+                        resumption.advance_action, resumption.owe_a_put_back, announced,
+                        resumption.publisher, resumption.now)
+    except LostAfterSending:
+        # As the live walk handles it: nobody can say whether it was carried out.
+        logger.warning("the action was asked for and its answer was lost",
+                       exc_info=True, extra={"incident_id": state.incident_id})
+
+        return _nobody_can_say_whether_it_was_carried_out(state, resumption.advance_action,
+                                                          planned)
 
     if not result.performed and result.undo_descriptor is None and left_behind is not None:
         result = result.model_copy(update={"undo_descriptor": left_behind})

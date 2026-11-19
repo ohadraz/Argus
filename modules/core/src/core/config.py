@@ -21,6 +21,17 @@ _VERIFICATION_TIMEOUT_SECONDS: Final = 180.0
 # an hour.
 _LEASES_PER_LONGEST_WAIT: Final = 4
 
+# How long a client to each MCP tier waits for a tool's answer before it takes
+# the call to be lost - above the slowest tool that tier serves. Named here
+# because each is said twice: the setting, and the endpoint slice a test may
+# build without one. The read tier's slowest reads a whole repository archive,
+# under a thirty-second timeout of its own; the write tier's is a restart - two
+# requests, then sixty looks a second apart, each up to the platform's
+# ten-second timeout, about eleven and a half minutes - after waiting up to
+# five seconds for its run to be free.
+_READ_MCP_ANSWERED_WITHIN_SECONDS: Final = 120.0
+_WRITE_MCP_ANSWERED_WITHIN_SECONDS: Final = 720.0
+
 # How Slack names a channel it can be asked about: a public one's id begins with
 # `C`, a private one's with `G`, and the rest is capitals and digits. Empty is
 # allowed, and means no channel was configured.
@@ -44,6 +55,10 @@ class Settings(BaseSettings):
 
     read_mcp_host: str = Field(default="localhost")
     read_mcp_port: int = Field(default=8090)
+    # How long a client waits for a read tool's answer, in seconds.
+    read_mcp_answered_within_seconds: float = Field(
+        default=_READ_MCP_ANSWERED_WITHIN_SECONDS, gt=0.0
+    )
 
     # The feature-flag provider is configured by its adapter's own settings
     # (`flag_provider.unleash`), read from the same `UNLEASH_*` variables - not
@@ -51,6 +66,13 @@ class Settings(BaseSettings):
 
     write_mcp_host: str = Field(default="localhost")
     write_mcp_port: int = Field(default=8092)
+    # How long a client waits for a write tool's answer, in seconds. A call
+    # that meets it is asked again only where asking again is harmless, so
+    # one below the slowest tool hands a restart that is still being made to a
+    # person.
+    write_mcp_answered_within_seconds: float = Field(
+        default=_WRITE_MCP_ANSWERED_WITHIN_SECONDS, gt=0.0
+    )
 
     # The Target Service's repository, which is the only repository Argus may
     # propose a change to (spec §15.1). Named in full - `owner/name` - because
@@ -931,12 +953,14 @@ class ReadMcpEndpoint(SettingsSlice):
 
     Both sides of one fact, which is why it is a contract rather than the
     server's own: the server binds the host and port, and `read_mcp_client`
-    dials the URL they compose into.
+    dials the URL they compose into - and waits as long as it says for an
+    answer, which only the caller reads.
     """
 
     read_mcp_host: str
     read_mcp_port: int
     read_mcp_url: str
+    read_mcp_answered_within_seconds: float = _READ_MCP_ANSWERED_WITHIN_SECONDS
 
 
 class WriteMcpEndpoint(SettingsSlice):
@@ -947,12 +971,14 @@ class WriteMcpEndpoint(SettingsSlice):
     write tier is that it holds the admin credential and the read server is
     issued none, and that nothing outside the declared set of generic
     mitigations has a function on either (spec §12.1, §13). An address is how a
-    caller finds a server, and finding one authorizes nothing.
+    caller finds a server, and finding one authorizes nothing. How long a
+    caller waits for an answer is here too, and only the caller reads it.
     """
 
     write_mcp_host: str
     write_mcp_port: int
     write_mcp_url: str
+    write_mcp_answered_within_seconds: float = _WRITE_MCP_ANSWERED_WITHIN_SECONDS
 
 
 class LLMSettings(SettingsSlice):

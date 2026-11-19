@@ -2,10 +2,11 @@
 
 Two surfaces, the same arrangement `anthropic_double` and `slack_double` have:
 
-- `/repos/{owner}/{repo}/...` - what the read and write tiers talk to. Ten
-  endpoints, which is exactly the ten Argus uses: three to read source, one to
-  say what changed between two commits, five to build a commit and put a branch
-  on it, one to propose it.
+- `/repos/{owner}/{repo}/...` - what the read and write tiers talk to. Twelve
+  endpoints, which is exactly the twelve Argus uses: three to read source, one to
+  say where a ref points, one to say what changed between two commits, five to
+  build a commit and put a branch on it, one to look for a proposal already open,
+  and one to propose it.
 - `/double-control/*` - what the *test* talks to, to put the repository back and
   to read what was proposed.
 
@@ -30,6 +31,7 @@ from fastapi.responses import JSONResponse
 from github_double.repository import (
     BranchAlreadyExists,
     NoSuchObject,
+    Proposal,
     repository,
 )
 
@@ -85,6 +87,14 @@ _REFS_PREFIX: Final = "refs/heads/"
 _NOT_FOUND_STATUS: Final = 404
 _UNPROCESSABLE_STATUS: Final = 422
 _CREATED_STATUS: Final = 201
+
+# How the open pull requests are asked for: by state - every proposal here is
+# open, so asking for the open ones or for all of them lists it - and by a head
+# said as `owner:branch`.
+_OPEN_STATE: Final = "open"
+_EVERY_STATE: Final = "all"
+_STATES_LISTING_A_PROPOSAL: Final = frozenset({_OPEN_STATE, _EVERY_STATE})
+_OWNER_SEPARATOR: Final = ":"
 
 app = FastAPI(title="github double")
 
@@ -342,6 +352,41 @@ async def create_the_ref(owner: str, repo: str, request: Request) -> JSONRespons
     )
 
 
+@app.get("/repos/{owner}/{repo}/pulls")
+def the_open_pull_requests(owner: str,
+                           repo: str,
+                           head: str = "",
+                           base: str = "",
+                           state: str = _OPEN_STATE) -> list[dict[str, Any]]:
+    """The open proposals from `head` - `owner:branch`, as GitHub takes it -
+    onto `base`, as GitHub lists them: an empty list where there are none.
+
+    Every proposal here is open, since nothing closes or merges one: `open` and
+    `all` list them, and `closed` finds none. Either filter left out matches
+    every proposal.
+    """
+    if state not in _STATES_LISTING_A_PROPOSAL:
+        return []
+
+    branch = head.split(_OWNER_SEPARATOR, 1)[-1]
+
+    return [_as_pull(owner, repo, proposal) for proposal in repository.proposals
+            if (not head or proposal.head == branch) and (not base or proposal.base == base)]
+
+
+def _as_pull(owner: str, repo: str, proposal: Proposal) -> dict[str, Any]:
+    """A proposal as GitHub says a pull request, whether opened or listed."""
+    return {
+        _NUMBER_FIELD: proposal.number,
+        _READABLE_AT_FIELD: f"{_UNREACHABLE_HOST}/{owner}/{repo}/pull/{proposal.number}",
+        _TITLE_FIELD: proposal.title,
+        _BODY_FIELD: proposal.body,
+        _DRAFT_FIELD: proposal.draft,
+        _HEAD_FIELD: {_REF_FIELD: proposal.head},
+        _BASE_FIELD: {_REF_FIELD: proposal.base}
+    }
+
+
 @app.post("/repos/{owner}/{repo}/pulls")
 async def open_the_pull_request(owner: str, repo: str, request: Request) -> JSONResponse:
     """The proposal itself, numbered as a repository numbers one.
@@ -364,20 +409,7 @@ async def open_the_pull_request(owner: str, repo: str, request: Request) -> JSON
     except NoSuchObject as absent:
         return _not_found(absent)
 
-    return JSONResponse(
-        {
-            _NUMBER_FIELD: proposal.number,
-            _READABLE_AT_FIELD: (
-                f"{_UNREACHABLE_HOST}/{owner}/{repo}/pull/{proposal.number}"
-            ),
-            _TITLE_FIELD: proposal.title,
-            _BODY_FIELD: proposal.body,
-            _DRAFT_FIELD: proposal.draft,
-            _HEAD_FIELD: {_REF_FIELD: proposal.head},
-            _BASE_FIELD: {_REF_FIELD: proposal.base}
-        },
-        status_code=_CREATED_STATUS
-    )
+    return JSONResponse(_as_pull(owner, repo, proposal), status_code=_CREATED_STATUS)
 
 
 @app.get("/health")

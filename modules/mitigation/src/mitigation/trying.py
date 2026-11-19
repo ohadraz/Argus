@@ -40,6 +40,7 @@ from core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     ChangedSince,
+    LostAfterSending,
     McpToolError,
     PlatformUnreachable,
     without_the_payload,
@@ -207,6 +208,11 @@ def take_action(action: Action,
     go is `NOT_ATTEMPTED`, and the walk moves to its next candidate: a bound Argus
     holds is not a reason to wake somebody.
 
+    A write sent and never answered, which the transport would not ask again
+    (`LostAfterSending`), is none of these: nothing can say whether the change
+    was made, and every verdict says something about it. It is raised, before
+    anything is told as made, for the walk to record that nobody can say.
+
     `incident_began` is the minute the investigation dated the incident from, and
     is what the recovery is dated after - not to be confused with `onset`, which
     is a minute the *alert* stated and answers whether the incident's minutes
@@ -289,6 +295,12 @@ def take_action(action: Action,
             change_made(changed.undo_descriptor)
 
         return _changed_since(changed, kind.intent(action))
+    except LostAfterSending:
+        # Before the broad case, which would read it as a write that failed and
+        # so as nothing performed. Nothing can say whether the change was made,
+        # and every verdict says something about it: the walk is told, and
+        # records the claim as nobody can say.
+        raise
     except Exception as error:
         return _not_performed(error, kind.intent(action), action.action_type,
                               could_have_written=True)

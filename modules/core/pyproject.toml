@@ -42,7 +42,9 @@ embedding = ["fastembed>=0.8"]
 # `docker-compose.yml`, as both corpora already pin it.
 vector_store = ["qdrant-client>=1.19,<1.20"]
 llm = ["anthropic>=1.0"]
-mcp = ["mcp>=1.29.0", "uvicorn>=0.30"]
+# `httpx` because the transport builds the HTTP client a session is held over
+# (`mcp_transport.an_http_client_waiting`), and the SDK takes one of its own.
+mcp = ["mcp>=1.29.0", "uvicorn>=0.30", "httpx>=0.28"]
 # The HTTP client `core.applying` reads a failed request's error off. Its
 # two dependants declare `httpx2` themselves, as the write server declares `mcp`.
 http = ["httpx2"]

@@ -5,6 +5,10 @@ Argus opened is a proposal; a pull request merged is a deploy, and that is the
 line the autonomy tiers are drawn at - so the thing asserted hardest here is
 that what gets opened is a draft, every time and with no parameter that could
 make it anything else.
+
+It can be asked twice: a call whose answer was lost on its way back to the walk
+is asked again over a new session, and by then the pull request is open. So
+what is open from the branch is looked for before one is asked for, every time.
 """
 
 from __future__ import annotations
@@ -37,6 +41,12 @@ DONT_CARE_BASE = "main"
 DONT_CARE_TITLE = "dont care title"
 DONT_CARE_BODY = "dont care body"
 
+# Retries - tries after the first - for the cases where a pull request is asked
+# for again.
+SOME_RETRIES = 2
+# A request GitHub failed once is made twice: the try it failed, and the next.
+THE_FAILED_TRY_AND_THE_NEXT = 2
+
 
 @pytest.mark.unit
 def test_a_fix_is_proposed_from_its_own_branch_against_the_one_it_fixes() -> None:
@@ -52,7 +62,8 @@ def test_a_fix_is_proposed_from_its_own_branch_against_the_one_it_fixes() -> Non
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
                 settings=some_repository_settings(),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -78,7 +89,8 @@ def test_a_proposed_fix_is_opened_as_a_draft() -> None:
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
                 settings=some_repository_settings(),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -105,7 +117,8 @@ def test_a_proposed_fix_carries_the_words_it_was_given() -> None:
                 title=some_title,
                 body=some_body,
                 settings=some_repository_settings(),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -132,7 +145,8 @@ def test_a_proposed_fix_addresses_the_repository_it_is_proposed_to() -> None:
                 settings=some_repository_settings(
                     api_url=some_api_url, repository=some_repository
                 ),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -160,7 +174,8 @@ def test_a_proposed_fix_is_written_under_the_credential_that_can_write() -> None
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
                 settings=some_repository_settings(token=some_token),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -184,7 +199,8 @@ def test_a_pull_request_opened_with_no_credential_configured_carries_none() -> N
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
                 settings=some_repository_settings(token=""),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -214,7 +230,8 @@ def test_an_opened_pull_request_carries_where_a_human_can_read_it() -> None:
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
                 settings=some_repository_settings(),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -238,7 +255,16 @@ def test_a_repository_that_refuses_is_not_reported_as_a_pull_request_opened() ->
     )
 
     Scenario() \
-        .when(attempting(lambda: _opening_against(repository))) \
+        .when(attempting(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        ))) \
         .then(
             all_of(
                 an_error_was_raised(PullRequestNotOpened)
@@ -269,7 +295,16 @@ def test_a_refusal_carries_what_the_repository_said_was_wrong() -> None:
     )
 
     Scenario() \
-        .when(attempting(lambda: _opening_against(repository))) \
+        .when(attempting(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        ))) \
         .then(
             all_of(
                 an_error_was_raised(PullRequestNotOpened),
@@ -285,7 +320,16 @@ def test_an_unreachable_repository_is_not_reported_as_a_pull_request_opened() ->
     repository.post.side_effect = some_transport_error
 
     Scenario() \
-        .when(attempting(lambda: _opening_against(repository))) \
+        .when(attempting(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        ))) \
         .then(
             all_of(
                 an_error_was_raised(PullRequestNotOpened)
@@ -307,7 +351,16 @@ def test_a_repository_answering_without_a_pull_request_is_not_reported_as_one() 
     )
 
     Scenario() \
-        .when(attempting(lambda: _opening_against(repository))) \
+        .when(attempting(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        ))) \
         .then(
             all_of(
                 an_error_was_raised(PullRequestNotOpened)
@@ -320,16 +373,26 @@ def test_a_pull_request_github_failed_to_open_for_a_moment_is_opened_on_the_next
     # GitHub answered 500 to one pull request in a live run, during an incident
     # of its own, and the fix Code-Fix had written was reported as one that
     # could not be proposed. A server's passing fault is not a refusal.
-    repository = a_repository_that_opens_pull_requests(number=41)
+    some_number = 41
+    repository = a_repository_that_opens_pull_requests(number=some_number)
     repository.post.side_effect = [_github_failed(500), repository.post.return_value]
     repository.get.return_value = _the_pull_requests_open([])
 
     Scenario() \
-        .when(lambda: _opening_against(repository, retries=2)) \
+        .when(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(retries=SOME_RETRIES),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        )) \
         .then(
             all_of(
-                _the_pull_request_is_numbered(41),
-                _pull_requests_asked_for(repository, 2)
+                _the_pull_request_is_numbered(some_number),
+                _pull_requests_asked_for(repository, THE_FAILED_TRY_AND_THE_NEXT)
             )
         )
 
@@ -339,21 +402,66 @@ def test_a_pull_request_opened_despite_a_500_is_read_back_rather_than_opened_aga
     # A 500 can come back for a request the server carried out. Asked for
     # again, the pull request is refused as one that already exists - so what
     # is open is looked for first, and an open one from the branch is the one.
-    some_url = "https://github.invalid/dont-care/dont-care/pull/7"
+    some_number = 7
+    some_url = f"https://github.invalid/dont-care/dont-care/pull/{some_number}"
     repository = a_repository_that_opens_pull_requests()
     repository.post.side_effect = [_github_failed(500)]
-    repository.get.return_value = _the_pull_requests_open([{"number": 7, "html_url": some_url}])
+    repository.get.side_effect = _open_once_asked_for(
+        repository, [{"number": some_number, "html_url": some_url}]
+    )
 
     Scenario() \
-        .when(lambda: _opening_against(repository, retries=2)) \
+        .when(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(retries=SOME_RETRIES),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        )) \
         .then(
             all_of(
-                _the_pull_request_is_numbered(7),
+                _the_pull_request_is_numbered(some_number),
                 _the_pull_request_is_readable_at(some_url),
                 _pull_requests_asked_for(repository, 1),
                 _the_open_pull_requests_were_looked_for(
                     repository, head=f"dont-care:{DONT_CARE_BRANCH}", base=DONT_CARE_BASE
                 )
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_pull_request_already_open_from_the_branch_is_read_back_rather_than_opened() -> None:
+    # The second asking of a call whose answer was lost on its way back: the
+    # pull request is open before this asking asks for it. Asked for again,
+    # GitHub refuses one that exists, and a fix that was proposed is reported
+    # as one that could not be.
+    some_number = 7
+    some_url = f"https://github.invalid/dont-care/dont-care/pull/{some_number}"
+    repository = a_repository_that_opens_pull_requests()
+    repository.get.return_value = _the_pull_requests_open(
+        [{"number": some_number, "html_url": some_url}]
+    )
+
+    Scenario() \
+        .when(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        )) \
+        .then(
+            all_of(
+                _the_pull_request_is_numbered(some_number),
+                _the_pull_request_is_readable_at(some_url),
+                _pull_requests_asked_for(repository, 0)
             )
         )
 
@@ -368,7 +476,16 @@ def test_a_pull_request_github_failed_to_open_is_said_in_github_s_own_terms() ->
     repository.post.return_value = _github_failed(500)
 
     Scenario() \
-        .when(attempting(lambda: _opening_against(repository))) \
+        .when(attempting(lambda: open_pull_request(
+            head_branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            title=DONT_CARE_TITLE,
+            body=DONT_CARE_BODY,
+            settings=some_repository_settings(),
+            post=repository.post,
+            get=repository.get,
+            sleep=repository.sleep
+        ))) \
         .then(
             all_of(
                 an_error_was_raised(PullRequestNotOpened),
@@ -396,7 +513,8 @@ def test_a_pull_request_opened_is_logged(caplog: pytest.LogCaptureFixture) -> No
                 title=DONT_CARE_TITLE,
                 body=DONT_CARE_BODY,
                 settings=some_repository_settings(),
-                post=repository.post
+                post=repository.post,
+                get=repository.get
             )
         ) \
         .then(
@@ -505,22 +623,6 @@ def _request_body(repository: _Repository) -> dict[str, Any]:
     return body
 
 
-def _opening_against(repository: _Repository, retries: int = 0) -> Any:
-    """One call, for the tests that are about how it fails rather than what it
-    sent - so a failure case reads as the thing it is asserting and not as a
-    fifth repetition of the arguments."""
-    return open_pull_request(
-        head_branch=DONT_CARE_BRANCH,
-        base_branch=DONT_CARE_BASE,
-        title=DONT_CARE_TITLE,
-        body=DONT_CARE_BODY,
-        settings=some_repository_settings(retries=retries),
-        post=repository.post,
-        get=repository.get,
-        sleep=repository.sleep
-    )
-
-
 def _github_failed(status_code: int) -> httpx2.Response:
     return httpx2.Response(
         status_code=status_code,
@@ -534,6 +636,16 @@ def _the_pull_requests_open(open_now: list[dict[str, Any]]) -> httpx2.Response:
         json=open_now,
         request=httpx2.Request("GET", "http://github.invalid/")
     )
+
+
+def _open_once_asked_for(repository: _Repository,
+                         open_now: list[dict[str, Any]]) -> Any:
+    """Nothing open from the branch until a pull request was asked for, and
+    `open_now` after - one GitHub opened while answering otherwise."""
+    def answer(url: str, **_: Any) -> httpx2.Response:
+        return _the_pull_requests_open(open_now if repository.post.called else [])
+
+    return answer
 
 
 def _pull_requests_asked_for(repository: _Repository, times: int) -> Assertion[Any]:
@@ -586,5 +698,7 @@ def a_repository_that_opens_pull_requests(
         json={"number": number, "html_url": url},
         request=httpx2.Request("POST", "http://github.invalid/")
     )
+    # Nothing open from the branch, as for every fix not yet proposed.
+    repository.get.return_value = _the_pull_requests_open([])
 
     return repository

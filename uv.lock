@@ -266,6 +266,7 @@ llm = [
     { name = "anthropic" },
 ]
 mcp = [
+    { name = "httpx" },
     { name = "mcp" },
     { name = "uvicorn" },
 ]
@@ -288,6 +289,7 @@ requires-dist = [
     { name = "alembic", marker = "extra == 'migrations'", specifier = ">=1.20.0" },
     { name = "anthropic", marker = "extra == 'llm'", specifier = ">=1.0" },
     { name = "fastembed", marker = "extra == 'embedding'", specifier = ">=0.8" },
+    { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28" },
     { name = "httpx2", marker = "extra == 'http'" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.29.0" },
     { name = "opentelemetry-api", specifier = ">=1.45" },

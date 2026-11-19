@@ -8,10 +8,14 @@ as far apart as configured. What the repository refused, a 4xx, is made once:
 asked again, a refusal is refused again.
 
 A failure can come back for a write the server carried out. Made again, a pull
-request or a branch is then refused as one that exists - so before each retry
-the write is looked for, and one that landed is the answer. A look that fails
-too is no answer either way, and the write is made again: what it risks is a
-refusal, never a second pull request or a second branch.
+request or a branch is then refused as one that exists - so before each try the
+write is looked for, and one that landed is the answer. Before the first try
+too, because the first try of a tool can be its second asking: a call whose
+answer was lost on its way back to the walk is asked again over a new session,
+and by then the write is there. A look that fails is no answer either way, and
+the write is made: what it risks is a refusal, never a second pull request or a
+second branch. A look that finds the place taken by something the write did not
+make is an answer, and the refusal it raises is the write's.
 """
 
 from __future__ import annotations
@@ -36,6 +40,17 @@ _A_SERVER_FAULT: Final = 500
 _MILLISECONDS_IN_A_SECOND: Final = 1000
 
 
+class TakenByOtherWork(Exception):
+    """A look found the place the write would land already taken, by something
+    the write did not make.
+
+    The one thing a look may raise that is an answer rather than a failed look:
+    made, the write would be refused as one that exists, and what it would be
+    refused over is not this write's to report as made. Raised on rather than
+    passed over, so the write is never tried.
+    """
+
+
 def with_retries[T](attempt: Callable[[], T],
                     *,
                     retries: int,
@@ -45,16 +60,28 @@ def with_retries[T](attempt: Callable[[], T],
     """What `attempt` answers, made again up to `retries` times - tries after
     the first - where GitHub failed it for a moment, `wait_ms` before each.
 
-    `landed` is asked before each retry whether the write took effect after
-    all, and what it answers, where it answers anything, is returned instead.
+    `landed` is asked before each try whether the write is already there - the
+    first included, with no wait before it, since nothing has failed yet - and
+    what it answers, where it answers anything, is returned instead. And once
+    more before a failure is raised: a write refused as one that exists may be
+    refused over itself, found by a look that failed the first time, and a
+    last try GitHub answered with a 5xx may have landed all the same.
 
-    Raises the failure as it came for anything else, and for the last try.
+    Raises the failure as it came for anything else, and for the last try,
+    where that look finds nothing - and `TakenByOtherWork` where a look raised
+    it.
     """
+    if (found := _what_landed(landed)) is not None:
+        return found
+
     for tries_left in range(retries, -1, -1):
         try:
             return attempt()
         except Exception as error:
             if not tries_left or not _a_passing_fault(error):
+                if (found := _what_landed(landed)) is not None:
+                    return found
+
                 raise
 
             logger.warning("write to GitHub failed, trying again",
@@ -105,6 +132,8 @@ def _what_landed[T](landed: Callable[[], T | None] | None) -> T | None:
 
     try:
         return landed()
+    except TakenByOtherWork:
+        raise
     except Exception:
         logger.warning("could not look for a write GitHub may have carried out", exc_info=True)
 

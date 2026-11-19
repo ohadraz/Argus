@@ -50,8 +50,8 @@ READABLE_AT_FIELD: Final = "html_url"
 # a person can act on lives - which field was wrong and why.
 MESSAGE_FIELD: Final = "message"
 ERRORS_FIELD: Final = "errors"
-# How the open pull requests are looked for, before a request GitHub failed
-# is made again: from a branch, said as `owner:branch`, onto a base.
+# How the open pull requests are looked for, before each request for one:
+# from a branch, said as `owner:branch`, onto a base.
 STATE_FIELD: Final = "state"
 OPEN_STATE: Final = "open"
 
@@ -111,8 +111,11 @@ def open_pull_request(head_branch: str,
     Raises `PullRequestNotOpened` unless the repository accepted the request
     *and* answered with a pull request that can be read back.
 
-    Asked again where GitHub failed it for a moment, as configured - and the
-    pull request open from the branch, where one is, taken instead: a 500 can
+    The pull request open from the branch, where one is, is taken instead of
+    opening one - looked for before every try, the first included: this call
+    can be the second asking of one whose answer was lost after the pull
+    request was opened, and asked for again GitHub refuses one that exists.
+    Asked again where GitHub failed it for a moment, as configured: a 500 can
     come back for one GitHub opened.
     """
     url = f"{settings.github_api_url}/repos/{settings.github_repository}/pulls"

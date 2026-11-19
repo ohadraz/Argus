@@ -50,6 +50,8 @@ from orchestrator.walk.assembling import (
 from postmortem_writing import judge_policy, postmortem_policy
 
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
+# How long a client to it would wait for an answer, which no case here asks for.
+DONT_CARE_ANSWERED_WITHIN = 60.0
 
 # What the mitigation node passes when it performs an action: the action itself,
 # the plan its claim carries, and three arguments that carry their own defaults.
@@ -289,7 +291,7 @@ def _a_client_that_must_not_be_reached() -> McpClient:
     anything that asked it a question would fail here rather than quietly find
     a real server.
     """
-    return McpClient(NOTHING_IS_SERVED_HERE)
+    return McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN)
 
 
 def _connections_that_must_not_be_opened() -> Connections:

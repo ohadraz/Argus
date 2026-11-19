@@ -30,6 +30,7 @@ from core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     ChangedSince,
+    LostAfterSending,
     McpToolError,
     PlatformUnreachable,
     a_change_made_since,
@@ -71,6 +72,7 @@ from mitigation.kinds import ActionKind, KindOf, Performed, UndoableKind, Undoin
 from mitigation.tools import (
     Arrival,
     AutoscalerPinner,
+    CacheEntryDiscarder,
     DeploymentRoller,
     DeploymentScaler,
     FlagPlanner,
@@ -130,6 +132,8 @@ from mitigation_test.framework.builders import (
 )
 
 _SOME_INCIDENT_ID = new_id()
+# What the transport says of a call it sent and got no answer to.
+DONT_CARE_WHAT_THE_TRANSPORT_SAID = "the call was sent and its answer never came back"
 # What a write refused for a lost run says.
 A_NEWER_CLAIM_HOLDS_THE_RUN = "a newer claim holds this run"
 _A_MINUTE = timedelta(minutes=1)
@@ -536,6 +540,59 @@ def test_an_action_refused_because_the_run_was_lost_is_raised_rather_than_escala
         .then(
             an_error_was_raised(RunLost)
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "an_action_lost_after_it_was_sent",
+    [
+        pytest.param(lambda: (an_action_restarting(SOME_APPLICATION), None,
+                              the_writes(restart=_a_restarter_whose_answer_was_lost())),
+                     id="restart"),
+        pytest.param(lambda: (_a_discard_of(SOME_APPLICATION, (SOME_CACHE_KEY,)), None,
+                              the_writes(discard=_a_discard_whose_answer_was_lost())),
+                     id="discard"),
+        pytest.param(lambda: (_a_rollback_of(SOME_APPLICATION),
+                              a_plan_of(_a_rollback_descriptor_for(SOME_APPLICATION)),
+                              the_writes(roll_back=_a_roller_whose_answer_was_lost())),
+                     id="rollback-on-its-plan")
+    ]
+)
+def test_an_action_lost_after_it_was_sent_is_raised_to_the_walk_and_tells_of_no_change(
+        an_action_lost_after_it_was_sent: Callable[
+            [], tuple[Action, Planned[Any] | None, PerformingWrites]
+        ]) -> None:
+    # The tier was asked and never answered: a call asking again could do
+    # twice, or one asked again that got no answer either - so nothing can say
+    # whether the change was made. Not an outcome: every verdict this could
+    # come to says something about the change, and nothing is known of it.
+    # Raised, ahead of the broad case that would read it as a write that failed
+    # - "not performed" - and before anything is told as made, for the walk to
+    # record the claim as nobody can say and hand the incident over.
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            the_attempt := an_action_lost_after_it_was_sent()
+        ) \
+        .when(attempting(
+            lambda: take_action(
+                the_attempt[0],
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=the_attempt[1],
+                writes=the_attempt[2],
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                change_made=_each_change_kept_in(happened)
+            )
+        )) \
+        .then(all_of(
+            an_error_was_raised(LostAfterSending),
+            _no_change_was_told(happened)
+        ))
 
 
 @pytest.mark.unit
@@ -3391,6 +3448,33 @@ def _a_flag_setter_that_cannot_write(failure: str) -> MagicMock:
     set_state.side_effect = RuntimeError(failure)
 
     return set_state
+
+
+def _a_restarter_whose_answer_was_lost() -> MagicMock:
+    """The tier was asked to restart and never answered, and the transport
+    would not ask a second time."""
+    restart: MagicMock = create_autospec(ServiceRestarter, instance=True)
+    restart.side_effect = LostAfterSending(DONT_CARE_WHAT_THE_TRANSPORT_SAID)
+
+    return restart
+
+
+def _a_discard_whose_answer_was_lost() -> MagicMock:
+    """The tier was asked to discard and never answered, and the transport
+    would not ask a second time."""
+    discarding: MagicMock = create_autospec(CacheEntryDiscarder, instance=True)
+    discarding.side_effect = LostAfterSending(DONT_CARE_WHAT_THE_TRANSPORT_SAID)
+
+    return discarding
+
+
+def _a_roller_whose_answer_was_lost() -> MagicMock:
+    """The tier was asked to roll back and never answered, and the transport's
+    second asking got no answer either."""
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = LostAfterSending(DONT_CARE_WHAT_THE_TRANSPORT_SAID)
+
+    return roll_back
 
 
 def _a_flag_setter_told_the_run_was_lost() -> MagicMock:

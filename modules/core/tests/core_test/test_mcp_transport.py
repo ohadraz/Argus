@@ -27,9 +27,15 @@ from queue import Empty
 from typing import Any, NamedTuple
 from unittest.mock import create_autospec
 
+import httpx
 import pytest
 import uvicorn
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
+from argus_testkit.assertions import (
+    Assertion,
+    all_of,
+    an_error_was_raised,
+    the_answer_was,
+)
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from core import Fence, Holding, RunLost
@@ -37,13 +43,16 @@ from core.mcp_transport import (
     LEFT_BEHIND_KNOWN_MARKER,
     LEFT_BEHIND_MARKER,
     ActionExhausted,
+    Asking,
     ChangedSince,
+    LostAfterSending,
     McpClient,
     McpToolError,
     McpUnreachable,
     PlatformUnreachable,
     TracedFastMCP,
     a_refusal_saying_what_it_left,
+    an_http_client_waiting,
     an_unreachable_platform,
     every_tool_listed,
     serving_a_tool_call,
@@ -57,6 +66,7 @@ from core.telemetry import (
     MCP_CLIENT_OPERATION_DURATION,
     MCP_METHOD_NAME,
 )
+from mcp.shared.exceptions import McpError
 from mcp.types import ListToolsResult, Tool
 from opentelemetry import baggage
 from opentelemetry.sdk.trace import ReadableSpan
@@ -74,6 +84,18 @@ LONG_ENOUGH_TO_BE_IN_FLIGHT = 0.5
 # this waits for it to come back one way or the other.
 LONGER_THAN_THE_TEST_WILL_WAIT = 30.0
 LONG_ENOUGH_TO_HAVE_COME_BACK = 15.0
+# How long a client waits for a tool's answer before it takes the call to be
+# lost, in the cases about a call that got none - short, so they do not sit here.
+SOON_ENOUGH_TO_GIVE_UP = 0.5
+# And in every other case: longer than any tool here takes, the dawdle a closing
+# client ends included, so no case about something else meets the bound.
+PATIENT_PAST_ANY_CALL_HERE = 2 * LONGER_THAN_THE_TEST_WILL_WAIT
+# What a server counts at its first asking, which is the only asking a server
+# restarted beneath a client ever heard.
+THE_FIRST_ASKING_A_SERVER_HEARD = 1
+# A call asked once, and once more over a new session where the first got no
+# answer.
+BOTH_ASKINGS = 2
 
 SOMETHING = TypeAdapter(list[str])
 A_COUNT = TypeAdapter(int)
@@ -82,6 +104,22 @@ AN_ACTION_HEARD = TypeAdapter(dict[str, object])
 
 NOTHING_IS_LISTENING_HERE = "http://127.0.0.1:8199/mcp"
 DONT_CARE_TOOL = "say_something"
+# The double's tools a case names in what it asserts, as well as asks: one that
+# counts every asking; one that stalls at every asking; four that stall at the
+# first and, at every later one, refuse saying they left nothing, refuse as
+# changed since, answer, or refuse as a lost run; one that ends its server's
+# process on being asked; and the one that has the server forget a session
+# after the next ping it answers.
+COUNTING_TOOL = "count_an_asking"
+STALLING_TOOL = "stall"
+STALLING_THEN_LEAVING_NOTHING_TOOL = "stall_then_refuse_saying_it_left_nothing"
+STALLING_THEN_CHANGED_SINCE_TOOL = "stall_then_refuse_as_changed_since"
+STALLING_THEN_ANSWERING_TOOL = "stall_then_answer"
+STALLING_THEN_LOST_RUN_TOOL = "stall_then_refuse_as_lost_run"
+ENDING_THE_SERVER_TOOL = "end_the_server_on_being_asked"
+FORGETTING_AFTER_A_PING_TOOL = "forget_a_session_after_the_next_ping"
+# What `STALLING_THEN_ANSWERING_TOOL` answers its later askings with.
+WHAT_THE_SECOND_ASKING_ANSWERED = ["something"]
 # The platform the double's refusal names. A value the test owns rather than the
 # production spelling imported, because what is asserted is that whatever the
 # tier names travels intact - not that both sides agree with one constant.
@@ -120,7 +158,7 @@ def test_one_session_answers_every_call_made_over_it(
         .given(running_double) \
         .when(
             _asking(running_double, lambda client: [
-                client.call("say_something", SOMETHING.validate_python)
+                client.call(DONT_CARE_TOOL, SOMETHING.validate_python, asking=Asking.READ)
                 for _ in range(3)
             ])
         ) \
@@ -152,7 +190,11 @@ def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
                     "refuse_with_what_it_left", "refuse_as_lost_run",
                     "refuse_as_changed_since", "refuse_as_changed_since_after_the_change",
                     "the_fence_i_was_sent", "the_action_i_was_sent", "dawdle",
-                    "the_trace_i_am_in"
+                    COUNTING_TOOL, STALLING_TOOL, "times_stalled",
+                    STALLING_THEN_LEAVING_NOTHING_TOOL, STALLING_THEN_CHANGED_SINCE_TOOL,
+                    STALLING_THEN_ANSWERING_TOOL, STALLING_THEN_LOST_RUN_TOOL,
+                    "times_asked_stalling_first", ENDING_THE_SERVER_TOOL,
+                    FORGETTING_AFTER_A_PING_TOOL, "the_trace_i_am_in"
                 ]),
                 _the_tool_listed_requires("dawdle", ["seconds"]),
                 _the_tool_listed_is_described("refuse_as_exhausted",
@@ -526,6 +568,401 @@ def test_a_call_is_answered_after_the_server_it_was_held_to_restarted(
 
 
 @pytest.mark.component
+def test_a_call_not_to_be_asked_twice_finds_by_its_ping_that_the_server_restarted_and_runs_once(
+    running_double: RunningDouble
+) -> None:
+    """A server restarted beneath a held session is found restarted by the ping
+    sent before a call that must not run twice, and the call is sent once, over
+    a new session.
+
+    The new server answers the ping over a session it never opened with a 404,
+    so the held session is replaced before the call leaves this process. Read
+    any other way, a write server's routine restart would end the next restart
+    Argus asked for at a human. The count is the new server's own, which heard
+    the asking once.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, _counting_once_only_either_side_of_a_restart(running_double))
+        ) \
+        .then(
+            _the_count_is(THE_FIRST_ASKING_A_SERVER_HEARD)
+        )
+
+
+@pytest.mark.component
+def test_a_call_not_to_be_asked_twice_turned_away_as_over_a_session_not_held_runs_once(
+    running_double: RunningDouble,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    """A call that must not run twice, turned away over a session the server
+    forgot after answering its ping, is asked again over a new session - and
+    runs once.
+
+    The one failure after sending that proves the tool never ran: a server
+    answers a request over a session it does not hold with a 404, before any
+    tool is asked anything, and the SDK says so as "Session terminated". The
+    ping went through, so it is the call itself that meets it - which is what a
+    server restarted between the ping and the call does.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, _counting_once_only_over_a_session_forgotten_after_its_ping)
+        ) \
+        .then(all_of(
+            _the_count_is(THE_FIRST_ASKING_A_SERVER_HEARD),
+            one_record_was_logged(caplog, "core.mcp_transport", logging.WARNING,
+                                  "tool call asked again over a new session",
+                                  values={"tool": COUNTING_TOOL})
+        ))
+
+
+@pytest.mark.component
+def test_a_call_not_to_be_asked_twice_is_asked_again_where_no_session_could_be_had(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Nothing was sent: there was no session to send it over. So the call is
+    # asked again over a new one exactly as any call is, and fails as a server
+    # that could not be reached - which says nothing was done - rather than as a
+    # call lost after it was sent, which says nobody can tell.
+    Scenario() \
+        .when(
+            attempting(_asking_once_only_a_client_at(NOTHING_IS_LISTENING_HERE))
+        ) \
+        .then(all_of(
+            an_error_was_raised(McpUnreachable),
+            one_record_was_logged(caplog, "core.mcp_transport", logging.WARNING,
+                                  "tool call asked again over a new session",
+                                  values={"tool": DONT_CARE_TOOL},
+                                  failure=McpUnreachable)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_not_to_be_asked_twice_that_got_no_answer_is_lost_after_sending(
+    running_double: RunningDouble
+) -> None:
+    """A call the server received and never answered is not asked again when
+    asking again could do the thing twice.
+
+    A restart and a discard carry no mark a second asking could find, so a
+    second asking is a second restart. What the walk is told instead is that
+    the call was sent and nothing can say whether it was carried out - a type of
+    its own, because it is neither a tool's refusal (nothing answered) nor an
+    unreachable server (something was reached). The tool is named in it, for
+    whoever reads why the incident was handed over.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _stalling_once_only_and_counting(running_double))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(LostAfterSending),
+            _what_was_said_names(STALLING_TOOL),
+            _the_tool_was_asked(times=1)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_awaited_not_to_be_asked_twice_that_got_no_answer_is_lost_after_sending(
+    running_double: RunningDouble
+) -> None:
+    # The awaited surface takes the same word and keeps it the same way: a
+    # caller on an event loop is not a caller that may restart twice.
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _stalling_awaited_once_only_and_counting(running_double))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(LostAfterSending),
+            _the_tool_was_asked(times=1)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_not_to_be_asked_twice_over_a_session_whose_server_stopped_is_unreachable(
+    running_double: RunningDouble
+) -> None:
+    """A held session whose server has gone is found gone before the call is
+    sent, and the call fails as a server that could not be reached.
+
+    Sent, its POST is refused at the connection, which takes the transport down
+    and leaves the call to end as a call lost after it was sent - so a write
+    server stopped for a moment would hand the next restart Argus asked for to
+    a person, over a restart that never left this process. Nothing was sent,
+    and an unreachable server says exactly that.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _asking_once_only_after_the_server_stopped(running_double))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(McpUnreachable),
+            _what_was_raised_was_not(LostAfterSending)
+        ))
+
+
+@pytest.mark.unit
+def test_a_held_session_s_http_client_waits_to_read_as_long_as_an_answer_may() -> None:
+    # A tool written as a plain function says nothing on its stream until it
+    # returns. Read with httpx's own five seconds, or the SDK's five minutes,
+    # an answer the tier is still working on is dropped - and the SDK, which
+    # swallows a stream that ends, leaves the call waiting for it for ever.
+    some_bound = 690.0
+
+    Scenario() \
+        .when(
+            lambda: an_http_client_waiting(some_bound)
+        ) \
+        .then(
+            _it_waits_to_read_for(some_bound)
+        )
+
+
+@pytest.mark.component
+def test_a_held_session_is_opened_over_an_http_client_waiting_its_bound_and_closed_with_it(
+    running_double: RunningDouble
+) -> None:
+    # Built and then handed to the SDK, or the SDK builds one of its own that
+    # waits five minutes to read: an answer slower than that is dropped, and
+    # the call is left waiting for it for ever. So the session's requests travel
+    # over the client this built for the bound, and closing puts it down.
+    Scenario() \
+        .given(
+            running_double,
+            opened := _HttpClientsOpened()
+        ) \
+        .when(
+            _asking_over(running_double, opened, DONT_CARE_TOOL)
+        ) \
+        .then(all_of(
+            _one_was_opened_waiting(opened, PATIENT_PAST_ANY_CALL_HERE),
+            _the_session_travelled_over_it(opened, running_double.url),
+            _it_was_closed_with_the_client(opened)
+        ))
+
+
+@pytest.mark.component
+def test_a_change_that_may_be_asked_again_and_got_no_answer_either_time_is_lost_after_sending(
+    running_double: RunningDouble
+) -> None:
+    """A change that may be asked again is asked once more where it got no
+    answer - and where that asking got none either, it is lost after sending.
+
+    A write whose second asking finds its own mark is answered as made, so
+    asking again is how a lost answer is recovered. But the first asking was
+    sent, and may be carrying the change out still; a change no asking answered
+    says nothing can say whether it was carried out, as a change asked once
+    does, rather than raising the second asking's own failure.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double, _stalling_and_counting(running_double))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(LostAfterSending),
+            _the_tool_was_asked(times=BOTH_ASKINGS)
+        ))
+
+
+@pytest.mark.component
+def test_a_read_that_got_no_answer_either_time_raises_the_second_asking_s_failure(
+    running_double: RunningDouble
+) -> None:
+    """A read is asked once more where it got no answer, as a change that may be
+    asked again is - and where that asking got none either, it fails as the
+    second asking failed, not as lost after sending.
+
+    A read changes nothing: there is nothing out there that nobody can account
+    for, so nothing for "nothing can say whether it was carried out" to say.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _stalling_and_counting(running_double, kind=Asking.READ))
+        ) \
+        .then(all_of(
+            _what_was_raised_was_the_sdk_s_timeout(),
+            _what_was_raised_was_not(LostAfterSending),
+            _the_tool_was_asked(times=BOTH_ASKINGS)
+        ))
+
+
+@pytest.mark.component
+def test_a_change_that_may_be_asked_again_sent_and_unanswered_whose_server_then_went_is_lost(
+    running_double: RunningDouble
+) -> None:
+    """A change sent and left unanswered, whose server is gone by its second
+    asking, is lost after sending - not a server that could not be reached.
+
+    The second asking proves nothing was sent that time; the first was sent,
+    and the server may have carried it out before it went. An unreachable
+    server says nothing was done, which nobody here knows.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double, _asking_a_server_that_ends_on_being_asked)
+        ) \
+        .then(all_of(
+            _what_was_raised_was(LostAfterSending),
+            _what_was_raised_was_not(McpUnreachable)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_unanswered_and_then_refused_saying_it_left_nothing_is_lost_after_sending(
+    running_double: RunningDouble
+) -> None:
+    """A call whose first asking got no answer, and whose second the tier
+    refused before changing anything, is lost after sending.
+
+    The refusal speaks for the second asking alone: the first was sent, and may
+    be carrying the change out still. Raised as it came, it would tell the walk
+    nothing was left behind by a call that may have left a change.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _refused_after_a_stall(STALLING_THEN_LEAVING_NOTHING_TOOL))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(LostAfterSending),
+            _what_was_raised_was_not(McpToolError)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_unanswered_and_then_refused_as_changed_since_is_raised_as_it_came(
+    running_double: RunningDouble
+) -> None:
+    """A call whose first asking got no answer, and whose second found
+    somebody else acting on the service, is the refusal the second asking got,
+    carrying what it left.
+
+    Changed since is an answer about the world, whichever asking it came to:
+    the tier read the estate after whatever the first asking did, and says what
+    of this claim's it found landed. The walk escalates on it, as it does on
+    the first asking's.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _refused_after_a_stall(STALLING_THEN_CHANGED_SINCE_TOOL))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(ChangedSince),
+            _what_it_left_behind_is(WHAT_WAS_LEFT_BEHIND),
+            _what_was_raised_was_not(LostAfterSending)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_unanswered_and_then_answered_comes_back_with_the_second_asking_s_answer(
+    running_double: RunningDouble
+) -> None:
+    """A call whose first asking got no answer, and whose second was answered,
+    is that answer - asked twice, and lost neither time.
+
+    The second asking is how a lost answer is recovered: a write whose second
+    asking finds its own change answers as made, and that answer is the call's.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _asked_after_a_stall_and_counting(
+                                         running_double, STALLING_THEN_ANSWERING_TOOL))
+        ) \
+        .then(all_of(
+            _the_answer_is(WHAT_THE_SECOND_ASKING_ANSWERED),
+            _the_tool_was_asked(times=BOTH_ASKINGS)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_unanswered_and_then_refused_as_a_lost_run_is_the_lost_run(
+    running_double: RunningDouble
+) -> None:
+    """A call whose first asking got no answer, and whose second was refused
+    because the run had moved on, is the walk's own `RunLost`.
+
+    The run is lost whatever the first asking did, and the walk stops on it
+    writing nothing more - as it does on a first asking refused so.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _asked_after_a_stall_and_counting(
+                                         running_double, STALLING_THEN_LOST_RUN_TOOL))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(RunLost),
+            _the_tool_was_asked(times=BOTH_ASKINGS)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_whose_first_asking_never_ran_and_whose_second_got_no_answer_is_lost(
+    running_double: RunningDouble
+) -> None:
+    """A call that may be asked again, turned away over a session the restarted
+    server never opened, and asked again over a new one that got no answer, is
+    lost after sending - asked once.
+
+    The first asking provably never ran: the server answered "Session
+    terminated" before any tool was asked anything. The second was sent and may
+    be running still, which is all a lost call ever says.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _stalling_after_a_restart_and_counting(running_double))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(LostAfterSending),
+            _the_tool_was_asked(times=THE_FIRST_ASKING_A_SERVER_HEARD)
+        ))
+
+
+@pytest.mark.component
+def test_a_call_not_to_be_asked_twice_turned_away_and_then_unanswered_is_lost_asked_once(
+    running_double: RunningDouble
+) -> None:
+    """The same for a call that must not run twice: turned away over a session
+    the server forgot after answering its ping, asked again over a new one, and
+    left unanswered there - lost after sending, and asked once.
+
+    Asking again was safe because the first asking never ran; the second was
+    sent, so it is not asked a third time.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking_with_no_patience(running_double,
+                                     _stalling_once_only_over_a_session_forgotten(running_double))
+        ) \
+        .then(all_of(
+            _what_was_raised_was(LostAfterSending),
+            _the_tool_was_asked(times=THE_FIRST_ASKING_A_SERVER_HEARD)
+        ))
+
+
+@pytest.mark.component
 def test_a_server_that_cannot_be_reached_is_reported_as_unreachable() -> None:
     """Nothing listening is `McpUnreachable`, not a hang and not a tool error.
 
@@ -834,7 +1271,7 @@ def test_a_caller_that_already_has_an_event_loop_is_answered_rather_than_crashed
     Scenario() \
         .given(running_double) \
         .when(
-            _awaiting(running_double, "say_something")
+            _awaiting(running_double, DONT_CARE_TOOL)
         ) \
         .then(
             _the_answer_is(["something"])
@@ -1204,19 +1641,19 @@ class _Attempt(NamedTuple):
 
 def _refusing_once_and_counting(client: McpClient) -> _Attempt:
     try:
-        client.call("refuse", SOMETHING.validate_python)
+        client.call("refuse", SOMETHING.validate_python, asking=Asking.READ)
     except Exception as refusal:
         return _Attempt(
             raised=refusal,
-            asked=client.call("times_refused", A_COUNT.validate_python)
+            asked=client.call("times_refused", A_COUNT.validate_python, asking=Asking.READ)
         )
 
-    return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python))
+    return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python, asking=Asking.READ))
 
 
 def _refusing_without_a_word(client: McpClient) -> _Attempt:
     try:
-        client.call("refuse_without_a_word", SOMETHING.validate_python)
+        client.call("refuse_without_a_word", SOMETHING.validate_python, asking=Asking.READ)
     except Exception as refusal:
         return _Attempt(raised=refusal)
 
@@ -1225,18 +1662,18 @@ def _refusing_without_a_word(client: McpClient) -> _Attempt:
 
 def _refusing_as_a_lost_run_and_counting(client: McpClient) -> _Attempt:
     try:
-        client.call("refuse_as_lost_run", SOMETHING.validate_python)
+        client.call("refuse_as_lost_run", SOMETHING.validate_python, asking=Asking.READ)
     except Exception as refusal:
         return _Attempt(
             raised=refusal,
-            asked=client.call("times_refused", A_COUNT.validate_python)
+            asked=client.call("times_refused", A_COUNT.validate_python, asking=Asking.READ)
         )
 
-    return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python))
+    return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python, asking=Asking.READ))
 
 
 def _the_fence_sent(client: McpClient) -> object:
-    return client.call("the_fence_i_was_sent", A_FENCE_HEARD.validate_python)
+    return client.call("the_fence_i_was_sent", A_FENCE_HEARD.validate_python, asking=Asking.READ)
 
 
 def _the_fence_sent_while_holding(holding: Holding, held: Fence, client: McpClient) -> object:
@@ -1245,7 +1682,7 @@ def _the_fence_sent_while_holding(holding: Holding, held: Fence, client: McpClie
 
 
 def _the_action_sent(client: McpClient) -> object:
-    return client.call("the_action_i_was_sent", AN_ACTION_HEARD.validate_python)
+    return client.call("the_action_i_was_sent", AN_ACTION_HEARD.validate_python, asking=Asking.READ)
 
 
 def _the_action_sent_while_acting_for(holding: Holding,
@@ -1261,7 +1698,11 @@ def _asking_while_holding[T](double: RunningDouble,
                              ask: Callable[[McpClient], T]) -> Callable[[], T]:
     """`_asking`, with `held` held by the process for the length of the call."""
     def step() -> T:
-        with McpClient(double.url, holding=holding) as client, holding.of(held):
+        with (
+            McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE,
+                      holding=holding) as client,
+            holding.of(held)
+        ):
             return ask(client)
 
     return step
@@ -1272,7 +1713,8 @@ def _asking_holding[T](double: RunningDouble,
                        ask: Callable[[McpClient], T]) -> Callable[[], T]:
     """`_asking`, by a client handed `holding` - or handed none."""
     def step() -> T:
-        with McpClient(double.url, holding=holding) as client:
+        with McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE,
+                       holding=holding) as client:
             return ask(client)
 
     return step
@@ -1280,19 +1722,21 @@ def _asking_holding[T](double: RunningDouble,
 
 def _refusing_then_asking_something_else(client: McpClient) -> _Attempt:
     with suppress(McpToolError):
-        client.call("refuse", SOMETHING.validate_python)
+        client.call("refuse", SOMETHING.validate_python, asking=Asking.READ)
 
-    return _Attempt(answer=client.call("say_something", SOMETHING.validate_python))
+    return _Attempt(answer=client.call(DONT_CARE_TOOL, SOMETHING.validate_python,
+                                       asking=Asking.READ))
 
 
 def _asking_either_side_of_a_restart(
     double: RunningDouble
 ) -> Callable[[McpClient], _Attempt]:
     def both_calls(client: McpClient) -> _Attempt:
-        client.call("say_something", SOMETHING.validate_python)
+        client.call(DONT_CARE_TOOL, SOMETHING.validate_python, asking=Asking.READ)
         double.restart()
 
-        return _Attempt(answer=client.call("say_something", SOMETHING.validate_python))
+        return _Attempt(answer=client.call(DONT_CARE_TOOL, SOMETHING.validate_python,
+                                           asking=Asking.READ))
 
     return both_calls
 
@@ -1301,7 +1745,7 @@ def _asking[T](double: RunningDouble,
                ask: Callable[[McpClient], T]) -> Callable[[], T]:
     """One client to the double, held for one `when` and closed after it."""
     def step() -> T:
-        with McpClient(double.url) as client:
+        with McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE) as client:
             return ask(client)
 
     return step
@@ -1309,19 +1753,352 @@ def _asking[T](double: RunningDouble,
 
 def _asking_a_client_at(url: str) -> Callable[[], object]:
     def step() -> object:
-        with McpClient(url) as client:
-            return client.call(DONT_CARE_TOOL, SOMETHING.validate_python)
+        with McpClient(url, answered_within=PATIENT_PAST_ANY_CALL_HERE) as client:
+            return client.call(DONT_CARE_TOOL, SOMETHING.validate_python, asking=Asking.READ)
 
     return step
+
+
+def _asking_once_only_a_client_at(url: str) -> Callable[[], object]:
+    def step() -> object:
+        with McpClient(url, answered_within=PATIENT_PAST_ANY_CALL_HERE) as client:
+            return client.call(DONT_CARE_TOOL, SOMETHING.validate_python,
+                               asking=Asking.CHANGE_ASKED_ONCE)
+
+    return step
+
+
+def _asking_with_no_patience[T](double: RunningDouble,
+                                ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """`_asking`, by a client that takes a call to be lost once it has waited
+    `SOON_ENOUGH_TO_GIVE_UP` for the answer."""
+    def step() -> T:
+        with McpClient(double.url, answered_within=SOON_ENOUGH_TO_GIVE_UP) as client:
+            return ask(client)
+
+    return step
+
+
+def _counting_once_only_either_side_of_a_restart(
+    double: RunningDouble
+) -> Callable[[McpClient], _Attempt]:
+    """One asking over a session, the server restarted beneath it, and one more
+    over the session the client still holds - neither to be asked twice."""
+    def both_askings(client: McpClient) -> _Attempt:
+        client.call(COUNTING_TOOL, A_COUNT.validate_python, asking=Asking.CHANGE_ASKED_ONCE)
+        double.restart()
+
+        try:
+            return _Attempt(answer=client.call(COUNTING_TOOL, A_COUNT.validate_python,
+                                               asking=Asking.CHANGE_ASKED_ONCE))
+        except Exception as failed:
+            return _Attempt(raised=failed)
+
+    return both_askings
+
+
+def _counting_once_only_over_a_session_forgotten_after_its_ping(client: McpClient) -> _Attempt:
+    """The server told to forget the session its next ping is answered over,
+    and one asking not to be asked twice - which pings first, over the session
+    the client holds."""
+    client.call(FORGETTING_AFTER_A_PING_TOOL, SOMETHING.validate_python, asking=Asking.READ)
+
+    try:
+        return _Attempt(answer=client.call(COUNTING_TOOL, A_COUNT.validate_python,
+                                           asking=Asking.CHANGE_ASKED_ONCE))
+    except Exception as failed:
+        return _Attempt(raised=failed)
+
+
+def _times_stalled_on(double: RunningDouble) -> int:
+    """How many askings of `STALLING_TOOL` the double counted, asked by a client
+    of its own that waits past any answer here - so a slow count is an answer,
+    never a failure of the case it is counted for."""
+    with McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE) as counting:
+        return counting.call("times_stalled", A_COUNT.validate_python, asking=Asking.READ)
+
+
+def _on_a_daemon_thread(call: Callable[[], object]) -> _Attempt:
+    """`call` made on a daemon thread, and waited for no longer than
+    `LONG_ENOUGH_TO_HAVE_COME_BACK` - for `_closing_while_a_call_is_in_flight`'s
+    reason: a client that strands a stalled call fails the case, rather than
+    holding the test thread, and the suite, for ever."""
+    answered: queue.Queue[_Attempt] = queue.Queue()
+
+    def call_and_report() -> None:
+        try:
+            answered.put(_Attempt(answer=call()))
+        except Exception as failed:
+            answered.put(_Attempt(raised=failed))
+
+    threading.Thread(target=call_and_report, daemon=True).start()
+
+    try:
+        return answered.get(timeout=LONG_ENOUGH_TO_HAVE_COME_BACK)
+    except Empty:
+        raise AssertionError("The stalled call never came back: it was stranded.") from None
+
+
+def _stalling_once_only_and_counting(double: RunningDouble) -> Callable[[McpClient], _Attempt]:
+    def stalling(client: McpClient) -> _Attempt:
+        attempt = _on_a_daemon_thread(lambda: client.call(
+            STALLING_TOOL, SOMETHING.validate_python, asking=Asking.CHANGE_ASKED_ONCE,
+            seconds=LONGER_THAN_THE_TEST_WILL_WAIT
+        ))
+
+        return attempt._replace(asked=_times_stalled_on(double))
+
+    return stalling
+
+
+def _stalling_awaited_once_only_and_counting(
+    double: RunningDouble
+) -> Callable[[McpClient], _Attempt]:
+    def stalling(client: McpClient) -> _Attempt:
+        async def from_inside_a_loop() -> object:
+            return await client.acall(STALLING_TOOL, SOMETHING.validate_python,
+                                      asking=Asking.CHANGE_ASKED_ONCE,
+                                      seconds=LONGER_THAN_THE_TEST_WILL_WAIT)
+
+        attempt = _on_a_daemon_thread(lambda: asyncio.run(from_inside_a_loop()))
+
+        return attempt._replace(asked=_times_stalled_on(double))
+
+    return stalling
+
+
+def _stalling_and_counting(double: RunningDouble,
+                           kind: Asking = Asking.CHANGE) -> Callable[[McpClient], _Attempt]:
+    """`STALLING_TOOL` asked as `kind` of call - a change that may be asked
+    again, unless a case names a read - with how many askings the double
+    counted."""
+    def stalling(client: McpClient) -> _Attempt:
+        attempt = _on_a_daemon_thread(lambda: client.call(
+            STALLING_TOOL, SOMETHING.validate_python, asking=kind,
+            seconds=LONGER_THAN_THE_TEST_WILL_WAIT
+        ))
+
+        return attempt._replace(asked=_times_stalled_on(double))
+
+    return stalling
+
+
+def _refused_after_a_stall(tool: str) -> Callable[[McpClient], _Attempt]:
+    """`tool` asked once, as a change that may be asked again: its first asking
+    stalls past what the client waits, and its second is refused."""
+    def asking(client: McpClient) -> _Attempt:
+        return _on_a_daemon_thread(lambda: client.call(
+            tool, SOMETHING.validate_python, asking=Asking.CHANGE,
+            seconds=LONGER_THAN_THE_TEST_WILL_WAIT
+        ))
+
+    return asking
+
+
+def _times_asked_stalling_first_on(double: RunningDouble) -> int:
+    """How many askings the double's tools that stall at the first counted,
+    asked as `_times_stalled_on` asks."""
+    with McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE) as counting:
+        return counting.call("times_asked_stalling_first", A_COUNT.validate_python,
+                             asking=Asking.READ)
+
+
+def _asked_after_a_stall_and_counting(double: RunningDouble,
+                                      tool: str) -> Callable[[McpClient], _Attempt]:
+    """`tool` asked once, as a change that may be asked again: its first asking
+    stalls past what the client waits, and its second is answered or refused -
+    with how many askings the double counted."""
+    def asking(client: McpClient) -> _Attempt:
+        attempt = _on_a_daemon_thread(lambda: client.call(
+            tool, SOMETHING.validate_python, asking=Asking.CHANGE,
+            seconds=LONGER_THAN_THE_TEST_WILL_WAIT
+        ))
+
+        return attempt._replace(asked=_times_asked_stalling_first_on(double))
+
+    return asking
+
+
+def _stalling_after_a_restart_and_counting(
+    double: RunningDouble
+) -> Callable[[McpClient], _Attempt]:
+    """A session opened, the server restarted beneath it, and `STALLING_TOOL`
+    asked over it as a change that may be asked again: turned away there, and
+    asked again over a new session where it stalls."""
+    def asking(client: McpClient) -> _Attempt:
+        client.call(DONT_CARE_TOOL, SOMETHING.validate_python, asking=Asking.READ)
+        double.restart()
+        attempt = _on_a_daemon_thread(lambda: client.call(
+            STALLING_TOOL, SOMETHING.validate_python, asking=Asking.CHANGE,
+            seconds=LONGER_THAN_THE_TEST_WILL_WAIT
+        ))
+
+        return attempt._replace(asked=_times_stalled_on(double))
+
+    return asking
+
+
+def _stalling_once_only_over_a_session_forgotten(
+    double: RunningDouble
+) -> Callable[[McpClient], _Attempt]:
+    """The server told to forget the session its next ping is answered over, and
+    `STALLING_TOOL` asked as a call not to be asked twice: its ping answered,
+    the call turned away over the forgotten session, and asked again over a new
+    one where it stalls."""
+    def asking(client: McpClient) -> _Attempt:
+        client.call(FORGETTING_AFTER_A_PING_TOOL, SOMETHING.validate_python, asking=Asking.READ)
+        attempt = _on_a_daemon_thread(lambda: client.call(
+            STALLING_TOOL, SOMETHING.validate_python, asking=Asking.CHANGE_ASKED_ONCE,
+            seconds=LONGER_THAN_THE_TEST_WILL_WAIT
+        ))
+
+        return attempt._replace(asked=_times_stalled_on(double))
+
+    return asking
+
+
+def _asking_a_server_that_ends_on_being_asked(client: McpClient) -> _Attempt:
+    """`ENDING_THE_SERVER_TOOL` asked as a change that may be asked again: its
+    server is gone the moment it has the asking, so the second asking finds no
+    server."""
+    return _on_a_daemon_thread(lambda: client.call(ENDING_THE_SERVER_TOOL,
+                                                   SOMETHING.validate_python,
+                                                   asking=Asking.CHANGE))
+
+
+def _asking_once_only_after_the_server_stopped(
+    double: RunningDouble
+) -> Callable[[McpClient], _Attempt]:
+    """One asking over a session, the server stopped beneath it, and one more
+    over the session the client still holds - not to be asked twice."""
+    def both_askings(client: McpClient) -> _Attempt:
+        client.call(DONT_CARE_TOOL, SOMETHING.validate_python, asking=Asking.READ)
+        double.stop()
+
+        try:
+            return _Attempt(answer=client.call(DONT_CARE_TOOL, SOMETHING.validate_python,
+                                               asking=Asking.CHANGE_ASKED_ONCE))
+        except Exception as failed:
+            return _Attempt(raised=failed)
+
+    return both_askings
+
+
+def _it_waits_to_read_for(seconds: float) -> Assertion[httpx.AsyncClient]:
+    def assertion(http_client: httpx.AsyncClient) -> bool:
+        waits = http_client.timeout.read
+
+        if waits != seconds:
+            raise AssertionError(
+                f"Expected the HTTP client to wait [{seconds}]s to read, it waits [{waits}]s."
+            )
+
+        return True
+
+    return assertion
+
+
+class _HttpClientsOpened:
+    """Every HTTP client a held session was opened over: each as the
+    transport's own `an_http_client_waiting` builds it, what it was asked to
+    wait, and every request it carried."""
+
+    def __init__(self) -> None:
+        self.waiting: list[float] = []
+        self.clients: list[httpx.AsyncClient] = []
+        self.carried: list[str] = []
+
+    def __call__(self, answered_within: float) -> httpx.AsyncClient:
+        self.waiting.append(answered_within)
+        http_client = an_http_client_waiting(answered_within)
+        http_client.event_hooks = {"request": [self._carrying], "response": []}
+        self.clients.append(http_client)
+
+        return http_client
+
+    async def _carrying(self, request: httpx.Request) -> None:
+        self.carried.append(str(request.url))
+
+
+def _asking_over(double: RunningDouble,
+                 opened: _HttpClientsOpened,
+                 tool: str) -> Callable[[], object]:
+    """One call, by a client whose sessions are opened over what `opened`
+    builds, closed once it is answered."""
+    def step() -> object:
+        with McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE,
+                       http_client_waiting=opened) as client:
+            return client.call(tool, SOMETHING.validate_python, asking=Asking.READ)
+
+    return step
+
+
+def _one_was_opened_waiting(opened: _HttpClientsOpened, seconds: float) -> Assertion[object]:
+    def assertion(dont_care_answer: object) -> bool:
+        if opened.waiting != [seconds]:
+            raise AssertionError(
+                f"Expected one HTTP client opened, waiting [{seconds}]s to read, and the "
+                f"ones opened were asked to wait {opened.waiting}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_session_travelled_over_it(opened: _HttpClientsOpened, url: str) -> Assertion[object]:
+    def assertion(dont_care_answer: object) -> bool:
+        if not opened.carried or set(opened.carried) != {url}:
+            raise AssertionError(
+                f"Expected the session's requests carried to [{url}] over the HTTP client "
+                f"opened for it, and it carried {opened.carried}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_closed_with_the_client(opened: _HttpClientsOpened) -> Assertion[object]:
+    def assertion(dont_care_answer: object) -> bool:
+        still_open = [http_client for http_client in opened.clients if not http_client.is_closed]
+
+        if still_open:
+            raise AssertionError(
+                f"Expected every HTTP client opened closed with the client, and "
+                f"{len(still_open)} of {len(opened.clients)} were still open."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_count_is(expected: int) -> Assertion[_Attempt]:
+    def assertion(attempt: _Attempt) -> bool:
+        if attempt.raised is not None:
+            raise AssertionError(
+                f"Expected the server to count [{expected}], but {attempt.raised!r} was raised."
+            )
+
+        if attempt.answer != expected:
+            raise AssertionError(
+                f"Expected the server to count [{expected}], it counted [{attempt.answer}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _awaiting(double: RunningDouble, tool: str) -> Callable[[], _Attempt]:
     """The same call, made from inside a running event loop."""
     async def from_inside_a_loop(client: McpClient) -> _Attempt:
-        return _Attempt(answer=await client.acall(tool, SOMETHING.validate_python))
+        return _Attempt(answer=await client.acall(tool, SOMETHING.validate_python,
+                                                  asking=Asking.READ))
 
     def step() -> _Attempt:
-        with McpClient(double.url) as client:
+        with McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE) as client:
             return asyncio.run(from_inside_a_loop(client))
 
     return step
@@ -1361,6 +2138,24 @@ def _what_was_raised_was(expected: type[BaseException]) -> Assertion[_Attempt]:
         if not isinstance(attempt.raised, expected):
             raise AssertionError(
                 f"Expected {expected.__name__} to be raised, got {attempt.raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_raised_was_the_sdk_s_timeout() -> Assertion[_Attempt]:
+    """The SDK's own failure for an answer not come back in time: an `McpError`
+    whose code is HTTP's request timeout (`mcp/shared/session.py`,
+    `send_request`)."""
+    def assertion(attempt: _Attempt) -> bool:
+        raised = attempt.raised
+
+        if not isinstance(raised, McpError) or raised.error.code != httpx.codes.REQUEST_TIMEOUT:
+            raise AssertionError(
+                f"Expected the SDK's timeout raised - McpError with code "
+                f"[{httpx.codes.REQUEST_TIMEOUT}] - got {raised!r}."
             )
 
         return True
@@ -1428,10 +2223,10 @@ def _closing_while_a_call_is_in_flight(
     suite open at interpreter exit.
     """
     def step() -> _Attempt:
-        client = McpClient(double.url)
+        client = McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE)
         # Opened before the thread starts, so what the close races is a call
         # over a session rather than the opening of one.
-        client.call("say_something", SOMETHING.validate_python)
+        client.call(DONT_CARE_TOOL, SOMETHING.validate_python, asking=Asking.READ)
         answered: queue.Queue[_Attempt] = queue.Queue()
 
         def call_and_report() -> None:
@@ -1439,6 +2234,7 @@ def _closing_while_a_call_is_in_flight(
                 answered.put(_Attempt(answer=client.call(
                     "dawdle",
                     SOMETHING.validate_python,
+                    asking=Asking.READ,
                     seconds=LONGER_THAN_THE_TEST_WILL_WAIT
                 )))
             except Exception as failed:
@@ -1460,7 +2256,7 @@ def _closing_while_a_call_is_in_flight(
 
 def _refusing_as_exhausted(client: McpClient) -> _Attempt:
     try:
-        client.call("refuse_as_exhausted", SOMETHING.validate_python)
+        client.call("refuse_as_exhausted", SOMETHING.validate_python, asking=Asking.READ)
     except Exception as refusal:
         return _Attempt(raised=refusal)
 
@@ -1469,25 +2265,26 @@ def _refusing_as_exhausted(client: McpClient) -> _Attempt:
 
 def _refusing_as_an_unreachable_platform(client: McpClient) -> _Attempt:
     try:
-        client.call("refuse_as_unreachable_platform", SOMETHING.validate_python)
+        client.call("refuse_as_unreachable_platform", SOMETHING.validate_python, asking=Asking.READ)
     except Exception as refusal:
         return _Attempt(raised=refusal)
 
     return _Attempt()
 
 
-def _what_was_said_names(platform: str) -> Assertion[_Attempt]:
-    """The platform is in the words, for whoever reads the failure.
+def _what_was_said_names(name: str) -> Assertion[_Attempt]:
+    """`name` is in the words, for whoever reads the failure - the platform
+    that went, or the tool whose answer was lost.
 
     Asserted separately from the type because the two carry different halves: the
     type is what a walk branches on, and the words are what a person reads. A
-    platform named only in the type would leave the message saying which action
-    failed and not which platform took it away.
+    name carried only by the type would leave the message saying something
+    failed and not what.
     """
     def assertion(attempt: _Attempt) -> bool:
-        if platform not in str(attempt.raised):
+        if name not in str(attempt.raised):
             raise AssertionError(
-                f"Expected the failure to name {platform!r}, "
+                f"Expected the failure to name {name!r}, "
                 f"and it said: {attempt.raised!r}."
             )
 
@@ -1525,7 +2322,8 @@ def _refusing_as_an_unreachable_platform_that_changed_something(
 ) -> _Attempt:
     try:
         client.call(
-            "refuse_as_unreachable_platform_mid_action", SOMETHING.validate_python
+            "refuse_as_unreachable_platform_mid_action", SOMETHING.validate_python,
+            asking=Asking.READ
         )
     except Exception as refusal:
         return _Attempt(raised=refusal)
@@ -1580,7 +2378,7 @@ def _it_left_nothing_behind() -> Assertion[_Attempt]:
 def _refusing_with(tool: str) -> Callable[[McpClient], _Attempt]:
     def ask(client: McpClient) -> _Attempt:
         try:
-            client.call(tool, SOMETHING.validate_python)
+            client.call(tool, SOMETHING.validate_python, asking=Asking.READ)
         except Exception as refusal:
             return _Attempt(raised=refusal)
 
@@ -1681,7 +2479,7 @@ def _asking_while_observed(double: RunningDouble,
     """
     def ask() -> object:
         with _a_client_reporting_to(double, observed, clock) as client:
-            return client.call(tool, lambda answer: answer)
+            return client.call(tool, lambda answer: answer, asking=Asking.READ)
 
     if inside is None:
         return ask()
@@ -1694,9 +2492,11 @@ def _a_client_reporting_to(double: RunningDouble,
                            observed: Observed,
                            clock: Any) -> McpClient:
     if clock is None:
-        return McpClient(double.url, tracer=observed.tracer, meter=observed.meter)
+        return McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE,
+                         tracer=observed.tracer, meter=observed.meter)
 
-    return McpClient(double.url, tracer=observed.tracer, meter=observed.meter, clock=clock)
+    return McpClient(double.url, answered_within=PATIENT_PAST_ANY_CALL_HERE,
+                     tracer=observed.tracer, meter=observed.meter, clock=clock)
 
 
 def _served_while_observed(observed: Observed, meta: dict[str, str] | None) -> None:
