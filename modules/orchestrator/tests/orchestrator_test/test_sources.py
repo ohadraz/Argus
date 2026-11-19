@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import Mock, create_autospec
 
+import httpx
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
@@ -23,6 +24,8 @@ from core import Connections, get_settings, to_iso
 from core.anomaly import AnomalyThresholds
 from core.mcp_transport import McpClient, McpToolError, McpUnreachable
 from core.models import AlertRuleStanding, MetricBucket
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 from orchestrator.sources import the_real_sources
 from pay_band_source import PayBandsUnavailable
 from postmortem_writing import Sources
@@ -30,6 +33,8 @@ from postmortem_writing import Sources
 DONT_CARE_START = datetime(2026, 9, 2, 11, 0, tzinfo=UTC)
 DONT_CARE_END = datetime(2026, 9, 2, 12, 30, tzinfo=UTC)
 DONT_CARE_INCIDENT_ID = "kuki-123"
+# What a read that failed says, which nothing here reads.
+SOME_FAILURE = "some failure"
 
 # Unread by the metrics port, but `Sources` carries them and has no default.
 DONT_CARE_THRESHOLDS = AnomalyThresholds(
@@ -154,15 +159,19 @@ def test_the_paging_rule_is_asked_of_the_read_tier() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("failure", [McpToolError("some failure"),
-                                     McpUnreachable("some failure")],
-                         ids=["tool-failed", "unreachable"])
+@pytest.mark.parametrize("failure", [McpToolError(SOME_FAILURE),
+                                     McpUnreachable(SOME_FAILURE),
+                                     McpError(ErrorData(code=httpx.codes.REQUEST_TIMEOUT,
+                                                        message=SOME_FAILURE))],
+                         ids=["tool-failed", "unreachable", "timed-out"])
 def test_a_rule_the_read_tier_cannot_read_is_answered_as_unread(
     failure: Exception,
     caplog: pytest.LogCaptureFixture
 ) -> None:
     # `None`, never a standing made up: a rule that fires at once and one nobody
-    # could read are told to the model differently.
+    # could read are told to the model differently. A read that got no answer
+    # in time - which the SDK raises as its own timeout, asked twice - read the
+    # rule no more than one refused; raised instead, it loses the postmortem.
     Scenario() \
         .given(read := _a_session_whose_tool_fails(failure)) \
         .when(lambda: _the_sources_over(read).alert_rule("dont-care-rule")) \

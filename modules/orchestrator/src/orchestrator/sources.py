@@ -31,7 +31,7 @@ from functools import partial
 
 from core import Connections, Settings, to_iso
 from core.anomaly import AnomalyThresholds
-from core.mcp_transport import McpClient, McpToolError, McpUnreachable
+from core.mcp_transport import McpClient
 from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
@@ -314,12 +314,15 @@ def _the_alert_rule(rule: str, *, client: McpClient) -> AlertRuleStanding | None
     with its condition holding before it fires, and the series it watches -
     over the session the metrics are read on.
 
-    `None` where the tier could not read the rule, never a standing made up: a
-    rule that fires at once and one nobody could read are told differently.
+    `None` where the tier could not read the rule, however the read failed -
+    a refusal, no server, or an answer that never came back in time - never a
+    standing made up: a rule that fires at once and one nobody could read are
+    told differently, and a postmortem is written without the rule rather than
+    lost for want of it.
     """
     try:
         return get_alert_rule(rule, client=client)
-    except (McpToolError, McpUnreachable):
+    except Exception:
         logger.warning("alert rule could not be read", exc_info=True, extra={"rule": rule})
 
         return None
