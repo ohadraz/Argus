@@ -19,12 +19,19 @@ tier holds. Nothing above the port could have named it honestly: a target is
 meaningless without the count it replaces, and an agent asserting one would be
 asserting a fact no evidence in front of it carries.
 
+Planned before it is made. The plan reads the count and whether the platform is
+reconciling the application, works out the count to ask for, is dated by the
+platform's own clock, and changes nothing - so a claim can carry it before
+anything in the estate moves. The write takes the plan rather than working it out
+again, and reads the platform once more before it writes: what it finds decides
+whether the change is still to be made, was already made under this claim's mark,
+or has been overtaken by somebody's change since.
+
 Several asks rather than one, because the platform's own rules make it so. The
-live Deployment is read for the count. The platform is asked whether it is
-reconciling the application, which is then suspended - Argo CD puts a live replica
-count straight back at its next sync, so a scale-out taken under automated sync is
-a mitigation with a timer on it and a service that returns to saturation at a
-moment nothing in the record explains. Only then is the action run.
+reconciliation is suspended before the count is written - Argo CD puts a live
+replica count straight back at its next sync, so a scale-out taken under automated
+sync is a mitigation with a timer on it and a service that returns to saturation
+at a moment nothing in the record explains. Only then is the action run.
 
 Reconciliation is one instance of a general rule and not the rule itself:
 **anything that re-derives the state a mitigation just set has to be suspended or
@@ -65,11 +72,26 @@ import logging
 from collections.abc import Callable
 from typing import Final
 
-from core.mcp_transport import an_exhausted_action
-from core.models import CapacityRestored, ReplicaUndo
-from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites, Mark
+from core.mcp_transport import (
+    a_change_made_since,
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
+)
+from core.models import CapacityRestored, Planned, ReplicaUndo
+from deployment_platform import (
+    DeploymentPlatformError,
+    DeploymentPlatformWrites,
+    Mark,
+    MarkedObject,
+)
 
 from write_mcp_server.refusing import a_platform_refusal
+from write_mcp_server.sync_switch import (
+    Switch,
+    suspend_where_it_is_to_be,
+    the_switch,
+    this_claim_s_suspension_stands,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,11 +143,9 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
     ))
 
 
-def scale_out(application: str,
-              platform: DeploymentPlatformWrites,
-              mark: Mark) -> ReplicaUndo:
-    """Doubles what `application` is running, and reports what that cost - every
-    write carrying `mark`.
+def plan_scale_out(application: str, platform: DeploymentPlatformWrites) -> Planned[ReplicaUndo]:
+    """The scale-out of `application` to make, worked out and dated - and
+    nothing changed.
 
     Doubling rather than a figure somebody chose: what a saturated deployment
     needs is more capacity than it has, and the multiple of its current size is
@@ -138,14 +158,11 @@ def scale_out(application: str,
     that cannot say it is refused rather than guessed - a guess of one would
     halve a shop serving three.
 
-    Raises rather than half-succeeding. A deployment already at the ceiling raises
-    before anything is touched; a platform that refuses the action raises after
-    sync was suspended, and that is deliberate for the reason the rollback's is -
-    the suspension is recorded nowhere yet, so leaving it in place and saying so is
-    honest where quietly restoring it would hide a state somebody has to know
-    about.
+    Dated by the platform's clock, read before anything it dates. A deployment
+    already at the ceiling raises here, before a claim is written for it.
     """
     try:
+        since = platform.now(application)
         running = platform.rollout_of(application).replicas_wanted
     except DeploymentPlatformError as error:
         raise _refusing(
@@ -153,14 +170,7 @@ def scale_out(application: str,
             asked_to_change=False
         ) from error
 
-    if running >= THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR:
-        raise AlreadyAtItsLargest(
-            an_exhausted_action(
-                f"[{application}] is running [{running}] replicas, which is as "
-                f"large as Argus may make it "
-                f"([{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}])"
-            )
-        )
+    _refuse_where_it_is_as_large_as_it_may_be(application, running)
 
     try:
         was_syncing_itself = platform.is_syncing_itself(application)
@@ -170,46 +180,164 @@ def scale_out(application: str,
             asked_to_change=False
         ) from error
 
-    # Apart from the read before it, because this is the first change asked
-    # for: a failure here may have suspended the sync, where one there cannot.
-    if was_syncing_itself:
-        try:
-            platform.suspend_sync(application, mark)
-        except DeploymentPlatformError as error:
-            raise _refusing(
-                f"could not suspend the sync of [{application}]: {error}", error,
-                asked_to_change=True
-            ) from error
-
-    # Built before the action rather than after it, because it describes what
-    # has already been changed: where sync was suspended, this is what a caller
-    # has to put back whether the count then moves or the platform vanishes.
-    undo = ReplicaUndo(
-        application=application,
-        was_replicas=running,
-        replicas_asked_for=_twice(running),
-        was_syncing_itself=was_syncing_itself
+    return Planned(
+        descriptor=ReplicaUndo(
+            application=application,
+            was_replicas=running,
+            replicas_asked_for=_twice(running),
+            was_syncing_itself=was_syncing_itself
+        ),
+        since=since
     )
 
+
+def scale_out(planned: Planned[ReplicaUndo],
+              platform: DeploymentPlatformWrites,
+              mark: Mark) -> ReplicaUndo:
+    """Makes the scale-out `planned` describes, where the platform still stands
+    as the plan found it, and reports what that cost - every write carrying
+    `mark`.
+
+    Every comparison is made before anything is written. A count still the one
+    the plan found, under no mark of this claim's, is written; the count the plan
+    asked for under this claim's mark is this scale-out already made, answered
+    with the plan and nothing written twice; anything else is somebody's change
+    since, refused with nothing written - carrying the plan where this claim's
+    marks show part of it landed. The sync switch is held to the same rule
+    (`sync_switch`).
+
+    Under an autoscaler the count is the controller's to move, so it is no
+    evidence either way: this claim's mark alone says the scale-out was made, and
+    a count moved since the plan is doubled from where it is now - refused as
+    exhausted where that is already as large as Argus may make it.
+
+    The plan is held to this tier's own rule again here rather than trusted - a
+    doubling of the count it found, within the ceiling, and larger than that
+    count - and refused plainly, nothing written, where it is not: the plan is
+    the caller's data, and the rule is this tier's.
+
+    Raises rather than half-succeeding. A platform that refuses the action after
+    sync was suspended leaves the suspension in place and says so - quietly
+    restoring it would hide a state somebody has to know about.
+    """
+    descriptor = planned.descriptor
+    application = descriptor.application
+    asked_for = descriptor.replicas_asked_for
+
+    # The plan is held to this tier's own rule from its own "was": a doubling,
+    # bounded by the ceiling, and larger than what it found.
+    if asked_for is None or asked_for != _twice(descriptor.was_replicas) or (
+            asked_for <= descriptor.was_replicas):
+        raise ScaleRefused(a_refusal_saying_what_it_left(
+            f"the scale-out of [{application}] asks for [{asked_for}] replicas from "
+            f"[{descriptor.was_replicas}], which is not twice that within the "
+            f"[{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}] Argus may ask for"
+        ))
+
     try:
-        platform.scale(application, _twice(running), mark)
+        running = platform.rollout_of(application).replicas_wanted
+        autoscaler = platform.autoscaler_of(application)
+        syncing_now = platform.is_syncing_itself(application)
+        count_marked_by = platform.mark_on(application, MarkedObject.DEPLOYMENT)
+        switch_marked_by = platform.mark_on(application, MarkedObject.APPLICATION)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not read what [{application}] is now: {error}", error,
+            asked_to_change=False
+        ) from error
+
+    # What of this claim's is out there is worked out before any refusal that
+    # follows the reads, so every one of them carries it.
+    count_landed = count_marked_by == mark.action_id
+    left_behind = descriptor if count_landed or this_claim_s_suspension_stands(
+        descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
+    ) else None
+
+    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
+    # Under an autoscaler a count says nothing of whose it is: the controller
+    # moves it within a sync period of any write.
+    made = count_landed and (autoscaler is not None or running == asked_for)
+    still_as_found = not count_landed and (
+        autoscaler is not None or running == descriptor.was_replicas
+    )
+
+    if switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
+            made and switch is Switch.TO_SUSPEND):
+        raise ScaleRefused(a_change_made_since(
+            f"[{application}] is asked to run [{running}] replicas and "
+            f"{'is' if syncing_now else 'is not'} syncing itself, which is not where "
+            f"the scale-out from [{descriptor.was_replicas}] to [{asked_for}] found "
+            f"it or would leave it",
+            left_behind,
+            performed=count_landed
+        ))
+
+    if made:
+        logger.info("deployment already scaled out", extra={
+            "application": application, "to_replicas": asked_for
+        })
+        return descriptor
+
+    undo, to_replicas = descriptor, asked_for
+
+    if running != descriptor.was_replicas:
+        # The autoscaler moved it since the plan, and that is its routine move
+        # rather than somebody's: the scale-out doubles from where it is now.
+        if left_behind is not None and running >= THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR:
+            # Spent, but not untouched: this claim's suspension stands, and an
+            # exhausted action says it left nothing. Refused plainly instead,
+            # carrying the plan that puts it back.
+            raise ScaleRefused(a_refusal_saying_what_it_left(
+                f"[{application}] is running [{running}] replicas, which is as "
+                f"large as Argus may make it ([{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}])",
+                left_behind
+            ))
+
+        _refuse_where_it_is_as_large_as_it_may_be(application, running)
+        to_replicas = _twice(running)
+        undo = descriptor.model_copy(update={
+            "was_replicas": running, "replicas_asked_for": to_replicas
+        })
+
+    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
+
+    try:
+        platform.scale(application, to_replicas, mark)
     except DeploymentPlatformError as error:
         logger.warning("scale-out refused", extra={
-            "application": application, "sync_suspended": was_syncing_itself
+            "application": application, "sync_suspended": undo.was_syncing_itself
         })
         raise _refusing(
-            f"[{application}] could not be scaled to [{_twice(running)}] "
-            f"replicas: {error}",
+            f"[{application}] could not be scaled to [{to_replicas}] replicas: {error}",
             error,
             asked_to_change=True,
-            left_behind=undo if was_syncing_itself else None
+            left_behind=undo if undo.was_syncing_itself else None
         ) from error
 
     logger.info("deployment scaled out", extra={
-        "application": application, "from_replicas": running, "to_replicas": _twice(running)
+        "application": application, "from_replicas": undo.was_replicas,
+        "to_replicas": to_replicas
     })
 
     return undo
+
+
+def _refuse_where_it_is_as_large_as_it_may_be(application: str, running: int) -> None:
+    """Raises `AlreadyAtItsLargest` where `running` is at the ceiling or past it."""
+    if running >= THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR:
+        raise AlreadyAtItsLargest(
+            an_exhausted_action(
+                f"[{application}] is running [{running}] replicas, which is as "
+                f"large as Argus may make it "
+                f"([{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}])"
+            )
+        )
+
+
+def _refusing_a_change(said: str, error: DeploymentPlatformError) -> ScaleRefused:
+    """This module's refusal of a change it asked for, with nothing before it
+    left behind."""
+    return _refusing(said, error, asked_to_change=True)
 
 
 def restore_replica_count(descriptor: ReplicaUndo,

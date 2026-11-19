@@ -38,10 +38,15 @@ from deployment_platform import (
     DeploymentPlatformError,
     DeploymentRecord,
     Mark,
+    MarkedObject,
     PlatformRefused,
     PlatformUnreachable,
+    RequestedSync,
+    SyncOperations,
+    SyncPhase,
+    SyncRun,
 )
-from deployment_platform.argocd import ArgoCd, ArgoCdSettings
+from deployment_platform.argocd import ANOTHER_OPERATION_IN_PROGRESS, ArgoCd, ArgoCdSettings
 
 SOME_APPLICATION = "io-shop"
 SOME_TOKEN = "some-argocd-token"
@@ -110,6 +115,27 @@ THE_MARKED_METADATA = {
         "argus/written-at": "2026-11-18T13:05:00Z"
     }
 }
+# What somebody else wrote about an object, which a mark is read from beside.
+SOMEBODY_ELSES_ANNOTATIONS = {"kubernetes.io/change-cause": "kubectl scale --replicas=6"}
+
+# The one moment RFC 9110 (5.6.7) spells in each of the three formats a
+# recipient must accept - its own examples, read here as the platform's clock.
+THE_MOMENT_RFC_9110_SPELLS = datetime(1994, 11, 6, 8, 49, 37, tzinfo=UTC)
+THE_IMF_FIXDATE = "Sun, 06 Nov 1994 08:49:37 GMT"
+THE_OBSOLETE_RFC_850_DATE = "Sunday, 06-Nov-94 08:49:37 GMT"
+THE_ASCTIME_DATE = "Sun Nov  6 08:49:37 1994"
+
+# A sync an application is asked for: the revision it is to, the account that
+# asked, and the history entry a rollback names.
+SOME_REVISION = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
+SOME_ACCOUNT = "argus"
+SOME_HISTORY_ID = 41
+# When the controller started a sync, as Argo CD spells it and as Argus reads it.
+SOME_SYNC_START = "2026-11-18T13:05:00Z"
+THE_SYNC_START_READ = datetime(2026, 11, 18, 13, 5, tzinfo=UTC)
+# gRPC's code for a request refused for the state the system is in, which Argo
+# CD's gateway serves a sync asked during another as.
+FAILED_PRECONDITION = 9
 
 GET = "GET"
 POST = "POST"
@@ -143,6 +169,15 @@ def _ok(body: Any = None) -> httpx2.Response:
     return httpx2.Response(200, json=body if body is not None else {})
 
 
+def _ok_dated(date: str | None, body: Any = None) -> httpx2.Response:
+    """An answer carrying `date` as its `Date` header, or none where it is `None`."""
+    return httpx2.Response(
+        200,
+        json=body if body is not None else {},
+        headers={} if date is None else {"Date": date}
+    )
+
+
 def _argo_cd_over(platform: Any, auth_token: str = SOME_TOKEN) -> ArgoCd:
     """The adapter, configured as a real server would be and reaching only `platform`.
 
@@ -171,16 +206,21 @@ def _argo_cd_over(platform: Any, auth_token: str = SOME_TOKEN) -> ArgoCd:
 
 
 def _an_application(syncing: dict[str, Any] | None = None,
-                    history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                    history: list[dict[str, Any]] | None = None,
+                    metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """An application as `GET /api/v1/applications/{name}` returns one.
 
     `syncing` is the `automated` object, or `None` for an application with none.
+    `metadata` is the application's own, where a case says what it carries.
     """
     sync_policy: dict[str, Any] = {} if syncing is None else {"automated": syncing}
     application: dict[str, Any] = {"spec": {"syncPolicy": sync_policy}, "status": {}}
 
     if history is not None:
         application["status"]["history"] = history
+
+    if metadata is not None:
+        application["metadata"] = metadata
 
     return application
 
@@ -245,6 +285,55 @@ def _a_host(name: str, card: str | None) -> dict[str, Any]:
         labels[THE_CARD_LABEL] = card
 
     return {"name": name, "labels": labels}
+
+
+def _metadata_annotated(annotations: dict[str, str] | None) -> dict[str, Any]:
+    """An object's own metadata, carrying `annotations` - or no such key where
+    it is `None`, `annotations` being `omitempty` in Kubernetes' `ObjectMeta`."""
+    metadata: dict[str, Any] = {"name": SOME_APPLICATION}
+
+    if annotations is not None:
+        metadata["annotations"] = annotations
+
+    return metadata
+
+
+def _a_platform_where(kind: MarkedObject, metadata: dict[str, Any]) -> _Platform:
+    """The platform with the object `kind` names carrying `metadata` as its own.
+
+    The application on its own route; the Deployment and the autoscaler as live
+    manifests on the resource route, the autoscaler listed in the tree under
+    `SOME_AUTOSCALER`'s name and namespace.
+    """
+    if kind == MarkedObject.APPLICATION:
+        return _Platform().answering(
+            GET, THE_APPLICATION, _ok(_an_application(metadata=metadata))
+        )
+
+    if kind == MarkedObject.DEPLOYMENT:
+        return _Platform().answering(GET, THE_RESOURCE, _ok(_a_managed_resource({
+            **_a_deployment_running(SOME_APPLICATION, THE_IMAGES), "metadata": metadata
+        })))
+
+    return _Platform() \
+        .answering(GET, THE_RESOURCE_TREE, _ok(_a_tree_of({
+            "kind": "HorizontalPodAutoscaler",
+            "name": SOME_AUTOSCALER.name,
+            "namespace": SOME_AUTOSCALER.namespace
+        }))) \
+        .answering(GET, THE_RESOURCE, _ok(_a_managed_resource({
+            "kind": "HorizontalPodAutoscaler",
+            "metadata": metadata,
+            "spec": {"minReplicas": 2, "maxReplicas": 10}
+        })))
+
+
+def _a_platform_with_no_autoscaler() -> _Platform:
+    """The platform whose tree lists the application's Deployment and no
+    autoscaler - `_a_platform_where`'s autoscaler case, with none to find."""
+    return _Platform().answering(GET, THE_RESOURCE_TREE, _ok(_a_tree_of(
+        {"kind": "Deployment", "name": SOME_APPLICATION, "namespace": "dont-care"}
+    )))
 
 
 # ---------------------------------------------------------------------------
@@ -1124,6 +1213,257 @@ def test_releasing_a_pin_removes_the_card_label_with_a_null_beside_the_mark() ->
                 "metadata": THE_MARKED_METADATA,
                 "spec": {"template": {"spec": {"nodeSelector": {THE_CARD_LABEL: None}}}}
             })
+        ))
+
+
+# ---------------------------------------------------------------------------
+# The platform's clock, and Argus's marks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "date",
+    [THE_IMF_FIXDATE, THE_OBSOLETE_RFC_850_DATE, THE_ASCTIME_DATE],
+    ids=["IMF-fixdate", "obsolete RFC 850", "asctime"]
+)
+def test_the_platforms_clock_is_read_off_the_date_the_application_is_served_with(
+    date: str
+) -> None:
+    # The platform's own moment rather than Argus's, so that a change it records
+    # is put either side of a moment on the same clock. Off the application's
+    # route, a read the adapter makes already. RFC 9110 (5.6.7) has a recipient
+    # accept all three of its formats, and these are its own spellings of one
+    # moment.
+    platform = _Platform().answering(
+        GET, THE_APPLICATION, _ok_dated(date, _an_application())
+    )
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.now(SOME_APPLICATION)) \
+        .then(all_of(
+            the_answer_was(THE_MOMENT_RFC_9110_SPELLS),
+            lambda _: _only_these_were_asked(platform, [(GET, THE_APPLICATION)])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "date", [None, "not a moment"], ids=["no date", "a date that is not one"]
+)
+def test_an_answer_that_does_not_say_when_it_was_given_is_refused(
+    date: str | None
+) -> None:
+    # Argus's own clock in its place would be a moment a change the platform
+    # recorded could fall the wrong side of. Refused rather than unreachable,
+    # because the platform answered - and a read, so nothing was changed.
+    platform = _Platform().answering(
+        GET, THE_APPLICATION, _ok_dated(date, _an_application())
+    )
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(attempting(lambda: argo_cd.now(SOME_APPLICATION))) \
+        .then(all_of(
+            an_error_was_raised(PlatformRefused),
+            _it_was_known_not_applied(True)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("kind", "asked", "selectors"),
+    [
+        (MarkedObject.APPLICATION, [(GET, THE_APPLICATION)], {}),
+        (MarkedObject.DEPLOYMENT, [(GET, THE_RESOURCE)], THE_DEPLOYMENT_SELECTORS),
+        (
+            MarkedObject.AUTOSCALER,
+            [(GET, THE_RESOURCE_TREE), (GET, THE_RESOURCE)],
+            THE_AUTOSCALER_SELECTORS
+        )
+    ],
+    ids=["the application", "the deployment", "the autoscaler"]
+)
+def test_the_mark_on_an_object_is_read_off_its_own_metadata(
+    kind: MarkedObject, asked: list[tuple[str, str]], selectors: dict[str, str]
+) -> None:
+    # Where each write puts it: the application's on its own route, the
+    # Deployment's and the autoscaler's on their live manifests - the autoscaler
+    # addressed as the tree names it, as its pin is. What comes back is the
+    # action it was made for, read from beside somebody else's annotations.
+    platform = _a_platform_where(kind, _metadata_annotated({
+        **SOMEBODY_ELSES_ANNOTATIONS, **THE_MARKED_METADATA["annotations"]
+    }))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.mark_on(SOME_APPLICATION, kind)) \
+        .then(all_of(
+            the_answer_was(SOME_MARK.action_id),
+            lambda _: _only_these_were_asked(platform, asked),
+            lambda _: _the_last_request_was(platform, GET, asked[-1][1], query=selectors)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "kind",
+    [MarkedObject.APPLICATION, MarkedObject.DEPLOYMENT, MarkedObject.AUTOSCALER],
+    ids=["the application", "the deployment", "the autoscaler"]
+)
+@pytest.mark.parametrize(
+    "annotations",
+    [None, SOMEBODY_ELSES_ANNOTATIONS],
+    ids=["no annotations", "somebody else's alone"]
+)
+def test_an_object_carrying_no_mark_has_none(
+    kind: MarkedObject, annotations: dict[str, str] | None
+) -> None:
+    # An object Argus never wrote carries no mark, and may carry no annotations
+    # at all - `omitempty` in Kubernetes' own `ObjectMeta`. Either is an
+    # ordinary answer: nothing on it says Argus changed it.
+    platform = _a_platform_where(kind, _metadata_annotated(annotations))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.mark_on(SOME_APPLICATION, kind)) \
+        .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_a_sync_asked_and_not_yet_run_is_read_off_the_application_s_operation() -> None:
+    # Argo CD records a sync - a rollback is one - in the application's
+    # `operation` the moment it answers the request, before the controller has
+    # started it, so there is no state of its run yet.
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok({
+        **_an_application(),
+        "operation": {"sync": {"revision": SOME_REVISION},
+                      "initiatedBy": {"username": SOME_ACCOUNT}}
+    }))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.sync_operations_of(SOME_APPLICATION)) \
+        .then(the_answer_was(SyncOperations(
+            requested=RequestedSync(revision=SOME_REVISION, initiated_by=SOME_ACCOUNT),
+            last_run=None
+        )))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("phase", "read_as"),
+    [("Running", SyncPhase.RUNNING), ("Succeeded", SyncPhase.SUCCEEDED),
+     ("Failed", SyncPhase.FAILED), ("Error", SyncPhase.ERROR),
+     ("Terminating", SyncPhase.TERMINATING)]
+)
+def test_the_last_sync_run_is_read_off_the_application_s_operation_state(
+    phase: str, read_as: SyncPhase
+) -> None:
+    # The controller's own account of the last sync it ran: what it was to and
+    # who asked, when it started, and where it stands - in Argo CD's words for
+    # the last, read as Argus's.
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok({
+        **_an_application(),
+        "status": {"operationState": {
+            "operation": {"sync": {"revision": SOME_REVISION},
+                          "initiatedBy": {"username": SOME_ACCOUNT}},
+            "phase": phase,
+            "startedAt": SOME_SYNC_START
+        }}
+    }))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.sync_operations_of(SOME_APPLICATION)) \
+        .then(the_answer_was(SyncOperations(
+            requested=None,
+            last_run=SyncRun(revision=SOME_REVISION, initiated_by=SOME_ACCOUNT,
+                             started_at=THE_SYNC_START_READ, phase=read_as)
+        )))
+
+
+@pytest.mark.unit
+def test_an_application_with_no_sync_asked_or_run_says_neither() -> None:
+    # The demo's stand-in keeps no state of its runs, and an application
+    # nobody has synced has none either: an ordinary answer, and a caller has
+    # the history alone.
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok(_an_application()))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.sync_operations_of(SOME_APPLICATION)) \
+        .then(the_answer_was(SyncOperations(requested=None, last_run=None)))
+
+
+@pytest.mark.unit
+def test_a_sync_asked_by_the_platform_itself_names_nobody() -> None:
+    # An automated sync carries `initiatedBy.automated` and no username.
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok({
+        **_an_application(),
+        "operation": {"sync": {"revision": SOME_REVISION},
+                      "initiatedBy": {"automated": True}}
+    }))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.sync_operations_of(SOME_APPLICATION)) \
+        .then(the_answer_was(SyncOperations(
+            requested=RequestedSync(revision=SOME_REVISION, initiated_by=None),
+            last_run=None
+        )))
+
+
+@pytest.mark.unit
+def test_a_rollback_refused_while_another_operation_is_in_progress_may_yet_land() -> None:
+    # Argo CD answers a rollback asked while a sync is still being run with a
+    # 400 - and that sync may be the very rollback asked a moment before, whose
+    # answer was lost. Refused, but nothing says the change will not land.
+    platform = _Platform().answering(POST, THE_ROLLBACK, httpx2.Response(
+        400, json={"error": ANOTHER_OPERATION_IN_PROGRESS,
+                   "message": ANOTHER_OPERATION_IN_PROGRESS, "code": FAILED_PRECONDITION}
+    ))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(attempting(lambda: argo_cd.roll_back(SOME_APPLICATION, SOME_HISTORY_ID))) \
+        .then(all_of(
+            an_error_was_raised(PlatformRefused),
+            _it_was_known_not_applied(False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_mark_on_the_pod_template_is_not_the_deployments() -> None:
+    # Argus marks the Deployment's own metadata and never its pod template's,
+    # which would roll every pod. A mark found in the template is not one Argus
+    # wrote there, and says nothing about whose the Deployment's change was.
+    deployment = _a_deployment_running(SOME_APPLICATION, THE_IMAGES)
+    deployment["spec"]["template"]["metadata"] = THE_MARKED_METADATA
+    platform = _Platform().answering(
+        GET, THE_RESOURCE, _ok(_a_managed_resource(deployment))
+    )
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.mark_on(SOME_APPLICATION, MarkedObject.DEPLOYMENT)) \
+        .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_an_application_with_no_autoscaler_has_no_mark_on_one() -> None:
+    # Not every application has an autoscaler, and one that has none has no
+    # mark on one - an ordinary answer, read off the tree alone, with no
+    # manifest asked for an object nobody could name.
+    platform = _a_platform_with_no_autoscaler()
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.mark_on(SOME_APPLICATION, MarkedObject.AUTOSCALER)) \
+        .then(all_of(
+            the_answer_was(None),
+            lambda _: _only_these_were_asked(platform, [(GET, THE_RESOURCE_TREE)])
         ))
 
 

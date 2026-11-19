@@ -15,9 +15,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, StrEnum, auto
 from typing import Protocol
 
 from core.models import PodPlacement, RolloutProgress
+
+
+class MarkedObject(StrEnum):
+    """Which of an application's objects a mark is read off (`mark_on`): the one
+    whose sync switch a suspension writes, the Deployment a count or a card is
+    written to, and the autoscaler whose floor a pin raises. Each carries the
+    mark of whatever last wrote it.
+
+    An enum rather than strings, so an adapter answering for every kind is
+    checked to answer for every one, and a caller cannot name a kind there is
+    none of.
+    """
+
+    APPLICATION = "application"
+    DEPLOYMENT = "deployment"
+    AUTOSCALER = "autoscaler"
 
 
 @dataclass(frozen=True)
@@ -57,6 +74,52 @@ class AutoscalerBounds:
 
     floor: int
     ceiling: int
+
+
+class SyncPhase(Enum):
+    """Where a sync the platform ran stands."""
+
+    RUNNING = auto()
+    SUCCEEDED = auto()
+    FAILED = auto()
+    ERROR = auto()
+    TERMINATING = auto()
+
+
+@dataclass(frozen=True)
+class RequestedSync:
+    """A sync asked of the platform and not yet finished - a rollback among
+    them, from the moment the request is answered: the revision it is to, and
+    the account that asked, `None` where it names none (the platform's own)."""
+
+    revision: str | None
+    initiated_by: str | None
+
+
+@dataclass(frozen=True)
+class SyncRun:
+    """The last sync the platform started running: the revision it is to, the
+    account that asked, when it started, and where it stands."""
+
+    revision: str | None
+    initiated_by: str | None
+    started_at: datetime
+    phase: SyncPhase
+
+
+@dataclass(frozen=True)
+class SyncOperations:
+    """What the platform says of an application's syncs: the one asked and not
+    yet finished, and the last one it ran - either `None` where it says none.
+
+    Both, because they are told apart in time. A request is recorded the moment
+    it is answered and runs only later, and the history gains its entry only
+    when the run finishes - so between the two a change already asked for shows
+    nowhere else.
+    """
+
+    requested: RequestedSync | None
+    last_run: SyncRun | None
 
 
 @dataclass(frozen=True)
@@ -107,6 +170,25 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
     request has nowhere to put one. Nor does a restart, which leaves nothing to
     put back.
     """
+
+    def now(self, application: str, /) -> datetime:
+        """The platform's own clock, as it dates its answer about `application`.
+
+        What a change is planned `since`, read before the state it dates: a
+        change the platform records is then put either side of it on one clock.
+        """
+        ...
+
+    def mark_on(self, application: str, kind: MarkedObject, /) -> str | None:
+        """The action whose mark the application's object `kind` names carries,
+        by its row id - or `None` where it carries none, or where the
+        application has no such object."""
+        ...
+
+    def sync_operations_of(self, application: str, /) -> SyncOperations:
+        """The application's sync asked and not yet finished, and the last one
+        the platform ran."""
+        ...
 
     def is_syncing_itself(self, application: str, /) -> bool:
         """Whether the platform reconciles the application on its own."""

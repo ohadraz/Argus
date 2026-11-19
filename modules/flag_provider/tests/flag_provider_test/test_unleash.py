@@ -6,13 +6,16 @@ whole of what they rely on: which route each question goes to under which of the
 two credentials, how each answer is read, and which failures mean the provider
 could not be asked at all.
 
-Three surfaces, and they fail differently. Evaluation says which flags are on now,
-and an outage there must never read as "none is". The event log says what changed,
-in which direction and by whom - which current state cannot, since a flag switched
-off into an incident evaluates exactly like one off for a year. And the admin
-toggle changes a flag, and is not done until evaluation agrees: Unleash accepts
-the write before the change reaches evaluation, and a caller trusting the write
-would judge a service nothing had yet been done to.
+Four surfaces, and they fail differently. Evaluation says which flags are on now,
+and an outage there must never read as "none is". The admin read of one flag says
+what the provider itself holds for it, dated by the provider's own clock - which
+is what a change is planned over, since evaluation is a cache and says nothing of
+when. The event log says what changed, in which direction and by whom - which
+current state cannot, since a flag switched off into an incident evaluates exactly
+like one off for a year. And the admin toggle changes a flag, and is not done
+until evaluation agrees: Unleash accepts the write before the change reaches
+evaluation, and a caller trusting the write would judge a service nothing had yet
+been done to.
 
 The provider is a `MockTransport` rather than a stubbed function, so what is
 asserted is the request as it would leave the process: method, path and the
@@ -42,7 +45,7 @@ from argus_testkit import (
     the_answer_was,
 )
 from core import to_iso
-from core.models import FlagChange, FlagUndo
+from core.models import FlagChange, FlagState, FlagUndo
 from flag_provider import FlagProviderUnavailable, FlagWriteFailed
 from flag_provider.unleash import (
     Unleash,
@@ -56,6 +59,7 @@ SOME_FRONTEND_TOKEN = "default:production.some-frontend-token"
 SOME_ADMIN_TOKEN = "*:*.some-admin-token"
 SOME_PROJECT = "kuki-project"
 SOME_ENVIRONMENT = "production"
+SOME_OTHER_ENVIRONMENT = "development"
 # The name the provider records Argus's own writes under.
 SOME_ARGUS_ACTOR = "Shuki Tuki"
 SOME_HUMAN = "admin"
@@ -82,6 +86,13 @@ SINCE = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 BEFORE_THE_WINDOW = SINCE - timedelta(minutes=28, seconds=52.119)
 INSIDE_THE_WINDOW = SINCE + timedelta(minutes=4, seconds=38.033)
 LATER_IN_THE_WINDOW = SINCE + timedelta(minutes=9, seconds=12.581)
+
+# The provider's own time on its answer to an admin read. Whole seconds, since a
+# `Date` header carries no finer.
+SOME_READ_AT = datetime(2026, 9, 6, 17, 37, tzinfo=UTC)
+# The same moment in the asctime format RFC 9110 (5.6.7) has a recipient accept,
+# which names no zone - every HTTP date being GMT.
+SOME_READ_AT_IN_ASCTIME = "Sun Sep  6 17:37:00 2026"
 
 # What a refused connection says of itself, which is the tail of every message a
 # failure to reach the provider carries.
@@ -152,6 +163,27 @@ def _recording(*events: dict[str, Any]) -> _Answer:
     })
 
 
+def _holding(flag: str,
+             environments: dict[str, bool],
+             dated: str | None = format_datetime(SOME_READ_AT, usegmt=True)) -> _Answer:
+    """One feature as the admin API answers for it - its `featureSchema`, with
+    each environment the flag can be used in and whether it is on there - and the
+    `Date` header the answer was sent with, or none."""
+    headers = {} if dated is None else {"Date": dated}
+
+    return lambda: httpx2.Response(200, json={
+        "name": flag,
+        "project": SOME_PROJECT,
+        "type": "release",
+        "stale": False,
+        "environments": [
+            {"name": environment, "enabled": enabled, "type": "production",
+             "sortOrder": 1, "strategies": []}
+            for environment, enabled in environments.items()
+        ]
+    }, headers=headers)
+
+
 def _accepting(dated: str | None = None) -> _Answer:
     """The admin toggle taking the write, with the `Date` header it was sent
     with - or none."""
@@ -175,11 +207,12 @@ def _failing_with(error: Exception) -> _Answer:
     return answer
 
 
+def _the_feature(flag: str) -> str:
+    return f"/api/admin/projects/{SOME_PROJECT}/features/{flag}"
+
+
 def _the_toggle_of(flag: str, enabled: bool) -> str:
-    return (
-        f"/api/admin/projects/{SOME_PROJECT}/features/{flag}"
-        f"/environments/{SOME_ENVIRONMENT}/{'on' if enabled else 'off'}"
-    )
+    return f"{_the_feature(flag)}/environments/{SOME_ENVIRONMENT}/{'on' if enabled else 'off'}"
 
 
 def _a_toggle(name: str, enabled: bool = True) -> dict[str, Any]:
@@ -342,6 +375,22 @@ def test_the_history_is_read_with_the_admin_credential() -> None:
         ))
 
 
+@pytest.mark.unit
+def test_a_flags_state_is_read_with_the_admin_credential() -> None:
+    # The admin API answers admin tokens alone, which is why the read a change
+    # is planned over lives in the write tier.
+    provider = _Provider().answering(
+        GET, _the_feature(SOME_FLAG), _holding(SOME_FLAG, {SOME_ENVIRONMENT: True})
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: unleash.state_of(SOME_FLAG)) \
+        .then(lambda _: _every_request_to_carried(
+            provider, GET, _the_feature(SOME_FLAG), SOME_ADMIN_TOKEN
+        ))
+
+
 # ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
@@ -452,6 +501,140 @@ def test_an_unavailable_provider_says_where_it_was_asked() -> None:
         .then(_it_said(
             f"could not read flag state from [{DONT_CARE_BASE_URL}{THE_EVALUATION}]: "
             f"{REFUSED}"
+        ))
+
+
+# ---------------------------------------------------------------------------
+# A flag's state, as the provider holds it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("enabled", [False, True], ids=["off", "on"])
+def test_a_flags_state_is_read_as_the_provider_holds_it_and_dated_by_its_own_clock(
+    enabled: bool
+) -> None:
+    # Both directions, since a change is planned from whichever the flag is in.
+    # Dated by the answer's own `Date`, not this process's clock: the history a
+    # change is later made over is stamped by the provider, and two clocks
+    # compared hide whatever they disagree by.
+    provider = _Provider().answering(
+        GET, _the_feature(SOME_FLAG),
+        _holding(SOME_FLAG, {SOME_ENVIRONMENT: enabled},
+                 dated=format_datetime(SOME_READ_AT, usegmt=True))
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: unleash.state_of(SOME_FLAG)) \
+        .then(the_answer_was(FlagState(enabled=enabled, read_at=SOME_READ_AT)))
+
+
+@pytest.mark.unit
+def test_a_date_naming_no_zone_is_read_as_utc() -> None:
+    # Every HTTP date is GMT, and the asctime format is the one that does not
+    # say so. Read in this process's zone it would move with the machine; read
+    # as no moment, a provider answering in it could never be planned over.
+    provider = _Provider().answering(
+        GET, _the_feature(SOME_FLAG),
+        _holding(SOME_FLAG, {SOME_ENVIRONMENT: True}, dated=SOME_READ_AT_IN_ASCTIME)
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: unleash.state_of(SOME_FLAG).read_at) \
+        .then(the_answer_was(SOME_READ_AT))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("enabled", [False, True], ids=["off", "on"])
+def test_a_flags_state_is_read_in_the_configured_environment_alone(enabled: bool) -> None:
+    # The answer lists every environment the flag can be used in, and the one
+    # listed first is not the one asked about. A flag read in an environment
+    # nobody is looking at is a change planned from the wrong state.
+    provider = _Provider().answering(
+        GET, _the_feature(SOME_FLAG),
+        _holding(SOME_FLAG, {SOME_OTHER_ENVIRONMENT: not enabled, SOME_ENVIRONMENT: enabled})
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider, environment=SOME_ENVIRONMENT)) \
+        .when(lambda: unleash.state_of(SOME_FLAG).enabled) \
+        .then(the_answer_was(enabled))
+
+
+@pytest.mark.unit
+def test_a_flags_state_is_never_read_from_the_evaluation() -> None:
+    # Evaluation is a cache, and says neither what the provider holds nor when.
+    # Staged to disagree, so an adapter that read it would answer on.
+    provider = _Provider() \
+        .answering(GET, _the_feature(SOME_FLAG), _holding(SOME_FLAG, {SOME_ENVIRONMENT: False})) \
+        .answering(GET, THE_EVALUATION, _evaluating(SOME_FLAG))
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: unleash.state_of(SOME_FLAG).enabled) \
+        .then(all_of(
+            the_answer_was(False),
+            lambda _: _it_was_asked_once(provider, GET, _the_feature(SOME_FLAG)),
+            lambda _: _evaluation_was_read(provider, times=0)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("dated", [None, "the day before yesterday"],
+                         ids=["no date", "an unreadable date"])
+def test_a_flags_state_the_provider_did_not_date_is_unavailable(dated: str | None) -> None:
+    # Not dated by this process instead: the date is what the change is later
+    # made over, and a read with no time of the provider's own cannot be
+    # compared with its history.
+    provider = _Provider().answering(
+        GET, _the_feature(SOME_FLAG), _holding(SOME_FLAG, {SOME_ENVIRONMENT: True}, dated=dated)
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(attempting(lambda: unleash.state_of(SOME_FLAG))) \
+        .then(an_error_was_raised(FlagProviderUnavailable))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "answer",
+    [
+        _failing_with(httpx2.ConnectError(REFUSED)),
+        _answering_status(401),
+        _answering_status(404),
+        _answering_status(503),
+        _answering_text("<html>login</html>"),
+        _holding(SOME_FLAG, {SOME_OTHER_ENVIRONMENT: True})
+    ],
+    ids=["unreachable", "refused the credential", "no such flag", "down", "not json",
+         "not in the configured environment"]
+)
+def test_a_flags_state_the_provider_could_not_give_is_unavailable(answer: _Answer) -> None:
+    # Never a state: a flag read as off because nothing was read is a change
+    # planned from a state the flag was never in.
+    provider = _Provider().answering(GET, _the_feature(SOME_FLAG), answer)
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider, environment=SOME_ENVIRONMENT)) \
+        .when(attempting(lambda: unleash.state_of(SOME_FLAG))) \
+        .then(an_error_was_raised(FlagProviderUnavailable))
+
+
+@pytest.mark.unit
+def test_an_unreadable_flag_state_says_which_flag_and_where_it_was_asked() -> None:
+    provider = _Provider().answering(
+        GET, _the_feature(SOME_FLAG), _failing_with(httpx2.ConnectError(REFUSED))
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(attempting(lambda: unleash.state_of(SOME_FLAG))) \
+        .then(_it_said(
+            f"could not read flag [{SOME_FLAG}] at "
+            f"[{DONT_CARE_BASE_URL}{_the_feature(SOME_FLAG)}]: {REFUSED}"
         ))
 
 
@@ -795,9 +978,8 @@ def test_changes_in_another_environment_are_not_reported() -> None:
     # One Target Service maps to one environment. A flag toggled in staging did
     # not cause the incident in production, and reverting it would change an
     # environment nobody was looking at.
-    some_other_environment = "development"
     provider = _Provider().answering(GET, THE_EVENTS, _recording(
-        _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, environment=some_other_environment)
+        _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, environment=SOME_OTHER_ENVIRONMENT)
     ))
 
     Scenario() \
@@ -888,6 +1070,35 @@ def test_an_unreadable_history_says_where_it_was_asked() -> None:
         .when(attempting(lambda: unleash.changes_since(SINCE))) \
         .then(_it_said(
             f"could not read flag history at [{DONT_CARE_BASE_URL}{THE_EVENTS}]: {REFUSED}"
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("recorded", "expected"),
+    [
+        ([], []),
+        ([_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_HUMAN)],
+         [(SOME_FLAG, True)])
+    ],
+    ids=["nothing changed", "somebody changed it"]
+)
+def test_the_history_is_read_where_no_actor_is_configured(
+    recorded: list[dict[str, Any]], expected: list[tuple[str, bool]]
+) -> None:
+    # Whose a change was is a question about each change, not about the read.
+    # The write tier makes a change over this one read, and a flag nobody moved
+    # since the plan is writable whoever Argus writes as: a history refused
+    # before it was read, where Argus and its operators share a credential,
+    # would hold back every write in that deployment.
+    provider = _Provider().answering(GET, THE_EVENTS, _recording(*recorded))
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider, actor=NO_ACTOR)) \
+        .when(lambda: _what_changed(unleash.changes_since(SINCE))) \
+        .then(all_of(
+            the_answer_was(expected),
+            lambda _: _it_was_asked_once(provider, GET, THE_EVENTS)
         ))
 
 

@@ -9,6 +9,8 @@ import urllib.error
 import urllib.request
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import mkdtemp
@@ -29,21 +31,38 @@ THE_ARGUS_ACTOR = "Argus"
 # The environment every row a case stages is recorded in, set for the same reason.
 THE_ENVIRONMENT = "production"
 
+# The provider's own clock, which stands still: every answer is sent with it as
+# its `Date`, which is what a flag's plan is dated by and what the history is
+# then asked from. A case stages a change made since a plan by recording one
+# after it.
+THE_PROVIDER_S_TIME = datetime(2026, 8, 20, 11, 30, tzinfo=UTC)
+
 
 class FakeUnleashHandler(BaseHTTPRequestHandler):
     """A flag provider in Unleash's own wire shape, with a memory.
 
-    It answers the three surfaces the write tier uses - evaluation, the event
-    log, and the admin toggle - and a toggle actually changes what evaluation
-    then reports. That is the point: `set_flag` returns only once evaluation
-    agrees with the change, so a fake whose POST did not move its own state
-    would hang rather than fail, and would prove nothing about the round trip.
+    It answers the four surfaces the write tier uses - evaluation, the event
+    log, the admin read of one feature, and the admin toggle - and a toggle
+    actually changes what evaluation and the admin read then report. That is
+    the point: `set_flag` returns only once evaluation agrees with the change,
+    so a fake whose POST did not move its own state would hang rather than
+    fail, and would prove nothing about the round trip.
+
+    A toggle is not recorded in the event log. A case that needs a change in the
+    history - Argus's or anybody's - stages it, at the time it says.
     """
 
     enabled_flags: set[str] = set()
     events: list[dict[str, Any]] = []
 
+    def date_time_string(self, timestamp: float | None = None) -> str:
+        """The `Date` every answer is sent with: the provider's own clock, which
+        stands still at `THE_PROVIDER_S_TIME`, whatever this process's says."""
+        return format_datetime(THE_PROVIDER_S_TIME, usegmt=True)
+
     def do_GET(self) -> None:
+        feature = _the_feature_in(self.path)
+
         if self.path.startswith("/api/frontend"):
             self._respond_with(
                 {
@@ -57,6 +76,8 @@ class FakeUnleashHandler(BaseHTTPRequestHandler):
             self._respond_with(
                 {"version": 1, "events": self.events, "totalEvents": len(self.events)}
             )
+        elif feature is not None:
+            self._respond_with(self._the_feature(feature))
         else:
             self.send_response(404)
             self.end_headers()
@@ -76,6 +97,20 @@ class FakeUnleashHandler(BaseHTTPRequestHandler):
 
         self._respond_with({})
 
+    def _the_feature(self, flag: str) -> dict[str, Any]:
+        """One feature as the admin API answers for it - its `featureSchema`, in
+        the one environment the server is told it serves."""
+        return {
+            "name": flag,
+            "project": "default",
+            "type": "release",
+            "stale": False,
+            "environments": [
+                {"name": THE_ENVIRONMENT, "enabled": flag in self.enabled_flags,
+                 "type": "production", "sortOrder": 1, "strategies": []}
+            ]
+        }
+
     def _respond_with(self, payload: object) -> None:
         body = json.dumps(payload).encode()
         self.send_response(200)
@@ -91,8 +126,8 @@ class FakeUnleashHandler(BaseHTTPRequestHandler):
 @contextmanager
 def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     """Runs a fake flag provider (stdlib http.server, background thread,
-    answering evaluation, the event log and admin toggles) plus a real
-    `write_mcp_server` subprocess pointed at it - so a test can prove
+    answering evaluation, the event log, the admin read and admin toggles) plus
+    a real `write_mcp_server` subprocess pointed at it - so a test can prove
     `write_mcp_client` reaches a real server without Docker or a real provider.
     The server holds one run, `THE_RUN_HELD`, in place of a database's
     (`a_write_server_holding_one_run`).
@@ -146,6 +181,17 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
         del os.environ["WRITE_MCP_HOST"]
         del os.environ["WRITE_MCP_PORT"]
         get_settings.cache_clear()
+
+
+def _the_feature_in(path: str) -> str | None:
+    """The flag an admin read of one feature names, whose path's shape is
+    `/api/admin/projects/{project}/features/{flag}` - or `None` for any other."""
+    segments = path.partition("?")[0].strip("/").split("/")
+
+    if len(segments) != 6 or segments[:2] != ["api", "admin"] or segments[4] != "features":
+        return None
+
+    return segments[5]
 
 
 def _flag_and_state_in(path: str) -> tuple[str | None, str]:

@@ -16,7 +16,9 @@ from core.models import (
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
+    FlagUndo,
     OpenedPullRequest,
+    Planned,
     ReplicaUndo,
     RestartedService,
     UndoDescriptor,
@@ -49,6 +51,15 @@ _AUTOSCALING_RESTORED: Final = TypeAdapter(AutoscalingRestored)
 
 _ACCELERATOR_PIN_RESTORED: Final = TypeAdapter(AcceleratorPinRestored)
 
+# Each plan, read as the plan of the kind its action makes. The kind is the
+# tool's, not the answer's to choose, so a plan of any other kind is refused
+# here rather than read through the union: there is nothing to decide.
+_PLANNED_FLAG: Final = TypeAdapter(Planned[FlagUndo])
+_PLANNED_ROLLBACK: Final = TypeAdapter(Planned[DeploymentRollbackUndo])
+_PLANNED_SCALE_OUT: Final = TypeAdapter(Planned[ReplicaUndo])
+_PLANNED_AUTOSCALER_PIN: Final = TypeAdapter(Planned[AutoscalerUndo])
+_PLANNED_ACCELERATOR_PIN: Final = TypeAdapter(Planned[AcceleratorPinUndo])
+
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
 # `open_pull_request` as the branch to propose, and a tool that answered with
@@ -74,12 +85,35 @@ def write_mcp(endpoint: WriteMcpEndpoint, holding: Holding | None = None) -> Mcp
     return McpClient(f"{endpoint.write_mcp_url}{_MCP_PATH}", holding=holding)
 
 
-def set_feature_flag(flag: str,
+def plan_flag(flag: str,
+              enabled: bool,
+              *,
+              client: McpClient) -> Planned[FlagUndo]:
+    """Plans setting a feature flag on or off: the state the provider holds it
+    in, and the provider's own time for that read.
+
+    A read, asked before the action is claimed, and it changes nothing. What it
+    answers is what the claim records and what `set_feature_flag` is handed
+    back: the write compares the flag's history since `since` with it, and
+    never works it out again.
+
+    Raises `ActionExhausted` where the flag is already as asked - an action
+    spent, not a mitigation that happened.
+    """
+    return client.call(
+        "plan_flag",
+        _PLANNED_FLAG.validate_python,
+        flag=flag,
+        enabled=enabled
+    )
+
+
+def set_feature_flag(planned: Planned[FlagUndo],
                      enabled: bool,
                      *,
                      client: McpClient) -> UndoDescriptor:
-    """Sets a feature flag on or off, returning the undo descriptor for the
-    change.
+    """Sets the planned feature flag on or off, returning the undo descriptor
+    for the change.
 
     A generic mitigation of spec §7.3: Mitigation's response to a flag-toggle
     cause. It is taken unasked because its kind is in the declared set (§13),
@@ -87,20 +121,23 @@ def set_feature_flag(flag: str,
     that existed before, and is what puts the flag back if the mitigation turns
     out to be refuted.
 
-    `enabled` is the state to leave the flag in, so undoing a change is this
-    same call with it reversed. Mitigation needs both directions: a flag that
-    was switched off can cause an incident exactly as one switched on can, and
-    is undone by switching it back on.
+    `enabled` is the state to leave the flag in, so undoing a change is a plan
+    and this same call with it reversed. Mitigation needs both directions: a
+    flag that was switched off can cause an incident exactly as one switched on
+    can, and is undone by switching it back on.
 
-    Raises rather than returning quietly when the flag did not actually reach
-    that state. A verdict formed against a service nothing was done to would
-    describe an experiment that never ran.
+    The plan goes over the wire whole, for the reason a descriptor does: it is
+    one record, and a caller assembling it from fields could assemble one nobody
+    planned. Raises `ChangedSince` where somebody else changed the flag since
+    the plan, and raises rather than returning quietly when the flag did not
+    actually reach that state. A verdict formed against a service nothing was
+    done to would describe an experiment that never ran.
     """
     return client.call(
         "set_feature_flag",
         parse_undo_descriptor,
-        flag=flag,
-        enabled=enabled,
+        planned=planned.model_dump(mode="json"),
+        enabled=enabled
     )
 
 
@@ -164,10 +201,29 @@ def restart_service(service: str,
     )
 
 
-def roll_back_deployment(application: str,
+def plan_rollback(application: str,
+                  *,
+                  client: McpClient) -> Planned[DeploymentRollbackUndo]:
+    """Plans returning a deployment to the revision it ran before: the entry it
+    is on, the entry it would go back to, and whether the platform reconciles
+    it itself, dated by the platform's own clock.
+
+    A read, asked before the action is claimed, and it changes nothing. Which
+    revision is not a parameter, because nothing on this side of the port holds
+    a deployment history to choose from - the tier works it out, and the plan
+    is how it says which.
+    """
+    return client.call(
+        "plan_rollback",
+        _PLANNED_ROLLBACK.validate_python,
+        application=application
+    )
+
+
+def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
                          *,
                          client: McpClient) -> DeploymentRollbackUndo:
-    """Returns a deployment to the revision it ran before.
+    """Returns a deployment to the entry its plan named.
 
     A generic mitigation of spec §7.3: Mitigation's response to a bad
     deployment and to a config-induced failure alike, since a revision carries
@@ -177,9 +233,9 @@ def roll_back_deployment(application: str,
     replays somebody's change rather than authoring one. Nothing is written to
     the repository.
 
-    Which revision is not a parameter, because nothing on this side of the
-    port holds a deployment history to choose from. The platform resolves it
-    the way `argocd app rollback APPNAME` does with its history id omitted.
+    The plan goes over the wire whole, and is what the tier compares the
+    platform with before it writes: `ChangedSince` where somebody else moved
+    the deployment since, carrying what this action's earlier asking left.
 
     The descriptor is the point of the return value, and it records *two*
     things: the entry that was running, and whether the platform was
@@ -195,12 +251,12 @@ def roll_back_deployment(application: str,
     descriptor = client.call(
         "roll_back_deployment",
         parse_undo_descriptor,
-        application=application,
+        planned=planned.model_dump(mode="json")
     )
 
     if not isinstance(descriptor, DeploymentRollbackUndo):
         raise ValueError(
-            f"rolling [{application}] back answered with a "
+            f"rolling [{planned.descriptor.application}] back answered with a "
             f"[{descriptor.kind}] descriptor, which is not a record of a "
             f"deployment being rolled back"
         )
@@ -230,10 +286,27 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     )
 
 
-def scale_out(application: str,
+def plan_scale_out(application: str,
+                   *,
+                   client: McpClient) -> Planned[ReplicaUndo]:
+    """Plans giving a deployment more replicas than it is running: the count it
+    runs, the count it would be given, and whether the platform reconciles it
+    itself, dated by the platform's own clock.
+
+    A read, asked before the action is claimed, and it changes nothing. How many
+    is not a parameter, for the reason `scale_out` gives.
+    """
+    return client.call(
+        "plan_scale_out",
+        _PLANNED_SCALE_OUT.validate_python,
+        application=application
+    )
+
+
+def scale_out(planned: Planned[ReplicaUndo],
               *,
               client: McpClient) -> ReplicaUndo:
-    """Gives a deployment more replicas than it is running.
+    """Gives a deployment the replicas its plan asked for.
 
     A generic mitigation of spec §7.3: Mitigation's response to demand
     saturation, and the only one that adds capacity rather than restoring state.
@@ -244,8 +317,9 @@ def scale_out(application: str,
     How many is not a parameter, for a stronger version of the reason a rollback
     names no revision: a target count is meaningless without the count it
     replaces, and nothing on this side of the port can read what the deployment
-    is running. The tier reads it, doubles it, and bounds the result by a ceiling
-    of its own.
+    is running. The tier's plan read it and doubled it, and the write bounds the
+    result by a ceiling of its own. The plan goes over the wire whole, and is
+    compared with the platform before anything is written, as a rollback's is.
 
     The descriptor records *two* things, as a rollback's does: the count that was
     running, and whether the platform was reconciling the application itself -
@@ -260,12 +334,12 @@ def scale_out(application: str,
     descriptor = client.call(
         "scale_out",
         parse_undo_descriptor,
-        application=application,
+        planned=planned.model_dump(mode="json")
     )
 
     if not isinstance(descriptor, ReplicaUndo):
         raise ValueError(
-            f"scaling [{application}] out answered with a "
+            f"scaling [{planned.descriptor.application}] out answered with a "
             f"[{descriptor.kind}] descriptor, which is not a record of a "
             f"deployment being resized"
         )
@@ -295,10 +369,28 @@ def restore_replica_count(descriptor: ReplicaUndo,
     )
 
 
-def pin_autoscaler(application: str,
+def plan_autoscaler_pin(application: str,
+                        *,
+                        client: McpClient) -> Planned[AutoscalerUndo]:
+    """Plans stopping a deployment's autoscaler moving the replica count about:
+    the floor it has, the floor it would be raised to, and whether the platform
+    reconciles it itself, dated by the platform's own clock.
+
+    A read, asked before the action is claimed, and it changes nothing. No
+    count, for the reason `pin_autoscaler` gives.
+    """
+    return client.call(
+        "plan_autoscaler_pin",
+        _PLANNED_AUTOSCALER_PIN.validate_python,
+        application=application
+    )
+
+
+def pin_autoscaler(planned: Planned[AutoscalerUndo],
                    *,
                    client: McpClient) -> AutoscalerUndo:
-    """Stops a deployment's autoscaler moving the replica count about.
+    """Stops a deployment's autoscaler moving the replica count about, as its
+    plan said.
 
     A generic mitigation of spec §7.3: Mitigation's response to an autoscaling
     pathology, and the first that stops something rather than adding or restoring
@@ -324,12 +416,12 @@ def pin_autoscaler(application: str,
     descriptor = client.call(
         "pin_autoscaler",
         parse_undo_descriptor,
-        application=application,
+        planned=planned.model_dump(mode="json")
     )
 
     if not isinstance(descriptor, AutoscalerUndo):
         raise ValueError(
-            f"pinning [{application}]'s autoscaler answered with a "
+            f"pinning [{planned.descriptor.application}]'s autoscaler answered with a "
             f"[{descriptor.kind}] descriptor, which is not a record of an "
             f"autoscaler being held still"
         )
@@ -359,21 +451,38 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
     )
 
 
-def pin_to_accelerator(application: str,
-                       accelerator: str,
+def plan_accelerator_pin(application: str,
+                         accelerator: str,
+                         *,
+                         client: McpClient) -> Planned[AcceleratorPinUndo]:
+    """Plans holding a deployment's pods to one accelerator card: the card they
+    are held to now, the card they would be held to, and whether the platform
+    reconciles the application itself, dated by the platform's own clock.
+
+    A read, asked before the action is claimed, and it changes nothing. The
+    caller names the card as well as the application, because the card is the
+    one thing the tier cannot work out: which card is good comes from where the
+    replicas started before the onset, which the caller recorded and the write
+    tier never saw.
+    """
+    return client.call(
+        "plan_accelerator_pin",
+        _PLANNED_ACCELERATOR_PIN.validate_python,
+        application=application,
+        accelerator=accelerator
+    )
+
+
+def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
                        *,
                        client: McpClient) -> AcceleratorPinUndo:
-    """Holds a deployment's pods to one accelerator card.
+    """Holds a deployment's pods to the card its plan named.
 
     A generic mitigation of spec §7.3: Mitigation's response to accelerator
     heterogeneity, and a drain - the pods move off a class of hardware and
     nothing deployed changes. What admits it is membership of the declared set
-    (§13).
-
-    The caller names the card as well as the application, because the card is
-    the one thing the tier cannot work out: which card is good comes from where
-    the replicas started before the onset, which the caller recorded and the
-    write tier never saw.
+    (§13). The plan goes over the wire whole, and is compared with the platform
+    before anything is written, as a rollback's is.
 
     The descriptor records *two* things, as a scale-out's does: the card the
     deployment was held to before, `None` included, and whether the platform
@@ -387,13 +496,13 @@ def pin_to_accelerator(application: str,
     descriptor = client.call(
         "pin_to_accelerator",
         parse_undo_descriptor,
-        application=application,
-        accelerator=accelerator
+        planned=planned.model_dump(mode="json")
     )
 
     if not isinstance(descriptor, AcceleratorPinUndo):
         raise ValueError(
-            f"pinning [{application}] to [{accelerator}] answered with a "
+            f"pinning [{planned.descriptor.application}] to "
+            f"[{planned.descriptor.pinned_to}] answered with a "
             f"[{descriptor.kind}] descriptor, which is not a record of a "
             f"deployment being held to a card"
         )

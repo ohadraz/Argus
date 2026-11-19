@@ -65,7 +65,7 @@ def with_retries[T](attempt: Callable[[], T],
         if (found := _what_landed(landed)) is not None:
             return found
 
-    raise AssertionError("unreachable: the last try returns or raises")
+    raise AssertionError("Unreachable: the last try returns or raises.")
 
 
 def said_of(error: Exception) -> str:

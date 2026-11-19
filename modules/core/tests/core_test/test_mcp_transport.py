@@ -37,6 +37,7 @@ from core.mcp_transport import (
     LEFT_BEHIND_KNOWN_MARKER,
     LEFT_BEHIND_MARKER,
     ActionExhausted,
+    ChangedSince,
     McpClient,
     McpToolError,
     McpUnreachable,
@@ -149,6 +150,7 @@ def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
                     "refuse_as_unreachable_platform_mid_action",
                     "refuse_saying_it_left_nothing", "refuse_saying_what_it_left",
                     "refuse_with_what_it_left", "refuse_as_lost_run",
+                    "refuse_as_changed_since", "refuse_as_changed_since_after_the_change",
                     "the_fence_i_was_sent", "the_action_i_was_sent", "dawdle",
                     "the_trace_i_am_in"
                 ]),
@@ -433,6 +435,53 @@ def test_an_ordinary_refusal_is_not_read_as_a_lost_run(
         .then(
             _what_was_raised_was_not(RunLost)
         )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(
+    ("tool", "performed"),
+    [("refuse_as_changed_since", False), ("refuse_as_changed_since_after_the_change", True)],
+    ids=["suspension-alone", "change-landed"]
+)
+def test_a_refusal_the_server_marked_as_changed_since_says_so_with_what_it_left(
+    tool: str, performed: bool
+) -> None:
+    """A tool refusing because somebody else changed the estate since the plan.
+
+    The distinction the walk hands an incident to a person on: somebody is
+    acting on the service now, and Argus does not act beside them. The marker
+    crosses the wire and arrives as a type, for the reason an exhausted action
+    does. What an earlier asking of the action left travels with it, because it
+    is recorded nowhere else - and whether that included the change itself, since
+    the walk records an action whose change landed and was overtaken as
+    performed, and one that landed only a suspension as not.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with(tool))) \
+            .then(all_of(
+                _what_was_raised_was(ChangedSince),
+                _what_it_left_behind_is_known(True),
+                _what_it_left_behind_is(WHAT_WAS_LEFT_BEHIND),
+                _its_change_is_said_performed(performed)
+            ))
+
+
+@pytest.mark.component
+def test_an_ordinary_refusal_is_not_read_as_changed_since(
+    running_double: RunningDouble
+) -> None:
+    # A walk told somebody else changed the estate hands the incident to a
+    # person, so a broken tool read as one would escalate while candidates sat
+    # untried.
+    Scenario() \
+        .given(running_double) \
+        .when(_asking(running_double, _refusing_once_and_counting)) \
+        .then(all_of(
+            _what_was_raised_was(McpToolError),
+            _what_was_raised_was_not(ChangedSince)
+        ))
 
 
 @pytest.mark.component
@@ -1554,6 +1603,27 @@ def _what_it_left_behind_is_known(expected: bool) -> Assertion[_Attempt]:
                 f"{'known' if expected else 'not known'}, and it said "
                 f"left_behind_known={attempt.raised.left_behind_known}: "
                 f"[{attempt.raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _its_change_is_said_performed(expected: bool) -> Assertion[_Attempt]:
+    """Whether a changed-since refusal arrived saying the action's own change had
+    landed before somebody overtook it."""
+    def assertion(attempt: _Attempt) -> bool:
+        if not isinstance(attempt.raised, ChangedSince):
+            raise AssertionError(
+                f"Expected a changed-since refusal, and what was raised was {attempt.raised!r}."
+            )
+
+        if attempt.raised.performed is not expected:
+            raise AssertionError(
+                f"Expected the refusal to say the change was "
+                f"{'performed' if expected else 'not performed'}, and it said "
+                f"performed={attempt.raised.performed}: [{attempt.raised}]."
             )
 
         return True

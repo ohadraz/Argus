@@ -36,6 +36,7 @@ from core.models import (
     FlagChange,
     FlagUndo,
     OpenedPullRequest,
+    Planned,
     ReplicaUndo,
     RestartedService,
 )
@@ -97,8 +98,20 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     Every tool that changes something is registered as a change, and made only
     for the claim that holds the run it is for - asked of `hold_for_a_change`
-    (`fencing`). The three reads are not: a stale walk reading the provider's
-    history, or asking whose a change in it was, gets nothing wrong.
+    (`fencing`). The reads are not: a stale walk reading the provider's
+    history, asking whose a change in it was, or planning a change, gets
+    nothing wrong.
+
+    Every change that leaves something to put back is planned first, by a read
+    of its own: the plan works out the change from the estate as it stands and
+    dates it by the clock of the port it was read through, and changes nothing -
+    so it is asked holding no run, because the walk plans before it claims. The
+    write is then handed the plan back whole and takes nothing it could work out
+    again: the plan is what the claim recorded, and a write that re-derived it
+    would compare the estate with something nobody wrote down. On the write tier
+    rather than the read one because the plan is what the write compares
+    against, read through the same port the compare reads through - and the
+    flag's admin read needs the admin token only this tier holds.
 
     The changes that write to the deployment platform and leave something to
     put back are registered as marked too: each is made only for a call naming
@@ -110,10 +123,12 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     `argus_account` is the account Argus signs in to the deployment platform as,
     which the platform writes on every history entry a rollback of Argus's adds.
-    Handed to the rollback's restore, which asks whether the newest entry is still
-    Argus's own before it puts anything back - and is the server's to hand it,
-    because nothing in a call names it and a restore told any other name would
-    take Argus's rollback for a person's, or a person's for Argus's.
+    Handed to the rollback, which asks whether an entry made since its plan is
+    Argus's own landed rollback before it answers as made, and to its restore,
+    which asks whether the newest entry is still Argus's own before it puts
+    anything back - and is the server's to hand both, because nothing in a call
+    names it and a write told any other name would take Argus's rollback for a
+    person's, or a person's for Argus's.
     """
     mcp = FencedFastMCP(
         "argus-write-mcp",
@@ -122,9 +137,20 @@ def build_server(endpoint: WriteMcpEndpoint,
         port=endpoint.write_mcp_port,
     )
 
+    @mcp.tool()
+    def plan_flag(flag: str, enabled: bool) -> Planned[FlagUndo]:
+        """Plans setting a feature flag on or off: the state the provider holds
+        it in, which is what puts it back, dated by the provider's own clock.
+
+        A read, and changes nothing. Refused as an exhausted action where the
+        flag is already as asked. The behavior lives in `flag_state.plan_flag`;
+        this is registration only."""
+        return flag_state.plan_flag(flag, enabled, flags)
+
     @mcp.change()
-    def set_feature_flag(flag: str, enabled: bool) -> FlagUndo:
-        """Sets a feature flag on or off in the configured environment.
+    def set_feature_flag(planned: Planned[FlagUndo], enabled: bool) -> FlagUndo:
+        """Sets the planned feature flag on or off in the configured
+        environment, where nobody has changed it since the plan.
 
         A generic mitigation (§13): it is taken unasked because its kind is
         in the declared set, not because it can be undone. It does leave
@@ -134,15 +160,17 @@ def build_server(endpoint: WriteMcpEndpoint,
 
         Both directions, one tool. A flag causes an incident by changing, and
         the damaging direction is not always "on" - undoing a flag that was
-        switched off means switching it back on, and undoing this call is this
-        call with the state reversed.
+        switched off means switching it back on, and undoing this call is a
+        plan and this call with the state reversed.
 
-        Returns only once the change is visible to evaluation, and raises
+        Answered as made, writing nothing, where Argus's own change since the
+        plan already landed; refused as changed since where somebody else's
+        did. Returns only once the change is visible to evaluation, and raises
         rather than reporting an unchanged flag as changed: a caller about to
         judge whether the service recovered has to know the service was
         actually changed. The behavior lives in `flag_state.set_flag`; this is
         registration only."""
-        return flag_state.set_flag(flag, enabled, flags)
+        return flag_state.set_flag(planned, enabled, flags)
 
     @mcp.change()
     def restart_service(service: str) -> RestartedService:
@@ -162,11 +190,24 @@ def build_server(endpoint: WriteMcpEndpoint,
         `restarting.restart_service`; this is registration only."""
         return restarting.restart_service(service, platform)
 
+    @mcp.tool()
+    def plan_rollback(application: str) -> Planned[DeploymentRollbackUndo]:
+        """Plans returning a deployment to the revision it ran before: the
+        entry it is on, the entry it would go back to, and whether the platform
+        reconciles it itself, dated by the platform's own clock.
+
+        Which revision is worked out here and not asked for, because nothing
+        above this port holds a deployment history to choose from: the last
+        entry of the stretch of one revision before the one running. A read,
+        and changes nothing. The behavior lives in
+        `rolling_back.plan_rollback`; this is registration only."""
+        return rolling_back.plan_rollback(application, platform)
+
     @mcp.change(marked=True)
-    def roll_back_deployment(application: str,
+    def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
                              ctx: Context[Any, Any, Any]) -> DeploymentRollbackUndo:
-        """Returns a deployment to the revision it ran before, and reports
-        what that cost.
+        """Returns a deployment to the entry its plan named, and reports what
+        that cost.
 
         A generic mitigation (§13), admissible unasked for one specific
         reason: the revision it applies was reviewed and ran before, so this
@@ -174,10 +215,11 @@ def build_server(endpoint: WriteMcpEndpoint,
         to the repository, and must not - that would be an infrastructure
         change requiring approval.
 
-        Which revision is not a parameter. The platform resolves it as
-        `argocd app rollback APPNAME` does with its history id omitted - the
-        immediately preceding deployment - because nothing above this port
-        holds a deployment history to choose from.
+        Compared with the estate before anything is written: answered as made
+        where this action's rollback already landed, by the account Argus signs
+        in as; refused as changed since where anybody else moved the deployment
+        or its reconciliation since the plan; written only where it is as the
+        plan found it.
 
         Mitigates without resolving. The repository still holds the change
         that caused the incident, and the platform's own reconciliation has
@@ -185,7 +227,9 @@ def build_server(endpoint: WriteMcpEndpoint,
         descriptor returned, and both are what a withdrawal puts back. The
         behavior lives in `rolling_back.roll_back_deployment`; this is
         registration only."""
-        return rolling_back.roll_back_deployment(application, platform, _the_mark_of(ctx))
+        return rolling_back.roll_back_deployment(
+            planned, platform, _the_mark_of(ctx), argus_account
+        )
 
     @mcp.change(marked=True)
     def restore_deployment(
@@ -221,10 +265,21 @@ def build_server(endpoint: WriteMcpEndpoint,
             descriptor, platform, _the_mark_of(ctx), argus_account
         )
 
+    @mcp.tool()
+    def plan_scale_out(application: str) -> Planned[ReplicaUndo]:
+        """Plans giving a deployment more replicas than it is running: the
+        count it runs, the count it would be given, and whether the platform
+        reconciles it itself, dated by the platform's own clock.
+
+        How many is worked out here and not asked for, for the reason the
+        scale-out gives. A read, and changes nothing. The behavior lives in
+        `scaling.plan_scale_out`; this is registration only."""
+        return scaling.plan_scale_out(application, platform)
+
     @mcp.change(marked=True)
-    def scale_out(application: str, ctx: Context[Any, Any, Any]) -> ReplicaUndo:
-        """Gives a deployment more replicas than it is running, and reports
-        what that cost.
+    def scale_out(planned: Planned[ReplicaUndo], ctx: Context[Any, Any, Any]) -> ReplicaUndo:
+        """Gives a deployment the replicas its plan asked for, and reports what
+        that cost.
 
         A generic mitigation (§13), and the only one that adds capacity rather
         than restoring state - which changes nothing about what admits it: an
@@ -232,12 +287,13 @@ def build_server(endpoint: WriteMcpEndpoint,
         because it can be put back. Google SRE's own list of generic mitigations
         names adding capacity beside draining, rolling back and restarting.
 
-        How many is not a parameter. The platform is asked what the deployment
-        is running, that count is doubled, and the result is bounded by a
-        ceiling this tier holds - because a target is meaningless without the
-        count it replaces, and nothing above this port can read that count. What
-        the repository asks for is a different number as soon as anybody has
-        scaled. Both figures are reported back.
+        How many is not a parameter. The plan asked the platform what the
+        deployment is running and doubled that count, and the write bounds it
+        again by a ceiling this tier holds - because a target is meaningless
+        without the count it replaces, and nothing above this port can read that
+        count. What the repository asks for is a different number as soon as
+        anybody has scaled. Both figures are reported back. Compared with the
+        estate before anything is written, as the rollback is.
 
         There is no tool for the reverse, and there should not be. Being wrong
         about adding capacity costs money; being wrong about removing it costs an
@@ -249,7 +305,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         is still arriving; the first two are recorded in the descriptor returned
         and are what a withdrawal puts back. The behavior lives in
         `scaling.scale_out`; this is registration only."""
-        return scaling.scale_out(application, platform, _the_mark_of(ctx))
+        return scaling.scale_out(planned, platform, _the_mark_of(ctx))
 
     @mcp.change(marked=True)
     def restore_replica_count(descriptor: ReplicaUndo,
@@ -278,10 +334,22 @@ def build_server(endpoint: WriteMcpEndpoint,
         `scaling.restore_replica_count`; this is registration only."""
         return scaling.restore_replica_count(descriptor, platform, _the_mark_of(ctx))
 
+    @mcp.tool()
+    def plan_autoscaler_pin(application: str) -> Planned[AutoscalerUndo]:
+        """Plans stopping a deployment's autoscaler moving the replica count
+        about: the floor it has, the floor it would be raised to, and whether
+        the platform reconciles it itself, dated by the platform's own clock.
+
+        How high is worked out here and not asked for, for the reason the pin
+        gives. A read, and changes nothing. The behavior lives in
+        `pinning.plan_autoscaler_pin`; this is registration only."""
+        return pinning.plan_autoscaler_pin(application, platform)
+
     @mcp.change(marked=True)
-    def pin_autoscaler(application: str, ctx: Context[Any, Any, Any]) -> AutoscalerUndo:
-        """Stops a deployment's autoscaler moving the replica count about, and
-        reports the floor it had.
+    def pin_autoscaler(planned: Planned[AutoscalerUndo],
+                       ctx: Context[Any, Any, Any]) -> AutoscalerUndo:
+        """Stops a deployment's autoscaler moving the replica count about, as
+        its plan said, and reports the floor it had.
 
         A generic mitigation (§13), and the first that stops something rather
         than adding or restoring something - which changes nothing about what
@@ -303,9 +371,10 @@ def build_server(endpoint: WriteMcpEndpoint,
         controller was thrashing between, the platform's own reconciliation has
         been suspended so that nothing re-applies it, and whatever the controller
         was reacting to is still there; the first two are recorded in the
-        descriptor returned and are what a withdrawal puts back. The behavior
+        descriptor returned and are what a withdrawal puts back. Compared with
+        the estate before anything is written, as the rollback is. The behavior
         lives in `pinning.pin_autoscaler`; this is registration only."""
-        return pinning.pin_autoscaler(application, platform, _the_mark_of(ctx))
+        return pinning.pin_autoscaler(planned, platform, _the_mark_of(ctx))
 
     @mcp.change()
     def discard_cache_entries(keys: list[str]) -> CacheEntriesDiscarded:
@@ -368,20 +437,32 @@ def build_server(endpoint: WriteMcpEndpoint,
         `pinning.restore_autoscaler_floor`; this is registration only."""
         return pinning.restore_autoscaler_floor(descriptor, platform, _the_mark_of(ctx))
 
+    @mcp.tool()
+    def plan_accelerator_pin(application: str,
+                             accelerator: str) -> Planned[AcceleratorPinUndo]:
+        """Plans holding a deployment's pods to one accelerator card: the card
+        they are held to now, the card they would be held to, and whether the
+        platform reconciles the application itself, dated by the platform's own
+        clock.
+
+        Which card is a parameter because it is the one thing the action cannot
+        work out for itself: it comes from where the replicas started before
+        the onset, which the caller read and this tier never saw. A read, and
+        changes nothing. The behavior lives in
+        `accelerators.plan_accelerator_pin`; this is registration only."""
+        return accelerators.plan_accelerator_pin(application, accelerator, platform)
+
     @mcp.change(marked=True)
-    def pin_to_accelerator(application: str,
-                           accelerator: str,
+    def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
                            ctx: Context[Any, Any, Any]) -> AcceleratorPinUndo:
-        """Holds a deployment's pods to one accelerator card, and reports the
+        """Holds a deployment's pods to the card its plan named, and reports the
         card they were held to before.
 
         A generic mitigation (§13): a drain, which Google SRE's list of generic
         mitigations names beside rolling back, restarting and adding capacity.
         The pods move off a class of hardware and nothing deployed changes.
-
-        Which card is a parameter because it is the one thing the action cannot
-        work out for itself: it comes from where the replicas started before
-        the onset, which the caller read and this tier never saw.
+        Compared with the estate before anything is written, as the rollback
+        is.
 
         Mitigates without resolving. The repository still declares a template
         that lets the pods land on any card, the platform's own reconciliation
@@ -390,9 +471,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         recorded in the descriptor returned and are what a withdrawal puts back.
         The behavior lives in `accelerators.pin_to_accelerator`; this is
         registration only."""
-        return accelerators.pin_to_accelerator(
-            application, accelerator, platform, _the_mark_of(ctx)
-        )
+        return accelerators.pin_to_accelerator(planned, platform, _the_mark_of(ctx))
 
     @mcp.change(marked=True)
     def restore_accelerator_pin(

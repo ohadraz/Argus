@@ -15,6 +15,7 @@ from core.models import (
     FlagUndo,
     Hypothesis,
     MetricBucket,
+    Planned,
     RestartedService,
     RestartService,
     Undone,
@@ -23,8 +24,10 @@ from mitigation import Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Ver
 from mitigation.kinds import undo_change
 from mitigation.tools import (
     AcceleratorPinner,
+    AcceleratorPinPlanner,
     AcceleratorPinRestorer,
     AutoscalerPinner,
+    AutoscalerPinPlanner,
     AutoscalingRestorer,
     CacheEntryDiscarder,
     CapacityRestorer,
@@ -32,10 +35,14 @@ from mitigation.tools import (
     DeploymentRestorer,
     DeploymentRoller,
     DeploymentScaler,
+    FlagPlanner,
     FlagSetter,
     MetricsFetcher,
     PerformingWrites,
+    PlannedFlagSetter,
     PuttingBack,
+    RollbackPlanner,
+    ScaleOutPlanner,
     ServiceRestarter,
 )
 from mitigation.trying import UndoChange
@@ -48,6 +55,10 @@ WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 CALM_MINUTES = 6
 FAILING_MINUTES = 5
 ACTION_TIME = WINDOW_START + timedelta(minutes=CALM_MINUTES + FAILING_MINUTES - 1, seconds=30)
+# When the state a plan was worked out from was read: before the claim, and so
+# before the action. Seconds rather than a relation anything turns on - only
+# that it comes first.
+PLANNED_AT = ACTION_TIME - timedelta(seconds=2)
 
 EARLIER_IN_THE_WINDOW = "2026-08-20T11:02:00Z"
 LATER_IN_THE_WINDOW = "2026-08-20T11:05:00Z"
@@ -79,6 +90,13 @@ def an_undo_descriptor_for(flag: str,
         environment="production",
         written_at=written_at
     )
+
+
+def a_plan_of[D](descriptor: D, since: datetime = PLANNED_AT) -> Planned[D]:
+    """The change a write is to make, as the write tier worked it out before
+    the claim - `descriptor` - and when it read the state it worked it out
+    from."""
+    return Planned(descriptor=descriptor, since=since)
 
 
 def a_hypothesis_blaming(failure_mode: FailureMode,
@@ -503,14 +521,21 @@ def an_accelerator_pin_restorer_nobody_calls() -> MagicMock:
     return restore
 
 
-def the_writes(set_state: FlagSetter | None = None,
+def the_writes(set_state: PlannedFlagSetter | None = None,
                restart: ServiceRestarter | None = None,
                roll_back: DeploymentRoller | None = None,
                scale_out: DeploymentScaler | None = None,
                pin: AutoscalerPinner | None = None,
                discard: CacheEntryDiscarder | None = None,
-               pin_to_accelerator: AcceleratorPinner | None = None) -> PerformingWrites:
-    """The writes that perform a mitigation, with stand-ins for the unnamed ones.
+               pin_to_accelerator: AcceleratorPinner | None = None,
+               plan_flag: FlagPlanner | None = None,
+               plan_rollback: RollbackPlanner | None = None,
+               plan_scale_out: ScaleOutPlanner | None = None,
+               plan_autoscaler_pin: AutoscalerPinPlanner | None = None,
+               plan_accelerator_pin: AcceleratorPinPlanner | None = None
+               ) -> PerformingWrites:
+    """The writes that perform a mitigation, and the plans each undoable one is
+    written from, with stand-ins for the unnamed ones.
 
     Every member is required of the real bundle, because an agent that could be
     built without a way to do one of the things it may do is one that finds out at
@@ -518,10 +543,14 @@ def the_writes(set_state: FlagSetter | None = None,
     four, and naming them at every call site said nothing about the case - so what
     is not named here is a spy nobody calls, and a case that quietly performed the
     wrong kind of action fails on a call to a mock it never wired.
+
+    The planners are here rather than in a bundle of their own because a plan is
+    asked of the tier that writes from it: it is what that write compares the
+    estate with, read through the same port the compare reads through.
     """
     return PerformingWrites(
         set_state=set_state if set_state is not None else create_autospec(
-            FlagSetter, instance=True
+            PlannedFlagSetter, instance=True
         ),
         restart=restart if restart is not None else create_autospec(
             ServiceRestarter, instance=True
@@ -539,7 +568,20 @@ def the_writes(set_state: FlagSetter | None = None,
             CacheEntryDiscarder, instance=True
         ),
         pin_to_accelerator=pin_to_accelerator if pin_to_accelerator is not None
-        else create_autospec(AcceleratorPinner, instance=True)
+        else create_autospec(AcceleratorPinner, instance=True),
+        plan_flag=plan_flag if plan_flag is not None else create_autospec(
+            FlagPlanner, instance=True
+        ),
+        plan_rollback=plan_rollback if plan_rollback is not None else create_autospec(
+            RollbackPlanner, instance=True
+        ),
+        plan_scale_out=plan_scale_out if plan_scale_out is not None else create_autospec(
+            ScaleOutPlanner, instance=True
+        ),
+        plan_autoscaler_pin=plan_autoscaler_pin if plan_autoscaler_pin is not None
+        else create_autospec(AutoscalerPinPlanner, instance=True),
+        plan_accelerator_pin=plan_accelerator_pin if plan_accelerator_pin is not None
+        else create_autospec(AcceleratorPinPlanner, instance=True)
     )
 
 

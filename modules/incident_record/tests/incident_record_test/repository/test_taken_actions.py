@@ -6,14 +6,24 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    the_answer_was,
+)
 from core import connect_from_env
 from core.models import (
     ActionProgress,
     Alert,
+    DeploymentRollbackUndo,
     FailureMode,
     FlagUndo,
     Hypothesis,
+    Planned,
     TakenAction,
     UndoDescriptor,
     Undone,
@@ -21,12 +31,34 @@ from core.models import (
     Verdict,
 )
 from incident_record.repository import hypotheses, taken_actions
+from psycopg import sql
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
 SOME_INSTANT = datetime(2026, 10, 26, 18, 4, 49, 35000, tzinfo=UTC)
 DONT_CARE_INSTANT = datetime(2026, 10, 11, 23, 38, tzinfo=UTC)
+# The platform's own clock, read before the state a plan was worked out from.
+SOME_MOMENT_ITS_STATE_WAS_READ = datetime(2026, 11, 18, 9, 30, 12, tzinfo=UTC)
+SOME_MOMENT_ARGUS_WROTE = SOME_MOMENT_ITS_STATE_WAS_READ + timedelta(seconds=3)
+SOME_ENTRY_IT_WAS_ON = 2
+# A rollback worked out and not yet made: the entry it returns to chosen, and
+# no moment to date a write by.
+SOME_ROLLBACK_PLAN = DeploymentRollbackUndo(
+    application="io-shop",
+    was_on_history_id=SOME_ENTRY_IT_WAS_ON,
+    was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
+    rolled_back_to_revision="544cef36a8eaf45c5b030c3d5c21473d8176cef3",
+    rolled_back_to_history_id=SOME_ENTRY_IT_WAS_ON - 1,
+    was_syncing_itself=True
+)
+# The plan as the claim keeps it: the rollback, and when the platform said what
+# it was worked out from.
+SOME_PLANNED_ROLLBACK = Planned(descriptor=SOME_ROLLBACK_PLAN, since=SOME_MOMENT_ITS_STATE_WAS_READ)
+# What the write returned for it: the plan, dated by the platform.
+THE_ROLLBACK_AS_MADE = SOME_ROLLBACK_PLAN.model_copy(
+    update={"written_at": SOME_MOMENT_ARGUS_WROTE}
+)
 
 
 @pytest.mark.integration
@@ -124,6 +156,276 @@ def test_a_candidate_already_claimed_is_answered_with_no_row() -> None:
             ) \
             .then(
                 the_answer_was(None)
+            )
+
+
+@pytest.mark.integration
+def test_a_claim_keeps_the_plan_it_was_handed_and_when_its_state_was_read() -> None:
+    # Written before anything in the estate moves, because the row this table
+    # exists for is one a worker stopped after writing. A resumed walk asks the
+    # estate whether it is as the plan found it, as the plan asked for under
+    # this claim's mark, or neither - and it can only ask that of a plan the
+    # claim kept, dated by when the platform said what it held.
+    #
+    # Both reads: the one a resumed walk makes of its candidate, and the one
+    # every reader of the incident makes.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, dont_care_alert)
+            ) \
+            .given(
+                hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT,
+                    planned=SOME_PLANNED_ROLLBACK
+                )
+            ) \
+            .then(all_of(
+                _the_claim_read_back_planned(conn, incident_id, hypothesis_id,
+                                             SOME_PLANNED_ROLLBACK),
+                _the_plans_read_back_are(conn, incident_id, [SOME_PLANNED_ROLLBACK])
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("column", ["plan", "since"])
+def test_the_table_refuses_half_a_plan(column: str) -> None:
+    # A plan and the moment its state was read are one fact in two columns,
+    # and the table holds them to it rather than every writer: a plan nobody
+    # can date cannot be asked whether anything landed after it, and a moment
+    # with no plan dates nothing. Either half emptied alone is refused.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT,
+                    planned=SOME_PLANNED_ROLLBACK
+                )
+            ) \
+            .when(attempting(
+                lambda: _emptying(conn, incident_id, column)
+            )) \
+            .then(
+                an_error_was_raised(psycopg.errors.CheckViolation)
+            )
+
+
+@pytest.mark.integration
+def test_a_claim_with_a_plan_says_nothing_of_argus_is_out_there_yet() -> None:
+    # The plan is what the write will compare against; the undo descriptor is
+    # something of Argus's out in the estate. Written at the claim, a
+    # withdrawal's unwinding would put back a change that was never made, and
+    # every reader asking whether a change was left would be told one was.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, dont_care_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT,
+                    planned=SOME_PLANNED_ROLLBACK
+                )
+            ) \
+            .then(all_of(
+                _the_undo_read_back_is(conn, incident_id, None),
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.CLAIMED])
+            ))
+
+
+@pytest.mark.integration
+def test_an_action_with_nothing_to_plan_is_claimed_without_a_plan() -> None:
+    # A restart and a discard leave nothing to compare the estate with and no
+    # moment it was read at. Their claim says so rather than holding a plan
+    # nobody worked out.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, dont_care_alert)
+            ) \
+            .given(
+                hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="restart-service",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT
+                )
+            ) \
+            .then(
+                _the_claim_read_back_planned(conn, incident_id, hypothesis_id, None)
+            )
+
+
+@pytest.mark.integration
+def test_a_second_claim_on_a_candidate_leaves_the_first_claims_plan() -> None:
+    # The plan belongs to the claim that holds the candidate. A later attempt
+    # refused the candidate worked its plan out from an estate that may have
+    # moved since; written over the first, it would have the first attempt's
+    # resume compare the estate with something that attempt never planned.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_later_plan = SOME_ROLLBACK_PLAN.model_copy(
+        update={"was_on_history_id": SOME_ENTRY_IT_WAS_ON + 1,
+                "rolled_back_to_history_id": SOME_ENTRY_IT_WAS_ON}
+    )
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT,
+                    planned=SOME_PLANNED_ROLLBACK
+                ))
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT + timedelta(minutes=1),
+                    planned=Planned(descriptor=some_later_plan,
+                                    since=SOME_MOMENT_ITS_STATE_WAS_READ + timedelta(minutes=1))
+                )
+            ) \
+            .then(all_of(
+                the_answer_was(None),
+                _the_claim_read_back_planned(conn, incident_id, hypothesis_id,
+                                             SOME_PLANNED_ROLLBACK)
+            ))
+
+
+@pytest.mark.integration
+def test_a_change_made_leaves_the_plan_its_claim_kept() -> None:
+    # The change made writes what the write returned beside the plan, never
+    # over it: a resumed walk finding the row performed still asks whether the
+    # estate is as Argus left it, and the plan is half of what it compares.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT,
+                    planned=SOME_PLANNED_ROLLBACK
+                )
+            ) \
+            .when(
+                lambda: taken_actions.advance(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    to=ActionProgress.PERFORMED,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE
+                )
+            ) \
+            .then(all_of(
+                _the_claim_read_back_planned(conn, incident_id, hypothesis_id,
+                                             SOME_PLANNED_ROLLBACK),
+                _the_undo_read_back_is(conn, incident_id, THE_ROLLBACK_AS_MADE)
+            ))
+
+
+@pytest.mark.integration
+def test_a_completed_action_leaves_the_plan_its_claim_kept() -> None:
+    # The attempt's whole account is written over the progress and the
+    # descriptor, and still not over the plan: what Argus meant to do is a
+    # fact of the claim, and no later word about the attempt changes it.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=DONT_CARE_INSTANT,
+                    planned=SOME_PLANNED_ROLLBACK
+                )
+            ) \
+            .when(
+                lambda: taken_actions.complete(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    outcome=Verdict.REFUTED,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE,
+                    left_behind_known=True,
+                    undone=Undone.RESTORED
+                )
+            ) \
+            .then(
+                _the_claim_read_back_planned(conn, incident_id, hypothesis_id,
+                                             SOME_PLANNED_ROLLBACK)
             )
 
 
@@ -901,13 +1203,14 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
     # called, and one that is called and puts NULL there, both satisfy a guard
     # that only asks whether a writer exists in the source.
     #
-    # One action with everything an action can have: a claim, a candidate, a
-    # subject, a verdict, a change with a way back, and the walk's own putting
-    # back of it after the refutation. A row legitimately lacking one of those
-    # is a different case with its own test above; this asks whether the
-    # complete case reaches the table complete.
+    # One action with everything an action can have: a claim with its plan, a
+    # candidate, a subject, a verdict, a change with a way back, and the walk's
+    # own putting back of it after the refutation. A row legitimately lacking
+    # one of those is a different case with its own test above; this asks
+    # whether the complete case reaches the table complete.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     the_flag_that_was_changed = "monthly-spend-feature"
+    some_plan = FlagUndo(flag=the_flag_that_was_changed, was_enabled=True)
 
     with connect_from_env() as conn:
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
@@ -927,12 +1230,13 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
                     action_type="revert-feature-flag",
                     subject=the_flag_that_was_changed,
                     outcome=Verdict.REFUTED,
-                    undo_descriptor=FlagUndo(
-                        flag=the_flag_that_was_changed, was_enabled=True
+                    undo_descriptor=some_plan.model_copy(
+                        update={"written_at": SOME_MOMENT_ARGUS_WROTE}
                     ),
                     at=DONT_CARE_INSTANT,
                     left_behind_known=True,
-                    undone=Undone.RESTORED
+                    undone=Undone.RESTORED,
+                    planned=Planned(descriptor=some_plan, since=SOME_MOMENT_ITS_STATE_WAS_READ)
                 )
             ) \
             .then(
@@ -1110,7 +1414,7 @@ def _what_it_left_is_read_back_as_known(conn: psycopg.Connection,
         if read_back != [expected]:
             raise AssertionError(
                 f"Expected one action whose left_behind_known reads [{expected}], "
-                f"and the incident's actions read {read_back}."
+                f"and the incident's actions read {read_back}"
             )
 
         return True
@@ -1149,7 +1453,7 @@ def _what_was_undone_is_read_back_as(conn: psycopg.Connection,
         if read_back != [expected]:
             raise AssertionError(
                 f"Expected one action whose undone reads [{expected}], "
-                f"and the incident's actions read {read_back}."
+                f"and the incident's actions read {read_back}"
             )
 
         return True
@@ -1165,7 +1469,7 @@ def _the_progress_read_back_is(conn: psycopg.Connection,
         found = [action.progress for action in taken_actions.get_by_incident(conn, incident_id)]
 
         if found != expected:
-            raise AssertionError(f"Expected the actions read back as {expected}, got {found}.")
+            raise AssertionError(f"Expected the actions read back as {expected}, got {found}")
 
         return True
 
@@ -1186,7 +1490,7 @@ def _it_progressed_to(expected: ActionProgress) -> Assertion[TakenAction | None]
 
 def _the_undo_read_back_is(conn: psycopg.Connection,
                            incident_id: str,
-                           expected: UndoDescriptor) -> Assertion[object]:
+                           expected: UndoDescriptor | None) -> Assertion[object]:
     """What would put the change back, through the read an unwinding makes."""
     def assertion(_result: object) -> bool:
         found = [action.undo_descriptor
@@ -1194,7 +1498,64 @@ def _the_undo_read_back_is(conn: psycopg.Connection,
 
         if found != [expected]:
             raise AssertionError(f"Expected one action read back carrying [{expected}], "
-                                 f"got {found}.")
+                                 f"got {found}")
+
+        return True
+
+    return assertion
+
+
+def _emptying(conn: psycopg.Connection, incident_id: str, column: str) -> None:
+    """Empties one column of the incident's actions, as no writer of this
+    module ever would - inside a savepoint, so the refusal leaves the
+    connection usable."""
+    with conn.transaction():
+        conn.execute(
+            sql.SQL("UPDATE action SET {} = NULL WHERE incident_id = %s").format(
+                sql.Identifier(column)
+            ),
+            (incident_id,)
+        )
+
+
+def _the_claim_read_back_planned(conn: psycopg.Connection,
+                                 incident_id: str,
+                                 hypothesis_id: str,
+                                 planned: Planned[Any] | None) -> Assertion[object]:
+    """What the candidate's claim planned, through the read a resumed walk makes."""
+    def assertion(_result: object) -> bool:
+        action = taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+
+        if action is None:
+            raise AssertionError(
+                f"Expected the claim read back planning [{planned!r}], and the "
+                f"candidate has no row."
+            )
+
+        if action.planned != planned:
+            raise AssertionError(
+                f"Expected the claim read back planning [{planned!r}], got "
+                f"[{action.planned!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_plans_read_back_are(conn: psycopg.Connection,
+                             incident_id: str,
+                             expected: list[Planned[Any] | None]) -> Assertion[object]:
+    """What each of the incident's actions planned, through the read every
+    reader of the incident makes."""
+    def assertion(_result: object) -> bool:
+        found = [action.planned for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if found != expected:
+            raise AssertionError(
+                f"Expected the incident's actions read back planning {expected}, "
+                f"got {found}"
+            )
 
         return True
 
@@ -1208,7 +1569,7 @@ def _the_outcome_read_back_is_absent(conn: psycopg.Connection,
         found = [action.outcome for action in taken_actions.get_by_incident(conn, incident_id)]
 
         if found != [None]:
-            raise AssertionError(f"Expected one action read back with no outcome, got {found}.")
+            raise AssertionError(f"Expected one action read back with no outcome, got {found}")
 
         return True
 
@@ -1223,7 +1584,7 @@ def _the_action_read_back_was_claimed_at(conn: psycopg.Connection,
 
         if [taken.taken_at for taken in read_back] != [instant]:
             raise AssertionError(f"Expected one action claimed at [{instant}], got "
-                                 f"{[str(taken.taken_at) for taken in read_back]}.")
+                                 f"{[str(taken.taken_at) for taken in read_back]}")
 
         return True
 
@@ -1302,7 +1663,7 @@ def _the_actions_read_back_are(conn: psycopg.Connection,
         found = [taken.outcome for taken in taken_actions.get_by_incident(conn, incident_id)]
 
         if found != outcomes:
-            raise AssertionError(f"Expected outcomes {outcomes}, got {found}.")
+            raise AssertionError(f"Expected outcomes {outcomes}, got {found}")
 
         return True
 

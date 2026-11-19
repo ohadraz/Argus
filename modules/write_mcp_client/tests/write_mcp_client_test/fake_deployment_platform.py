@@ -6,6 +6,7 @@ import re
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 from typing import Any
@@ -14,9 +15,12 @@ from urllib.parse import parse_qs, urlsplit
 from core import get_settings
 from deployment_platform.argocd import (
     ACCELERATOR_LABEL,
+    ANNOTATIONS,
     APPLICATION_MERGE_PATCH,
     AUTOMATED,
+    AUTOSCALER_KIND,
     ENABLED,
+    METADATA,
     NODE_SELECTOR,
     PATCH_REQUEST_PATCH,
     PATCH_REQUEST_TYPE,
@@ -40,6 +44,13 @@ MANIFESTS_PATH = "/argocd/{application}/manifests"
 # belongs to - and the name the write server is told it signs in as.
 THE_ACCOUNT_ARGUS_SIGNS_IN_AS = "Argus"
 
+# The platform's own clock, which stands still: every answer is sent with it as
+# its `Date`, which is what a plan is dated by, and every entry a rollback adds
+# is stamped with it - so a rollback made from a plan lands at the plan's own
+# moment, which is "at or after" it, as a real one lands moments later. After
+# both entries of the history it starts with.
+THE_PLATFORM_S_TIME = datetime(2026, 8, 20, 12, 5, tzinfo=UTC)
+
 # How the platform spells a creation time, which is Kubernetes' own: RFC 3339
 # to the second. The resolution is not a shortcut - what the value is compared
 # against is the previous process's start time, minutes old by then.
@@ -62,6 +73,15 @@ THE_REVISION_RUNNING_NOW = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 THE_REVISION_BEFORE_IT = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 THE_HISTORY_RUNNING_NOW = 2
 THE_HISTORY_BEFORE_IT = 1
+
+# The autoscaler a case may stage beside the Deployment, as the resource tree
+# names it, and the bounds it is declared with: room between them for a pin, and
+# a ceiling under the most replicas Argus may ask for, so a pin raises the floor
+# to the ceiling itself.
+THE_AUTOSCALER = "io-shop-cpu"
+THE_AUTOSCALER_NAMESPACE = "production"
+THE_AUTOSCALER_FLOOR = 2
+THE_AUTOSCALER_CEILING = 8
 
 
 def the_history_found() -> list[dict[str, Any]]:
@@ -137,11 +157,18 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     whether the rollback is still Argus's, so a fake whose history stood still
     would have every rollback read as somebody else's.
 
+    It keeps the marks too. Every merge patch of the application, the Deployment
+    or the autoscaler carries the annotations of the action it was made for, and
+    each object then reports the ones last written to it - which is what a write
+    made over a plan reads to tell a change of this claim's from somebody's.
+
     It answers the surfaces a pin to a card needs the same way again. The
-    Deployment reports the card its pod template selects, and a merge patch on
-    the resource route is actually applied to that selector - so a pin that sent
-    nothing, or a restore that left the label in place, reads back as exactly
-    that.
+    Deployment reports the card its pod template selects and the count it was
+    asked for, and a merge patch on the resource route is actually applied to
+    both - so a pin that sent nothing, a restore that left the label in place, or
+    a scale-out that never sent a count reads back as exactly that. And an
+    autoscaler, where a case stages one: listed in the tree, its bounds reported
+    on the resource route, and its floor patched there.
 
     One pod's creation time rather than one per application. What a per
     application memory would witness - that the tree read is the one belonging
@@ -156,6 +183,9 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     syncs_itself: bool = True
     rolled_back_to: list[int] = []
     sync_patches_received: list[dict[str, Any]] = []
+    # Every merge patch the resource route was sent, the Deployment's and the
+    # autoscaler's alike, in the order they came.
+    resource_patches_received: list[dict[str, Any]] = []
     replicas: int = THE_COUNT_RUNNING
     # The card the Deployment's pods are held to, or `None` where its selector
     # names none - which is how an application nobody has pinned is declared.
@@ -163,11 +193,24 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
     # Every deployment recorded, in the order the platform serves them - the
     # newest last, and the one the Deployment is running.
     history: list[dict[str, Any]] = the_history_found()
+    # The annotations each object carries, as the merge patches made to it left
+    # them. None to begin with: nobody has marked anything.
+    application_annotations: dict[str, str] = {}
+    deployment_annotations: dict[str, str] = {}
+    autoscaler_annotations: dict[str, str] = {}
+    # The autoscaler's floor, or `None` where the application has no autoscaler
+    # - which is how it starts. A case that needs one stages a floor.
+    autoscaler_floor: int | None = None
 
     # Whether this platform's API server is serving at all. Off by default: an
     # unavailable platform is something a test stages, and a fake that had to be
     # told it is up in every other test would be a fake nobody could read.
     unavailable: bool = False
+
+    def date_time_string(self, timestamp: float | None = None) -> str:
+        """The `Date` every answer is sent with: the platform's own clock, which
+        stands still at `THE_PLATFORM_S_TIME`, whatever this process's says."""
+        return format_datetime(THE_PLATFORM_S_TIME, usegmt=True)
 
     def _refused_for_being_unavailable(self) -> bool:
         """Answers as a platform whose own API is not serving, where staged.
@@ -193,7 +236,10 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         elif urlsplit(self.path).path.endswith("/manifests"):
             self._respond_with(self._the_manifests())
         elif urlsplit(self.path).path.endswith("/resource"):
-            self._respond_with(self._the_managed_deployment())
+            if self._is_about_the_autoscaler():
+                self._respond_with(self._the_managed_autoscaler())
+            else:
+                self._respond_with(self._the_managed_deployment())
         elif self._names_an_application() and self.path.count("/") == 2:
             self._respond_with(self._the_application())
         else:
@@ -216,9 +262,10 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
                 {
                     "apiVersion": "apps/v1",
                     "kind": "Deployment",
-                    "metadata": {
+                    METADATA: {
                         "name": self._the_application_named(),
-                        "namespace": "production"
+                        "namespace": "production",
+                        ANNOTATIONS: self.deployment_annotations
                     },
                     "spec": {
                         "replicas": self.replicas,
@@ -231,6 +278,28 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
                     }
                 }
             )
+        }
+
+    def _the_managed_autoscaler(self) -> dict[str, Any]:
+        """The live autoscaler, carried as text as the Deployment is - or nothing
+        found, where the application has none."""
+        if self.autoscaler_floor is None:
+            return {}
+
+        return {
+            "manifest": json.dumps({
+                "apiVersion": "autoscaling/v2",
+                "kind": AUTOSCALER_KIND,
+                METADATA: {
+                    "name": THE_AUTOSCALER,
+                    "namespace": THE_AUTOSCALER_NAMESPACE,
+                    ANNOTATIONS: self.autoscaler_annotations
+                },
+                SPEC: {
+                    "minReplicas": self.autoscaler_floor,
+                    "maxReplicas": THE_AUTOSCALER_CEILING
+                }
+            })
         }
 
     def _the_manifests(self) -> dict[str, Any]:
@@ -264,9 +333,10 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
         The patch arrives as a JSON-encoded string inside the request, as the
         vendor's `ApplicationPatchRequest` carries it, and is applied to the
-        policy the application then reports. A merge patch only: a caller that
-        sent another type would have it applied differently or not at all, so it
-        is refused here rather than answered as though it had landed.
+        policy and the annotations the application then reports. A merge patch
+        only: a caller that sent another type would have it applied differently
+        or not at all, so it is refused here rather than answered as though it
+        had landed.
         """
         if self._refused_for_being_unavailable():
             return
@@ -291,6 +361,9 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         policy = _merged(self.sync_policy, patch.get(SPEC, {}).get(SYNC_POLICY, {}))
         type(self).sync_policy = policy
         type(self).syncs_itself = _is_syncing(policy)
+        type(self).application_annotations = _merged(
+            self.application_annotations, patch.get(METADATA, {}).get(ANNOTATIONS, {})
+        )
 
         self._respond_with(self._the_application())
 
@@ -303,7 +376,7 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
             return
 
         if urlsplit(self.path).path.endswith("/resource"):
-            self._patch_the_deployment()
+            self._patch_a_resource()
             return
 
         if "/resource/actions" not in self.path:
@@ -316,43 +389,11 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
             {"path": self.path, "asked_for": asked_for}
         ]
 
-        if asked_for.get("action") == "scale":
-            self._scale(asked_for)
-            return
-
         # A restart is a new process, and the pod's creation time moving is the
         # only way anything outside can tell that it happened.
         type(self).process_start_time_seconds = (
             self.process_start_time_seconds + A_NEW_PROCESS_LATER
         )
-
-        self._respond_with({})
-
-    def _scale(self, asked_for: dict[str, Any]) -> None:
-        """Remembers the size it was asked for, which the resource then reports.
-
-        The write is real, for the reason the restart's is: a fake whose action
-        changed nothing would answer the same to a caller that read the running
-        count and doubled it as to one that sent a number it invented, and the
-        round trip would prove neither.
-
-        The pod's creation time does *not* move. Scaling out starts another
-        replica and leaves the one already serving where it was, and a fake that
-        moved it would let a scale-out be confirmed by the evidence a restart is
-        confirmed by.
-        """
-        parameters = asked_for.get("resourceActionParameters", [])
-        counts = [
-            parameter["value"] for parameter in parameters
-            if parameter["name"] == "replicas"
-        ]
-
-        if not counts:
-            self.send_response(400)
-            self.end_headers()
-            return
-
-        type(self).replicas = int(counts[-1])
 
         self._respond_with({})
 
@@ -373,26 +414,26 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         returned_to = next(entry for entry in self.history if entry["id"] == to)
         type(self).rolled_back_to = self.rolled_back_to + [to]
         # A new entry of the revision returned to, by the account the write
-        # server is told it signs in as - which is what a real server records of
-        # a rollback.
+        # server is told it signs in as, stamped by the platform's own clock -
+        # which is what a real server records of a rollback.
         type(self).history = self.history + [{
             "id": self.history[-1]["id"] + 1,
             "revision": returned_to["revision"],
-            "deployedAt": "2026-08-20T12:05:00Z",
+            "deployedAt": THE_PLATFORM_S_TIME.strftime(POD_TIMESTAMP_FORMAT),
             "initiatedBy": {"username": THE_ACCOUNT_ARGUS_SIGNS_IN_AS}
         }]
 
         self._respond_with({})
 
-    def _patch_the_deployment(self) -> None:
-        """The resource route's merge patch, applied to the selector the
-        Deployment then reports.
+    def _patch_a_resource(self) -> None:
+        """The resource route's merge patch, applied to the resource it selects.
 
         The write is real for the restart's reason: a fake that accepted the patch
-        and went on reporting the old selector would answer a restore that sent
-        nothing exactly as it answers one that took the pin off. A merge patch
-        only, carried as text the way the vendor carries it, and refused
-        otherwise - the route applies any other type differently or not at all.
+        and went on reporting the old selector, count or floor would answer a
+        write that sent nothing exactly as it answers one that changed them. A
+        merge patch only, carried as text the way the vendor carries it, and
+        refused otherwise - the route applies any other type differently or not
+        at all.
         """
         patch_types = parse_qs(urlsplit(self.path).query).get(PATCH_REQUEST_TYPE)
 
@@ -403,13 +444,46 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
 
         length = int(self.headers.get("Content-Length", 0))
         patch = json.loads(json.loads(self.rfile.read(length)))
-        asked_for = (
-            patch.get(SPEC, {}).get(TEMPLATE, {}).get(SPEC, {}).get(NODE_SELECTOR, {})
-        )
+        type(self).resource_patches_received = self.resource_patches_received + [patch]
+        annotations = patch.get(METADATA, {}).get(ANNOTATIONS, {})
+
+        if self._is_about_the_autoscaler():
+            self._patch_the_autoscaler(patch, annotations)
+        else:
+            self._patch_the_deployment(patch, annotations)
+
+    def _patch_the_deployment(self, patch: dict[str, Any], annotations: dict[str, Any]) -> None:
+        spec = patch.get(SPEC, {})
+        asked_for = spec.get(TEMPLATE, {}).get(SPEC, {}).get(NODE_SELECTOR, {})
         selector = _merged(self._the_node_selector(), asked_for)
         type(self).accelerator_pin = selector.get(ACCELERATOR_LABEL)
 
+        if "replicas" in spec:
+            type(self).replicas = int(spec["replicas"])
+
+        type(self).deployment_annotations = _merged(self.deployment_annotations, annotations)
+
         self._respond_with({})
+
+    def _patch_the_autoscaler(self, patch: dict[str, Any], annotations: dict[str, Any]) -> None:
+        """Refused where there is no autoscaler, as a real server finds no such
+        resource."""
+        if self.autoscaler_floor is None:
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        floor = patch.get(SPEC, {}).get("minReplicas")
+
+        if floor is not None:
+            type(self).autoscaler_floor = int(floor)
+
+        type(self).autoscaler_annotations = _merged(self.autoscaler_annotations, annotations)
+
+        self._respond_with({})
+
+    def _is_about_the_autoscaler(self) -> bool:
+        return parse_qs(urlsplit(self.path).query).get("kind") == [AUTOSCALER_KIND]
 
     def _the_node_selector(self) -> dict[str, str]:
         if self.accelerator_pin is None:
@@ -435,31 +509,43 @@ class FakeDeploymentPlatformHandler(BaseHTTPRequestHandler):
         """What is running, in the shape Argo CD's resource tree reports it.
 
         One pod, because the caller takes the newest and a single one makes that
-        unambiguous. A real tree carries the Deployment, the ReplicaSet and the
-        Service beside it, and a stand-in inventing creation times for those
-        would be putting figures into the world for nobody to read.
+        unambiguous - and the autoscaler where a case staged one, which is where
+        a pin finds it. A real tree carries the Deployment, the ReplicaSet and
+        the Service beside them, and a stand-in inventing creation times for
+        those would be putting figures into the world for nobody to read.
         """
-        return {
-            "nodes": [
-                {
-                    "kind": "Pod",
-                    "name": f"{self._the_application_named()}-7d4f9c",
-                    "namespace": "production",
-                    "createdAt": datetime.fromtimestamp(
-                        self.process_start_time_seconds, UTC
-                    ).strftime(POD_TIMESTAMP_FORMAT)
-                }
-            ]
-        }
+        nodes: list[dict[str, Any]] = [
+            {
+                "kind": "Pod",
+                "name": f"{self._the_application_named()}-7d4f9c",
+                "namespace": "production",
+                "createdAt": datetime.fromtimestamp(
+                    self.process_start_time_seconds, UTC
+                ).strftime(POD_TIMESTAMP_FORMAT)
+            }
+        ]
+
+        if self.autoscaler_floor is not None:
+            nodes.append({
+                "kind": AUTOSCALER_KIND,
+                "name": THE_AUTOSCALER,
+                "namespace": THE_AUTOSCALER_NAMESPACE
+            })
+
+        return {"nodes": nodes}
 
     def _the_application(self) -> dict[str, Any]:
         """The application in Argo CD's own shape, as much of it as is read.
 
         The policy as declared and as since patched, `automated` and its switch
-        included - so a caller reads the arrangement exactly as a real server
-        would report it.
+        included, and the annotations the patches left - so a caller reads the
+        arrangement exactly as a real server would report it.
         """
         return {
+            METADATA: {
+                "name": self._the_application_named(),
+                ANNOTATIONS: self.application_annotations
+            },
             SPEC: {SYNC_POLICY: self.sync_policy},
             "status": {"history": self.history}
         }
@@ -522,7 +608,8 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
 
     Yields the handler class, so a test can read back what the platform was
     asked to do, which process it now reports serving, which history entry it
-    was rolled back to, and whether it is still reconciling itself.
+    was rolled back to, and whether it is still reconciling itself - and stage
+    what somebody else did to it in between.
 
     A context manager rather than a `conftest.py` fixture, for the reason the
     flag provider's is one: mypy identifies a module by its filename, so a
@@ -562,9 +649,14 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
         FakeDeploymentPlatformHandler.syncs_itself = True
         FakeDeploymentPlatformHandler.rolled_back_to = []
         FakeDeploymentPlatformHandler.sync_patches_received = []
+        FakeDeploymentPlatformHandler.resource_patches_received = []
         FakeDeploymentPlatformHandler.replicas = THE_COUNT_RUNNING
         FakeDeploymentPlatformHandler.accelerator_pin = None
         FakeDeploymentPlatformHandler.history = the_history_found()
+        FakeDeploymentPlatformHandler.application_annotations = {}
+        FakeDeploymentPlatformHandler.deployment_annotations = {}
+        FakeDeploymentPlatformHandler.autoscaler_annotations = {}
+        FakeDeploymentPlatformHandler.autoscaler_floor = None
         del os.environ["ARGOCD_BASE_URL"]
         del os.environ["ARGOCD_RESOURCE_ACTION_PATH"]
         del os.environ["ARGOCD_RESOURCE_PATH"]

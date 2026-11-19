@@ -101,6 +101,7 @@ from core.models.model_policy import (
 from core.models.money import said_as_money
 from core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from core.models.placement import PodPlacement, RecordedPlacement
+from core.models.planned import FlagState, Planned
 from core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
 from core.models.postmortem_sections import (
     NOT_JUDGED,
@@ -274,6 +275,7 @@ __all__ = [
     "FixOutcome",
     "FlagChange",
     "FlagHistory",
+    "FlagState",
     "AutoscalerUndo",
     "AutoscalingRestored",
     "CacheEntriesDiscarded",
@@ -378,6 +380,7 @@ __all__ = [
     "RULE_READING_FIELD",
     "PinAutoscaler",
     "PinToAccelerator",
+    "Planned",
     "PodPlacement",
     "RecordedPlacement",
     "ReplicaUndo",

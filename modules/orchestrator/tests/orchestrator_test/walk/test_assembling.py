@@ -52,10 +52,10 @@ from postmortem_writing import judge_policy, postmortem_policy
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
 
 # What the mitigation node passes when it performs an action: the action itself,
-# and three arguments that carry their own defaults. Everything else `take_action`
-# declares has to have been bound at assembly, so anything still required beyond
-# this is a collaborator the walk was never given.
-WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"action"})
+# the plan its claim carries, and three arguments that carry their own defaults.
+# Everything else `take_action` declares has to have been bound at assembly, so
+# anything still required beyond this is a collaborator the walk was never given.
+WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"action", "plan"})
 
 # What puts one change back: the descriptor recording it, and nothing else. Which
 # changes to undo and in what order belong to whoever holds the records.

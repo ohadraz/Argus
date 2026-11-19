@@ -8,6 +8,26 @@ else would be derived from a fact nobody here has. And the ceiling is the estate
 rather than the incident's: it bounds how large one attempt may make a deployment,
 where the gate's cap bounds how many attempts there are.
 
+A scale-out is planned before it is made. The plan reads the count and whether the
+platform reconciles the application, works out the count to ask for, and is dated
+by the platform's own clock - and changes nothing, so a claim can be written with
+the plan on it before anything in the estate moves. The write then takes the plan
+rather than re-deriving it, and compares before it writes: each half (the count,
+and the sync switch) is written only where it is still what the plan found, is
+taken as already made only where it is what the plan asked for *and* carries this
+claim's mark, and anything else is somebody's change since - refused, with nothing
+written, the sync switch included. That is what makes a write asked twice safe:
+the second finds the first already made, under its own mark, and writes nothing.
+A refusal says what this claim's marks show already landed: where its suspension
+still stands, the plan travels on the refusal as what it left behind. The write
+checks the ceiling again too, since it takes the count rather than working it
+out.
+
+Where an autoscaler owns the count, the count is no evidence of anything: the
+controller moves it between any two reads. A count that moved since the plan is
+doubled from where it is now, and one already at the ceiling there is spent; and
+"made" is this claim's mark on the Deployment alone, whatever count it reads.
+
 The order is the platform's rule, as the rollback's is. A platform reconciling the
 application itself puts a live replica count straight back at its next sync, so
 suspending that is part of scaling rather than a separate concern - and it is the
@@ -31,6 +51,7 @@ count and the mark travel in - is the adapter's, and pinned in its own suite.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -50,10 +71,11 @@ from core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
 )
-from core.models import CapacityRestored, ReplicaUndo, RolloutProgress
+from core.models import CapacityRestored, Planned, ReplicaUndo, RolloutProgress
 from deployment_platform import (
     Autoscaler,
     DeploymentPlatformWrites,
+    MarkedObject,
     PlatformRefused,
     PlatformUnreachable,
 )
@@ -61,11 +83,17 @@ from write_mcp_server.scaling import (
     THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR,
     AlreadyAtItsLargest,
     ScaleRefused,
+    plan_scale_out,
     restore_replica_count,
     scale_out,
 )
 
-from write_mcp_server_test.framework.marks import a_mark, every_write_carried
+from write_mcp_server_test.framework.marks import (
+    ANOTHER_CLAIM,
+    THIS_CLAIM,
+    a_mark,
+    every_write_carried,
+)
 from write_mcp_server_test.framework.putting_back import (
     it_was_left_because,
     it_was_not_left_alone,
@@ -75,6 +103,8 @@ from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
     it_was_refused_as,
+    it_was_refused_as_changed_since,
+    its_change_is_said_performed,
     what_it_left_is_known,
 )
 
@@ -83,6 +113,12 @@ SOME_APPLICATION = "io-shop"
 # action a write is for is the caller's, and what is asserted is only that the
 # writes carry it.
 SOME_MARK = a_mark()
+
+# The platform's own clock when a plan reads it.
+SOME_TIME_ON_THE_PLATFORM = datetime(2026, 11, 18, 13, 4, 30, tzinfo=UTC)
+# When a plan handed to a write was read. The write compares what it finds with
+# what the plan says, never with when.
+DONT_CARE_SINCE = datetime(2026, 11, 18, 13, 0, tzinfo=UTC)
 
 # What the deployment is running when anybody looks, and what one doubling of it
 # comes to. Three is the size the fixture's own values file asks for.
@@ -93,6 +129,11 @@ A_COUNT_SOMEBODY_SET = TWICE_THAT - 1
 
 # An autoscaler the platform names for the application, where one owns the count.
 SOME_AUTOSCALER = Autoscaler(name="io-shop-cpu", namespace="shopping")
+# A count an autoscaler moved the deployment to between a plan and its write -
+# none of the three above - and one doubling of it, which is still inside the
+# most replicas Argus may ask for.
+A_COUNT_THE_AUTOSCALER_SET = 4
+TWICE_THE_AUTOSCALER_S_COUNT = 8
 
 # What a scale-out leaves where it suspended the sync and the count never moved.
 THE_SUSPENSION = ReplicaUndo(
@@ -116,11 +157,18 @@ def _running(replicas: int) -> RolloutProgress:
 
 def a_platform(replicas: int = THE_COUNT_RUNNING,
                reconciling_itself: bool = True,
-               autoscaler: Autoscaler | None = None) -> Any:
+               autoscaler: Autoscaler | None = None,
+               marked: dict[MarkedObject, str] | None = None) -> Any:
+    """A platform running `replicas`, its objects carrying the claims `marked`
+    names by object - none, unless a case says so."""
     platform = create_autospec(DeploymentPlatformWrites, instance=True)
     platform.rollout_of.return_value = _running(replicas)
     platform.is_syncing_itself.return_value = reconciling_itself
     platform.autoscaler_of.return_value = autoscaler
+    platform.now.return_value = SOME_TIME_ON_THE_PLATFORM
+
+    marks = marked or {}
+    platform.mark_on.side_effect = lambda application, kind: marks.get(kind)
 
     return platform
 
@@ -135,16 +183,8 @@ def a_platform_as_the_scale_out_left_it(replicas: int = TWICE_THAT,
                       autoscaler=autoscaler)
 
 
-def _scaling_out(platform: Any) -> ReplicaUndo:
-    return scale_out(SOME_APPLICATION, platform, SOME_MARK)
-
-
-def _restoring(descriptor: ReplicaUndo, platform: Any) -> CapacityRestored:
-    return restore_replica_count(descriptor, platform, SOME_MARK)
-
-
 @pytest.mark.unit
-def test_a_scale_out_doubles_the_count_that_is_running() -> None:
+def test_a_plan_doubles_the_count_that_is_running() -> None:
     # Derived from what the platform says is running, not from what the
     # repository asks for: the two are the same number until somebody scales, and
     # a target derived from the file would undo the previous attempt.
@@ -152,103 +192,25 @@ def test_a_scale_out_doubles_the_count_that_is_running() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_it_asked_for(platform, replicas=TWICE_THAT))
+        .when(lambda: plan_scale_out(SOME_APPLICATION, platform)) \
+        .then(all_of(
+            _the_plan_records_the_count(THE_COUNT_RUNNING),
+            _the_plan_records_it_asks_for(TWICE_THAT)
+        ))
 
 
 @pytest.mark.unit
-def test_reconciliation_is_suspended_before_the_count_is_changed() -> None:
-    # The platform's rule rather than a preference: a reconciling application has
-    # its live replica count set back to whatever the repository holds at the next
-    # sync, so a scale-out taken under automated sync is a mitigation with a timer
-    # on it.
+def test_a_plan_records_the_policy_it_found() -> None:
     platform = a_platform(reconciling_itself=True)
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_it_was_asked_in_order(platform, "suspend_sync", "scale"))
+        .when(lambda: plan_scale_out(SOME_APPLICATION, platform)) \
+        .then(_the_plan_records_sync_was(True))
 
 
 @pytest.mark.unit
-def test_every_write_a_scale_out_makes_carries_its_actions_mark() -> None:
-    # The suspension and the count alike: either left on the platform unmarked
-    # is a change nobody can tell from a person's.
-    platform = a_platform(reconciling_itself=True)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(all_of(
-            every_write_carried(platform, "suspend_sync", SOME_MARK),
-            every_write_carried(platform, "scale", SOME_MARK)
-        ))
-
-
-@pytest.mark.unit
-def test_every_write_a_restore_makes_carries_its_mark() -> None:
-    platform = a_platform_as_the_scale_out_left_it()
-
-    Scenario() \
-        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
-        .then(all_of(
-            every_write_carried(platform, "scale", SOME_MARK),
-            every_write_carried(platform, "resume_sync", SOME_MARK)
-        ))
-
-
-@pytest.mark.unit
-def test_an_application_nobody_was_reconciling_is_left_alone() -> None:
-    platform = a_platform(reconciling_itself=False)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_the_sync_policy_was_not_touched(platform))
-
-
-@pytest.mark.unit
-def test_the_descriptor_records_the_count_and_the_policy_it_found() -> None:
-    platform = a_platform(replicas=THE_COUNT_RUNNING, reconciling_itself=True)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(all_of(
-            _the_descriptor_records_the_count(THE_COUNT_RUNNING),
-            _the_descriptor_records_sync_was(True)
-        ))
-
-
-@pytest.mark.unit
-def test_the_descriptor_records_the_count_it_asked_for() -> None:
-    # What a withdrawal compares the live count with to find out whether the
-    # scale-out is still Argus's.
-    platform = a_platform(replicas=THE_COUNT_RUNNING)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_the_descriptor_records_it_asked_for(TWICE_THAT))
-
-
-@pytest.mark.unit
-def test_the_count_recorded_as_asked_for_is_the_ceiling_where_doubling_passed_it() -> None:
-    # The count actually asked for, not twice what was running: a withdrawal
-    # comparing the live count with the doubling would call Argus's own
-    # scale-out somebody else's.
-    just_under = THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR - 1
-    platform = a_platform(replicas=just_under)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_the_descriptor_records_it_asked_for(THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR))
-
-
-@pytest.mark.unit
-def test_a_descriptor_records_sync_as_it_was_found_off() -> None:
+def test_a_plan_records_sync_as_it_was_found_off() -> None:
     # Never a default. An application somebody had already stopped reconciling
     # must be left stopped, and a descriptor that recorded the usual arrangement
     # would have a withdrawal start something Argus did not stop.
@@ -256,33 +218,74 @@ def test_a_descriptor_records_sync_as_it_was_found_off() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_the_descriptor_records_sync_was(False))
+        .when(lambda: plan_scale_out(SOME_APPLICATION, platform)) \
+        .then(_the_plan_records_sync_was(False))
 
 
 @pytest.mark.unit
-def test_a_double_that_would_pass_the_ceiling_stops_at_it() -> None:
+def test_a_plan_that_doubling_would_take_past_the_ceiling_asks_for_the_ceiling() -> None:
     # The bound is the estate's, and it binds the size of one attempt rather than
-    # the number of them - which is the cap's job, at the gate.
+    # the number of them - which is the cap's job, at the gate. And the count
+    # recorded is the one actually asked for, not twice what was running: a
+    # withdrawal comparing the live count with the doubling would call Argus's own
+    # scale-out somebody else's.
     just_under = THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR - 1
     platform = a_platform(replicas=just_under)
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _scaling_out(platform)) \
-        .then(_it_asked_for(platform, replicas=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR))
+        .when(lambda: plan_scale_out(SOME_APPLICATION, platform)) \
+        .then(_the_plan_records_it_asks_for(THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR))
 
 
 @pytest.mark.unit
-def test_a_deployment_already_at_the_ceiling_is_refused_before_anything_changes() -> None:
-    # Refused rather than answered with a no-op, and refused before the sync
-    # policy is touched: a caller told "done" would record a mitigation that never
+def test_a_plan_is_dated_by_the_platforms_own_clock() -> None:
+    # What a resumed walk asks "has anybody changed it since?" from. The
+    # platform's clock rather than this tier's, because the platform's is the one
+    # every change it records is dated by.
+    platform = a_platform()
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: plan_scale_out(SOME_APPLICATION, platform)) \
+        .then(_the_plan_is_dated(SOME_TIME_ON_THE_PLATFORM))
+
+
+@pytest.mark.unit
+def test_a_plan_reads_the_platforms_clock_before_the_state_it_dates() -> None:
+    # A time read after the state could postdate a change the plan never saw,
+    # and a later "nothing changed since" would then hide it. Read first, a
+    # change in between is at worst taken for somebody's.
+    platform = a_platform()
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: plan_scale_out(SOME_APPLICATION, platform)) \
+        .then(_the_time_was_read_first(platform))
+
+
+@pytest.mark.unit
+def test_a_plan_changes_nothing() -> None:
+    # It is read before the claim is written, so anything it wrote would be a
+    # change no claim accounts for.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: plan_scale_out(SOME_APPLICATION, platform)) \
+        .then(_nothing_was_written(platform))
+
+
+@pytest.mark.unit
+def test_a_deployment_already_at_the_ceiling_is_refused_by_the_plan() -> None:
+    # Refused rather than planned as a no-op, and refused before anything is
+    # touched: a caller told "done" would record a mitigation that never
     # happened and then judge the service against it.
     platform = a_platform(replicas=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(AlreadyAtItsLargest),
             _nothing_was_changed(platform)
@@ -290,13 +293,28 @@ def test_a_deployment_already_at_the_ceiling_is_refused_before_anything_changes(
 
 
 @pytest.mark.unit
-def test_a_platform_that_will_not_answer_is_not_reported_as_scaled() -> None:
+def test_a_deployment_at_the_ceiling_refuses_in_a_way_a_caller_can_recognise() -> None:
+    # The refusal that is an answer, and the walk acts on the difference: an
+    # estate already as large as Argus may make it has not failed, so the next
+    # explanation gets tried instead of a human getting woken. A caller that had
+    # to read the words of the sentence to tell that would classify it differently
+    # the day somebody rephrased it, so the marker crosses the wire.
+    platform = a_platform(replicas=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
+        .then(_the_refusal_says_the_action_is_exhausted())
+
+
+@pytest.mark.unit
+def test_a_platform_that_will_not_answer_is_not_planned_on() -> None:
     platform = a_platform()
     platform.rollout_of.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(ScaleRefused),
             _nothing_was_changed(platform)
@@ -312,10 +330,496 @@ def test_a_count_the_platform_could_not_say_is_refused() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(ScaleRefused),
             _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() -> None:
+    # Nothing has been touched when this fails. The walk is told four actions
+    # are unavailable and told nothing about a state somebody has to put back,
+    # which is exactly what is true.
+    platform = a_platform()
+    platform.rollout_of.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
+        .then(_it_is_reported_as_an_unreachable_platform())
+
+
+@pytest.mark.unit
+def test_a_platform_that_would_not_say_its_time_is_not_planned_on() -> None:
+    # A plan with no date is one a resumed walk could not ask "since when?" of.
+    platform = a_platform()
+    platform.now.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
+        .then(all_of(
+            _it_is_reported_as_an_unreachable_platform(),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_the_platform_would_not_give_is_known_to_have_changed_nothing() -> None:
+    # Nothing had been asked to change, so however the read failed, nothing did.
+    platform = a_platform()
+    platform.rollout_of.side_effect = PlatformRefused("the manifest has no replicas")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
+        .then(all_of(
+            it_was_refused_as(ScaleRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
+    platform = a_platform()
+    platform.is_syncing_itself.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_scale_out(SOME_APPLICATION, platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(True),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_asks_for_the_count_its_plan_asked_for() -> None:
+    # The plan's count, not one worked out again: the claim recorded what was
+    # asked for before anything moved, and a write deriving its own would be
+    # making a change the claim does not describe.
+    platform = a_platform(replicas=THE_COUNT_RUNNING)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(_it_asked_for(platform, replicas=TWICE_THAT))
+
+
+@pytest.mark.unit
+def test_a_scale_out_answers_with_the_descriptor_its_plan_carried() -> None:
+    platform = a_platform(replicas=THE_COUNT_RUNNING)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(_it_answered_with(a_plan.descriptor))
+
+
+@pytest.mark.unit
+def test_reconciliation_is_suspended_before_the_count_is_changed() -> None:
+    # The platform's rule rather than a preference: a reconciling application has
+    # its live replica count set back to whatever the repository holds at the next
+    # sync, so a scale-out taken under automated sync is a mitigation with a timer
+    # on it.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(_it_was_asked_in_order(platform, "suspend_sync", "scale"))
+
+
+@pytest.mark.unit
+def test_every_write_a_scale_out_makes_carries_its_actions_mark() -> None:
+    # The suspension and the count alike: either left on the platform unmarked
+    # is a change nobody can tell from a person's.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            every_write_carried(platform, "suspend_sync", SOME_MARK),
+            every_write_carried(platform, "scale", SOME_MARK)
+        ))
+
+
+@pytest.mark.unit
+def test_an_application_nobody_was_reconciling_is_left_alone() -> None:
+    platform = a_platform(reconciling_itself=False)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(_the_sync_policy_was_not_touched(platform))
+
+
+@pytest.mark.unit
+def test_a_count_where_the_plan_found_it_under_another_claims_mark_is_written() -> None:
+    # An earlier change of Argus's, under another claim, is what the plan found
+    # and what it planned from - not a change since.
+    platform = a_platform(replicas=THE_COUNT_RUNNING,
+                          marked={MarkedObject.DEPLOYMENT: ANOTHER_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(_it_asked_for(platform, replicas=TWICE_THAT))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("was_syncing_itself", [True, False],
+                         ids=["argus-suspended-the-sync", "the-sync-was-already-off"])
+def test_a_scale_out_this_claim_already_made_is_answered_as_made_and_writes_nothing(
+    was_syncing_itself: bool
+) -> None:
+    # The same write asked again - a reply lost on the way back, a walk resumed
+    # after its worker died. The count is the one asked for and the Deployment
+    # carries this claim's mark, so the first asking made it: answered as made,
+    # not as exhausted, and nothing written twice. The Application carries this
+    # claim's mark only where this claim suspended its sync.
+    suspended_by_this_claim = {MarkedObject.APPLICATION: THIS_CLAIM} if was_syncing_itself else {}
+    platform = a_platform(replicas=TWICE_THAT, reconciling_itself=False,
+                          marked={MarkedObject.DEPLOYMENT: THIS_CLAIM, **suspended_by_this_claim})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_answered_with(a_plan.descriptor)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("marked_by", [None, ANOTHER_CLAIM],
+                         ids=["unmarked", "under-another-claim"])
+def test_a_count_at_what_the_plan_asked_for_without_this_claims_mark_is_changed_since(
+    marked_by: str | None
+) -> None:
+    # The right number by somebody else's hand. Taking it as made would claim
+    # a change Argus did not make, and a withdrawal would then put back a count
+    # that was never Argus's.
+    platform = a_platform(replicas=TWICE_THAT,
+                          marked={} if marked_by is None else {MarkedObject.DEPLOYMENT: marked_by})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("replicas", [THE_COUNT_RUNNING, A_COUNT_SOMEBODY_SET],
+                         ids=["back-where-the-plan-found-it", "somewhere-else"])
+def test_a_count_under_this_claims_mark_but_not_what_it_asked_for_is_changed_since(
+    replicas: int
+) -> None:
+    # This claim's change landed - the suspension and the count, both under its
+    # mark - and somebody moved the count after it, back where it was included.
+    # Redoing it would write over them. The suspension still stands, so the
+    # refusal carries the plan, which is what a withdrawal puts it back from.
+    platform = a_platform(replicas=replicas, reconciling_itself=False,
+                          marked={MarkedObject.DEPLOYMENT: THIS_CLAIM,
+                                  MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(True),
+            it_left_behind(a_plan.descriptor),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_somebody_set_since_the_plan_is_refused_before_anything_is_written() -> None:
+    # Before the sync switch too: a suspension written ahead of a refused count
+    # would be a change the refusal does not account for.
+    platform = a_platform(replicas=A_COUNT_SOMEBODY_SET, reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            it_is_marked_unreachable(False),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_somebody_set_under_this_claims_suspension_leaves_the_suspension() -> None:
+    # The suspension landed under this claim and the count did not, and
+    # somebody set a count of their own in between. Nothing is written over
+    # them, and the switch this claim turned off is still off - so the refusal
+    # carries the plan, which is what puts it back on.
+    platform = a_platform(replicas=A_COUNT_SOMEBODY_SET, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            it_left_behind(a_plan.descriptor),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_plan_asking_past_the_ceiling_is_refused_by_the_write() -> None:
+    # The write takes its count from the plan rather than working it out, so
+    # the ceiling is checked again where the count is written: a plan built by
+    # anything but the plan step, or recorded before the ceiling was lowered, is
+    # not a licence to make one attempt larger than the estate allows.
+    past_the_ceiling = THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR + 1
+    platform = a_platform(replicas=THE_COUNT_RUNNING)
+
+    Scenario() \
+        .given(a_plan := _a_plan_asking_for(past_the_ceiling)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(ScaleRefused),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("replicas", [THE_COUNT_RUNNING - 1, THE_COUNT_RUNNING,
+                                      TWICE_THAT - 1],
+                         ids=["fewer-than-it-found", "what-it-found", "short-of-the-doubling"])
+def test_a_plan_asking_for_anything_but_the_doubling_is_refused_by_the_write(
+    replicas: int
+) -> None:
+    # The write takes its count from the plan rather than working it out, so it
+    # holds the plan to the plan step's own rule from the plan's own "was": twice
+    # that, within the ceiling, and larger. A plan asking for less would have a
+    # scale-out shrink the deployment, and one asking for what it found would be
+    # a change judged as though it had been made. Refused plainly, before the
+    # sync switch is touched.
+    platform = a_platform(replicas=THE_COUNT_RUNNING)
+
+    Scenario() \
+        .given(a_plan := _a_plan_asking_for(replicas)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(ScaleRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_sync_this_claim_suspended_is_not_suspended_again() -> None:
+    # The suspension landed under this claim and the count did not: the count is
+    # written, and the switch is left where this claim put it.
+    platform = a_platform(replicas=THE_COUNT_RUNNING, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            _the_sync_policy_was_not_touched(platform),
+            _it_asked_for(platform, replicas=TWICE_THAT)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("marked_by", [None, ANOTHER_CLAIM],
+                         ids=["unmarked", "under-another-claim"])
+def test_a_sync_suspended_since_the_plan_without_this_claims_mark_is_changed_since(
+    marked_by: str | None
+) -> None:
+    # The plan found it reconciling, and somebody else has stopped it since. A
+    # descriptor saying Argus suspended it would have a withdrawal resume what
+    # they stopped.
+    platform = a_platform(reconciling_itself=False,
+                          marked={} if marked_by is None else {MarkedObject.APPLICATION: marked_by})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_sync_running_again_under_this_claims_mark_is_changed_since() -> None:
+    # Argus suspended it under this claim and it is reconciling again, so
+    # somebody turned it back on. Suspending it again would overrule them.
+    platform = a_platform(replicas=THE_COUNT_RUNNING, reconciling_itself=True,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_sync_turned_on_since_a_plan_that_found_it_off_is_changed_since() -> None:
+    # A count written now would be set back at the next sync, and the
+    # descriptor would say the sync was never Argus's to put back.
+    platform = a_platform(replicas=THE_COUNT_RUNNING, reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_an_autoscaler_moved_since_the_plan_is_scaled_out_from_where_it_is() -> None:
+    # The count is the controller's to move, so one that moved between the plan
+    # and the write is the autoscaler's doing, not a person's - and the write
+    # goes ahead, doubling what is running now rather than what the plan read.
+    platform = a_platform(replicas=A_COUNT_THE_AUTOSCALER_SET, autoscaler=SOME_AUTOSCALER)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            _it_asked_for(platform, replicas=TWICE_THE_AUTOSCALER_S_COUNT),
+            _it_answered_with(ReplicaUndo(
+                application=SOME_APPLICATION,
+                was_replicas=A_COUNT_THE_AUTOSCALER_SET,
+                replicas_asked_for=TWICE_THE_AUTOSCALER_S_COUNT,
+                was_syncing_itself=True
+            ))
+        ))
+
+
+@pytest.mark.unit
+def test_a_count_an_autoscaler_moved_to_the_ceiling_is_refused_as_exhausted() -> None:
+    # Where it is now is where the write doubles from, and the autoscaler has
+    # taken it as far as Argus may: there is nothing left to add, so the action
+    # is spent - refused as the plan refuses a deployment already that large,
+    # and refused before anything is written, the suspension included.
+    platform = a_platform(replicas=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR,
+                          autoscaler=SOME_AUTOSCALER)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            an_error_was_raised(AlreadyAtItsLargest),
+            _the_refusal_says_the_action_is_exhausted(),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_re_ask_whose_autoscaler_reached_the_ceiling_still_carries_the_suspension() -> None:
+    # The first asking's suspension landed under this claim and its count did
+    # not, and the autoscaler has since taken the count as far as Argus may.
+    # Spent - but not untouched, so not refused as an exhausted action, which
+    # says it left nothing: refused carrying the plan that puts the sync back.
+    platform = a_platform(replicas=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR, reconciling_itself=False,
+                          autoscaler=SOME_AUTOSCALER,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(ScaleRefused),
+            what_it_left_is_known(True),
+            it_left_behind(a_plan.descriptor),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("replicas", [THE_COUNT_RUNNING, A_COUNT_THE_AUTOSCALER_SET],
+                         ids=["back-where-the-plan-found-it", "where-the-autoscaler-moved-it"])
+def test_a_scale_out_under_an_autoscaler_carrying_this_claims_mark_is_answered_as_made(
+    replicas: int
+) -> None:
+    # Under an autoscaler the count is no evidence either way: the controller
+    # moves it within a sync period of any write. This claim's mark on the
+    # Deployment is what says the first asking landed, whatever count it reads -
+    # where, with no autoscaler, the same mark at another count is somebody's
+    # change since. Answered as made, with the plan the claim recorded, and
+    # nothing written twice.
+    platform = a_platform(replicas=replicas, reconciling_itself=False,
+                          autoscaler=SOME_AUTOSCALER,
+                          marked={MarkedObject.DEPLOYMENT: THIS_CLAIM,
+                                  MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_answered_with(a_plan.descriptor)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", ["rollout_of", "is_syncing_itself", "mark_on",
+                                  "autoscaler_of"])
+def test_a_scale_out_that_could_not_read_what_is_there_now_writes_nothing(read: str) -> None:
+    # The compare is what makes the write safe to ask, and a compare against a
+    # read that never came back is no compare at all.
+    platform = a_platform(replicas=THE_COUNT_RUNNING)
+    getattr(platform, read).side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(ScaleRefused),
+            what_it_left_is_known(True),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_every_write_a_restore_makes_carries_its_mark() -> None:
+    platform = a_platform_as_the_scale_out_left_it()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
+        .then(all_of(
+            every_write_carried(platform, "scale", SOME_MARK),
+            every_write_carried(platform, "resume_sync", SOME_MARK)
         ))
 
 
@@ -325,7 +829,7 @@ def test_restoring_puts_back_the_count_that_was_running() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _it_asked_for(platform, replicas=THE_COUNT_RUNNING),
             _it_reports_restored(count=True, automated_sync=True)
@@ -340,7 +844,7 @@ def test_restoring_turns_reconciliation_back_on_after_the_count() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(_it_was_asked_in_order(platform, "scale", "resume_sync"))
 
 
@@ -350,7 +854,7 @@ def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=False)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_sync_policy_was_not_touched(platform),
             _it_reports_restored(count=True, automated_sync=True)
@@ -367,7 +871,7 @@ def test_a_restore_that_only_managed_the_count_says_so() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(_it_reports_restored(count=True, automated_sync=False))
 
 
@@ -379,7 +883,7 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(_it_reports_restored(count=False, automated_sync=False))
 
 
@@ -390,7 +894,7 @@ def test_a_count_still_argus_s_is_put_back_and_said_to_be_nobody_else_s() -> Non
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _it_asked_for(platform, replicas=THE_COUNT_RUNNING),
             _it_reports_restored(count=True, automated_sync=True),
@@ -407,7 +911,7 @@ def test_a_count_already_back_where_argus_found_it_is_not_written_again() -> Non
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_count_was_not_written(platform),
             every_write_carried(platform, "resume_sync", SOME_MARK),
@@ -425,7 +929,7 @@ def test_a_count_somebody_set_since_is_left_as_they_set_it() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             it_was_left_because(f"[{A_COUNT_SOMEBODY_SET}]")
@@ -452,7 +956,7 @@ def test_a_count_left_as_somebody_set_it_says_whether_argus_s_suspension_still_s
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             the_suspension_is_said_to_stand(still_suspended)
@@ -465,12 +969,12 @@ def test_a_count_an_autoscaler_owns_is_left_to_it_and_the_sync_is_put_back() -> 
     # would be re-derived within a sync period, and a count matching neither of
     # Argus's is the autoscaler moving rather than a person deciding. So the
     # count is left to it, and the reconciliation Argus suspended is resumed.
-    platform = a_platform_as_the_scale_out_left_it(replicas=A_COUNT_SOMEBODY_SET,
+    platform = a_platform_as_the_scale_out_left_it(replicas=A_COUNT_THE_AUTOSCALER_SET,
                                                    autoscaler=SOME_AUTOSCALER)
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_count_was_not_written(platform),
             every_write_carried(platform, "resume_sync", SOME_MARK),
@@ -485,7 +989,7 @@ def test_a_count_an_autoscaler_owns_leaves_reconciliation_off_where_argus_found_
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=False)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_count_was_not_written(platform),
             _the_sync_policy_was_not_touched(platform),
@@ -504,7 +1008,7 @@ def test_a_restore_that_could_not_read_whose_the_count_is_writes_nothing(read: s
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             _it_reports_restored(count=False, automated_sync=False),
@@ -522,7 +1026,7 @@ def test_a_restore_that_could_not_read_whether_sync_is_back_on_writes_nothing() 
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_replica_count(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             _it_reports_restored(count=False, automated_sync=False),
@@ -543,41 +1047,12 @@ def test_a_scale_out_recorded_without_the_count_it_asked_for_is_not_written_over
 
     Scenario() \
         .given(from_before) \
-        .when(lambda: _restoring(from_before, platform)) \
+        .when(lambda: restore_replica_count(from_before, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             _it_reports_restored(count=False, automated_sync=False),
             it_was_not_left_alone()
         ))
-
-
-@pytest.mark.unit
-def test_a_deployment_at_the_ceiling_refuses_in_a_way_a_caller_can_recognise() -> None:
-    # The refusal that is an answer, and the walk acts on the difference: an
-    # estate already as large as Argus may make it has not failed, so the next
-    # explanation gets tried instead of a human getting woken. A caller that had
-    # to read the words of the sentence to tell that would classify it differently
-    # the day somebody rephrased it, so the marker crosses the wire.
-    platform = a_platform(replicas=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
-        .then(_the_refusal_says_the_action_is_exhausted())
-
-
-@pytest.mark.unit
-def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() -> None:
-    # Nothing has been touched when this fails. The walk is told four actions
-    # are unavailable and told nothing about a state somebody has to put back,
-    # which is exactly what is true.
-    platform = a_platform()
-    platform.rollout_of.side_effect = PlatformUnreachable("no route to host")
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
-        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -588,8 +1063,8 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     platform.suspend_sync.side_effect = PlatformUnreachable("503", known_not_applied=True)
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(_it_is_reported_as_an_unreachable_platform())
 
 
@@ -604,8 +1079,8 @@ def test_a_platform_that_died_before_a_scale_out_that_changed_nothing_is_unreach
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(_it_is_reported_as_an_unreachable_platform())
 
 
@@ -622,45 +1097,11 @@ def test_a_scale_out_that_left_sync_suspended_says_so_and_still_reports_the_plat
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             _it_is_reported_as_an_unreachable_platform(),
             _it_says_what_it_left_behind(THE_SUSPENSION)
-        ))
-
-
-@pytest.mark.unit
-def test_a_count_the_platform_would_not_give_is_known_to_have_changed_nothing() -> None:
-    # Nothing had been asked to change, so however the read failed, nothing did.
-    platform = a_platform()
-    platform.rollout_of.side_effect = PlatformRefused("the manifest has no replicas")
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
-        .then(all_of(
-            it_was_refused_as(ScaleRefused),
-            it_is_marked_unreachable(False),
-            what_it_left_is_known(True),
-            it_left_behind(None)
-        ))
-
-
-@pytest.mark.unit
-def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
-    platform = a_platform()
-    platform.is_syncing_itself.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
-    )
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
-        .then(all_of(
-            it_is_marked_unreachable(True),
-            what_it_left_is_known(True),
-            it_left_behind(None)
         ))
 
 
@@ -672,8 +1113,8 @@ def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_was_refused_as(ScaleRefused),
             it_is_marked_unreachable(False),
@@ -690,8 +1131,8 @@ def test_a_scale_out_rejected_after_sync_was_suspended_says_the_suspension_is_le
     platform.scale.side_effect = PlatformRefused("400", known_not_applied=True)
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_is_marked_unreachable(False),
             what_it_left_is_known(True),
@@ -707,8 +1148,8 @@ def test_a_scale_out_whose_answer_was_lost_carries_the_suspension_and_no_more() 
     platform.scale.side_effect = PlatformUnreachable("timed out", known_not_applied=False)
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_is_marked_unreachable(False),
             what_it_left_is_known(False),
@@ -725,8 +1166,8 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
     platform.scale.side_effect = PlatformRefused("400")
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(_it_is_not_reported_as_an_unreachable_platform())
 
 
@@ -738,9 +1179,9 @@ def test_a_scale_out_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     Scenario() \
         .given(
             calling(lambda: caplog.set_level(logging.INFO)),
-            platform
+            a_plan := _a_plan(was_syncing_itself=True)
         ) \
-        .when(lambda: _scaling_out(platform)) \
+        .when(lambda: scale_out(a_plan, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.scaling", logging.INFO,
                                   "deployment scaled out",
@@ -761,8 +1202,8 @@ def test_a_scale_out_refused_after_sync_was_suspended_is_logged_as_a_warning(
     platform.scale.side_effect = PlatformRefused("400")
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _scaling_out(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: scale_out(a_plan, platform, SOME_MARK))) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.scaling", logging.WARNING,
                                   "scale-out refused",
@@ -781,7 +1222,7 @@ def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
             calling(lambda: caplog.set_level(logging.INFO)),
             descriptor := _a_descriptor(was_syncing_itself=True)
         ) \
-        .when(lambda: _restoring(descriptor, platform)) \
+        .when(lambda: restore_replica_count(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.scaling", logging.INFO,
                                   "replica count restored",
@@ -800,7 +1241,7 @@ def test_a_restore_that_only_managed_the_count_is_logged_as_a_warning(
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(descriptor, platform)) \
+        .when(lambda: restore_replica_count(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.scaling", logging.WARNING,
                                   "replica count not fully restored",
@@ -821,7 +1262,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(descriptor, platform)) \
+        .when(lambda: restore_replica_count(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.scaling", logging.ERROR,
                                   "restore step failed",
@@ -900,12 +1341,94 @@ def _a_descriptor(was_syncing_itself: bool) -> ReplicaUndo:
     )
 
 
-def _the_descriptor_records_it_asked_for(replicas: int) -> Assertion[ReplicaUndo]:
-    def assertion(descriptor: ReplicaUndo) -> bool:
-        if descriptor.replicas_asked_for != replicas:
+def _a_plan(was_syncing_itself: bool) -> Planned[ReplicaUndo]:
+    """The plan a scale-out of the running count makes: from three to six."""
+    return Planned(descriptor=_a_descriptor(was_syncing_itself), since=DONT_CARE_SINCE)
+
+
+def _a_plan_asking_for(replicas: int) -> Planned[ReplicaUndo]:
+    """A plan of the running count, asking for `replicas` rather than the
+    doubling - one the plan step would never have made."""
+    return Planned(
+        descriptor=_a_descriptor(was_syncing_itself=True).model_copy(
+            update={"replicas_asked_for": replicas}
+        ),
+        since=DONT_CARE_SINCE
+    )
+
+
+def _the_plan_records_it_asks_for(replicas: int) -> Assertion[Planned[ReplicaUndo]]:
+    def assertion(plan: Planned[ReplicaUndo]) -> bool:
+        if plan.descriptor.replicas_asked_for != replicas:
             raise AssertionError(
-                f"Expected the descriptor to record [{replicas}] replicas as the count "
-                f"asked for, and it records [{descriptor.replicas_asked_for}]."
+                f"Expected the plan to ask for [{replicas}] replicas, and it asks "
+                f"for [{plan.descriptor.replicas_asked_for}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_plan_records_the_count(replicas: int) -> Assertion[Planned[ReplicaUndo]]:
+    def assertion(plan: Planned[ReplicaUndo]) -> bool:
+        if plan.descriptor.was_replicas != replicas:
+            raise AssertionError(
+                f"Expected the plan to record [{replicas}] replicas as the count "
+                f"that was running, and it records [{plan.descriptor.was_replicas}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_plan_records_sync_was(syncing: bool) -> Assertion[Planned[ReplicaUndo]]:
+    def assertion(plan: Planned[ReplicaUndo]) -> bool:
+        if plan.descriptor.was_syncing_itself != syncing:
+            raise AssertionError(
+                f"Expected the plan to record automated sync as [{syncing}] when "
+                f"Argus found it, and it records [{plan.descriptor.was_syncing_itself}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_plan_is_dated(since: datetime) -> Assertion[Planned[ReplicaUndo]]:
+    def assertion(plan: Planned[ReplicaUndo]) -> bool:
+        if plan.since != since:
+            raise AssertionError(
+                f"Expected the plan dated [{since}], and it is dated [{plan.since}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_time_was_read_first(platform: Any) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        asked = [name for name, _args, _kwargs in platform.method_calls]
+
+        if not asked or asked[0] != "now":
+            raise AssertionError(
+                f"Expected the platform's time read before anything else, and the "
+                f"platform was asked {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_answered_with(expected: ReplicaUndo) -> Assertion[ReplicaUndo]:
+    def assertion(descriptor: ReplicaUndo) -> bool:
+        if descriptor != expected:
+            raise AssertionError(
+                f"Expected the scale-out to answer with {expected!r}, and it "
+                f"answered with {descriptor!r}."
             )
 
         return True
@@ -926,10 +1449,10 @@ def _the_count_was_not_written(platform: Any) -> Assertion[CapacityRestored]:
     return assertion
 
 
-def _nothing_was_written(platform: Any) -> Assertion[CapacityRestored]:
-    """Neither the count nor the sync policy - the reads are what a restore
+def _nothing_was_written(platform: Any) -> Assertion[object]:
+    """Neither the count nor the sync policy - the reads are what an action
     that left the deployment alone did ask."""
-    def assertion(dont_care_restored: CapacityRestored) -> bool:
+    def assertion(dont_care_result: object) -> bool:
         written = [name for name, operation in (("the count", platform.scale),
                                                 ("the sync policy", platform.resume_sync),
                                                 ("the sync policy", platform.suspend_sync))
@@ -937,7 +1460,7 @@ def _nothing_was_written(platform: Any) -> Assertion[CapacityRestored]:
 
         if written:
             raise AssertionError(
-                f"Expected nothing written, and the restore wrote {written}: "
+                f"Expected nothing written, and {written} were: "
                 f"{platform.method_calls}."
             )
 
@@ -1018,34 +1541,6 @@ def _nothing_was_changed(platform: Any) -> Assertion[Exception | None]:
             raise AssertionError(
                 f"Expected a refusal to change nothing, and it wrote "
                 f"{sorted(changed)}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_descriptor_records_the_count(replicas: int) -> Assertion[ReplicaUndo]:
-    def assertion(descriptor: ReplicaUndo) -> bool:
-        if descriptor.was_replicas != replicas:
-            raise AssertionError(
-                f"Expected the descriptor to record [{replicas}] replicas as "
-                f"the count that was running, and it records "
-                f"[{descriptor.was_replicas}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_descriptor_records_sync_was(syncing: bool) -> Assertion[ReplicaUndo]:
-    def assertion(descriptor: ReplicaUndo) -> bool:
-        if descriptor.was_syncing_itself != syncing:
-            raise AssertionError(
-                f"Expected the descriptor to record automated sync as "
-                f"[{syncing}] when Argus found it, and it records "
-                f"[{descriptor.was_syncing_itself}]."
             )
 
         return True

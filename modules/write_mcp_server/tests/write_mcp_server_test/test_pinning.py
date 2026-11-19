@@ -16,6 +16,18 @@ The repository says what the autoscaler is asked to converge on, which is a
 different pair of numbers the moment anybody pins - so a floor derived from
 anything else would be derived from a fact nobody here has.
 
+A pin is planned before it is made, as the scale-out is. The plan reads the
+bounds and the sync, works out the floor to ask for, is dated by the platform's
+own clock, and changes nothing. The write takes the plan and compares before it
+writes: the floor and the sync switch are each written only where they are still
+what the plan found, taken as made only where they are what it asked for under
+this claim's mark, and refused as changed since otherwise - with nothing written.
+A refusal says what this claim's marks show already landed: where its suspension
+still stands, the plan travels on the refusal as what it left behind. And since
+the write takes the floor rather than working it out, it checks both of the
+floor's bounds again where it writes - the ceiling as read then, and the most
+Argus may ask for.
+
 The order is the platform's rule, as it is for the other two actions that change
 live state under a GitOps controller: a reconciling application has the
 autoscaler's whole manifest re-applied at its next sync, floor included. The
@@ -36,6 +48,7 @@ as text - is the adapter's, and pinned in its own suite.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -56,11 +69,12 @@ from core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
 )
-from core.models import AutoscalerUndo, AutoscalingRestored
+from core.models import AutoscalerUndo, AutoscalingRestored, Planned
 from deployment_platform import (
     Autoscaler,
     AutoscalerBounds,
     DeploymentPlatformWrites,
+    MarkedObject,
     PlatformRefused,
     PlatformUnreachable,
 )
@@ -68,11 +82,17 @@ from write_mcp_server.pinning import (
     AlreadyHeldStill,
     PinRefused,
     pin_autoscaler,
+    plan_autoscaler_pin,
     restore_autoscaler_floor,
 )
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 
-from write_mcp_server_test.framework.marks import a_mark, every_write_carried
+from write_mcp_server_test.framework.marks import (
+    ANOTHER_CLAIM,
+    THIS_CLAIM,
+    a_mark,
+    every_write_carried,
+)
 from write_mcp_server_test.framework.putting_back import (
     it_was_left_because,
     it_was_not_left_alone,
@@ -82,6 +102,8 @@ from write_mcp_server_test.framework.refusals import (
     it_is_marked_unreachable,
     it_left_behind,
     it_was_refused_as,
+    it_was_refused_as_changed_since,
+    its_change_is_said_performed,
     what_it_left_is_known,
 )
 
@@ -90,6 +112,12 @@ SOME_APPLICATION = "io-shop"
 # a write is for is the caller's, and what is asserted is only that the writes
 # carry it.
 SOME_MARK = a_mark()
+
+# The platform's own clock when a plan reads it.
+SOME_TIME_ON_THE_PLATFORM = datetime(2026, 11, 18, 13, 4, 30, tzinfo=UTC)
+# When a plan handed to a write was read. The write compares what it finds with
+# what the plan says, never with when.
+DONT_CARE_SINCE = datetime(2026, 11, 18, 13, 0, tzinfo=UTC)
 
 # What the autoscaler is called and where it lives, as the platform reports them.
 # Deliberately not the application's name: an autoscaler named after its
@@ -119,7 +147,10 @@ THE_SUSPENSION = AutoscalerUndo(
 def a_platform(floor: int = THE_FLOOR,
                ceiling: int = THE_CEILING,
                reconciling_itself: bool = True,
-               holding_an_autoscaler: bool = True) -> Any:
+               holding_an_autoscaler: bool = True,
+               marked: dict[MarkedObject, str] | None = None) -> Any:
+    """A platform whose autoscaler holds `floor`, its objects carrying the claims
+    `marked` names by object - none, unless a case says so."""
     platform = create_autospec(DeploymentPlatformWrites, instance=True)
     platform.autoscaler_of.return_value = (
         SOME_AUTOSCALER if holding_an_autoscaler else None
@@ -128,6 +159,10 @@ def a_platform(floor: int = THE_FLOOR,
         floor=floor, ceiling=ceiling
     )
     platform.is_syncing_itself.return_value = reconciling_itself
+    platform.now.return_value = SOME_TIME_ON_THE_PLATFORM
+
+    marks = marked or {}
+    platform.mark_on.side_effect = lambda application, kind: marks.get(kind)
 
     return platform
 
@@ -143,16 +178,8 @@ def a_platform_as_the_pin_left_it(floor: int = THE_CEILING,
                       holding_an_autoscaler=holding_an_autoscaler)
 
 
-def _pinning(platform: Any) -> AutoscalerUndo:
-    return pin_autoscaler(SOME_APPLICATION, platform, SOME_MARK)
-
-
-def _restoring(descriptor: AutoscalerUndo, platform: Any) -> AutoscalingRestored:
-    return restore_autoscaler_floor(descriptor, platform, SOME_MARK)
-
-
 @pytest.mark.unit
-def test_a_pin_raises_the_floor_to_the_ceiling() -> None:
+def test_a_plan_raises_the_floor_to_the_ceiling() -> None:
     # To the ceiling and no further, because the ceiling is a bound a human
     # declared. The count is not Argus's to choose even in principle: what it is
     # choosing is that the count should stop moving.
@@ -160,40 +187,12 @@ def test_a_pin_raises_the_floor_to_the_ceiling() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(_it_asked_for_a_floor_of(platform, THE_CEILING))
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
+        .then(_the_plan_records_the_floor_it_asks_for(THE_CEILING))
 
 
 @pytest.mark.unit
-def test_every_write_a_pin_makes_carries_its_actions_mark() -> None:
-    # The suspension and the floor alike: either left on the platform unmarked
-    # is a change nobody can tell from a person's.
-    platform = a_platform(reconciling_itself=True)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(all_of(
-            every_write_carried(platform, "suspend_sync", SOME_MARK),
-            every_write_carried(platform, "set_autoscaler_floor", SOME_MARK)
-        ))
-
-
-@pytest.mark.unit
-def test_every_write_a_restore_makes_carries_its_mark() -> None:
-    platform = a_platform_as_the_pin_left_it()
-
-    Scenario() \
-        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(descriptor, platform)) \
-        .then(all_of(
-            every_write_carried(platform, "set_autoscaler_floor", SOME_MARK),
-            every_write_carried(platform, "resume_sync", SOME_MARK)
-        ))
-
-
-@pytest.mark.unit
-def test_the_bounds_read_are_the_autoscaler_the_platform_named() -> None:
+def test_the_bounds_a_plan_reads_are_the_autoscaler_the_platform_named() -> None:
     # Discovered rather than configured, and not assumed to be named after its
     # application: the platform says what the resource is called and where it
     # lives, and both travel into the read that follows.
@@ -201,12 +200,12 @@ def test_the_bounds_read_are_the_autoscaler_the_platform_named() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _pinning(platform)) \
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
         .then(_the_bounds_were_read_of(platform, SOME_AUTOSCALER))
 
 
 @pytest.mark.unit
-def test_an_application_with_no_autoscaler_is_refused() -> None:
+def test_an_application_with_no_autoscaler_is_refused_by_the_plan() -> None:
     # Nothing to pin, and the one thing a caller reading this cannot check for
     # itself: a pin performed against a controller that does not exist would be
     # confirmed against a world that does not exist either.
@@ -214,7 +213,7 @@ def test_an_application_with_no_autoscaler_is_refused() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(PinRefused),
             _nothing_was_changed(platform)
@@ -225,55 +224,34 @@ def test_an_application_with_no_autoscaler_is_refused() -> None:
 def test_a_ceiling_past_what_argus_may_ask_for_is_clamped_to_it() -> None:
     # One estate, one bound on its capacity. The ceiling is a human's declaration
     # and this is Argus's own limit on what it may hold a deployment at, and where
-    # the two disagree the smaller wins.
+    # the two disagree the smaller wins. The case that makes the recorded floor
+    # worth having: a sentence naming the destination as "its ceiling" is false
+    # exactly here.
     platform = a_platform(
         floor=THE_FLOOR, ceiling=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR + 1
     )
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(_it_asked_for_a_floor_of(platform, THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR))
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
+        .then(_the_plan_records_the_floor_it_asks_for(THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR))
 
 
 @pytest.mark.unit
-def test_reconciliation_is_suspended_before_the_floor_is_raised() -> None:
-    # The platform's rule rather than a preference: a reconciling application has
-    # the autoscaler's manifest re-applied at its next sync, floor and all, so a
-    # pin taken under automated sync is a mitigation with a timer on it.
-    platform = a_platform(reconciling_itself=True)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(_it_was_asked_in_order(platform, "suspend_sync", "set_autoscaler_floor"))
-
-
-@pytest.mark.unit
-def test_an_application_nobody_was_reconciling_is_left_alone() -> None:
-    platform = a_platform(reconciling_itself=False)
-
-    Scenario() \
-        .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(_the_sync_policy_was_not_touched(platform))
-
-
-@pytest.mark.unit
-def test_the_descriptor_records_the_floor_and_the_policy_it_found() -> None:
+def test_a_plan_records_the_floor_and_the_policy_it_found() -> None:
     platform = a_platform(floor=THE_FLOOR, reconciling_itself=True)
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _pinning(platform)) \
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
         .then(all_of(
-            _the_descriptor_records_the_floor(THE_FLOOR),
-            _the_descriptor_records_sync_was(True)
+            _the_plan_records_the_floor(THE_FLOOR),
+            _the_plan_records_sync_was(True)
         ))
 
 
 @pytest.mark.unit
-def test_a_descriptor_records_sync_as_it_was_found_off() -> None:
+def test_a_plan_records_sync_as_it_was_found_off() -> None:
     # Never a default. An application somebody had already stopped reconciling
     # must be left stopped, and a descriptor that recorded the usual arrangement
     # would have a withdrawal start something Argus did not stop.
@@ -281,61 +259,56 @@ def test_a_descriptor_records_sync_as_it_was_found_off() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(_the_descriptor_records_sync_was(False))
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
+        .then(_the_plan_records_sync_was(False))
 
 
 @pytest.mark.unit
-def test_the_descriptor_records_the_floor_this_pin_asked_for() -> None:
-    # Both floors, because the account of a pin is a transition and one number is
-    # half of it. The floor it came from is what a withdrawal puts back; the floor
-    # it went to is what a reader has to have in order to tell a controller that
-    # was stopped from one that was merely nudged - and it is also the number a
-    # withdrawal can compare against the live floor before writing, to find out
-    # whether anybody has been in there since.
-    platform = a_platform(floor=THE_FLOOR, ceiling=THE_CEILING)
+def test_a_plan_is_dated_by_the_platforms_own_clock() -> None:
+    # What a resumed walk asks "has anybody changed it since?" from.
+    platform = a_platform()
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(all_of(
-            _the_descriptor_records_the_floor(THE_FLOOR),
-            _the_descriptor_records_the_floor_it_set(THE_CEILING)
-        ))
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
+        .then(_the_plan_is_dated(SOME_TIME_ON_THE_PLATFORM))
 
 
 @pytest.mark.unit
-def test_the_floor_recorded_is_argus_own_cap_where_that_is_the_lower() -> None:
-    # The case that makes this field worth having rather than a convenience. The
-    # tier raises the floor to whichever of the two bounds is smaller, so a
-    # sentence naming the destination as "its ceiling" is false exactly here - the
-    # floor went to Argus's own cap and the ceiling is somewhere above it. A reader
-    # told the ceiling would be told a number nothing wrote.
-    platform = a_platform(
-        floor=THE_FLOOR, ceiling=THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR + 1
-    )
+def test_a_plan_reads_the_platforms_clock_before_the_state_it_dates() -> None:
+    # A time read after the state could postdate a change the plan never saw,
+    # and a later "nothing changed since" would then hide it.
+    platform = a_platform()
 
     Scenario() \
         .given(platform) \
-        .when(lambda: _pinning(platform)) \
-        .then(
-            _the_descriptor_records_the_floor_it_set(
-                THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
-            )
-        )
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
+        .then(_the_time_was_read_first(platform))
 
 
 @pytest.mark.unit
-def test_an_autoscaler_already_held_still_is_refused_before_anything_changes() -> None:
+def test_a_plan_changes_nothing() -> None:
+    # It is read before the claim is written, so anything it wrote would be a
+    # change no claim accounts for.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(platform) \
+        .when(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform)) \
+        .then(_nothing_was_written(platform))
+
+
+@pytest.mark.unit
+def test_an_autoscaler_already_held_still_is_refused_by_the_plan() -> None:
     # A floor already at the ceiling is a count that is not moving, so there is
-    # nothing here to stop. Refused rather than answered with a no-op: a caller
-    # told "done" would record a mitigation that never happened and then judge the
-    # service against it.
+    # nothing here to stop. Refused rather than planned as a no-op: a caller
+    # told "done" would record a mitigation that never happened and then judge
+    # the service against it.
     platform = a_platform(floor=THE_CEILING, ceiling=THE_CEILING)
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(AlreadyHeldStill),
             _nothing_was_changed(platform)
@@ -349,7 +322,7 @@ def test_an_autoscaler_held_at_one_replica_is_refused_in_the_singular() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(AlreadyHeldStill),
             the_error_mentioned("may fall to [1] replica and")
@@ -368,7 +341,7 @@ def test_a_floor_already_past_what_argus_may_ask_for_is_refused() -> None:
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(AlreadyHeldStill),
             _nothing_was_changed(platform)
@@ -376,13 +349,27 @@ def test_a_floor_already_past_what_argus_may_ask_for_is_refused() -> None:
 
 
 @pytest.mark.unit
-def test_a_platform_that_will_not_answer_is_not_reported_as_pinned() -> None:
+def test_an_autoscaler_with_no_room_refuses_in_a_way_a_caller_can_recognise() -> None:
+    # The pin's half of the same claim. Both of this tier's exhaustion refusals
+    # have to be recognisable, and they are two exceptions in two modules - so a
+    # marker applied to one and forgotten on the other is exactly the shape this
+    # catches.
+    platform = a_platform(floor=THE_CEILING, ceiling=THE_CEILING)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
+        .then(_the_refusal_says_the_action_is_exhausted())
+
+
+@pytest.mark.unit
+def test_a_platform_that_will_not_answer_is_not_planned_on() -> None:
     platform = a_platform()
     platform.autoscaler_of.side_effect = PlatformUnreachable("no route to the platform")
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(PinRefused),
             _nothing_was_changed(platform)
@@ -390,7 +377,7 @@ def test_a_platform_that_will_not_answer_is_not_reported_as_pinned() -> None:
 
 
 @pytest.mark.unit
-def test_bounds_the_platform_would_not_report_are_not_reported_as_pinned() -> None:
+def test_bounds_the_platform_would_not_report_are_not_planned_on() -> None:
     # The platform named the autoscaler and then would not say its bounds - a
     # refusal, or a manifest without them. A different failure from an
     # application with no autoscaler at all, and both have to leave the
@@ -401,10 +388,457 @@ def test_bounds_the_platform_would_not_report_are_not_reported_as_pinned() -> No
 
     Scenario() \
         .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
             an_error_was_raised(PinRefused),
             _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() -> None:
+    # A pin begins by asking the platform what the application is made of, so on
+    # a platform that is down this is where it finds out. Nothing has been
+    # touched, which is what makes the report honest.
+    platform = a_platform()
+    platform.autoscaler_of.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
+        .then(_it_is_reported_as_an_unreachable_platform())
+
+
+@pytest.mark.unit
+def test_a_platform_that_would_not_say_its_time_is_not_planned_on() -> None:
+    # A plan with no date is one a resumed walk could not ask "since when?" of.
+    platform = a_platform()
+    platform.now.side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
+        .then(all_of(
+            _it_is_reported_as_an_unreachable_platform(),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_bounds_the_platform_would_not_give_are_known_to_have_changed_nothing() -> None:
+    # Nothing had been asked to change, so however the read failed, nothing did.
+    platform = a_platform()
+    platform.autoscaler_bounds.side_effect = PlatformRefused("not found")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
+    platform = a_platform()
+    platform.is_syncing_itself.side_effect = PlatformUnreachable(
+        "timed out", known_not_applied=False
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(True),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_raises_the_floor_its_plan_asked_for_on_the_autoscaler_the_platform_names() -> None:
+    # The plan's floor, written where the platform says the autoscaler is now.
+    platform = a_platform(floor=THE_FLOOR)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(_it_asked_for_a_floor_of(platform, THE_CEILING))
+
+
+@pytest.mark.unit
+def test_a_pin_answers_with_the_descriptor_its_plan_carried() -> None:
+    platform = a_platform(floor=THE_FLOOR)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(_it_answered_with(a_plan.descriptor))
+
+
+@pytest.mark.unit
+def test_every_write_a_pin_makes_carries_its_actions_mark() -> None:
+    # The suspension and the floor alike: either left on the platform unmarked
+    # is a change nobody can tell from a person's.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            every_write_carried(platform, "suspend_sync", SOME_MARK),
+            every_write_carried(platform, "set_autoscaler_floor", SOME_MARK)
+        ))
+
+
+@pytest.mark.unit
+def test_reconciliation_is_suspended_before_the_floor_is_raised() -> None:
+    # The platform's rule rather than a preference: a reconciling application has
+    # the autoscaler's manifest re-applied at its next sync, floor and all, so a
+    # pin taken under automated sync is a mitigation with a timer on it.
+    platform = a_platform(reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(_it_was_asked_in_order(platform, "suspend_sync", "set_autoscaler_floor"))
+
+
+@pytest.mark.unit
+def test_an_application_nobody_was_reconciling_is_left_alone() -> None:
+    platform = a_platform(reconciling_itself=False)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(_the_sync_policy_was_not_touched(platform))
+
+
+@pytest.mark.unit
+def test_a_floor_where_the_plan_found_it_under_another_claims_mark_is_raised() -> None:
+    # An earlier change of Argus's, under another claim, is what the plan found
+    # and what it planned from - not a change since.
+    platform = a_platform(floor=THE_FLOOR, marked={MarkedObject.AUTOSCALER: ANOTHER_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(_it_asked_for_a_floor_of(platform, THE_CEILING))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("was_syncing_itself", [True, False],
+                         ids=["argus-suspended-the-sync", "the-sync-was-already-off"])
+def test_a_pin_this_claim_already_made_is_answered_as_made_and_writes_nothing(
+    was_syncing_itself: bool
+) -> None:
+    # The same write asked again - a reply lost on the way back, a walk resumed
+    # after its worker died. The floor is the one asked for and the autoscaler
+    # carries this claim's mark, so the first asking made it: answered as made,
+    # not as exhausted, and nothing written twice. The Application carries this
+    # claim's mark only where this claim suspended its sync.
+    suspended_by_this_claim = {MarkedObject.APPLICATION: THIS_CLAIM} if was_syncing_itself else {}
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked={MarkedObject.AUTOSCALER: THIS_CLAIM, **suspended_by_this_claim})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_answered_with(a_plan.descriptor)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("marked_by", [None, ANOTHER_CLAIM],
+                         ids=["unmarked", "under-another-claim"])
+def test_a_floor_at_what_the_plan_asked_for_without_this_claims_mark_is_changed_since(
+    marked_by: str | None
+) -> None:
+    # The right number by somebody else's hand. Taking it as made would claim
+    # a change Argus did not make, and a withdrawal would then put back a floor
+    # that was never Argus's.
+    platform = a_platform(floor=THE_CEILING,
+                          marked={} if marked_by is None else {MarkedObject.AUTOSCALER: marked_by})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("floor", [THE_FLOOR, A_FLOOR_SOMEBODY_SET],
+                         ids=["back-where-the-plan-found-it", "somewhere-else"])
+def test_a_floor_under_this_claims_mark_but_not_what_it_asked_for_is_changed_since(
+    floor: int
+) -> None:
+    # This claim's change landed - the suspension and the floor, both under its
+    # mark - and somebody moved the floor after it, back where it was included.
+    # Redoing it would write over them. The suspension still stands, so the
+    # refusal carries the plan, which is what a withdrawal puts it back from.
+    platform = a_platform(floor=floor, reconciling_itself=False,
+                          marked={MarkedObject.AUTOSCALER: THIS_CLAIM,
+                                  MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(True),
+            it_left_behind(a_plan.descriptor),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_floor_somebody_set_since_the_plan_is_refused_before_anything_is_written() -> None:
+    # Before the sync switch too: a suspension written ahead of a refused floor
+    # would be a change the refusal does not account for.
+    platform = a_platform(floor=A_FLOOR_SOMEBODY_SET, reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            it_is_marked_unreachable(False),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_floor_somebody_set_under_this_claims_suspension_leaves_the_suspension() -> None:
+    # The suspension landed under this claim and the floor did not, and
+    # somebody set a floor of their own in between. Nothing is written over
+    # them, and the switch this claim turned off is still off - so the refusal
+    # carries the plan, which is what puts it back on.
+    platform = a_platform(floor=A_FLOOR_SOMEBODY_SET, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            it_left_behind(a_plan.descriptor),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_plan_asking_past_the_autoscaler_s_ceiling_is_refused_by_the_write() -> None:
+    # The write takes its floor from the plan rather than working it out, so the
+    # ceiling - a human's declaration, read where the floor is written - is
+    # checked again there. A floor above it is one the controller was never
+    # declared to reach.
+    past_the_ceiling = THE_CEILING + 1
+    platform = a_platform(floor=THE_FLOOR, ceiling=THE_CEILING)
+
+    Scenario() \
+        .given(a_plan := _a_plan_asking_for(past_the_ceiling)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_plan_asking_past_what_argus_may_ask_for_is_refused_by_the_write() -> None:
+    # The other bound on the same floor, checked again where it is written: a
+    # ceiling declared past Argus's own limit does not lift that limit, so a
+    # floor inside the ceiling and past the limit is still refused.
+    past_what_argus_may_ask_for = THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR + 1
+    platform = a_platform(floor=THE_FLOOR, ceiling=past_what_argus_may_ask_for + 1)
+
+    Scenario() \
+        .given(a_plan := _a_plan_asking_for(past_what_argus_may_ask_for)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("floor", [THE_FLOOR - 1, THE_FLOOR],
+                         ids=["below-the-floor-it-found", "the-floor-it-found"])
+def test_a_plan_asking_for_no_higher_floor_than_it_found_is_refused_by_the_write(
+    floor: int
+) -> None:
+    # The write holds the plan to the plan step's own rule from the plan's own
+    # "was": a floor raised. A plan asking for a lower one would have a pin take
+    # capacity away, and one asking for the floor it found would be a change
+    # judged as though it had been made. Refused plainly, before the sync switch
+    # is touched.
+    platform = a_platform(floor=THE_FLOOR, ceiling=THE_CEILING)
+
+    Scenario() \
+        .given(a_plan := _a_plan_asking_for(floor)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_re_ask_past_a_ceiling_lowered_since_still_carries_the_suspension() -> None:
+    # The first asking's suspension landed under this claim and its floor did
+    # not, and the ceiling has been lowered under the plan's floor since. The
+    # floor is not written - and the refusal says what this claim left out
+    # there, which a withdrawal puts back.
+    platform = a_platform(floor=THE_FLOOR, ceiling=THE_CEILING - 1, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            what_it_left_is_known(True),
+            it_left_behind(a_plan.descriptor),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_an_autoscaler_removed_since_the_plan_is_changed_since() -> None:
+    # Somebody took away the controller the plan meant to hold still. A pin
+    # now would have nowhere to go, and is not Argus's to put back.
+    platform = a_platform(holding_an_autoscaler=False)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_sync_this_claim_suspended_is_not_suspended_again() -> None:
+    # The suspension landed under this claim and the floor did not: the floor is
+    # raised, and the switch is left where this claim put it.
+    platform = a_platform(floor=THE_FLOOR, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
+        .then(all_of(
+            _the_sync_policy_was_not_touched(platform),
+            _it_asked_for_a_floor_of(platform, THE_CEILING)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("marked_by", [None, ANOTHER_CLAIM],
+                         ids=["unmarked", "under-another-claim"])
+def test_a_sync_suspended_since_the_plan_without_this_claims_mark_is_changed_since(
+    marked_by: str | None
+) -> None:
+    # The plan found it reconciling, and somebody else has stopped it since. A
+    # descriptor saying Argus suspended it would have a withdrawal resume what
+    # they stopped.
+    platform = a_platform(reconciling_itself=False,
+                          marked={} if marked_by is None else {MarkedObject.APPLICATION: marked_by})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_sync_running_again_under_this_claims_mark_is_changed_since() -> None:
+    # Argus suspended it under this claim and it is reconciling again, so
+    # somebody turned it back on. Suspending it again would overrule them.
+    platform = a_platform(floor=THE_FLOOR, reconciling_itself=True,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_sync_turned_on_since_a_plan_that_found_it_off_is_changed_since() -> None:
+    # A floor raised now would be put back at the next sync, and the descriptor
+    # would say the sync was never Argus's to put back.
+    platform = a_platform(floor=THE_FLOOR, reconciling_itself=True)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(False),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", ["autoscaler_of", "autoscaler_bounds",
+                                  "is_syncing_itself", "mark_on"])
+def test_a_pin_that_could_not_read_what_is_there_now_writes_nothing(read: str) -> None:
+    # The compare is what makes the write safe to ask, and a compare against a
+    # read that never came back is no compare at all.
+    platform = a_platform(floor=THE_FLOOR)
+    getattr(platform, read).side_effect = PlatformUnreachable("no route to host")
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            what_it_left_is_known(True),
+            it_left_behind(None),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_every_write_a_restore_makes_carries_its_mark() -> None:
+    platform = a_platform_as_the_pin_left_it()
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_autoscaler_floor(descriptor, platform, SOME_MARK)) \
+        .then(all_of(
+            every_write_carried(platform, "set_autoscaler_floor", SOME_MARK),
+            every_write_carried(platform, "resume_sync", SOME_MARK)
         ))
 
 
@@ -414,7 +848,7 @@ def test_restoring_puts_back_the_floor_the_autoscaler_had() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _it_asked_for_a_floor_of(platform, THE_FLOOR),
             _it_reports_restored(floor=True, automated_sync=True)
@@ -431,7 +865,7 @@ def test_a_restore_asks_again_where_the_autoscaler_is() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_autoscaler_was_asked_for(platform),
             _it_asked_for_a_floor_of(platform, THE_FLOOR)
@@ -460,7 +894,7 @@ def test_an_autoscaler_somebody_removed_since_is_left_removed(
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             it_was_left_because("no autoscaler"),
@@ -477,7 +911,7 @@ def test_the_floor_is_put_back_before_reconciliation_is() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(_it_was_asked_in_order(platform, "set_autoscaler_floor", "resume_sync"))
 
 
@@ -487,7 +921,7 @@ def test_restoring_leaves_reconciliation_off_where_argus_found_it_off() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=False)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_sync_policy_was_not_touched(platform),
             _it_reports_restored(floor=True, automated_sync=True)
@@ -504,7 +938,7 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(_it_reports_restored(floor=True, automated_sync=False))
 
 
@@ -516,7 +950,7 @@ def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(_it_reports_restored(floor=False, automated_sync=False))
 
 
@@ -527,7 +961,7 @@ def test_a_floor_still_argus_s_is_put_back_and_said_to_be_nobody_else_s() -> Non
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _it_asked_for_a_floor_of(platform, THE_FLOOR),
             _it_reports_restored(floor=True, automated_sync=True),
@@ -544,7 +978,7 @@ def test_a_floor_already_back_where_argus_found_it_is_not_written_again() -> Non
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _the_floor_was_not_written(platform),
             every_write_carried(platform, "resume_sync", SOME_MARK),
@@ -562,7 +996,7 @@ def test_a_floor_somebody_set_since_is_left_as_they_set_it() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             it_was_left_because(f"[{A_FLOOR_SOMEBODY_SET}]")
@@ -589,7 +1023,7 @@ def test_a_floor_left_as_somebody_set_it_says_whether_argus_s_suspension_still_s
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             the_suspension_is_said_to_stand(still_suspended)
@@ -608,7 +1042,7 @@ def test_a_restore_that_could_not_read_whose_the_floor_is_writes_nothing(read: s
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             _it_reports_restored(floor=False, automated_sync=False),
@@ -626,40 +1060,12 @@ def test_a_restore_that_could_not_read_whether_sync_is_back_on_writes_nothing() 
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(a_descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(a_descriptor, platform, SOME_MARK)) \
         .then(all_of(
             _nothing_was_written(platform),
             _it_reports_restored(floor=False, automated_sync=False),
             it_was_not_left_alone()
         ))
-
-
-@pytest.mark.unit
-def test_an_autoscaler_with_no_room_refuses_in_a_way_a_caller_can_recognise() -> None:
-    # The pin's half of the same claim. Both of this tier's exhaustion refusals
-    # have to be recognisable, and they are two exceptions in two modules - so a
-    # marker applied to one and forgotten on the other is exactly the shape this
-    # catches.
-    platform = a_platform(floor=THE_CEILING, ceiling=THE_CEILING)
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
-        .then(_the_refusal_says_the_action_is_exhausted())
-
-
-@pytest.mark.unit
-def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() -> None:
-    # A pin begins by asking the platform what the application is made of, so on
-    # a platform that is down this is where it finds out. Nothing has been
-    # touched, which is what makes the report honest.
-    platform = a_platform()
-    platform.autoscaler_of.side_effect = PlatformUnreachable("no route to host")
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
-        .then(_it_is_reported_as_an_unreachable_platform())
 
 
 @pytest.mark.unit
@@ -670,8 +1076,8 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     platform.suspend_sync.side_effect = PlatformUnreachable("503", known_not_applied=True)
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(_it_is_reported_as_an_unreachable_platform())
 
 
@@ -686,8 +1092,8 @@ def test_a_platform_that_died_before_a_pin_that_changed_nothing_is_unreachable()
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(_it_is_reported_as_an_unreachable_platform())
 
 
@@ -708,45 +1114,11 @@ def test_a_pin_that_left_sync_suspended_says_so_and_still_reports_the_platform()
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             _it_is_reported_as_an_unreachable_platform(),
             _it_says_what_it_left_behind(THE_SUSPENSION)
-        ))
-
-
-@pytest.mark.unit
-def test_bounds_the_platform_would_not_give_are_known_to_have_changed_nothing() -> None:
-    # Nothing had been asked to change, so however the read failed, nothing did.
-    platform = a_platform()
-    platform.autoscaler_bounds.side_effect = PlatformRefused("not found")
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
-        .then(all_of(
-            it_was_refused_as(PinRefused),
-            it_is_marked_unreachable(False),
-            what_it_left_is_known(True),
-            it_left_behind(None)
-        ))
-
-
-@pytest.mark.unit
-def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
-    platform = a_platform()
-    platform.is_syncing_itself.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
-    )
-
-    Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
-        .then(all_of(
-            it_is_marked_unreachable(True),
-            what_it_left_is_known(True),
-            it_left_behind(None)
         ))
 
 
@@ -758,8 +1130,8 @@ def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_was_refused_as(PinRefused),
             it_is_marked_unreachable(False),
@@ -776,8 +1148,8 @@ def test_a_pin_rejected_after_sync_was_suspended_says_the_suspension_is_left() -
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_is_marked_unreachable(False),
             what_it_left_is_known(True),
@@ -795,8 +1167,8 @@ def test_a_pin_whose_answer_was_lost_carries_the_suspension_and_no_more() -> Non
     )
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_is_marked_unreachable(False),
             what_it_left_is_known(False),
@@ -813,8 +1185,8 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
     platform.set_autoscaler_floor.side_effect = PlatformRefused("400")
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(_it_is_not_reported_as_an_unreachable_platform())
 
 
@@ -826,9 +1198,9 @@ def test_a_pin_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     Scenario() \
         .given(
             calling(lambda: caplog.set_level(logging.INFO)),
-            platform
+            a_plan := _a_plan(was_syncing_itself=True)
         ) \
-        .when(lambda: _pinning(platform)) \
+        .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.pinning", logging.INFO,
                                   "autoscaler floor raised",
@@ -849,8 +1221,8 @@ def test_a_pin_refused_after_sync_was_suspended_is_logged_as_a_warning(
     platform.set_autoscaler_floor.side_effect = PlatformRefused("400")
 
     Scenario() \
-        .given(platform) \
-        .when(attempting(lambda: _pinning(platform))) \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.pinning", logging.WARNING,
                                   "autoscaler pin refused",
@@ -869,7 +1241,7 @@ def test_a_complete_restore_is_logged(caplog: pytest.LogCaptureFixture) -> None:
             calling(lambda: caplog.set_level(logging.INFO)),
             descriptor := _a_descriptor(was_syncing_itself=True)
         ) \
-        .when(lambda: _restoring(descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.pinning", logging.INFO,
                                   "autoscaler floor restored",
@@ -888,7 +1260,7 @@ def test_a_restore_that_only_managed_the_floor_is_logged_as_a_warning(
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.pinning", logging.WARNING,
                                   "autoscaler floor not fully restored",
@@ -909,7 +1281,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: _restoring(descriptor, platform)) \
+        .when(lambda: restore_autoscaler_floor(descriptor, platform, SOME_MARK)) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.pinning", logging.ERROR,
                                   "restore step failed",
@@ -987,6 +1359,101 @@ def _a_descriptor(was_syncing_itself: bool) -> AutoscalerUndo:
     )
 
 
+def _a_plan(was_syncing_itself: bool) -> Planned[AutoscalerUndo]:
+    """The plan a pin of the fixture's autoscaler makes: its floor to its ceiling."""
+    return Planned(descriptor=_a_descriptor(was_syncing_itself), since=DONT_CARE_SINCE)
+
+
+def _a_plan_asking_for(floor: int) -> Planned[AutoscalerUndo]:
+    """A plan of the fixture's autoscaler, asking for `floor` rather than its
+    ceiling - one the plan step would never have made."""
+    return Planned(
+        descriptor=_a_descriptor(was_syncing_itself=True).model_copy(
+            update={"min_replicas_asked_for": floor}
+        ),
+        since=DONT_CARE_SINCE
+    )
+
+
+def _the_plan_records_the_floor(floor: int) -> Assertion[Planned[AutoscalerUndo]]:
+    def assertion(plan: Planned[AutoscalerUndo]) -> bool:
+        if plan.descriptor.was_min_replicas != floor:
+            raise AssertionError(
+                f"Expected the plan to record [{floor}] replicas as the floor the "
+                f"autoscaler had, and it records [{plan.descriptor.was_min_replicas}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_plan_records_the_floor_it_asks_for(floor: int) -> Assertion[Planned[AutoscalerUndo]]:
+    def assertion(plan: Planned[AutoscalerUndo]) -> bool:
+        if plan.descriptor.min_replicas_asked_for != floor:
+            raise AssertionError(
+                f"Expected the plan to ask for a floor of [{floor}] replicas, and it "
+                f"asks for [{plan.descriptor.min_replicas_asked_for}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_plan_records_sync_was(syncing: bool) -> Assertion[Planned[AutoscalerUndo]]:
+    def assertion(plan: Planned[AutoscalerUndo]) -> bool:
+        if plan.descriptor.was_syncing_itself != syncing:
+            raise AssertionError(
+                f"Expected the plan to record automated sync as [{syncing}] when "
+                f"Argus found it, and it records [{plan.descriptor.was_syncing_itself}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_plan_is_dated(since: datetime) -> Assertion[Planned[AutoscalerUndo]]:
+    def assertion(plan: Planned[AutoscalerUndo]) -> bool:
+        if plan.since != since:
+            raise AssertionError(
+                f"Expected the plan dated [{since}], and it is dated [{plan.since}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_time_was_read_first(platform: Any) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        asked = [name for name, _args, _kwargs in platform.method_calls]
+
+        if not asked or asked[0] != "now":
+            raise AssertionError(
+                f"Expected the platform's time read before anything else, and the "
+                f"platform was asked {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_answered_with(expected: AutoscalerUndo) -> Assertion[AutoscalerUndo]:
+    def assertion(descriptor: AutoscalerUndo) -> bool:
+        if descriptor != expected:
+            raise AssertionError(
+                f"Expected the pin to answer with {expected!r}, and it answered "
+                f"with {descriptor!r}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_floor_was_not_written(platform: Any) -> Assertion[AutoscalingRestored]:
     def assertion(dont_care_restored: AutoscalingRestored) -> bool:
         if platform.set_autoscaler_floor.called:
@@ -1000,10 +1467,10 @@ def _the_floor_was_not_written(platform: Any) -> Assertion[AutoscalingRestored]:
     return assertion
 
 
-def _nothing_was_written(platform: Any) -> Assertion[AutoscalingRestored]:
-    """Neither the floor nor the sync policy - the reads are what a restore
+def _nothing_was_written(platform: Any) -> Assertion[object]:
+    """Neither the floor nor the sync policy - the reads are what an action
     that left the autoscaler alone did ask."""
-    def assertion(dont_care_restored: AutoscalingRestored) -> bool:
+    def assertion(dont_care_result: object) -> bool:
         written = [name for name, operation in (
             ("the floor", platform.set_autoscaler_floor),
             ("the sync policy", platform.resume_sync),
@@ -1012,7 +1479,7 @@ def _nothing_was_written(platform: Any) -> Assertion[AutoscalingRestored]:
 
         if written:
             raise AssertionError(
-                f"Expected nothing written, and the restore wrote {written}: "
+                f"Expected nothing written, and {written} were: "
                 f"{platform.method_calls}."
             )
 
@@ -1112,48 +1579,6 @@ def _nothing_was_changed(platform: Any) -> Assertion[Exception | None]:
             raise AssertionError(
                 f"Expected a refusal to change nothing, and it wrote "
                 f"{sorted(changed)}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_descriptor_records_the_floor(floor: int) -> Assertion[AutoscalerUndo]:
-    def assertion(descriptor: AutoscalerUndo) -> bool:
-        if descriptor.was_min_replicas != floor:
-            raise AssertionError(
-                f"Expected the descriptor to record [{floor}] replicas as the "
-                f"floor the autoscaler had, and it records "
-                f"[{descriptor.was_min_replicas}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_descriptor_records_the_floor_it_set(floor: int) -> Assertion[AutoscalerUndo]:
-    def assertion(descriptor: AutoscalerUndo) -> bool:
-        if descriptor.min_replicas_asked_for != floor:
-            raise AssertionError(
-                f"Expected the descriptor to record [{floor}] replicas as the "
-                f"floor this pin asked for, and it records "
-                f"[{descriptor.min_replicas_asked_for}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_descriptor_records_sync_was(syncing: bool) -> Assertion[AutoscalerUndo]:
-    def assertion(descriptor: AutoscalerUndo) -> bool:
-        if descriptor.was_syncing_itself != syncing:
-            raise AssertionError(
-                f"Expected the descriptor to record automated sync as "
-                f"[{syncing}] when Argus found it, and it records "
-                f"[{descriptor.was_syncing_itself}]."
             )
 
         return True

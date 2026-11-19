@@ -17,8 +17,9 @@ import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from functools import partial
-from typing import Any, Final
+from typing import Any, Final, assert_never
 
 import httpx2
 from core import SettingsSlice
@@ -26,7 +27,17 @@ from core.applying import known_not_applied
 from core.models import PodPlacement, RolloutProgress
 
 from deployment_platform.failures import PlatformRefused, PlatformUnreachable
-from deployment_platform.port import Autoscaler, AutoscalerBounds, DeploymentRecord, Mark
+from deployment_platform.port import (
+    Autoscaler,
+    AutoscalerBounds,
+    DeploymentRecord,
+    Mark,
+    MarkedObject,
+    RequestedSync,
+    SyncOperations,
+    SyncPhase,
+    SyncRun,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +174,29 @@ AUTOSCALER_VERSION: Final = "v2"
 AUTOSCALER_KIND: Final = "HorizontalPodAutoscaler"
 
 REQUEST_TIMEOUT_SECONDS: Final = 10.0
+
+# HTTP's header for when an answer was given, by the server's own clock.
+_DATE: Final = "Date"
+
+# An application's syncs: the one asked and not yet finished, at the top level,
+# and the last one the controller ran, under `status`. A rollback is a sync, of
+# the history entry's revision.
+_OPERATION: Final = "operation"
+_OPERATION_STATE: Final = "operationState"
+_SYNC: Final = "sync"
+_STARTED_AT: Final = "startedAt"
+_PHASE: Final = "phase"
+# Argo CD's `OperationPhase` values, as Argus names them.
+_PHASES: Final = {
+    "Running": SyncPhase.RUNNING,
+    "Succeeded": SyncPhase.SUCCEEDED,
+    "Failed": SyncPhase.FAILED,
+    "Error": SyncPhase.ERROR,
+    "Terminating": SyncPhase.TERMINATING
+}
+# What the platform answers a sync - a rollback among them - asked while
+# another is still being run (`FailedPrecondition`, served as a 400).
+ANOTHER_OPERATION_IN_PROGRESS: Final = "another operation is already in progress"
 
 # The lowest status a server uses to say the failure is its own rather than the
 # request's. Below it the platform has read what was asked and rejected it, which
@@ -314,6 +348,86 @@ class ArgoCd:
             return placed
 
         return _parsed(placements, f"[{application}]'s resource tree")
+
+    def now(self, application: str, /) -> datetime:
+        """The `Date` the application's own route is answered with.
+
+        Every format RFC 9110 (5.6.7) has a recipient accept, the obsolete two
+        among them; the asctime one names no zone, and HTTP's dates are UTC. An
+        answer with no readable `Date` is refused rather than dated by this
+        process's clock, which a change the platform recorded could fall the
+        wrong side of.
+        """
+        answered = self._send("GET", self._settings.argocd_application_path, application)
+
+        def moment() -> datetime:
+            dated = parsedate_to_datetime(answered.headers[_DATE])
+
+            return dated if dated.tzinfo is not None else dated.replace(tzinfo=UTC)
+
+        return _parsed(moment, f"the date [{application}] was served with")
+
+    def sync_operations_of(self, application: str, /) -> SyncOperations:
+        """The application's `operation` and its `status.operationState`.
+
+        The first is set the moment a sync is asked for and cleared only once it
+        finishes; the second appears when the controller starts running it. A
+        platform that keeps neither - the demo's stand-in keeps no state of its
+        runs - answers with neither, and a caller has the history alone.
+        """
+        state = self._get(self._settings.argocd_application_path, application)
+
+        def operations() -> SyncOperations:
+            requested = state.get(_OPERATION)
+            run = (state.get(_STATUS) or {}).get(_OPERATION_STATE)
+
+            return SyncOperations(
+                requested=None if requested is None else RequestedSync(
+                    revision=_the_revision_synced_by(requested),
+                    initiated_by=_who_asked_for(requested)
+                ),
+                last_run=None if run is None else SyncRun(
+                    revision=_the_revision_synced_by(run[_OPERATION]),
+                    initiated_by=_who_asked_for(run[_OPERATION]),
+                    started_at=datetime.fromisoformat(str(run[_STARTED_AT])),
+                    phase=_PHASES[run[_PHASE]]
+                )
+            )
+
+        return _parsed(operations, f"[{application}]'s syncs")
+
+    def mark_on(self, application: str, kind: MarkedObject, /) -> str | None:
+        """The action named on the object's own metadata, never on a pod
+        template's: Argus writes its mark on the object, and one found in a
+        template is not one Argus wrote.
+
+        Each object is read where its write is sent - the application on its own
+        route, the Deployment and the autoscaler as live manifests, the
+        autoscaler addressed as the tree names it. An application with no
+        autoscaler has no mark on one.
+        """
+        match kind:
+            case MarkedObject.APPLICATION:
+                found = self._get(self._settings.argocd_application_path, application)
+            case MarkedObject.DEPLOYMENT:
+                found = self._manifest(application, self._the_deployment_of(application))
+            case MarkedObject.AUTOSCALER:
+                autoscaler = self.autoscaler_of(application)
+
+                if autoscaler is None:
+                    return None
+
+                found = self._manifest(application, _addressing(autoscaler))
+            case _:
+                assert_never(kind)
+
+        def action() -> str | None:
+            annotations = (found.get(METADATA) or {}).get(ANNOTATIONS) or {}
+            marked = annotations.get(ACTION_ANNOTATION)
+
+            return None if marked is None else str(marked)
+
+        return _parsed(action, f"the mark on [{application}]'s {kind}")
 
     def is_syncing_itself(self, application: str, /) -> bool:
         """Read exactly as Argo CD's own `SyncPolicy.IsAutomatedSyncEnabled` reads it.
@@ -662,10 +776,14 @@ class ArgoCd:
                 if error.response.status_code >= _THE_SERVERS_OWN_FAULT
                 else PlatformRefused
             )
+            # Refused, and not for want of anything: a change asked again while
+            # the first asking is still being run says nothing of whether that
+            # first one will land.
+            already_running = ANOTHER_OPERATION_IN_PROGRESS in error.response.text
             raise failure(
                 f"{method} [{path}] was answered "
                 f"[{error.response.status_code}]: {error.response.text}",
-                known_not_applied=known_not_applied(method, error)
+                known_not_applied=known_not_applied(method, error) and not already_running
             ) from error
 
         return response
@@ -722,6 +840,21 @@ def _addressing(autoscaler: Autoscaler) -> dict[str, str]:
         "version": AUTOSCALER_VERSION,
         _KIND: AUTOSCALER_KIND
     }
+
+
+def _the_revision_synced_by(operation: dict[str, Any]) -> str | None:
+    """The revision an operation syncs to, or `None` where it names none."""
+    revision = (operation.get(_SYNC) or {}).get(_REVISION)
+
+    return None if revision is None else str(revision)
+
+
+def _who_asked_for(operation: dict[str, Any]) -> str | None:
+    """The account an operation was asked for by, or `None` where it names none
+    - the platform's own sync."""
+    username = (operation.get(_INITIATED_BY) or {}).get(_USERNAME)
+
+    return str(username) if username else None
 
 
 def _a_record_of(entry: dict[str, Any]) -> DeploymentRecord:

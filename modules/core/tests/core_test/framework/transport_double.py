@@ -37,6 +37,7 @@ from core.mcp_transport import (
     ACTION_META_KEY,
     FENCE_META_KEY,
     TracedFastMCP,
+    a_change_made_since,
     a_lost_run,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
@@ -181,6 +182,31 @@ def build_double(port: int) -> TracedFastMCP:
         _times_refused += 1
 
         raise RuntimeError(a_lost_run("a newer claim holds this run"))
+
+    @server.tool()
+    def refuse_as_changed_since() -> list[str]:
+        """Refuses the way a tier refuses a change somebody else made since the
+        plan, where an earlier asking of it landed only the suspension before it:
+        what it left is carried, and the change itself is not said performed.
+
+        Raised through the server's own helper for `refuse_as_exhausted`'s
+        reason.
+        """
+        raise RuntimeError(a_change_made_since(
+            "some-application was changed by somebody else since it was planned",
+            _A_SUSPENSION
+        ))
+
+    @server.tool()
+    def refuse_as_changed_since_after_the_change() -> list[str]:
+        """Refuses as `refuse_as_changed_since` does, where the earlier asking
+        landed the change itself before somebody overtook it - so the refusal
+        says it was performed."""
+        raise RuntimeError(a_change_made_since(
+            "some-application was changed by somebody else after Argus changed it",
+            _A_SUSPENSION,
+            performed=True
+        ))
 
     @server.tool()
     def the_fence_i_was_sent(ctx: Context[Any, Any, Any]) -> dict[str, object]:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.budget import StillWanted
 from core.events import IncidentEvent, Publisher, nobody
@@ -28,6 +28,7 @@ from core.models import (
     Hypothesis,
     IncidentStatus,
     Leads,
+    Planned,
     PostmortemDocument,
     ProposedFix,
     Reading,
@@ -195,11 +196,16 @@ class TakeAction(Protocol):
     # `change_made` is told the moment the change is made, before the wait,
     # with what would put it back - the walk binds the row it claimed into it,
     # so a worker that dies during the wait leaves the change on record.
+    #
+    # `plan` is the change `PlanAction` worked out and the claim carries, `None`
+    # for an action with nothing to plan. Not defaulted: an action taken on a
+    # plan nobody chose would be compared against a state nothing wrote down.
     def __call__(
         self,
         action: Action,
         /,
         *,
+        plan: Planned[Any] | None,
         still_wanted: StillWanted = ...,
         incident_id: str | None = None,
         publisher: Publisher = nobody,
@@ -208,6 +214,18 @@ class TakeAction(Protocol):
         rule: str | None = None,
         change_made: ChangeMade = ...
     ) -> Outcome: ...
+
+
+class PlanAction(Protocol):
+    """The change an action will make, worked out by the write tier before the
+    action is claimed - or the outcome the attempt comes to where the tier
+    refused to work it out, or `None` for an action with nothing to plan.
+
+    Positional-only: the action is the whole question. The writes it is asked
+    through are bound where the walk is assembled.
+    """
+
+    def __call__(self, action: Action, /) -> Planned[Any] | Outcome | None: ...
 
 
 class RecordAction(Protocol):
@@ -238,7 +256,13 @@ class RecordAction(Protocol):
         # When the claim is written, on the walk's clock rather than the
         # database's - the one a replay's simulated clock moves. Not when the
         # action was taken: that is its announcement's.
-        at: datetime
+        at: datetime,
+        *,
+        # The change the claim is taken to make, worked out before it, and when
+        # the platform said what it was worked out from - `None` for an action
+        # with nothing to plan, or a plan the tier refused. Written with the
+        # claim and by nothing after.
+        planned: Planned[Any] | None = None
     ) -> str | None: ...
 
 
@@ -356,12 +380,18 @@ class ClaimedAction(BaseModel):
 
     `action_id` is the claim's own id, which a walk acting again under it marks
     its writes with - the same action, so the same mark.
+
+    `planned` is the plan the claim was written with, which a walk acting again
+    under it acts on - the same action, so the same plan: the write compares
+    the estate with what the claim recorded. `None` for a claim that planned
+    nothing.
     """
 
     action_id: str
     outcome: Verdict | UnreadVerdict | None
     claimed_at: datetime
     progress: ActionProgress = ActionProgress.CLAIMED
+    planned: Planned[UndoDescriptor] | None = None
 
 
 class ActionAlreadyTaken(Protocol):

@@ -1,12 +1,16 @@
-"""Setting a feature flag's state in the provider (spec §7.3, §12.1).
+"""Planning a feature flag's change, and making it only where nobody has moved the
+flag since the plan (spec §7.3, §12.1).
 
-The write tier's one act on the flag provider. How the provider is reached, under
-which credential, and how long it takes to show a change are the provider's
-adapter's, behind `FlagProviderWrites`; what is left here is the tier's part: the
-change asked of the provider is the one the caller asked for, what comes back is
-the undo the provider's write produced, and a failure reaches the caller as a
-refusal saying what it left - nothing, something it cannot vouch for, or the undo
-that puts the flag back.
+The write tier's one act on the flag provider, in two calls. The plan reads the
+flag as the provider holds it - through the admin read, never the cached
+evaluation - and dates the read by the provider's own clock, changing nothing.
+
+The change is then made over the plan, and a flag's value cannot say whether it
+still stands as planned: it is a bool, and two changes put it back where it was.
+So the provider's history since the plan's read decides, read once and before
+the write. How the provider is reached, under which credential, and how long it
+takes to show a change are the provider's adapter's, behind
+`FlagProviderWrites`; what is left here is the tier's part.
 
 One function serves both directions, because a flag causes an incident by
 changing and the damaging direction is not always "on" - a flag switched off can
@@ -19,10 +23,16 @@ undoing a *mitigation* the same call with the state reversed.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
-from core.mcp_transport import a_refusal_saying_what_it_left
-from core.models import FlagUndo
-from flag_provider import FlagProviderWrites, FlagWriteFailed
+from core import parse_iso
+from core.mcp_transport import (
+    a_change_made_since,
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
+)
+from core.models import FlagUndo, Planned
+from flag_provider import FlagProviderUnavailable, FlagProviderWrites, FlagWriteFailed
 
 logger = logging.getLogger(__name__)
 
@@ -39,21 +49,106 @@ class FlagNotSet(Exception):
     """
 
 
-def set_flag(flag: str, enabled: bool, flags: FlagProviderWrites) -> FlagUndo:
-    """Sets `flag` on or off through the provider and returns the undo its
-    write produced.
+def plan_flag(flag: str, enabled: bool, flags: FlagProviderWrites) -> Planned[FlagUndo]:
+    """Plans setting `flag` on or off: the state the provider holds it in, which
+    is what puts it back, dated by the provider's own time for the read.
 
-    The provider returns only once the change is visible to evaluation, so a
-    caller about to judge whether the service recovered judges a service that
-    was actually changed.
+    The state it is in rather than the opposite of the one asked for: a flag
+    somebody already moved is planned from where it is. Nothing is written, so
+    the descriptor names no environment and no time of a write.
 
-    Raises `FlagNotSet` where the provider did not do it - saying, as every
-    write tool's refusal says, what it left behind. A write the provider never
-    took left nothing; one whose answer was lost may have flipped the flag, and
-    says nothing either way. One the provider took and nobody saw evaluating has
-    flipped it, so the refusal carries what puts it back: recorded nowhere else,
-    it is a flag no withdrawal would ever touch.
+    Raises `FlagNotSet` where the flag could not be read, saying it left
+    nothing, and where it is already in the state asked for, as an exhausted
+    action - refused rather than planned as a no-op, because a caller told it
+    was done would record a mitigation that never happened, and the action
+    spent is what lets the walk move on to another candidate.
     """
+    try:
+        state = flags.state_of(flag)
+    except FlagProviderUnavailable as failure:
+        raise FlagNotSet(a_refusal_saying_what_it_left(str(failure))) from failure
+
+    if state.enabled == enabled:
+        raise FlagNotSet(
+            an_exhausted_action(f"flag [{flag}] is already {_state_name(enabled)}")
+        )
+
+    return Planned[FlagUndo](descriptor=FlagUndo(flag=flag, was_enabled=state.enabled),
+                             since=state.read_at)
+
+
+def set_flag(planned: Planned[FlagUndo], enabled: bool, flags: FlagProviderWrites) -> FlagUndo:
+    """Sets the planned flag on or off through the provider, where nobody has
+    changed it since the plan, and returns the undo its write produced.
+
+    A state the plan found the flag in already is refused before anything is
+    read or written: the plan refuses that change, and the write does not take
+    it on the caller's word.
+
+    The provider's history since the plan's read is read once, before the
+    write - after it, the write would be its own evidence - and only the
+    flag's own changes in it have a say:
+
+    - none: the flag is as planned, and is written. The provider returns only
+      once the change is visible to evaluation, so a caller about to judge
+      whether the service recovered judges a service that was changed.
+    - Argus's alone: the change asked again after its answer was lost. It
+      landed, so it is answered as made and not written twice, dated by the
+      first of them - the one that moved the flag off the plan, and what an
+      undo later asks the history from.
+    - anybody else's: a decision made since the plan, refused as changed since
+      and not written over. Where Argus's own change landed among them, the
+      refusal leaves the plan's undo behind, dated by the plan's read rather
+      than by Argus's change: a put-back asks the history from that date, and
+      must see a person's change made before Argus's to leave the flag as found.
+      It says the change was performed, too: a flag has no suspension before
+      its write, so the flip that landed is the change itself.
+    - one nobody can attribute: it may be Argus's or somebody's, so it is
+      neither - refused, nothing written.
+
+    Raises `FlagNotSet` where the flag was not set - saying, as every write
+    tool's refusal says, what it left behind. A history that could not be read
+    left nothing. A write the provider never took left nothing; one whose answer
+    was lost may have flipped the flag, and says nothing either way. One the
+    provider took and nobody saw evaluating has flipped it, so the refusal
+    carries what puts it back: recorded nowhere else, it is a flag no withdrawal
+    would ever touch.
+    """
+    flag = planned.descriptor.flag
+
+    if enabled == planned.descriptor.was_enabled:
+        raise FlagNotSet(a_refusal_saying_what_it_left(
+            f"flag [{flag}] was planned from {_state_name(enabled)}, so setting it "
+            f"{_state_name(enabled)} would change nothing"
+        ))
+
+    try:
+        history = flags.changes_since(planned.since)
+    except FlagProviderUnavailable as failure:
+        raise FlagNotSet(a_refusal_saying_what_it_left(
+            f"could not read what changed to flag [{flag}] since it was planned: {failure}"
+        )) from failure
+
+    changes = [change for change in history if change.flag == flag]
+    first_of_argus = next((change for change in changes if change.made_by_argus is True), None)
+
+    if any(change.made_by_argus is False for change in changes):
+        raise FlagNotSet(a_change_made_since(
+            f"flag [{flag}] was changed by somebody else since it was planned",
+            None if first_of_argus is None else _dated(planned, planned.since),
+            performed=first_of_argus is not None
+        ))
+
+    if any(change.made_by_argus is None for change in changes):
+        raise FlagNotSet(a_refusal_saying_what_it_left(
+            f"flag [{flag}] was changed since it was planned, and nobody can say by whom"
+        ))
+
+    if first_of_argus is not None:
+        logger.info("flag already set", extra={"flag": flag, "enabled": enabled})
+
+        return _dated(planned, parse_iso(first_of_argus.occurred_at))
+
     try:
         undo = flags.set(flag, enabled)
     except FlagWriteFailed as failure:
@@ -67,3 +162,13 @@ def set_flag(flag: str, enabled: bool, flags: FlagProviderWrites) -> FlagUndo:
     logger.info("flag set", extra={"flag": flag, "enabled": enabled})
 
     return undo
+
+
+def _dated(planned: Planned[FlagUndo], written_at: datetime) -> FlagUndo:
+    """The plan's undo, dated `written_at` - the time a put-back later asks the
+    provider's history from."""
+    return planned.descriptor.model_copy(update={"written_at": written_at})
+
+
+def _state_name(enabled: bool) -> str:
+    return "on" if enabled else "off"

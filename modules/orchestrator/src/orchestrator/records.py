@@ -17,6 +17,7 @@ around the graph is where a database is a fact of life.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from core import Connections, unit_of_work
 from core.events import (
@@ -32,6 +33,7 @@ from core.models import (
     ExecutiveSynopsisDocument,
     Hypothesis,
     IncidentStatus,
+    Planned,
     PostmortemDocument,
     TakenAction,
     ThreadMessage,
@@ -134,7 +136,9 @@ class Records:
         hypothesis_id: str,
         action_type: ActionType,
         subject: str | None,
-        at: datetime
+        at: datetime,
+        *,
+        planned: Planned[Any] | None = None
     ) -> str | None:
         with unit_of_work(self._connections) as conn:
             return taken_actions.claim(
@@ -143,7 +147,8 @@ class Records:
                 hypothesis_id=hypothesis_id,
                 action_type=action_type,
                 subject=subject,
-                at=at
+                at=at,
+                planned=planned
             )
 
     def complete_action(
@@ -228,7 +233,8 @@ class Records:
             action_id=taken_action.id,
             outcome=taken_action.outcome,
             claimed_at=taken_action.taken_at,
-            progress=taken_action.progress
+            progress=taken_action.progress,
+            planned=taken_action.planned
         )
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /) -> None:

@@ -19,6 +19,12 @@ nothing of Argus's still in place is left as found.
 Waiting differs by kind too. Two kinds change a Deployment and have a count to
 wait on, and the two counts are different; the rest are in force once they are
 acknowledged.
+
+The five kinds that leave a change behind are planned before they are claimed:
+the write tier works out the change and when it read the state it worked it out
+from, the walk writes that onto the claim, and the write is handed it back to
+compare the estate with. A restart and a discard leave nothing to compare and
+have no plan.
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, call, create_autospec
 
 import pytest
@@ -41,7 +47,12 @@ from argus_testkit import (
     the_answer_was,
 )
 from core import RunLost
-from core.mcp_transport import ActionExhausted, an_exhausted_action
+from core.mcp_transport import (
+    ActionExhausted,
+    ChangedSince,
+    a_change_made_since,
+    an_exhausted_action,
+)
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -55,6 +66,7 @@ from core.models import (
     FlagUndo,
     PinAutoscaler,
     PinToAccelerator,
+    Planned,
     ReplicaUndo,
     RestartedService,
     RollBackDeployment,
@@ -81,18 +93,25 @@ from mitigation.kinds import (
 )
 from mitigation.tools import (
     AcceleratorPinner,
+    AcceleratorPinPlanner,
     AcceleratorPinRestorer,
     Arrival,
     AutoscalerPinner,
+    AutoscalerPinPlanner,
     AutoscalingRestorer,
     CacheEntryDiscarder,
     CapacityRestorer,
     DeploymentRestorer,
     DeploymentRoller,
     DeploymentScaler,
+    FlagPlanner,
     FlagSetter,
+    PerformingWrites,
+    PlannedFlagSetter,
     PuttingBack,
+    RollbackPlanner,
     RolloutReader,
+    ScaleOutPlanner,
     ServiceRestarter,
 )
 
@@ -100,6 +119,7 @@ from mitigation_test.framework.builders import (
     ACTION_TIME,
     a_capacity_restorer_nobody_calls,
     a_discard_removing,
+    a_plan_of,
     a_restorer_nobody_calls,
     an_action_restarting,
     an_action_setting,
@@ -133,8 +153,18 @@ THE_CEILING_IT_WAS_HELD_AT = 6
 THE_CARD_IT_WAS_HELD_TO = "Tesla-V100-SXM2-16GB"
 A_CARD_SOMEBODY_ELSE_CHOSE = "Tesla-T4"
 SOME_CACHE_KEY = "io-shop:summary:shopper-3"
+# The state a flag action asks for, which its plan is asked for beside the flag:
+# the one thing about a flag change the tier could not work out for itself.
+THE_STATE_THE_FLAG_IS_ASKED_INTO = True
 # A count of exactly one, where the noun has to agree with it.
 ONE_REPLICA = 1
+# The count an autoscaler had moved the deployment to between the plan and the
+# write - one more than the plan read, which is all that matters about it.
+THE_COUNT_THE_AUTOSCALER_MOVED_IT_TO = THE_COUNT_IT_WAS_RUNNING + 1
+# When the flag's write landed, as the write tier answers it. What tells that
+# write's answer apart from the plan it was handed, which carries no such
+# moment; a deployment's write answers with the plan undated.
+THE_WRITE_LANDED_AT = ACTION_TIME
 
 # Six replicas with three updated, which is the split an arrival reads and also
 # the point at which an in-flight incompatibility fails the most requests.
@@ -178,22 +208,54 @@ EVERY_KIND_OF_CHANGE = [
                  id="card-pin")
 ]
 
-# Every kind of action, with the write that performs it and what that write is.
-EVERY_KIND_OF_WRITE = [
+# Every kind of action that is planned, with a plan of it, the write that
+# performs it and what that write is.
+EVERY_KIND_OF_PLANNED_WRITE = [
     pytest.param(RevertFeatureFlagKind(), lambda: an_action_setting(SOME_FLAG, enabled=True),
-                 "set_state", FlagSetter, id="flag"),
-    pytest.param(RestartServiceKind(), lambda: an_action_restarting(SOME_SERVICE),
-                 "restart", ServiceRestarter, id="restart"),
+                 lambda: a_plan_of(a_planned_flag_change_for(SOME_FLAG, was_enabled=False)),
+                 "set_state", PlannedFlagSetter, id="flag"),
     pytest.param(RollBackDeploymentKind(), lambda: RollBackDeployment(application=SOME_APPLICATION),
+                 lambda: a_plan_of(a_rollback_descriptor_for(SOME_APPLICATION)),
                  "roll_back", DeploymentRoller, id="rollback"),
     pytest.param(ScaleOutKind(), lambda: ScaleOut(application=SOME_APPLICATION),
+                 lambda: a_plan_of(a_resize_descriptor_for(SOME_APPLICATION)),
                  "scale_out", DeploymentScaler, id="scale-out"),
     pytest.param(PinAutoscalerKind(), lambda: PinAutoscaler(application=SOME_APPLICATION),
+                 lambda: a_plan_of(a_pin_descriptor_for(SOME_APPLICATION)),
                  "pin", AutoscalerPinner, id="autoscaler-pin"),
     pytest.param(PinToAcceleratorKind(), lambda: a_pin_to(THE_CARD_IT_WAS_HELD_TO),
-                 "pin_to_accelerator", AcceleratorPinner, id="card-pin"),
+                 lambda: a_plan_of(a_card_pin_descriptor_for(SOME_APPLICATION)),
+                 "pin_to_accelerator", AcceleratorPinner, id="card-pin")
+]
+
+# The two kinds of action with nothing to plan, with the write that performs
+# each and what that write is.
+EVERY_KIND_OF_UNPLANNED_WRITE = [
+    pytest.param(RestartServiceKind(), lambda: an_action_restarting(SOME_SERVICE),
+                 "restart", ServiceRestarter, id="restart"),
     pytest.param(DiscardCacheEntriesKind(), lambda: a_discard_of(SOME_CACHE_KEY),
                  "discard", CacheEntryDiscarder, id="discard")
+]
+
+# Every kind of action that is planned, with the part of the write tier that
+# plans it, what that part is, and what it is asked: the address the action
+# names, and for a flag the state asked for and for a pin to a card the card -
+# the two things the tier could not work out for itself.
+EVERY_KIND_OF_PLAN = [
+    pytest.param(RevertFeatureFlagKind(),
+                 lambda: an_action_setting(SOME_FLAG, enabled=THE_STATE_THE_FLAG_IS_ASKED_INTO),
+                 "plan_flag", FlagPlanner, (SOME_FLAG, THE_STATE_THE_FLAG_IS_ASKED_INTO),
+                 id="flag"),
+    pytest.param(RollBackDeploymentKind(), lambda: RollBackDeployment(application=SOME_APPLICATION),
+                 "plan_rollback", RollbackPlanner, (SOME_APPLICATION,), id="rollback"),
+    pytest.param(ScaleOutKind(), lambda: ScaleOut(application=SOME_APPLICATION),
+                 "plan_scale_out", ScaleOutPlanner, (SOME_APPLICATION,), id="scale-out"),
+    pytest.param(PinAutoscalerKind(), lambda: PinAutoscaler(application=SOME_APPLICATION),
+                 "plan_autoscaler_pin", AutoscalerPinPlanner, (SOME_APPLICATION,),
+                 id="autoscaler-pin"),
+    pytest.param(PinToAcceleratorKind(), lambda: a_pin_to(THE_CARD_IT_WAS_HELD_TO),
+                 "plan_accelerator_pin", AcceleratorPinPlanner,
+                 (SOME_APPLICATION, THE_CARD_IT_WAS_HELD_TO), id="card-pin")
 ]
 
 # Every kind of action, with what it says it would have done. The words are the
@@ -413,27 +475,112 @@ def test_each_kind_of_change_is_put_back_by_the_kind_that_made_it(
         .then(_it_is_a(expected))
 
 
+# ---- planning ----
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "planner", "spec", "expected"), EVERY_KIND_OF_PLAN)
+def test_each_kind_is_planned_by_the_write_tier_for_what_its_action_names(
+    kind: UndoableKind[Any], an_action: Callable[[], Action], planner: str, spec: type,
+    expected: tuple[object, ...]
+) -> None:
+    # Through the write tier, which is where the write that is handed the plan
+    # compares the estate with it: one port for the read and the compare, and
+    # for a flag the admin read only that tier holds the token for. What the
+    # tier answers is the plan, and nothing here works it out again - so any
+    # plan would do, and one shape stands in for all five.
+    Scenario() \
+        .given(
+            the_plan_answered := a_plan_of(a_resize_descriptor_for(SOME_APPLICATION)),
+            planning := _a_collaborator_answering(spec, the_plan_answered)
+        ) \
+        .when(
+            lambda: kind.plan(an_action(), the_writes(**{planner: planning}))
+        ) \
+        .then(all_of(
+            _the_planner_was_asked(planning, *expected),
+            _it_is_the_plan(the_plan_answered)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "planner", "spec", "dont_care_asked"),
+                         EVERY_KIND_OF_PLAN)
+def test_a_plan_writes_nothing(
+    kind: UndoableKind[Any], an_action: Callable[[], Action], planner: str, spec: type,
+    dont_care_asked: tuple[object, ...]
+) -> None:
+    # A plan is made before the claim, and a change made before the claim is
+    # one no row records - the withdrawal would never find it, and the write-up
+    # would never say it happened.
+    Scenario() \
+        .given(
+            writes := the_writes(**{planner: _a_collaborator_answering(
+                spec, a_plan_of(a_resize_descriptor_for(SOME_APPLICATION))
+            )})
+        ) \
+        .when(
+            lambda: kind.plan(an_action(), writes)
+        ) \
+        .then(
+            _nothing_was_written_through(writes)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "planner", "spec", "dont_care_asked"),
+                         EVERY_KIND_OF_PLAN)
+def test_a_plan_refused_reaches_whoever_planned_it_as_the_tier_raised_it(
+    kind: UndoableKind[Any], an_action: Callable[[], Action], planner: str, spec: type,
+    dont_care_asked: tuple[object, ...]
+) -> None:
+    # A deployment already as large as Argus may make it, or a flag already as
+    # asked, is refused at the plan as the write used to refuse it - and which
+    # refusal it was decides the verdict, from the exception's own type. A kind
+    # that caught it, or wrapped it, would turn an exhausted action into an
+    # escalation.
+    dont_care_refusal = "nothing left to do"
+
+    Scenario() \
+        .given(
+            nothing_left_to_do := _a_collaborator_raising(
+                spec, ActionExhausted(an_exhausted_action(dont_care_refusal))
+            )
+        ) \
+        .when(attempting(
+            lambda: kind.plan(an_action(), the_writes(**{planner: nothing_left_to_do}))
+        )) \
+        .then(
+            an_error_was_raised(ActionExhausted)
+        )
+
+
 # ---- performing ----
 
 
 @pytest.mark.unit
-def test_a_flag_revert_sets_the_flag_to_the_state_it_names() -> None:
+def test_a_flag_revert_sets_the_flag_to_the_state_it_names_from_its_plan() -> None:
+    # The plan, and not the flag's name: the write compares the provider's
+    # history since the plan's read before it writes anything, so a write handed
+    # the name alone would have nothing to compare with.
     some_old_state = False
 
     Scenario() \
         .given(
-            set_state := _a_flag_setter_answering(
-                what_it_left := an_undo_descriptor_for(SOME_FLAG, was_enabled=some_old_state)
+            the_plan := a_plan_of(a_planned_flag_change_for(SOME_FLAG, was_enabled=some_old_state)),
+            set_state := _a_planned_flag_setter_answering(
+                what_it_left := _as_written(the_plan.descriptor)
             )
         ) \
         .when(
             lambda: RevertFeatureFlagKind().perform(
                 an_action_setting(SOME_FLAG, enabled=(not some_old_state)),
+                the_plan,
                 the_writes(set_state=set_state)
             )
         ) \
         .then(all_of(
-            _the_write_was_asked(set_state, SOME_FLAG, not some_old_state),
+            _the_write_was_asked(set_state, the_plan, not some_old_state),
             _it_says(f"set flag [{SOME_FLAG}] ON"),
             _it_leaves(what_it_left)
         ))
@@ -445,7 +592,7 @@ def test_a_restart_asks_for_the_service_the_action_names() -> None:
         .given(restart := _a_restarter_bringing_up(SOME_SERVICE)) \
         .when(
             lambda: RestartServiceKind().perform(
-                an_action_restarting(SOME_SERVICE), the_writes(restart=restart)
+                an_action_restarting(SOME_SERVICE), None, the_writes(restart=restart)
             )
         ) \
         .then(all_of(
@@ -463,25 +610,30 @@ def test_a_restart_leaves_no_way_back() -> None:
         .given(restart := _a_restarter_bringing_up(SOME_SERVICE)) \
         .when(
             lambda: RestartServiceKind().perform(
-                an_action_restarting(SOME_SERVICE), the_writes(restart=restart)
+                an_action_restarting(SOME_SERVICE), None, the_writes(restart=restart)
             )
         ) \
         .then(_it_leaves(None))
 
 
 @pytest.mark.unit
-def test_a_rollback_asks_for_the_application_alone() -> None:
-    # Not a commit, and not an entry. A commit found in a diff is not
-    # necessarily a revision this application ever ran, and which entry to
-    # return to is the platform's to resolve - the immediately preceding one.
+def test_a_rollback_is_written_from_the_plan_it_was_handed() -> None:
+    # Not the application, and not a commit. Which entry to return to was
+    # settled when the rollback was planned and recorded on the claim, and a
+    # write handed anything less would work it out again from a history that
+    # may have moved since.
     Scenario() \
-        .given(roll_back := _a_roller_returning(a_rollback_descriptor_for(SOME_APPLICATION))) \
+        .given(
+            the_plan := a_plan_of(a_rollback_descriptor_for(SOME_APPLICATION)),
+            roll_back := _a_roller_returning(the_plan.descriptor)
+        ) \
         .when(
             lambda: RollBackDeploymentKind().perform(
-                RollBackDeployment(application=SOME_APPLICATION), the_writes(roll_back=roll_back)
+                RollBackDeployment(application=SOME_APPLICATION), the_plan,
+                the_writes(roll_back=roll_back)
             )
         ) \
-        .then(_the_write_was_asked(roll_back, SOME_APPLICATION))
+        .then(_the_write_was_asked(roll_back, the_plan))
 
 
 @pytest.mark.unit
@@ -489,10 +641,14 @@ def test_a_rollback_names_the_revision_it_rolled_off_rather_than_the_platform_s_
     # The entry is the platform's address for a revision, and means nothing to
     # a reader once the history has moved on; the commit is what they look up.
     Scenario() \
-        .given(roll_back := _a_roller_returning(a_rollback_descriptor_for(SOME_APPLICATION))) \
+        .given(
+            the_plan := a_plan_of(a_rollback_descriptor_for(SOME_APPLICATION)),
+            roll_back := _a_roller_returning(the_plan.descriptor)
+        ) \
         .when(
             lambda: RollBackDeploymentKind().perform(
-                RollBackDeployment(application=SOME_APPLICATION), the_writes(roll_back=roll_back)
+                RollBackDeployment(application=SOME_APPLICATION), the_plan,
+                the_writes(roll_back=roll_back)
             )
         ) \
         .then(all_of(
@@ -502,37 +658,47 @@ def test_a_rollback_names_the_revision_it_rolled_off_rather_than_the_platform_s_
 
 
 @pytest.mark.unit
-def test_a_rollback_leaves_the_way_back_the_platform_answered_with() -> None:
+def test_a_rollback_leaves_the_way_back_the_write_answered_with() -> None:
     # The difference the record has to keep. A restart leaves nothing behind
     # and says so by carrying no descriptor; a rollback changed two things,
     # and a withdrawal hours later has to be able to put both of them back.
+    #
+    # What the write answered, which is the plan as it was handed over -
+    # undated, since nothing yet says when a deployment's write landed.
     Scenario() \
         .given(
+            the_plan := a_plan_of(a_rollback_descriptor_for(SOME_APPLICATION)),
             roll_back := _a_roller_returning(
-                what_it_left := a_rollback_descriptor_for(SOME_APPLICATION)
+                what_it_left := the_plan.descriptor
             )
         ) \
         .when(
             lambda: RollBackDeploymentKind().perform(
-                RollBackDeployment(application=SOME_APPLICATION), the_writes(roll_back=roll_back)
+                RollBackDeployment(application=SOME_APPLICATION), the_plan,
+                the_writes(roll_back=roll_back)
             )
         ) \
         .then(_it_leaves(what_it_left))
 
 
 @pytest.mark.unit
-def test_a_scale_out_asks_the_platform_for_the_application_alone() -> None:
-    # No count goes with it. What to scale to is the tier's to resolve from what
-    # is actually running, and a figure named here would be this layer asserting
-    # a fact about live state it has no way to read.
+def test_a_scale_out_is_written_from_the_plan_it_was_handed() -> None:
+    # No count of this layer's goes with it. What to scale to was the tier's to
+    # resolve from what was running when it planned, and a figure named here
+    # would be this layer asserting a fact about live state it has no way to
+    # read.
     Scenario() \
-        .given(scale_out := _a_scaler_returning(a_resize_descriptor_for(SOME_APPLICATION))) \
+        .given(
+            the_plan := a_plan_of(a_resize_descriptor_for(SOME_APPLICATION)),
+            scale_out := _a_scaler_returning(the_plan.descriptor)
+        ) \
         .when(
             lambda: ScaleOutKind().perform(
-                ScaleOut(application=SOME_APPLICATION), the_writes(scale_out=scale_out)
+                ScaleOut(application=SOME_APPLICATION), the_plan,
+                the_writes(scale_out=scale_out)
             )
         ) \
-        .then(_the_write_was_asked(scale_out, SOME_APPLICATION))
+        .then(_the_write_was_asked(scale_out, the_plan))
 
 
 @pytest.mark.unit
@@ -542,13 +708,15 @@ def test_a_scale_out_says_the_count_it_scaled_from_and_leaves_it_to_put_back() -
     # decided, and the tier reports that figure nowhere a sentence can quote it.
     Scenario() \
         .given(
+            the_plan := a_plan_of(a_resize_descriptor_for(SOME_APPLICATION)),
             scale_out := _a_scaler_returning(
-                what_it_left := a_resize_descriptor_for(SOME_APPLICATION)
+                what_it_left := the_plan.descriptor
             )
         ) \
         .when(
             lambda: ScaleOutKind().perform(
-                ScaleOut(application=SOME_APPLICATION), the_writes(scale_out=scale_out)
+                ScaleOut(application=SOME_APPLICATION), the_plan,
+                the_writes(scale_out=scale_out)
             )
         ) \
         .then(all_of(
@@ -558,17 +726,48 @@ def test_a_scale_out_says_the_count_it_scaled_from_and_leaves_it_to_put_back() -
 
 
 @pytest.mark.unit
-def test_a_scale_out_from_one_replica_says_one_replica() -> None:
-    # The count agrees with its noun: "[1] replicas" is the line a reader stops at.
+def test_a_scale_out_says_the_count_the_write_found_rather_than_the_one_planned() -> None:
+    # An autoscaler moves a count between the plan and the write as a matter of
+    # course, and the write scales out from the count it finds and records that
+    # one. The sentence and the way back are the write's: the plan's count is
+    # a figure the deployment was no longer running when Argus changed it, and
+    # a withdrawal putting it back would be putting back a number nobody left.
     Scenario() \
         .given(
+            the_plan := a_plan_of(a_resize_descriptor_for(SOME_APPLICATION)),
             scale_out := _a_scaler_returning(
-                a_resize_descriptor_for(SOME_APPLICATION, was_replicas=ONE_REPLICA)
+                what_it_left := a_resize_descriptor_for(
+                    SOME_APPLICATION, was_replicas=THE_COUNT_THE_AUTOSCALER_MOVED_IT_TO
+                )
             )
         ) \
         .when(
             lambda: ScaleOutKind().perform(
-                ScaleOut(application=SOME_APPLICATION), the_writes(scale_out=scale_out)
+                ScaleOut(application=SOME_APPLICATION), the_plan,
+                the_writes(scale_out=scale_out)
+            )
+        ) \
+        .then(all_of(
+            _it_says(f"from [{THE_COUNT_THE_AUTOSCALER_MOVED_IT_TO}] replicas"),
+            _it_does_not_say(f"[{THE_COUNT_IT_WAS_RUNNING}]"),
+            _it_leaves(what_it_left)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_from_one_replica_says_one_replica() -> None:
+    # The count agrees with its noun: "[1] replicas" is the line a reader stops at.
+    Scenario() \
+        .given(
+            the_plan := a_plan_of(
+                a_resize_descriptor_for(SOME_APPLICATION, was_replicas=ONE_REPLICA)
+            ),
+            scale_out := _a_scaler_returning(the_plan.descriptor)
+        ) \
+        .when(
+            lambda: ScaleOutKind().perform(
+                ScaleOut(application=SOME_APPLICATION), the_plan,
+                the_writes(scale_out=scale_out)
             )
         ) \
         .then(all_of(
@@ -587,10 +786,13 @@ def test_an_autoscaler_pin_says_which_floor_it_raised_and_to_what() -> None:
     # names a number that belongs to somebody else's declaration rather than to
     # anything Argus wrote.
     Scenario() \
-        .given(pin := _a_pinner_returning(a_pin_descriptor_for(SOME_APPLICATION))) \
+        .given(
+            the_plan := a_plan_of(a_pin_descriptor_for(SOME_APPLICATION)),
+            pin := _a_pinner_returning(the_plan.descriptor)
+        ) \
         .when(
             lambda: PinAutoscalerKind().perform(
-                PinAutoscaler(application=SOME_APPLICATION), the_writes(pin=pin)
+                PinAutoscaler(application=SOME_APPLICATION), the_plan, the_writes(pin=pin)
             )
         ) \
         .then(all_of(
@@ -604,13 +806,14 @@ def test_an_autoscaler_pin_says_which_floor_it_raised_and_to_what() -> None:
 def test_an_autoscaler_pin_from_a_floor_of_one_replica_says_one_replica() -> None:
     Scenario() \
         .given(
-            pin := _a_pinner_returning(
+            the_plan := a_plan_of(
                 a_pin_descriptor_for(SOME_APPLICATION, was_min_replicas=ONE_REPLICA)
-            )
+            ),
+            pin := _a_pinner_returning(the_plan.descriptor)
         ) \
         .when(
             lambda: PinAutoscalerKind().perform(
-                PinAutoscaler(application=SOME_APPLICATION), the_writes(pin=pin)
+                PinAutoscaler(application=SOME_APPLICATION), the_plan, the_writes(pin=pin)
             )
         ) \
         .then(all_of(
@@ -620,39 +823,61 @@ def test_an_autoscaler_pin_from_a_floor_of_one_replica_says_one_replica() -> Non
 
 
 @pytest.mark.unit
-def test_an_autoscaler_pin_leaves_the_way_back_the_platform_answered_with() -> None:
-    # Both floors and the suspended sync, which is what a withdrawal hours later
-    # has to put back - and the platform's answer is the only record of them.
+def test_an_autoscaler_pin_is_written_from_the_plan_it_was_handed() -> None:
+    # The floor to raise it to was the tier's to resolve from the autoscaler's
+    # own ceiling when it planned, and the write compares the autoscaler with
+    # the plan before it touches it.
     Scenario() \
         .given(
+            the_plan := a_plan_of(a_pin_descriptor_for(SOME_APPLICATION)),
+            pin := _a_pinner_returning(the_plan.descriptor)
+        ) \
+        .when(
+            lambda: PinAutoscalerKind().perform(
+                PinAutoscaler(application=SOME_APPLICATION), the_plan, the_writes(pin=pin)
+            )
+        ) \
+        .then(_the_write_was_asked(pin, the_plan))
+
+
+@pytest.mark.unit
+def test_an_autoscaler_pin_leaves_the_way_back_the_write_answered_with() -> None:
+    # Both floors and the suspended sync, which is what a withdrawal hours later
+    # has to put back - and the write's answer, the plan as it was handed over
+    # and undated, is the record of them the row keeps.
+    Scenario() \
+        .given(
+            the_plan := a_plan_of(a_pin_descriptor_for(SOME_APPLICATION)),
             pin := _a_pinner_returning(
-                what_it_left := a_pin_descriptor_for(SOME_APPLICATION)
+                what_it_left := the_plan.descriptor
             )
         ) \
         .when(
             lambda: PinAutoscalerKind().perform(
-                PinAutoscaler(application=SOME_APPLICATION), the_writes(pin=pin)
+                PinAutoscaler(application=SOME_APPLICATION), the_plan, the_writes(pin=pin)
             )
         ) \
         .then(_it_leaves(what_it_left))
 
 
 @pytest.mark.unit
-def test_a_pin_to_a_card_asks_the_platform_for_that_card() -> None:
-    # The caller names the card as well as the application. Which card was worked
-    # out from where the replicas started before the onset, which the tier never
-    # saw - so a pin that arrived without it would be the tier guessing.
+def test_a_pin_to_a_card_is_written_from_the_plan_it_was_handed() -> None:
+    # The card travels in the plan. Which card was worked out from where the
+    # replicas started before the onset, which the tier never saw - so it was
+    # named when the pin was planned, and the write holds the pods to the card
+    # the claim recorded rather than to one it is told a second time.
     Scenario() \
-        .given(pin_to_accelerator := _a_card_pinner_returning(
-            a_card_pin_descriptor_for(SOME_APPLICATION)
-        )) \
+        .given(
+            the_plan := a_plan_of(a_card_pin_descriptor_for(SOME_APPLICATION)),
+            pin_to_accelerator := _a_card_pinner_returning(the_plan.descriptor)
+        ) \
         .when(
             lambda: PinToAcceleratorKind().perform(
-                a_pin_to(THE_CARD_IT_WAS_HELD_TO),
+                a_pin_to(THE_CARD_IT_WAS_HELD_TO), the_plan,
                 the_writes(pin_to_accelerator=pin_to_accelerator)
             )
         ) \
-        .then(_the_write_was_asked(pin_to_accelerator, SOME_APPLICATION, THE_CARD_IT_WAS_HELD_TO))
+        .then(_the_write_was_asked(pin_to_accelerator, the_plan))
 
 
 @pytest.mark.unit
@@ -661,12 +886,15 @@ def test_a_pin_to_a_card_says_which_card_and_what_it_replaced() -> None:
     # alone reads as though the pods had been held to something else; what it
     # replaced is what a withdrawal puts back.
     Scenario() \
-        .given(pin_to_accelerator := _a_card_pinner_returning(
-            a_card_pin_descriptor_for(SOME_APPLICATION, was_pinned_to=None)
-        )) \
+        .given(
+            the_plan := a_plan_of(
+                a_card_pin_descriptor_for(SOME_APPLICATION, was_pinned_to=None)
+            ),
+            pin_to_accelerator := _a_card_pinner_returning(the_plan.descriptor)
+        ) \
         .when(
             lambda: PinToAcceleratorKind().perform(
-                a_pin_to(THE_CARD_IT_WAS_HELD_TO),
+                a_pin_to(THE_CARD_IT_WAS_HELD_TO), the_plan,
                 the_writes(pin_to_accelerator=pin_to_accelerator)
             )
         ) \
@@ -682,12 +910,15 @@ def test_a_pin_over_another_card_names_the_card_it_replaced() -> None:
     # to a card. Named rather than said as "a card", because that card is what a
     # withdrawal holds them to again.
     Scenario() \
-        .given(pin_to_accelerator := _a_card_pinner_returning(
-            a_card_pin_descriptor_for(SOME_APPLICATION, was_pinned_to=A_CARD_SOMEBODY_ELSE_CHOSE)
-        )) \
+        .given(
+            the_plan := a_plan_of(a_card_pin_descriptor_for(
+                SOME_APPLICATION, was_pinned_to=A_CARD_SOMEBODY_ELSE_CHOSE
+            )),
+            pin_to_accelerator := _a_card_pinner_returning(the_plan.descriptor)
+        ) \
         .when(
             lambda: PinToAcceleratorKind().perform(
-                a_pin_to(THE_CARD_IT_WAS_HELD_TO),
+                a_pin_to(THE_CARD_IT_WAS_HELD_TO), the_plan,
                 the_writes(pin_to_accelerator=pin_to_accelerator)
             )
         ) \
@@ -695,20 +926,22 @@ def test_a_pin_over_another_card_names_the_card_it_replaced() -> None:
 
 
 @pytest.mark.unit
-def test_a_pin_to_a_card_leaves_the_way_back_the_platform_answered_with() -> None:
+def test_a_pin_to_a_card_leaves_the_way_back_the_write_answered_with() -> None:
     # The card the pods were held to before, and the suspended sync - what a
-    # withdrawal lets the pods off the card back to.
+    # withdrawal lets the pods off the card back to - as the write answered
+    # them: the plan as it was handed over, undated.
     Scenario() \
         .given(
+            the_plan := a_plan_of(a_card_pin_descriptor_for(
+                SOME_APPLICATION, was_pinned_to=A_CARD_SOMEBODY_ELSE_CHOSE
+            )),
             pin_to_accelerator := _a_card_pinner_returning(
-                what_it_left := a_card_pin_descriptor_for(
-                    SOME_APPLICATION, was_pinned_to=A_CARD_SOMEBODY_ELSE_CHOSE
-                )
+                what_it_left := the_plan.descriptor
             )
         ) \
         .when(
             lambda: PinToAcceleratorKind().perform(
-                a_pin_to(THE_CARD_IT_WAS_HELD_TO),
+                a_pin_to(THE_CARD_IT_WAS_HELD_TO), the_plan,
                 the_writes(pin_to_accelerator=pin_to_accelerator)
             )
         ) \
@@ -726,7 +959,7 @@ def test_a_discard_reports_the_count_the_store_gave_back() -> None:
     # Bracketed, as every figure a detail quotes is, so the assertion cannot be
     # satisfied by a digit that happens to fall in some other part of the line.
     some_keys = (
-        "io-shop:summary:shopper-3",
+        SOME_CACHE_KEY,
         "io-shop:summary:shopper-7",
         "io-shop:summary:shopper-9"
     )
@@ -736,7 +969,7 @@ def test_a_discard_reports_the_count_the_store_gave_back() -> None:
         .given(the_store_found_fewer := a_discard_removing(fewer_than_were_named)) \
         .when(
             lambda: DiscardCacheEntriesKind().perform(
-                a_discard_of(*some_keys), the_writes(discard=the_store_found_fewer)
+                a_discard_of(*some_keys), None, the_writes(discard=the_store_found_fewer)
             )
         ) \
         .then(all_of(
@@ -758,16 +991,18 @@ def test_a_discard_leaves_no_way_back() -> None:
         .given(the_store_found_it := a_discard_removing(dont_care_count)) \
         .when(
             lambda: DiscardCacheEntriesKind().perform(
-                a_discard_of(SOME_CACHE_KEY), the_writes(discard=the_store_found_it)
+                a_discard_of(SOME_CACHE_KEY), None, the_writes(discard=the_store_found_it)
             )
         ) \
         .then(_it_leaves(None))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("kind", "an_action", "write", "spec"), EVERY_KIND_OF_WRITE)
+@pytest.mark.parametrize(("kind", "an_action", "a_plan", "write", "spec"),
+                         EVERY_KIND_OF_PLANNED_WRITE)
 def test_a_refusal_reaches_whoever_took_the_action_as_the_tier_raised_it(
-    kind: ActionKind[Any], an_action: Callable[[], Action], write: str, spec: type
+    kind: UndoableKind[Any], an_action: Callable[[], Action],
+    a_plan: Callable[[], Planned[Any]], write: str, spec: type
 ) -> None:
     # Which refusal it was is what decides the verdict - an exhausted action is
     # passed over, an unreachable platform narrows the walk, anything else
@@ -783,10 +1018,62 @@ def test_a_refusal_reaches_whoever_took_the_action_as_the_tier_raised_it(
             )
         ) \
         .when(attempting(
-            lambda: kind.perform(an_action(), the_writes(**{write: nothing_left_to_do}))
+            lambda: kind.perform(an_action(), a_plan(),
+                                 the_writes(**{write: nothing_left_to_do}))
         )) \
         .then(
             an_error_was_raised(ActionExhausted)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "write", "spec"), EVERY_KIND_OF_UNPLANNED_WRITE)
+def test_a_refusal_of_an_action_with_no_plan_reaches_whoever_took_it_as_the_tier_raised_it(
+    kind: ActionKind[Any, Any], an_action: Callable[[], Action], write: str, spec: type
+) -> None:
+    # The same, for the two kinds that leave nothing to compare and are
+    # performed from no plan at all.
+    dont_care_refusal = "nothing left to do"
+
+    Scenario() \
+        .given(
+            nothing_left_to_do := _a_collaborator_raising(
+                spec, ActionExhausted(an_exhausted_action(dont_care_refusal))
+            )
+        ) \
+        .when(attempting(
+            lambda: kind.perform(an_action(), None, the_writes(**{write: nothing_left_to_do}))
+        )) \
+        .then(
+            an_error_was_raised(ActionExhausted)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "a_plan", "write", "spec"),
+                         EVERY_KIND_OF_PLANNED_WRITE)
+def test_a_change_made_since_the_plan_reaches_whoever_took_the_action_as_the_tier_raised_it(
+    kind: UndoableKind[Any], an_action: Callable[[], Action],
+    a_plan: Callable[[], Planned[Any]], write: str, spec: type
+) -> None:
+    # The refusal that says somebody is acting on the service now. It escalates
+    # where an exhausted action is passed over, and the walk tells the two apart
+    # by the exception's type - so a kind that caught it, or wrapped it, would
+    # have Argus act on the next candidate beside a person already acting.
+    dont_care_finding = "the count is [5], and the plan found [3]"
+
+    Scenario() \
+        .given(
+            somebody_has_been_in_there := _a_collaborator_raising(
+                spec, ChangedSince(a_change_made_since(dont_care_finding))
+            )
+        ) \
+        .when(attempting(
+            lambda: kind.perform(an_action(), a_plan(),
+                                 the_writes(**{write: somebody_has_been_in_there}))
+        )) \
+        .then(
+            an_error_was_raised(ChangedSince)
         )
 
 
@@ -796,7 +1083,7 @@ def test_a_refusal_reaches_whoever_took_the_action_as_the_tier_raised_it(
 @pytest.mark.unit
 @pytest.mark.parametrize(("kind", "an_action", "expected"), EVERY_INTENT)
 def test_each_kind_says_what_it_would_have_done(
-    kind: ActionKind[Any], an_action: Callable[[], Action], expected: str
+    kind: ActionKind[Any, Any], an_action: Callable[[], Action], expected: str
 ) -> None:
     # Separate from what a performed action says, and different in tense and in
     # what it may claim: this is quoted where nothing happened, and a sentence
@@ -896,7 +1183,7 @@ def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
     a_split_fleet_at_full_size = _a_rollout_reporting(
         wanted=SOME_FLEET_SIZE, serving=SOME_FLEET_SIZE, updated=HALF_THE_FLEET
     )
-    every_kind: dict[str, tuple[ActionKind[Any], Action]] = {
+    every_kind: dict[str, tuple[ActionKind[Any, Any], Action]] = {
         "a rollback": (RollBackDeploymentKind(),
                        RollBackDeployment(application=SOME_APPLICATION)),
         "a scale-out": (ScaleOutKind(), ScaleOut(application=SOME_APPLICATION)),
@@ -961,7 +1248,7 @@ def test_an_action_arrives_as_its_own_kind_says() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize(("kind", "an_action"), EVERY_KIND_WITH_SOMETHING_TO_WAIT_FOR)
 def test_the_rollout_asked_about_is_the_one_the_action_changed(
-    kind: ActionKind[Any], an_action: Callable[[], Action]
+    kind: ActionKind[Any, Any], an_action: Callable[[], Action]
 ) -> None:
     # The service is the action's, and it is the kind that knows which field of
     # the action names it. A reader asked about anything else would report some
@@ -983,7 +1270,7 @@ def test_the_rollout_asked_about_is_the_one_the_action_changed(
 @pytest.mark.unit
 @pytest.mark.parametrize(("kind", "an_action"), EVERY_KIND_WITH_SOMETHING_TO_WAIT_FOR)
 def test_a_rollout_is_read_afresh_on_every_look(
-    kind: ActionKind[Any], an_action: Callable[[], Action]
+    kind: ActionKind[Any, Any], an_action: Callable[[], Action]
 ) -> None:
     # The wait asks the same arrival again and again, and only a fresh read can
     # answer differently. An arrival that read the rollout once and kept the
@@ -2118,6 +2405,20 @@ def an_undated_flag_change_for(flag: str) -> FlagUndo:
     return FlagUndo(flag=flag, was_enabled=True, environment="production")
 
 
+def a_planned_flag_change_for(flag: str, was_enabled: bool) -> FlagUndo:
+    """A flag change as a plan holds it: the state found, and no moment of a
+    write - nothing has been written yet - and no environment, which only the
+    provider's answer to a write names."""
+    return FlagUndo(flag=flag, was_enabled=was_enabled)
+
+
+def _as_written(planned: FlagUndo) -> FlagUndo:
+    """What the flag's write answers with: the change it was handed, dated by
+    the moment it landed. The flag's alone - a deployment's write answers with
+    the plan as it was handed over, undated."""
+    return planned.model_copy(update={"written_at": THE_WRITE_LANDED_AT})
+
+
 def a_rollback_descriptor_for(application: str,
                               was_syncing_itself: bool = True) -> DeploymentRollbackUndo:
     return DeploymentRollbackUndo(
@@ -2211,6 +2512,18 @@ def _a_flag_setter_answering(descriptor: UndoDescriptor) -> MagicMock:
     return setter
 
 
+def _a_planned_flag_setter_answering(descriptor: UndoDescriptor) -> MagicMock:
+    """Answers as the real write does - with the descriptor that would put the
+    change back.
+
+    Specced without `instance=True`, for the reason `_a_flag_setter_answering`
+    gives."""
+    setter: MagicMock = create_autospec(PlannedFlagSetter)
+    setter.return_value = descriptor
+
+    return setter
+
+
 def _a_restarter_bringing_up(service: str) -> MagicMock:
     """Answers as the real restarter does - with the process that came up. The
     start time is arbitrary: what makes a restart checkable is that it moved."""
@@ -2277,6 +2590,58 @@ def _the_write_was_asked(write: MagicMock, *expected: object) -> Assertion[Perfo
                 f"Expected the write to be asked once for {list(expected)}, got "
                 f"{write.call_args_list}"
             )
+
+        return True
+
+    return assertion
+
+
+def _the_planner_was_asked(planner: MagicMock, *expected: object) -> Assertion[Planned[Any]]:
+    """`call_args_list` compared directly, for the reason `_the_write_was_asked`
+    gives."""
+    def assertion(dont_care_plan: Planned[Any]) -> bool:
+        if planner.call_args_list != [call(*expected)]:
+            raise AssertionError(
+                f"Expected the plan to be asked for once for {list(expected)}, got "
+                f"{planner.call_args_list}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_the_plan(expected: Planned[Any]) -> Assertion[Planned[Any]]:
+    def assertion(planned: Planned[Any]) -> bool:
+        if planned != expected:
+            raise AssertionError(f"Expected the plan [{expected}], got [{planned}].")
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_written_through(writes: PerformingWrites) -> Assertion[Planned[Any]]:
+    """None of the writes in the bundle asked - every one a spy, so a plan that
+    wrote anything at all, of any kind, is caught here."""
+    def assertion(dont_care_plan: Planned[Any]) -> bool:
+        every_write: dict[str, object] = {
+            "set_state": writes.set_state,
+            "restart": writes.restart,
+            "roll_back": writes.roll_back,
+            "scale_out": writes.scale_out,
+            "pin": writes.pin,
+            "discard": writes.discard,
+            "pin_to_accelerator": writes.pin_to_accelerator
+        }
+        written = {
+            name: cast(MagicMock, write).call_args_list
+            for name, write in every_write.items()
+            if cast(MagicMock, write).called
+        }
+
+        if written:
+            raise AssertionError(f"Expected a plan to write nothing, and it wrote {written}")
 
         return True
 

@@ -14,13 +14,16 @@ incapable of mutation rather than merely disinclined (spec §13). `Unleash` hold
 both and is the write tier's: a read credential inside a write process is
 harmless, and the reverse is the thing the tier split exists to prevent.
 
-Three surfaces, failing differently. Evaluation says which flags are on now, and
-an outage there must never read as "none is". The event log says what changed, in
-which direction and by whom - which current state cannot, since a flag switched
-off into an incident evaluates exactly like one off for a year. And the admin
-toggle changes a flag, and is not done until evaluation agrees: Unleash accepts
-the write before the change reaches evaluation, and a caller trusting the write
-would judge a service nothing had yet been done to.
+Four surfaces, failing differently. Evaluation says which flags are on now, and
+an outage there must never read as "none is". The admin read of one flag says
+what the provider itself holds for it, dated by the provider's own clock - which
+is what a change is planned over, since evaluation is a cache and says nothing of
+when. The event log says what changed, in which direction and by whom - which
+current state cannot, since a flag switched off into an incident evaluates exactly
+like one off for a year. And the admin toggle changes a flag, and is not done
+until evaluation agrees: Unleash accepts the write before the change reaches
+evaluation, and a caller trusting the write would judge a service nothing had yet
+been done to.
 """
 
 from __future__ import annotations
@@ -28,14 +31,14 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Final
 
 import httpx2
 from core import parse_iso, to_iso
 from core.applying import known_not_applied
-from core.models import FlagChange, FlagUndo
+from core.models import FlagChange, FlagState, FlagUndo
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -51,8 +54,15 @@ EVENTS_PATH: Final = "/api/admin/events"
 # How a request carries its credential. Unleash takes the token bare, with no
 # scheme in front of it.
 AUTHORIZATION_HEADER: Final = "Authorization"
-# Where the provider's answer to a write says when it was made.
+# Where the provider's answer says when it was sent - for a write, when the write
+# was made; for the admin read of a flag, when the flag was as it says.
 DATE_HEADER: Final = "Date"
+
+# The admin read of one flag: its `featureSchema`, listing each environment the
+# flag can be used in and whether it is on there.
+FEATURE_ENVIRONMENTS: Final = "environments"
+ENVIRONMENT_NAME: Final = "name"
+ENVIRONMENT_ENABLED: Final = "enabled"
 
 # Evaluation's answer: the toggles that evaluate true, each by name. A flag that
 # is off is absent rather than present and false - but `enabled` is honoured
@@ -188,9 +198,9 @@ class UnleashFrontend:
 class Unleash:
     """Both flag ports and the audit, answered by one Unleash server.
 
-    Holds the admin credential, for the write and the event log, and the
-    evaluation credential, for confirming a write as the service sees it - the
-    evaluation the Target Service reads is answered to that credential.
+    Holds the admin credential, for the write, the admin read and the event log,
+    and the evaluation credential, for confirming a write as the service sees it
+    - the evaluation the Target Service reads is answered to that credential.
     """
 
     def __init__(self,
@@ -205,6 +215,36 @@ class Unleash:
     def enabled(self) -> list[str]:
         """The flags evaluating true now, read as the read tier reads them."""
         return self._frontend.enabled()
+
+    def state_of(self, flag: str, /) -> FlagState:
+        """Whether `flag` is on in the configured environment, as the admin API
+        holds it, dated by the answer's own `Date`.
+
+        Never read from evaluation, which is a cache and says neither what the
+        provider holds nor when. The configured environment alone: the answer
+        lists every environment the flag can be used in, and the one listed first
+        is not the one asked about.
+
+        Any failure to get a dated state - unreachable host, error status (a flag
+        that does not exist among them), unreadable body, a flag not in the
+        configured environment, a missing or unreadable `Date` - becomes
+        `FlagProviderUnavailable`. Not dated by this process instead: the date is
+        what the change is later made over, and a read with no time of the
+        provider's own cannot be compared with its history.
+        """
+        path = self._feature_path(flag)
+
+        try:
+            response = self._admin.get(path)
+            response.raise_for_status()
+            enabled = self._enabled_here_in(response.json())
+            read_at = _the_date_on(response)
+        except Exception as error:
+            raise FlagProviderUnavailable(
+                f"could not read flag [{flag}] at [{self._settings.base_url}{path}]: {error}"
+            ) from error
+
+        return FlagState(enabled=enabled, read_at=read_at)
 
     def set(self, flag: str, enabled: bool, /) -> FlagUndo:
         """Sets `flag` on or off in the configured environment and waits until it is.
@@ -361,12 +401,24 @@ class Unleash:
             left_behind=undo
         )
 
+    def _feature_path(self, flag: str) -> str:
+        return f"/api/admin/projects/{self._settings.project}/features/{flag}"
+
     def _toggle_path(self, flag: str, enabled: bool) -> str:
         return (
-            f"/api/admin/projects/{self._settings.project}"
-            f"/features/{flag}"
+            f"{self._feature_path(flag)}"
             f"/environments/{self._settings.environment}/{_state_name(enabled)}"
         )
+
+    def _enabled_here_in(self, feature: dict[str, Any]) -> bool:
+        """Whether the admin read of a flag says it is on in the configured
+        environment. Raises where the flag is not in it: a flag never read there
+        is not off there."""
+        for environment in feature.get(FEATURE_ENVIRONMENTS, []):
+            if environment.get(ENVIRONMENT_NAME) == self._settings.environment:
+                return bool(environment[ENVIRONMENT_ENABLED])
+
+        raise ValueError(f"the flag is not in environment [{self._settings.environment}]")
 
     def _is_a_toggle_of_this_environment(self, event: dict[str, Any]) -> bool:
         return (
@@ -459,6 +511,26 @@ def _when_the_provider_recorded(flag: str, response: httpx2.Response) -> datetim
     except Exception:
         logger.warning("provider gave no write time", extra={"flag": flag, "date": dated})
         return None
+
+
+def _the_date_on(response: httpx2.Response) -> datetime:
+    """The provider's own time on an answer, raising where it gave none or one
+    that does not read as a moment.
+
+    Raised rather than left absent, unlike a write's: a write's undo has an
+    answer for a moment it does not know, and a plan dated by nothing has
+    nothing to ask the history from. Every format RFC 9110 (5.6.7) has a
+    recipient accept is read, and every HTTP date is GMT - so the asctime one,
+    which names no zone, is UTC rather than this process's zone.
+    """
+    dated = response.headers.get(DATE_HEADER)
+
+    if not dated:
+        raise ValueError("the provider gave no date for the read")
+
+    moment = parsedate_to_datetime(dated)
+
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 def _recorded_order(event: dict[str, Any]) -> int:

@@ -75,7 +75,13 @@ from mitigation.tools import (
     rollout_progress_over,
     rules_read_over,
 )
-from mitigation.trying import ChangeMade, UndoChange, take_action
+from mitigation.trying import (
+    ChangeMade,
+    UndoChange,
+    plan_action,
+    stopped_before_it_was_taken,
+    take_action,
+)
 
 __all__ = [
     "GENERIC_MITIGATIONS",
@@ -115,10 +121,12 @@ __all__ = [
     "is_a_generic_mitigation",
     "is_within_reach",
     "performing_writes_over",
+    "plan_action",
     "recent_metrics_over",
     "rollout_progress_over",
     "rules_read_over",
     "propose_action",
+    "stopped_before_it_was_taken",
     "take_action",
     "why_no_mitigation_answers",
     "why_nothing_was_proposed"

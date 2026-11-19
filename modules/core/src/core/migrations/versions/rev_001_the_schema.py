@@ -112,6 +112,17 @@ CREATE TABLE IF NOT EXISTS action (
     -- accounted for - a restart leaves nothing to restore, and a flag revert
     -- that recorded nothing is a write whose fate is unknown.
     has_a_way_back BOOLEAN NOT NULL,
+    -- The change the claim was taken to make (`UndoDescriptor`'s shape),
+    -- worked out before it: what the write compares the estate with, and what
+    -- a resumed walk asks the estate about. Written with the claim and by
+    -- nothing after, and never into `undo_descriptor` below, which says
+    -- something of Argus's is out there. NULL for a kind that plans nothing.
+    plan JSONB,
+    -- When the platform said what `plan` was worked out from, on the
+    -- platform's own clock - what a resumed walk asks its record whether
+    -- anything landed after. NULL exactly where `plan` is, which the check
+    -- below holds.
+    since TIMESTAMPTZ,
     undo_descriptor JSONB,
     outcome TEXT,
     -- How far the action got (`ActionProgress`): `claimed` from the claim on;
@@ -148,7 +159,11 @@ CREATE TABLE IF NOT EXISTS action (
     -- database's is a clock nothing else in the incident is dated by. Before
     -- the action, not at it - a reader dating the action reads its
     -- announcement, and this only where there is none.
-    taken_at TIMESTAMPTZ NOT NULL
+    taken_at TIMESTAMPTZ NOT NULL,
+    -- A plan and the moment it was read at are one fact in two columns: a
+    -- plan nobody can date cannot be asked whether anything landed after it,
+    -- and a moment with no plan dates nothing.
+    CONSTRAINT action_plan_is_dated CHECK ((plan IS NULL) = (since IS NULL))
 );
 
 -- What makes one action one action. A partial index rather than a table

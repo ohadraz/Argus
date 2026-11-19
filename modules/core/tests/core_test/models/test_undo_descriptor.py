@@ -52,11 +52,15 @@ THE_MOMENT_ARGUS_WROTE = datetime(2026, 9, 20, 12, 15, tzinfo=UTC)
 # The count the deployment was running before Argus made it larger.
 THE_COUNT_IT_WAS_RUNNING = 3
 THE_REVISION_IT_WAS_ON = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
+THE_ENTRY_IT_WAS_ON = 2
 # The revision a rollback returned the deployment to, and the count a scale-out
 # asked for - what a withdrawal compares the platform with to find out whether
 # the change is still Argus's.
 THE_REVISION_IT_ROLLED_BACK_TO = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 THE_COUNT_IT_ASKED_FOR = THE_COUNT_IT_WAS_RUNNING * 2
+# The entry before the one running - the entry the plan chose and the write is
+# addressed to.
+THE_ENTRY_IT_ROLLED_BACK_TO = THE_ENTRY_IT_WAS_ON - 1
 
 
 @pytest.mark.unit
@@ -216,7 +220,7 @@ def test_a_rollback_descriptor_records_both_things_it_changed() -> None:
             lambda: parse_undo_descriptor(a_rollback)
         ) \
         .then(all_of(
-            _it_returns_to(THE_REVISION_IT_WAS_ON, history_id=2),
+            _it_returns_to(THE_REVISION_IT_WAS_ON, history_id=THE_ENTRY_IT_WAS_ON),
             _it_restores_automated_sync_to(True),
             _the_tool_that_undoes_it_is(ROLL_BACK_DEPLOYMENT_TOOL)
         ))
@@ -226,11 +230,14 @@ def test_a_rollback_descriptor_records_both_things_it_changed() -> None:
 def test_a_rollback_descriptor_records_the_revision_it_rolled_back_to() -> None:
     # What a withdrawal asks the platform about: whether the newest entry is
     # still Argus's rollback to this revision, running what it renders.
-    Scenario()         .given(
+    Scenario() \
+        .given(
             a_rollback := _the_wire_shape_of_a_rollback(was_syncing_itself=True)
-        )         .when(
+        ) \
+        .when(
             lambda: parse_undo_descriptor(a_rollback)
-        )         .then(
+        ) \
+        .then(
             _it_rolled_back_to(THE_REVISION_IT_ROLLED_BACK_TO)
         )
 
@@ -245,12 +252,53 @@ def test_a_rollback_recorded_before_it_said_where_it_went_is_still_a_descriptor(
     from_before = _the_wire_shape_of_a_rollback(was_syncing_itself=True)
     del from_before["rolled_back_to_revision"]
 
-    Scenario()         .given(
+    Scenario() \
+        .given(
             from_before
-        )         .when(
+        ) \
+        .when(
             lambda: parse_undo_descriptor(from_before)
-        )         .then(
+        ) \
+        .then(
             _it_rolled_back_to(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_rollback_descriptor_records_the_entry_it_rolls_back_to() -> None:
+    # Chosen when the rollback is planned and never again. The write is handed
+    # the plan and returns to the entry the claim recorded; worked out afresh
+    # from a history that has moved since, it would return somewhere the claim
+    # never said.
+    Scenario() \
+        .given(
+            a_rollback := _the_wire_shape_of_a_rollback(was_syncing_itself=True)
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_rollback)
+        ) \
+        .then(
+            _it_is_addressed_to_entry(THE_ENTRY_IT_ROLLED_BACK_TO)
+        )
+
+
+@pytest.mark.unit
+def test_a_rollback_recorded_before_it_said_which_entry_it_went_to_is_still_a_descriptor() -> None:
+    # A row stored before the plan chose the entry. Refused, every rollback on
+    # file from before would stop reading back - the withdrawal that has to put
+    # it back included. Absent is what it is.
+    from_before = _the_wire_shape_of_a_rollback(was_syncing_itself=True)
+    del from_before["rolled_back_to_history_id"]
+
+    Scenario() \
+        .given(
+            from_before
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(from_before)
+        ) \
+        .then(
+            _it_is_addressed_to_entry(None)
         )
 
 
@@ -348,11 +396,14 @@ def test_a_scale_out_descriptor_records_both_things_it_changed() -> None:
 def test_a_scale_out_descriptor_records_the_count_it_asked_for() -> None:
     # What a withdrawal compares the live count with: still this, and the
     # scale-out is still Argus's to put back.
-    Scenario()         .given(
+    Scenario() \
+        .given(
             a_scale_out := _the_wire_shape_of_a_scale_out(was_syncing_itself=True)
-        )         .when(
+        ) \
+        .when(
             lambda: parse_undo_descriptor(a_scale_out)
-        )         .then(
+        ) \
+        .then(
             _it_asked_for_a_count_of(THE_COUNT_IT_ASKED_FOR)
         )
 
@@ -363,11 +414,14 @@ def test_a_scale_out_recorded_before_it_said_what_it_asked_for_is_still_a_descri
     from_before = _the_wire_shape_of_a_scale_out(was_syncing_itself=True)
     del from_before["replicas_asked_for"]
 
-    Scenario()         .given(
+    Scenario() \
+        .given(
             from_before
-        )         .when(
+        ) \
+        .when(
             lambda: parse_undo_descriptor(from_before)
-        )         .then(
+        ) \
+        .then(
             _it_asked_for_a_count_of(None)
         )
 
@@ -530,9 +584,10 @@ def _the_wire_shape_of_a_rollback(was_syncing_itself: bool) -> dict[str, Any]:
         "kind": A_CONFIG_ROLLBACK,
         "tool": ROLL_BACK_DEPLOYMENT_TOOL,
         "application": SOME_APPLICATION,
-        "was_on_history_id": 2,
+        "was_on_history_id": THE_ENTRY_IT_WAS_ON,
         "was_on_revision": THE_REVISION_IT_WAS_ON,
         "rolled_back_to_revision": THE_REVISION_IT_ROLLED_BACK_TO,
+        "rolled_back_to_history_id": THE_ENTRY_IT_ROLLED_BACK_TO,
         "was_syncing_itself": was_syncing_itself,
         "written_at": to_iso(THE_MOMENT_ARGUS_WROTE)
     }
@@ -613,7 +668,7 @@ def _it_is_the_wire_shape(expected: dict[str, Any]) -> Assertion[dict[str, Any]]
         if serialized != expected:
             raise AssertionError(
                 f"Expected the descriptor to serialize back to {expected}, got "
-                f"{serialized}."
+                f"{serialized}"
             )
 
         return True
@@ -726,6 +781,25 @@ def _it_rolled_back_to(revision: str | None) -> Assertion[UndoDescriptor]:
             raise AssertionError(
                 f"Expected the rollback recorded as going to [{revision}], got "
                 f"[{descriptor.rolled_back_to_revision}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_addressed_to_entry(history_id: int | None) -> Assertion[UndoDescriptor]:
+    def assertion(descriptor: UndoDescriptor) -> bool:
+        if not isinstance(descriptor, DeploymentRollbackUndo):
+            raise AssertionError(
+                f"Expected a descriptor returning a deployment, got a "
+                f"[{descriptor.kind}] one."
+            )
+
+        if descriptor.rolled_back_to_history_id != history_id:
+            raise AssertionError(
+                f"Expected the rollback addressed to entry [{history_id}], got "
+                f"[{descriptor.rolled_back_to_history_id}]."
             )
 
         return True

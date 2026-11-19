@@ -62,6 +62,7 @@ from mitigation import (
     flag_changes_over,
     is_a_generic_mitigation,
     performing_writes_over,
+    plan_action,
     recent_metrics_over,
     rollout_progress_over,
     rules_read_over,
@@ -87,6 +88,7 @@ from orchestrator.walk.ports import (
     FetchFlagChanges,
     Investigate,
     LeadsOf,
+    PlanAction,
     ProposeFix,
     RecallSimilar,
     RecordAction,
@@ -132,6 +134,9 @@ class Collaborators:
     # restarts a deployment will tolerate is a deployment's judgement.
     attempts_per_subject: int
     take: TakeAction
+    # The change an action will make, worked out by the write tier before the
+    # action is claimed, so the claim carries what the write compares with.
+    plan_action: PlanAction
     record_action: RecordAction
     complete_action: CompleteAction
     already_taken: ActionAlreadyTaken
@@ -289,6 +294,10 @@ def against(connections: Connections,
     )
     records = Records(connections, events_into_connection)
     recorder = calls_into(connections)
+    # Every write that performs a mitigation, and the plans they are written
+    # from, over the one connection to the write tier - bound once, because the
+    # plan and the write it is handed back to are one collaboration.
+    writes = performing_writes_over(write)
     # Built once rather than per postmortem: which provider answers which
     # question is a fact about the deployment, and the only thing that differs
     # between two incidents is which incident is being written up.
@@ -370,7 +379,7 @@ def against(connections: Connections,
             # one connection they all use. Separately was a value taken apart for
             # the journey and put back together by the callee, and it grew by a
             # parameter every time Argus learned a new thing to do.
-            writes=performing_writes_over(write),
+            writes=writes,
             fetch_metrics=recent_metrics_over(read),
             # Where the alert rule that paged stands, which is what an action on
             # a series alert is judged by. Over the read tier, since it is a read.
@@ -380,6 +389,10 @@ def against(connections: Connections,
             # of it is how one came to be missing a collaborator the other had.
             undo=an_undo_over(write)
         ),
+        # Over the same writes the action is then taken through, because a plan
+        # is asked of the tier that writes from it: it is what that write
+        # compares the estate with.
+        plan_action=partial(plan_action, writes=writes),
         record_action=records.claim_action,
         complete_action=records.complete_action,
         already_taken=records.claimed_action,

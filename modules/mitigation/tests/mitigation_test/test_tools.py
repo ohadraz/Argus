@@ -16,18 +16,21 @@ from unittest.mock import MagicMock, Mock, create_autospec
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 from core import to_iso
-from core.mcp_transport import McpClient
+from core.mcp_transport import ActionExhausted, McpClient, an_exhausted_action
 from core.models import (
     AcceleratorPinUndo,
     ChangeEvent,
     DeploymentRollbackUndo,
     FlagChange,
     FlagHistory,
+    FlagUndo,
+    Planned,
 )
 from mitigation.tools import (
     DeploymentsBetween,
     FlagChangesSince,
     MitigationSettings,
+    PerformingWrites,
     accelerator_pin_restorer_over,
     argus_changed_flag_since,
     deployment_restorer_over,
@@ -53,6 +56,9 @@ SOME_FLAG = "kukibuki"
 SOME_ARGUS_USER = "Shuki Tuki"
 THE_MOMENT_IT_WAS_CLAIMED = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
 SOME_MOMENT = to_iso(THE_MOMENT_IT_WAS_CLAIMED)
+# When the write tier read the state a plan was worked out from: before the
+# claim, which is the whole of what this moment says.
+SOME_MOMENT_THE_PLAN_WAS_READ = THE_MOMENT_IT_WAS_CLAIMED - timedelta(seconds=2)
 
 ROLLOUT_PROGRESS_TOOL = "get_rollout_progress"
 
@@ -66,6 +72,11 @@ ROLL_BACK_TOOL = "roll_back_deployment"
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
 PIN_TO_ACCELERATOR_TOOL = "pin_to_accelerator"
 RESTORE_ACCELERATOR_PIN_TOOL = "restore_accelerator_pin"
+PLAN_FLAG_TOOL = "plan_flag"
+PLAN_ROLLBACK_TOOL = "plan_rollback"
+PLAN_SCALE_OUT_TOOL = "plan_scale_out"
+PLAN_AUTOSCALER_PIN_TOOL = "plan_autoscaler_pin"
+PLAN_ACCELERATOR_PIN_TOOL = "plan_accelerator_pin"
 
 CHANGE_EVENTS_TOOL = "get_change_events"
 
@@ -76,6 +87,7 @@ A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
     was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
     was_syncing_itself=True
 )
+A_ROLLBACK_PLAN = Planned(descriptor=A_ROLLBACK_TO_PUT_BACK, since=SOME_MOMENT_THE_PLAN_WAS_READ)
 
 SOME_CARD = "Tesla-V100-SXM2-16GB"
 A_PIN_TO_PUT_BACK = AcceleratorPinUndo(
@@ -84,6 +96,13 @@ A_PIN_TO_PUT_BACK = AcceleratorPinUndo(
     pinned_to=SOME_CARD,
     was_syncing_itself=True
 )
+A_PIN_PLAN = Planned(descriptor=A_PIN_TO_PUT_BACK, since=SOME_MOMENT_THE_PLAN_WAS_READ)
+
+A_FLAG_CHANGE = FlagUndo(flag=SOME_FLAG, was_enabled=False)
+# The state a put-back asks a flag back into, and finds it already in: Argus's
+# own put-back, landed, whose answer was lost.
+THE_STATE_IT_IS_ALREADY_BACK_IN = False
+A_FLAG_PLAN = Planned(descriptor=A_FLAG_CHANGE, since=SOME_MOMENT_THE_PLAN_WAS_READ)
 
 
 class _AboutAFlag(Protocol):
@@ -495,7 +514,8 @@ def test_the_one_write_argus_makes_goes_over_the_write_tier() -> None:
     # The tier split is enforced by absence: no read server has this tool at
     # all (spec §12.1, §13). A setter bound to the read client would fail on the
     # one call Argus makes that changes production - after the walk had already
-    # decided to make it.
+    # decided to make it. Written from the plan the claim carries, and nothing
+    # planned again: the plan was asked for before the claim.
     Scenario() \
         .given(
             read := _a_session_that_remembers_what_it_was_asked(),
@@ -503,11 +523,124 @@ def test_the_one_write_argus_makes_goes_over_the_write_tier() -> None:
         ) \
         .when(
             _asking(read, write,
-                    lambda: flag_setter_over(write)(SOME_FLAG, True))
+                    lambda: performing_writes_over(write).set_state(A_FLAG_PLAN, True))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(SET_FLAG_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_putting_a_flag_back_plans_it_and_writes_it_over_the_write_tier() -> None:
+    # A put-back has no claim to have carried a plan, and the tier writes a flag
+    # only from one - so the plan is read immediately before the write it is
+    # for, both over the tier that holds the admin credential the plan's read
+    # needs. The plan first: a write asked first would have nothing to compare.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write,
+                    lambda: putting_back_over(write).set_state(SOME_FLAG, False))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(PLAN_FLAG_TOOL, SET_FLAG_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_the_flag_setter_on_its_own_plans_and_writes_over_the_write_tier() -> None:
+    # The binding `putting_back_over` is built from, asked directly, so a
+    # setter bound to the read client fails here rather than at the moment a
+    # refuted flag is being put back.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: flag_setter_over(write)(SOME_FLAG, True))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(PLAN_FLAG_TOOL, SET_FLAG_TOOL)
+        ))
+
+
+@pytest.mark.integration
+def test_a_flag_the_plan_finds_already_back_is_not_written_again() -> None:
+    # A put-back whose answer was lost, asked again. The undo has just found
+    # nobody but Argus has changed the flag since Argus set it, so a flag the
+    # plan finds already in the state asked for is Argus's own put-back having
+    # landed - and writing it a second time is a write nothing asked for.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_refusing_the_flag_as_already_as_asked()
+        ) \
+        .when(
+            _asking(read, write,
+                    lambda: flag_setter_over(write)(SOME_FLAG, THE_STATE_IT_IS_ALREADY_BACK_IN))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(PLAN_FLAG_TOOL)
+        ))
+
+
+@pytest.mark.unit
+def test_a_flag_the_plan_finds_already_back_is_answered_as_in_that_state() -> None:
+    # Answered as put there rather than refused as spent: the put-back reads a
+    # refusal as a flag it could not put back, and reports a change that is
+    # back where Argus found it as one nobody can account for.
+    Scenario() \
+        .given(
+            write := _a_session_refusing_the_flag_as_already_as_asked()
+        ) \
+        .when(
+            lambda: flag_setter_over(write)(SOME_FLAG, THE_STATE_IT_IS_ALREADY_BACK_IN)
+        ) \
+        .then(
+            the_answer_was(FlagUndo(flag=SOME_FLAG, was_enabled=THE_STATE_IT_IS_ALREADY_BACK_IN))
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("plan", "tool"), [
+    pytest.param(lambda writes: writes.plan_flag(SOME_FLAG, True), PLAN_FLAG_TOOL, id="flag"),
+    pytest.param(lambda writes: writes.plan_rollback(SOME_APPLICATION), PLAN_ROLLBACK_TOOL,
+                 id="rollback"),
+    pytest.param(lambda writes: writes.plan_scale_out(SOME_APPLICATION), PLAN_SCALE_OUT_TOOL,
+                 id="scale-out"),
+    pytest.param(lambda writes: writes.plan_autoscaler_pin(SOME_APPLICATION),
+                 PLAN_AUTOSCALER_PIN_TOOL, id="autoscaler-pin"),
+    pytest.param(lambda writes: writes.plan_accelerator_pin(SOME_APPLICATION, SOME_CARD),
+                 PLAN_ACCELERATOR_PIN_TOOL, id="card-pin")
+])
+def test_each_plan_is_asked_of_the_write_tier(
+    plan: Callable[[PerformingWrites], object], tool: str
+) -> None:
+    # A plan is a read, and still the write tier's: it is what that tier's
+    # write compares the estate with, read through the same port the compare
+    # reads through - and a flag's plan needs the admin credential only that
+    # tier holds. Asked of the bundle a walk performs through, so a planner
+    # bound to the read client, or left out of the bundle, fails here rather
+    # than at the moment a walk is about to claim an action.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: plan(performing_writes_over(write)))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(tool)
         ))
 
 
@@ -603,7 +736,7 @@ def test_returning_a_deployment_to_an_earlier_revision_goes_over_the_write_tier(
         ) \
         .when(
             _asking(read, write,
-                    lambda: deployment_roller_over(write)(SOME_APPLICATION))
+                    lambda: deployment_roller_over(write)(A_ROLLBACK_PLAN))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),
@@ -644,7 +777,7 @@ def test_holding_a_deployment_to_a_card_goes_over_the_write_tier() -> None:
         ) \
         .when(
             _asking(read, write, lambda: performing_writes_over(write).pin_to_accelerator(
-                SOME_APPLICATION, SOME_CARD
+                A_PIN_PLAN
             ))
         ) \
         .then(all_of(
@@ -785,6 +918,18 @@ def _the_write_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
         return True
 
     return assertion
+
+
+def _a_session_refusing_the_flag_as_already_as_asked() -> Mock:
+    """The write tier refusing every question as an action already spent - the
+    plan of a flag already in the state asked for, in the tier's own words and
+    marked the way the tier marks it."""
+    client: Mock = create_autospec(McpClient, instance=True)
+    client.call.side_effect = ActionExhausted(
+        an_exhausted_action(f"flag [{SOME_FLAG}] is already OFF")
+    )
+
+    return client
 
 
 def _a_session_that_fails() -> Mock:

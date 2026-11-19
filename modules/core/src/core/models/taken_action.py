@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from core.ids import UuidStr
 from core.models.action import UnreadVerdict, Verdict
+from core.models.planned import Planned
 from core.models.undo_descriptor import UndoDescriptor
 from core.models.undone import Undone
 
@@ -65,6 +67,46 @@ class TakenAction(BaseModel):
     # undo. The cleanup puts back `None` and not established - a change that
     # may still be out there - passes over the rest, and keeps here what it did.
     undone: Undone | None = None
+    # The change the claim was taken to make, worked out before it, in the shape
+    # that puts it back - what the write compares the estate with, and what a
+    # resumed walk asks the estate about - and when the platform said what it
+    # was worked out from, by its own clock. One value, so the change and its
+    # moment are had together or not at all. Written with the claim and never
+    # after: it is a plan, never a change made, which is `undo_descriptor`'s.
+    # `None` for a kind that plans nothing - a restart, a discard.
+    planned: Planned[UndoDescriptor] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _the_plan_this_row_records(cls, row: Any) -> Any:
+        """The row's `plan` and `since` columns as the one value they are.
+
+        The row keeps them in two columns, because one is the descriptor's JSON
+        and the other a moment the database can compare; the model keeps them
+        as one, because neither means anything without the other. Folded here,
+        at the edge `class_row(TakenAction)` builds through, for the reason the
+        outcome is converted here: every reader gets the same answer.
+
+        One without the other is refused rather than read as no plan: the
+        schema refuses to store it, so a row carrying it is not a row this
+        table wrote.
+        """
+        if not isinstance(row, dict) or ("plan" not in row and "since" not in row):
+            return row
+
+        columns = dict(row)
+        plan = columns.pop("plan", None)
+        since = columns.pop("since", None)
+
+        if (plan is None) != (since is None):
+            raise ValueError(
+                f"a plan and the moment it was read at come together, and this row "
+                f"carries the plan [{plan}] read at [{since}]"
+            )
+
+        columns["planned"] = None if plan is None else {"descriptor": plan, "since": since}
+
+        return columns
 
     @field_validator("outcome", mode="before")
     @classmethod

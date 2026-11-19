@@ -40,11 +40,26 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from core.mcp_transport import an_exhausted_action
-from core.models import AcceleratorPinRestored, AcceleratorPinUndo
-from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites, Mark
+from core.mcp_transport import (
+    a_change_made_since,
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
+)
+from core.models import AcceleratorPinRestored, AcceleratorPinUndo, Planned
+from deployment_platform import (
+    DeploymentPlatformError,
+    DeploymentPlatformWrites,
+    Mark,
+    MarkedObject,
+)
 
 from write_mcp_server.refusing import a_platform_refusal
+from write_mcp_server.sync_switch import (
+    Switch,
+    suspend_where_it_is_to_be,
+    the_switch,
+    this_claim_s_suspension_stands,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,21 +97,17 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
     ))
 
 
-def pin_to_accelerator(application: str,
-                       accelerator: str,
-                       platform: DeploymentPlatformWrites,
-                       mark: Mark) -> AcceleratorPinUndo:
-    """Holds `application`'s pods to `accelerator`, and reports what that cost -
-    every write carrying `mark`.
+def plan_accelerator_pin(application: str,
+                         accelerator: str,
+                         platform: DeploymentPlatformWrites) -> Planned[AcceleratorPinUndo]:
+    """The pin of `application`'s pods to `accelerator` to make, worked out and
+    dated - and nothing changed.
 
-    Raises rather than half-succeeding. A deployment already held to the card
-    raises before anything is touched; a platform that refuses the pin raises
-    after sync was suspended, and that is deliberate for the reason the other
-    actions under a GitOps controller give - the suspension is recorded nowhere
-    yet, so leaving it in place and saying so is honest where quietly restoring
-    it would hide a state somebody has to know about.
+    Dated by the platform's clock, read before anything it dates. A deployment
+    already held to the card raises here, before a claim is written for it.
     """
     try:
+        since = platform.now(application)
         was_pinned_to = platform.accelerator_pin_of(application)
     except DeploymentPlatformError as error:
         raise _refusing(
@@ -120,45 +131,112 @@ def pin_to_accelerator(application: str,
             asked_to_change=False
         ) from error
 
-    # Apart from the read before it, because this is the first change asked
-    # for: a failure here may have suspended the sync, where one there cannot.
-    if was_syncing_itself:
-        try:
-            platform.suspend_sync(application, mark)
-        except DeploymentPlatformError as error:
-            raise _refusing(
-                f"could not suspend the sync of [{application}]: {error}", error,
-                asked_to_change=True
-            ) from error
-
-    # Built before the action rather than after it, because it describes what
-    # has already been changed: where sync was suspended, this is what a caller
-    # has to put back whether the pin then lands or the platform vanishes.
-    undo = AcceleratorPinUndo(
-        application=application,
-        was_pinned_to=was_pinned_to,
-        pinned_to=accelerator,
-        was_syncing_itself=was_syncing_itself
+    return Planned(
+        descriptor=AcceleratorPinUndo(
+            application=application,
+            was_pinned_to=was_pinned_to,
+            pinned_to=accelerator,
+            was_syncing_itself=was_syncing_itself
+        ),
+        since=since
     )
+
+
+def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
+                       platform: DeploymentPlatformWrites,
+                       mark: Mark) -> AcceleratorPinUndo:
+    """Makes the pin `planned` describes, where the platform still stands as the
+    plan found it, and reports what that cost - every write carrying `mark`.
+
+    Every comparison is made before anything is written. Pods still held where
+    the plan found them, under no mark of this claim's, are pinned; pods on the
+    plan's card under this claim's mark are this pin already made, answered with
+    the plan and nothing written twice; anything else - a selector somebody took
+    off as much as one somebody moved - is somebody's change since, refused with
+    nothing written, carrying the plan where this claim's marks show part of it
+    landed. The sync switch is held to the same rule (`sync_switch`).
+
+    A plan naming the card it found the pods held to is refused plainly, nothing
+    written: the plan is the caller's data, and the rule is this tier's.
+
+    Raises rather than half-succeeding. A platform that refuses the pin after
+    sync was suspended leaves the suspension in place and says so - quietly
+    restoring it would hide a state somebody has to know about.
+    """
+    descriptor = planned.descriptor
+    application = descriptor.application
+    accelerator = descriptor.pinned_to
+
+    # The plan is held to this tier's own rule from its own "was": a pin moves
+    # the pods somewhere they were not held.
+    if accelerator == descriptor.was_pinned_to:
+        raise AcceleratorPinRefused(a_refusal_saying_what_it_left(
+            f"the pin of [{application}] asks to hold its pods to [{accelerator}], "
+            f"where it found them held already"
+        ))
+
+    try:
+        held_to = platform.accelerator_pin_of(application)
+        syncing_now = platform.is_syncing_itself(application)
+        switch_marked_by = platform.mark_on(application, MarkedObject.APPLICATION)
+        pin_marked_by = platform.mark_on(application, MarkedObject.DEPLOYMENT)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not read which card [{application}] is held to now: {error}", error,
+            asked_to_change=False
+        ) from error
+
+    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
+    pin_landed = pin_marked_by == mark.action_id
+    made = pin_landed and held_to == accelerator
+    still_as_found = not pin_landed and held_to == descriptor.was_pinned_to
+
+    if switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
+            made and switch is Switch.TO_SUSPEND):
+        landed = pin_landed or this_claim_s_suspension_stands(
+            descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
+        )
+        raise AcceleratorPinRefused(a_change_made_since(
+            f"[{application}]'s pods are held to {_the_card(held_to)} and the "
+            f"application {'is' if syncing_now else 'is not'} syncing itself, which "
+            f"is not where the pin from {_the_card(descriptor.was_pinned_to)} to "
+            f"[{accelerator}] found it or would leave it",
+            descriptor if landed else None,
+            performed=pin_landed
+        ))
+
+    if made:
+        logger.info("deployment already pinned to accelerator", extra={
+            "application": application, "accelerator": accelerator
+        })
+        return descriptor
+
+    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
 
     try:
         platform.pin_to_accelerator(application, accelerator, mark)
     except DeploymentPlatformError as error:
         logger.warning("accelerator pin refused", extra={
-            "application": application, "sync_suspended": was_syncing_itself
+            "application": application, "sync_suspended": descriptor.was_syncing_itself
         })
         raise _refusing(
             f"[{application}] could not be held to [{accelerator}]: {error}",
             error,
             asked_to_change=True,
-            left_behind=undo if was_syncing_itself else None
+            left_behind=descriptor if descriptor.was_syncing_itself else None
         ) from error
 
     logger.info("deployment pinned to accelerator", extra={
         "application": application, "accelerator": accelerator
     })
 
-    return undo
+    return descriptor
+
+
+def _refusing_a_change(said: str, error: DeploymentPlatformError) -> AcceleratorPinRefused:
+    """This module's refusal of a change it asked for, with nothing before it
+    left behind."""
+    return _refusing(said, error, asked_to_change=True)
 
 
 def restore_accelerator_pin(descriptor: AcceleratorPinUndo,

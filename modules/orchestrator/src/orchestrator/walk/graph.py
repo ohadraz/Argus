@@ -169,6 +169,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         deciding_status(
             partial(mitigation_node,
                     take=collaborators.take,
+                    plan_action=collaborators.plan_action,
                     record_action=collaborators.record_action,
                     complete_action=collaborators.complete_action,
                     already_taken=collaborators.already_taken,

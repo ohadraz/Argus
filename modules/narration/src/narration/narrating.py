@@ -667,7 +667,8 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                        if event.not_performed_because else "")
                 text = (f"{_what_was_reached_for_and_not_done(event)}"
                         f"{_for_its_candidate(event.candidate_number)} - {emphasis}{why}")
-            # Done, and never read: every look at the service went unanswered.
+            # Done, and never read: every look at the service went unanswered,
+            # or somebody overtook the change before it was watched.
             elif not event.judged:
                 text = f"Could not judge the action - {emphasis}"
             # Refuted, and the change put back or left as found: in the undo's

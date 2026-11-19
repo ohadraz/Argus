@@ -22,13 +22,31 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from core.ids import new_id
 from core.models.action import UnreadVerdict, Verdict
+from core.models.planned import Planned
 from core.models.taken_action import TakenAction
+from core.models.undo_descriptor import (
+    ROLL_BACK_DEPLOYMENT_TOOL,
+    DeploymentRollbackUndo,
+    UndoDescriptor,
+)
+from core.timestamps import to_iso
+from pydantic import ValidationError
 
 SOME_SPELLING_NO_VERDICT_HAS = "dissolved"
 THE_MOMENT_IT_WAS_CLAIMED = datetime(2026, 9, 19, 11, 4, tzinfo=UTC)
+# The platform's clock, read before the state the plan was worked out from -
+# which is before the claim.
+SOME_MOMENT_THE_STATE_WAS_READ = datetime(2026, 9, 19, 11, 3, 52, tzinfo=UTC)
+SOME_APPLICATION = "io-shop"
+SOME_ENTRY_IT_WAS_ON = 2
+SOME_PLAN_AS_THE_COLUMN_HOLDS_IT = {
+    "kind": "feature-flag",
+    "flag": "monthly-spend-feature",
+    "was_enabled": True
+}
 
 
 @pytest.mark.unit
@@ -82,6 +100,92 @@ def test_a_row_claimed_and_never_completed_has_no_outcome_at_all() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_row_claimed_with_a_plan_reads_back_the_change_it_planned() -> None:
+    # The column is JSON, and a resumed walk compares the estate with the
+    # plan's fields - so the plan stops being JSON here, as the kind its tag
+    # says, for the reason the outcome stops being text here. And the two
+    # columns become the one value they are: a plan and the moment its state
+    # was read, neither of which means anything without the other.
+    some_plan = DeploymentRollbackUndo(
+        application=SOME_APPLICATION,
+        was_on_history_id=SOME_ENTRY_IT_WAS_ON,
+        was_on_revision="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
+        rolled_back_to_revision="544cef36a8eaf45c5b030c3d5c21473d8176cef3",
+        rolled_back_to_history_id=SOME_ENTRY_IT_WAS_ON - 1,
+        was_syncing_itself=True
+    )
+    a_row = {
+        **_a_row_whose_outcome_is(None),
+        "plan": {
+            "kind": "deployment-revision",
+            "tool": ROLL_BACK_DEPLOYMENT_TOOL,
+            "application": some_plan.application,
+            "was_on_history_id": some_plan.was_on_history_id,
+            "was_on_revision": some_plan.was_on_revision,
+            "rolled_back_to_revision": some_plan.rolled_back_to_revision,
+            "rolled_back_to_history_id": some_plan.rolled_back_to_history_id,
+            "was_syncing_itself": some_plan.was_syncing_itself,
+            "written_at": None
+        },
+        "since": to_iso(SOME_MOMENT_THE_STATE_WAS_READ)
+    }
+
+    Scenario() \
+        .given(
+            a_row
+        ) \
+        .when(
+            lambda: TakenAction(**a_row)
+        ) \
+        .then(
+            _it_planned(Planned(descriptor=some_plan, since=SOME_MOMENT_THE_STATE_WAS_READ))
+        )
+
+
+@pytest.mark.unit
+def test_a_row_claimed_with_no_plan_reads_back_with_none() -> None:
+    # A restart and a discard plan nothing: there is nothing to compare the
+    # estate with, and no moment the state was read at.
+    a_row = {**_a_row_whose_outcome_is(None), "plan": None, "since": None}
+
+    Scenario() \
+        .given(
+            a_row
+        ) \
+        .when(
+            lambda: TakenAction(**a_row)
+        ) \
+        .then(
+            _it_planned(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("plan", "since"), [
+    pytest.param(SOME_PLAN_AS_THE_COLUMN_HOLDS_IT, None, id="a-plan-nobody-dated"),
+    pytest.param(None, to_iso(SOME_MOMENT_THE_STATE_WAS_READ), id="a-moment-dating-nothing")
+])
+def test_a_row_with_half_a_plan_is_refused(plan: dict[str, Any] | None,
+                                           since: str | None) -> None:
+    # The schema stores both or neither, so a row with one is not a row this
+    # table wrote. Read as no plan, a resumed walk would act again on a claim
+    # whose change it was told nothing about; read as a plan, it would ask
+    # whether anything landed after a moment nobody recorded.
+    a_row = {**_a_row_whose_outcome_is(None), "plan": plan, "since": since}
+
+    Scenario() \
+        .given(
+            a_row
+        ) \
+        .when(attempting(
+            lambda: TakenAction(**a_row)
+        )) \
+        .then(
+            an_error_was_raised(ValidationError)
+        )
+
+
 def _a_row_whose_outcome_is(outcome: str | None) -> dict[str, Any]:
     """One claimed action as the cursor hands it over, outcome aside."""
     return {
@@ -106,6 +210,19 @@ def _the_outcome_is(expected: Verdict | UnreadVerdict | None) -> Assertion[Taken
             raise AssertionError(
                 f"Expected the outcome to read back as [{expected!r}], got "
                 f"[{action.outcome!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_planned(expected: Planned[UndoDescriptor] | None) -> Assertion[TakenAction]:
+    def assertion(action: TakenAction) -> bool:
+        if action.planned != expected:
+            raise AssertionError(
+                f"Expected the plan to read back as [{expected!r}], got "
+                f"[{action.planned!r}]."
             )
 
         return True

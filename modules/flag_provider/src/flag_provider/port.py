@@ -1,9 +1,10 @@
 """What Argus asks of whatever serves and records its feature flags.
 
 Split where the MCP servers are split (spec §12.1): one port that can only read
-which flags are on, and one that can also change a flag and read the provider's
-history of changes - the history because the provider serves it to the
-credential that can change a flag and to no other. The read server is handed
+which flags are on, and one that can also change a flag, read what the provider
+holds for one, and read the provider's history of changes - the last two because
+the provider serves them to the credential that can change a flag and to no
+other. The read server is handed
 the first, so a change typed there does not type-check, and the line the two
 servers draw holds in the code they run as well as in the processes they run in.
 
@@ -17,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from core.models import FlagChange, FlagUndo
+from core.models import FlagChange, FlagState, FlagUndo
 
 
 class FlagProviderReads(Protocol):
@@ -62,6 +63,21 @@ class FlagAudit(Protocol):
 
 class FlagProviderWrites(FlagProviderReads, FlagAudit, Protocol):
     """What changing a flag can ask, beside everything reading and the audit can."""
+
+    def state_of(self, flag: str, /) -> FlagState:
+        """Whether `flag` is on, as the provider itself holds it, dated by the
+        provider's own clock.
+
+        What a change is planned over, and not the evaluation: evaluation is a
+        cache, and says neither what the provider holds nor when. Dated by the
+        provider because the history the change is later made over is stamped by
+        it, and two clocks compared hide whatever they disagree by.
+
+        A flag that cannot be read, or a read the provider did not date, raises
+        `FlagProviderUnavailable`: a flag read as off because nothing was read is
+        a change planned from a state the flag was never in.
+        """
+        ...
 
     def set(self, flag: str, enabled: bool, /) -> FlagUndo:
         """Sets `flag` on or off, returning only once evaluation agrees.

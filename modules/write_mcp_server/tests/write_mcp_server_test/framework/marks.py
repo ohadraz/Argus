@@ -5,6 +5,10 @@ hands its action a mark and asserts that every write the action asked of the
 port carried it. How the mark lands on the written object is the adapter's, and
 pinned in its own suite. And by the two suites that say which changes are
 marked - the server's own, and the assembled one's.
+
+The same four read a mark back: a write compares the claim an object is marked
+with against its own before it writes, so each suite names this claim, another
+one, and the objects a mark is read off.
 """
 
 from __future__ import annotations
@@ -15,10 +19,18 @@ from typing import Any
 from argus_testkit import Assertion
 from deployment_platform import Mark
 
+# The claim a write in these suites is made for, as a marked object names it -
+# the action row `a_mark()` marks every write with. Which object a mark is read
+# off is the port's own `MarkedObject`.
+THIS_CLAIM = "6f1c1d2e-0000-4000-8000-0000000000a1"
+# Another action's claim - not this one - whose mark an object may carry from an
+# earlier change of Argus's.
+ANOTHER_CLAIM = "6f1c1d2e-0000-4000-8000-0000000000b2"
+
 
 def a_mark() -> Mark:
-    """A mark for one action row, written at one moment."""
-    return Mark(action_id="6f1c1d2e-0000-4000-8000-0000000000a1",
+    """A mark for one action row - `THIS_CLAIM` - written at one moment."""
+    return Mark(action_id=THIS_CLAIM,
                 written_at=datetime(2026, 11, 18, 13, 5, tzinfo=UTC))
 
 

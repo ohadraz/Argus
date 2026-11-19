@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from functools import partial
-from typing import NamedTuple, Protocol, assert_never
+from typing import Any, NamedTuple, Protocol, assert_never
 
 from core import sleep_on_the_clock, to_iso_minute, utc_now, was_lost
 from core.anomaly import (
@@ -32,10 +32,13 @@ from core.events import (
     publish,
 )
 from core.mcp_transport import (
+    CHANGED_SINCE_MARKER,
     EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_KNOWN_MARKER,
+    PERFORMED_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
+    ChangedSince,
     McpToolError,
     PlatformUnreachable,
     without_the_payload,
@@ -44,6 +47,7 @@ from core.models import (
     ActionType,
     AlertRuleStanding,
     MetricBucket,
+    Planned,
     UndoDescriptor,
     changes_something_persistent,
     reports_what_it_changed,
@@ -56,7 +60,14 @@ from mitigation.actions import (
     Undone,
     Verdict,
 )
-from mitigation.kinds import KindOf, Performed, UndoingKindOf, kind_of, kind_undoing
+from mitigation.kinds import (
+    KindOf,
+    Performed,
+    UndoingKindOf,
+    kind_of,
+    kind_planning,
+    kind_undoing,
+)
 from mitigation.tools import (
     Arrival,
     ArrivalFor,
@@ -70,7 +81,8 @@ from mitigation.tools import (
     nothing_to_wait_for,
 )
 
-__all__ = ["ChangeMade", "UndoChange", "take_action"]
+__all__ = ["ChangeMade", "UndoChange", "plan_action", "stopped_before_it_was_taken",
+           "take_action"]
 
 # Told that the action's change was made, with what the tier said would put it
 # back - `None` for a change that leaves nothing to restore. Called once, the
@@ -132,6 +144,7 @@ def take_action(action: Action,
                 incident_began: str | None = None,
                 rule: str | None = None,
                 read_rule: RuleReader | None = None,
+                plan: Planned[Any] | None,
                 writes: PerformingWrites,
                 undo: UndoChange,
                 change_made: ChangeMade = _nobody_told,
@@ -213,6 +226,18 @@ def take_action(action: Action,
     caller's - this does not guard it, since whether a failure to record may
     be survived is the recorder's judgement and not the Mitigator's.
 
+    `plan` is the change `plan_action` worked out and the claim carries, which
+    the write compares the estate with before it changes anything - `None` for
+    an action with nothing to plan, a restart or a discard. Required, `None`
+    included, because an action taken on a plan nobody chose would be compared
+    against a state nothing wrote down. A write that finds somebody else has
+    changed the service since the plan escalates without a verdict: somebody is
+    acting on it now, and Argus hands it to a person rather than act beside
+    them. Where this claim's own change had landed before they did - an earlier
+    asking whose answer was lost - it was performed, and is told as made, but
+    neither watched nor put back: what the service does now is no longer
+    Argus's change alone to answer for.
+
     `kinds` says which kind an action is, and so whose write performs it and
     whose words describe it; `undoing_kinds` says the same of a change that was
     put back, for the words that end the sentence. Both default to the one
@@ -222,121 +247,26 @@ def take_action(action: Action,
     if not still_wanted():
         logger.info("action not taken, incident no longer wanted")
 
-        return Outcome(
-            verdict=Verdict.STOPPED,
-            left_behind_known=True,
-            detail="a person ended the incident before the action was taken",
-            undo_descriptor=None,
-            judged=False,
-            performed=False
-        )
+        return stopped_before_it_was_taken()
+
+    kind = kinds(action)
 
     try:
-        performed = kinds(action).perform(action, writes)
-    except ActionExhausted as exhausted:
-        # Caught before the handler below, and the order is the whole of it: an
-        # exhausted action is an `McpToolError` like any other, so a broader
-        # `except` reached first would swallow it into an escalation and this
-        # branch would never run.
+        performed = kind.perform(action, plan, writes)
+    except ChangedSince as changed:
+        # Before the handler below, for the reason the exhausted action is
+        # caught first there: this is an `McpToolError` too.
         #
-        # Not `ESCALATED`, because nothing is wrong: the tier was reached, it
-        # answered, and its answer is that this action has nowhere left to go - a
-        # deployment already at the most replicas Argus may ask for, an
-        # autoscaler whose floor already meets its ceiling. Escalating here ends
-        # the walk over a bound, and an incident whose next candidate is a flag
-        # Argus could revert in seconds reaches a human for no reason.
-        #
-        # Not `REFUTED` either, which is the trap worth naming: that says the
-        # explanation was tested and did not hold, and nothing was tested. A
-        # record carrying it would have the postmortem report that the evidence
-        # ruled a cause out when nothing ruled it out.
-        return Outcome(
-            verdict=Verdict.NOT_ATTEMPTED,
-            left_behind_known=True,
-            detail=(
-                f"did not {kinds(action).intent(action)} - "
-                f"{_without_the_marker(exhausted)}"
-            ),
-            not_performed_because=_without_the_marker(exhausted),
-            # The same thing the paragraph above says in words, said where the
-            # candidate's row can read it: nothing was tested, so nothing about
-            # this explanation may be recorded as having been.
-            judged=False,
-            performed=False
-        )
-    except PlatformUnreachable as unreachable:
-        # Caught before the broad handler for the reason above it is: this is an
-        # `McpToolError` too, so a broader `except` reached first swallows it into
-        # an escalation and this branch never runs.
-        #
-        # Not `ESCALATED`, because Argus has not run out of moves - it has run
-        # out of *this platform's* moves. Five of the seven generic mitigations
-        # act through the deployment platform, so a platform that is not
-        # answering has taken five away at once and left the other two; escalating
-        # here ends a walk whose next candidate is a flag revert on a provider
-        # that is still answering.
-        #
-        # Not `NOT_ATTEMPTED`, which is the distinction worth holding: that says
-        # the tier answered and had nowhere left to go - a deployment already at
-        # its cap, a floor already at its ceiling - where this says nothing was
-        # there to answer. A record carrying it would report a bound that was
-        # never reached.
-        logger.warning("deployment platform unreachable",
-                       extra={"action_type": action.action_type})
+        # Told as made where this claim's own change had landed, and only
+        # there - the tier says so outright rather than leaving it to be read
+        # off what it carries, since a suspension alone is not the change.
+        if changed.performed:
+            change_made(changed.undo_descriptor)
 
-        # Carries what the action left behind, where it left anything. Four of
-        # the five actions through the deployment platform suspend its
-        # reconciliation before doing what they were asked, so a platform lost
-        # after that point leaves an application un-reconciled - and the row
-        # this outcome writes is the only record of it. `None` on the ordinary
-        # failure, which is the platform going before the first write.
-        return Outcome(
-            verdict=Verdict.PLATFORM_UNREACHABLE,
-            # Known, as every marked platform failure is: one that may have
-            # changed more than it carries is never marked.
-            left_behind_known=unreachable.left_behind_known,
-            detail=(
-                f"did not {kinds(action).intent(action)} - "
-                f"{_without_the_platform_marker(unreachable)}"
-            ),
-            not_performed_because=_without_the_platform_marker(unreachable),
-            undo_descriptor=unreachable.undo_descriptor,
-            # The action was not taken, so the service was never watched for it.
-            # The candidate is passed over on this walk and the platform is what
-            # explains why - and it must be a candidate still worth trying when
-            # the platform comes back, not one the record says was ruled out.
-            judged=False,
-            performed=False
-        )
+        return _changed_since(changed, kind.intent(action))
     except Exception as error:
-        # A lost run is not an action that failed: the incident is another
-        # claim's walk, and an escalation said here would be said for it.
-        if was_lost(error):
-            raise
-
-        logger.warning("action could not be performed", exc_info=True,
-                       extra={"action_type": action.action_type})
-
-        # What the tier said it left, where a tier said anything. A refusal
-        # can follow a change - a rollback refused after the sync was
-        # suspended - and the row this outcome writes is the only record of
-        # it. Anything that is not a tool's answer said nothing about the
-        # estate, so nothing about it is known.
-        told = error if isinstance(error, McpToolError) else None
-
-        return Outcome(
-            verdict=Verdict.ESCALATED,
-            left_behind_known=told.left_behind_known if told is not None else False,
-            detail=f"could not {kinds(action).intent(action)}: {_in_its_own_words(error)}",
-            not_performed_because=_in_its_own_words(error),
-            undo_descriptor=told.undo_descriptor if told is not None else None,
-            # Nothing was performed and so nothing was watched. This is the
-            # broadest of the three and the one most likely to be reached by
-            # something nobody foresaw, which is the best reason for it to say
-            # what it knows rather than let the verdict be read for it.
-            judged=False,
-            performed=False
-        )
+        return _not_performed(error, kind.intent(action), action.action_type,
+                              could_have_written=True)
 
     # Outside the `try` above, so a caller's failure to record is never read as
     # the action's failure to happen - the change is made by now.
@@ -410,6 +340,230 @@ def take_action(action: Action,
         )
 
     return _undone(performed, undo, undoing_kinds, action.action_type, settled.because)
+
+
+def plan_action(action: Action, *, writes: PerformingWrites) -> Planned[Any] | Outcome | None:
+    """The change `action` will make, worked out by the write tier before the
+    action is claimed - or, where the tier refused to work it out, the outcome
+    the attempt comes to - or `None` for an action with nothing to plan.
+
+    Before the claim, so that the claim carries it from the moment it is
+    written: a resumed walk finding the claim compares the estate with the plan,
+    and a plan made after the claim leaves a claim with nothing to compare for
+    exactly the stretch it is likeliest to be resumed in. A plan changes
+    nothing, and nothing here works it out: what the tier answers is what the
+    claim records and what the write is handed back.
+
+    A refusal is answered as the outcome of the attempt rather than raised,
+    because the refusals that used to come from the write - an action already
+    spent, a platform not answering - come from the plan now, and the walk
+    records the attempt with them exactly as it did. Whatever stopped a plan, it
+    left nothing behind, so the outcome says what it left is known.
+    """
+    kind = kind_planning(action)
+
+    if kind is None:
+        return None
+
+    try:
+        return kind.plan(action, writes)
+    except Exception as error:
+        return _not_performed(error, kind_of(action).intent(action), action.action_type,
+                              could_have_written=False)
+
+
+def stopped_before_it_was_taken() -> Outcome:
+    """What an attempt comes to where a person ended the incident before the
+    action was taken: stopped, with nothing done, judged or left behind.
+
+    One answer for the two places that ask before anything is taken - the last
+    question before the write, and the walk's before it records a plan the
+    tier refused - so the incident a person ended reads the same whichever of
+    the two noticed.
+    """
+    return Outcome(
+        verdict=Verdict.STOPPED,
+        left_behind_known=True,
+        detail="a person ended the incident before the action was taken",
+        undo_descriptor=None,
+        judged=False,
+        performed=False
+    )
+
+
+def _changed_since(changed: ChangedSince, intent: str) -> Outcome:
+    """What an action refused because somebody else has changed the service since
+    it was planned comes to: escalated, without a verdict.
+
+    Somebody is acting on the service now, and Argus hands it to a person rather
+    than act beside them. Not `NOT_ATTEMPTED`, which would have the walk try its
+    next candidate on a service somebody else is changing; and not `REFUTED`,
+    since nothing was tested. Nothing was watched, and nothing is put back -
+    whatever is out there is no longer Argus's change alone.
+
+    Two records, told apart by whether this claim's own change had landed before
+    somebody overtook it, which the tier says outright. Landed, the action was
+    performed and the change is carried as made, with what puts it back. Not
+    landed, it was not performed - and what it carries is what this claim's
+    marks show an earlier asking of it left, a suspension standing, which the
+    row this outcome writes is the only record of.
+    """
+    words = _in_the_words_of_a_change_made_since(changed)
+
+    logger.warning("the service was changed since the action was planned",
+                   extra={"performed": changed.performed})
+
+    if changed.performed:
+        return Outcome(
+            verdict=Verdict.ESCALATED,
+            left_behind_known=True,
+            detail=f"the change to {intent} landed, and was overtaken since - {words}",
+            undo_descriptor=changed.undo_descriptor,
+            judged=False,
+            performed=True
+        )
+
+    return Outcome(
+        verdict=Verdict.ESCALATED,
+        left_behind_known=True,
+        detail=f"did not {intent} - {words}",
+        not_performed_because=words,
+        undo_descriptor=changed.undo_descriptor,
+        judged=False,
+        performed=False
+    )
+
+
+def _in_the_words_of_a_change_made_since(changed: ChangedSince) -> str:
+    """The refusal's own words, without the tokens that classified it and without
+    the descriptor it carried - `_without_the_platform_marker`'s reasoning, for
+    the markers a changed-since refusal carries."""
+    said = str(changed)
+
+    for marker in (CHANGED_SINCE_MARKER, LEFT_BEHIND_KNOWN_MARKER, PERFORMED_MARKER):
+        said = said.replace(marker, "")
+
+    return without_the_payload(said).strip()
+
+
+def _not_performed(error: Exception,
+                   intent: str,
+                   action_type: ActionType,
+                   *,
+                   could_have_written: bool) -> Outcome:
+    """What an action that was refused, or failed, before it was performed
+    comes to - at its plan or at its write.
+
+    One reading for both, because the refusals are the same refusals: the
+    bounds that refused a write refuse its plan now, and the walk reads them
+    exactly as it read the write's. What differs is what the failure can have
+    left: `could_have_written` is false at a plan, which changes nothing however
+    far it got - so what it left is known, and is nothing, whatever the tier
+    said or failed to say.
+
+    A lost run raises rather than answering: the incident is another claim's
+    walk, and an outcome said here would be said for it.
+    """
+    # A lost run is not an action that failed: the incident is another claim's
+    # walk, and an outcome said here would be said for it.
+    if was_lost(error):
+        raise error
+
+    if isinstance(error, ActionExhausted):
+        # Asked before the broader cases below, and the order is the whole of
+        # it: an exhausted action is an `McpToolError` like any other, so a
+        # broader case reached first would swallow it into an escalation and
+        # this branch would never run.
+        #
+        # Not `ESCALATED`, because nothing is wrong: the tier was reached, it
+        # answered, and its answer is that this action has nowhere left to go - a
+        # deployment already at the most replicas Argus may ask for, an
+        # autoscaler whose floor already meets its ceiling. Escalating here ends
+        # the walk over a bound, and an incident whose next candidate is a flag
+        # Argus could revert in seconds reaches a human for no reason.
+        #
+        # Not `REFUTED` either, which is the trap worth naming: that says the
+        # explanation was tested and did not hold, and nothing was tested. A
+        # record carrying it would have the postmortem report that the evidence
+        # ruled a cause out when nothing ruled it out.
+        return Outcome(
+            verdict=Verdict.NOT_ATTEMPTED,
+            left_behind_known=True,
+            detail=f"did not {intent} - {_without_the_marker(error)}",
+            not_performed_because=_without_the_marker(error),
+            # The same thing the paragraph above says in words, said where the
+            # candidate's row can read it: nothing was tested, so nothing about
+            # this explanation may be recorded as having been.
+            judged=False,
+            performed=False
+        )
+
+    if isinstance(error, PlatformUnreachable):
+        # Asked before the broad case for the reason the exhausted action is:
+        # this is an `McpToolError` too.
+        #
+        # Not `ESCALATED`, because Argus has not run out of moves - it has run
+        # out of *this platform's* moves. Five of the seven generic mitigations
+        # act through the deployment platform, so a platform that is not
+        # answering has taken five away at once and left the other two;
+        # escalating here ends a walk whose next candidate is a flag revert on a
+        # provider that is still answering.
+        #
+        # Not `NOT_ATTEMPTED`, which is the distinction worth holding: that says
+        # the tier answered and had nowhere left to go - a deployment already at
+        # its cap, a floor already at its ceiling - where this says nothing was
+        # there to answer. A record carrying it would report a bound that was
+        # never reached.
+        logger.warning("deployment platform unreachable", extra={"action_type": action_type})
+
+        # Carries what the action left behind, where it left anything. Four of
+        # the five actions through the deployment platform suspend its
+        # reconciliation before doing what they were asked, so a platform lost
+        # after that point leaves an application un-reconciled - and the row
+        # this outcome writes is the only record of it. `None` on the ordinary
+        # failure, which is the platform going before the first write, and
+        # always at a plan.
+        return Outcome(
+            verdict=Verdict.PLATFORM_UNREACHABLE,
+            # Known, as every marked platform failure is: one that may have
+            # changed more than it carries is never marked.
+            left_behind_known=error.left_behind_known or not could_have_written,
+            detail=f"did not {intent} - {_without_the_platform_marker(error)}",
+            not_performed_because=_without_the_platform_marker(error),
+            undo_descriptor=error.undo_descriptor if could_have_written else None,
+            # The action was not taken, so the service was never watched for it.
+            # The candidate is passed over on this walk and the platform is what
+            # explains why - and it must be a candidate still worth trying when
+            # the platform comes back, not one the record says was ruled out.
+            judged=False,
+            performed=False
+        )
+
+    logger.warning("action could not be performed", exc_info=error,
+                   extra={"action_type": action_type})
+
+    # What the tier said it left, where a tier said anything. A refusal can
+    # follow a change - a rollback refused after the sync was suspended - and
+    # the row this outcome writes is the only record of it. Anything that is not
+    # a tool's answer said nothing about the estate, so nothing about it is
+    # known - unless nothing could have been written, which is what a plan is.
+    told = error if isinstance(error, McpToolError) and could_have_written else None
+
+    return Outcome(
+        verdict=Verdict.ESCALATED,
+        left_behind_known=(
+            told.left_behind_known if told is not None else not could_have_written
+        ),
+        detail=f"could not {intent}: {_in_its_own_words(error)}",
+        not_performed_because=_in_its_own_words(error),
+        undo_descriptor=told.undo_descriptor if told is not None else None,
+        # Nothing was performed and so nothing was watched. This is the broadest
+        # of the three and the one most likely to be reached by something nobody
+        # foresaw, which is the best reason for it to say what it knows rather
+        # than let the verdict be read for it.
+        judged=False,
+        performed=False
+    )
 
 
 def _without_the_marker(exhausted: ActionExhausted) -> str:

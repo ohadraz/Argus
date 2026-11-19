@@ -52,17 +52,29 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from core.mcp_transport import an_exhausted_action
-from core.models import AutoscalerUndo, AutoscalingRestored
+from core.mcp_transport import (
+    a_change_made_since,
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
+)
+from core.models import AutoscalerUndo, AutoscalingRestored, Planned
 from deployment_platform import (
     Autoscaler,
+    AutoscalerBounds,
     DeploymentPlatformError,
     DeploymentPlatformWrites,
     Mark,
+    MarkedObject,
 )
 
 from write_mcp_server.refusing import a_platform_refusal
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
+from write_mcp_server.sync_switch import (
+    Switch,
+    suspend_where_it_is_to_be,
+    the_switch,
+    this_claim_s_suspension_stands,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,26 +114,23 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
     ))
 
 
-def pin_autoscaler(application: str,
-                   platform: DeploymentPlatformWrites,
-                   mark: Mark) -> AutoscalerUndo:
-    """Raises `application`'s autoscaler floor to its ceiling, and reports what
-    that cost - every write carrying `mark`.
+def plan_autoscaler_pin(application: str,
+                        platform: DeploymentPlatformWrites) -> Planned[AutoscalerUndo]:
+    """The pin of `application`'s autoscaler to make, worked out and dated - and
+    nothing changed.
 
-    To the ceiling and no further, because the ceiling is a bound a human
-    declared. What Argus is choosing here is not how many replicas should run -
-    that is not its to choose even in principle - but that the count should stop
-    moving, and equal bounds are how a controller is stopped without being taken
-    away.
+    Its floor raised to its ceiling and no further, because the ceiling is a
+    bound a human declared. What Argus is choosing here is not how many replicas
+    should run - that is not its to choose even in principle - but that the
+    count should stop moving, and equal bounds are how a controller is stopped
+    without being taken away.
 
-    Raises rather than half-succeeding. An autoscaler with no room left between
-    its bounds raises before anything is touched; a platform that refuses the
-    patch raises after sync was suspended, and that is deliberate for the reason
-    the scale-out's is - the suspension is recorded nowhere yet, so leaving it in
-    place and saying so is honest where quietly restoring it would hide a state
-    somebody has to know about.
+    Dated by the platform's clock, read before anything it dates. An application
+    with no autoscaler, or one with no room left between its bounds, raises here,
+    before a claim is written for it.
     """
     try:
+        since = platform.now(application)
         autoscaler = _where_the_autoscaler_is(application, platform)
         bounds = platform.autoscaler_bounds(application, autoscaler)
     except DeploymentPlatformError as error:
@@ -130,7 +139,7 @@ def pin_autoscaler(application: str,
             asked_to_change=False
         ) from error
 
-    the_floor_to_ask_for = min(bounds.ceiling, THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
+    the_floor_to_ask_for = _the_highest_floor_within(bounds)
 
     if the_floor_to_ask_for <= bounds.floor:
         raise AlreadyHeldStill(
@@ -151,46 +160,133 @@ def pin_autoscaler(application: str,
             asked_to_change=False
         ) from error
 
-    # Apart from the read before it, because this is the first change asked
-    # for: a failure here may have suspended the sync, where one there cannot.
-    if was_syncing_itself:
-        try:
-            platform.suspend_sync(application, mark)
-        except DeploymentPlatformError as error:
-            raise _refusing(
-                f"could not suspend the sync of [{application}]: {error}", error,
-                asked_to_change=True
-            ) from error
-
-    # Built before the action rather than after it, because it describes what
-    # has already been changed: where sync was suspended, this is what a caller
-    # has to put back whether the floor then moves or the platform vanishes.
-    undo = AutoscalerUndo(
-        application=application,
-        was_min_replicas=bounds.floor,
-        min_replicas_asked_for=the_floor_to_ask_for,
-        was_syncing_itself=was_syncing_itself
+    return Planned(
+        descriptor=AutoscalerUndo(
+            application=application,
+            was_min_replicas=bounds.floor,
+            min_replicas_asked_for=the_floor_to_ask_for,
+            was_syncing_itself=was_syncing_itself
+        ),
+        since=since
     )
 
+
+def pin_autoscaler(planned: Planned[AutoscalerUndo],
+                   platform: DeploymentPlatformWrites,
+                   mark: Mark) -> AutoscalerUndo:
+    """Makes the pin `planned` describes, where the platform still stands as the
+    plan found it, and reports what that cost - every write carrying `mark`.
+
+    Every comparison is made before anything is written. A floor still the one
+    the plan found, under no mark of this claim's, is raised; the floor the plan
+    asked for under this claim's mark is this pin already made, answered with the
+    plan and nothing written twice; anything else - an autoscaler gone among it -
+    is somebody's change since, refused with nothing written, carrying the plan
+    where this claim's marks show part of it landed. The sync switch is held to
+    the same rule (`sync_switch`).
+
+    The plan is held to this tier's own rule again here rather than trusted - a
+    floor above the one it found, within the ceiling read now and the most Argus
+    may ask for - and refused plainly, nothing written, where it is not: the plan
+    is the caller's data, and the bounds are this tier's.
+
+    Raises rather than half-succeeding. A platform that refuses the patch after
+    sync was suspended leaves the suspension in place and says so - quietly
+    restoring it would hide a state somebody has to know about.
+    """
+    descriptor = planned.descriptor
+    application = descriptor.application
+    asked_for = descriptor.min_replicas_asked_for
+
     try:
-        platform.set_autoscaler_floor(application, autoscaler, the_floor_to_ask_for, mark)
+        autoscaler = platform.autoscaler_of(application)
+        bounds = (None if autoscaler is None
+                  else platform.autoscaler_bounds(application, autoscaler))
+        syncing_now = platform.is_syncing_itself(application)
+        switch_marked_by = platform.mark_on(application, MarkedObject.APPLICATION)
+        floor_marked_by = platform.mark_on(application, MarkedObject.AUTOSCALER)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not read what [{application}]'s autoscaler is now: {error}", error,
+            asked_to_change=False
+        ) from error
+
+    # What of this claim's is out there is worked out before any refusal that
+    # follows the reads, so every one of them carries it.
+    floor_landed = floor_marked_by == mark.action_id
+    left_behind = descriptor if floor_landed or this_claim_s_suspension_stands(
+        descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
+    ) else None
+
+    # The plan is held to this tier's own rule from its own "was": a floor
+    # raised, and no higher than the bounds read now allow.
+    if asked_for <= descriptor.was_min_replicas or (
+            bounds is not None and asked_for > _the_highest_floor_within(bounds)):
+        raise PinRefused(a_refusal_saying_what_it_left(
+            f"the pin of [{application}]'s autoscaler asks for a floor of "
+            f"[{asked_for}] from [{descriptor.was_min_replicas}], which is not a "
+            f"floor raised within what Argus may ask for",
+            left_behind
+        ))
+
+    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
+    floor = None if bounds is None else bounds.floor
+    made = floor_landed and floor == asked_for
+    still_as_found = not floor_landed and floor == descriptor.was_min_replicas
+
+    if autoscaler is None or switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
+            made and switch is Switch.TO_SUSPEND):
+        # The autoscaler among it: one taken away since is somebody's change,
+        # and a pin would have nowhere to go.
+        raise PinRefused(a_change_made_since(
+            f"[{application}]'s autoscaler "
+            f"{'is gone' if floor is None else f'may fall to [{floor}]'} and the "
+            f"application {'is' if syncing_now else 'is not'} syncing itself, which is "
+            f"not where the pin from [{descriptor.was_min_replicas}] to [{asked_for}] "
+            f"found it or would leave it",
+            left_behind,
+            performed=floor_landed
+        ))
+
+    if made:
+        logger.info("autoscaler floor already raised", extra={
+            "application": application, "to_floor": asked_for
+        })
+        return descriptor
+
+    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
+
+    try:
+        platform.set_autoscaler_floor(application, autoscaler, asked_for, mark)
     except DeploymentPlatformError as error:
         logger.warning("autoscaler pin refused", extra={
-            "application": application, "sync_suspended": was_syncing_itself
+            "application": application, "sync_suspended": descriptor.was_syncing_itself
         })
         raise _refusing(
             f"[{application}]'s autoscaler floor could not be raised to "
-            f"[{the_floor_to_ask_for}]: {error}",
+            f"[{asked_for}]: {error}",
             error,
             asked_to_change=True,
-            left_behind=undo if was_syncing_itself else None
+            left_behind=descriptor if descriptor.was_syncing_itself else None
         ) from error
 
     logger.info("autoscaler floor raised", extra={
-        "application": application, "from_floor": bounds.floor, "to_floor": the_floor_to_ask_for
+        "application": application, "from_floor": descriptor.was_min_replicas,
+        "to_floor": asked_for
     })
 
-    return undo
+    return descriptor
+
+
+def _the_highest_floor_within(bounds: AutoscalerBounds) -> int:
+    """The autoscaler's ceiling, or the most Argus may ask for where that is lower."""
+    return min(bounds.ceiling, THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
+
+
+def _refusing_a_change(said: str, error: DeploymentPlatformError) -> PinRefused:
+    """This module's refusal of a change it asked for, with nothing before it
+    left behind."""
+    return _refusing(said, error, asked_to_change=True)
 
 
 def restore_autoscaler_floor(descriptor: AutoscalerUndo,

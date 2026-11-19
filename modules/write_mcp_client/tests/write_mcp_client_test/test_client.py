@@ -2,31 +2,42 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import nullcontext
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
-from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings, parse_iso
-from core.mcp_transport import McpClient, McpToolError, PlatformUnreachable
+from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings, parse_iso, to_iso
+from core.mcp_transport import ChangedSince, McpClient, McpToolError, PlatformUnreachable
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
+    AutoscalerUndo,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     FlagUndo,
+    Planned,
+    ReplicaUndo,
     RestartedService,
     UndoDescriptor,
 )
 from deployment_platform.argocd import AUTOMATED, ENABLED
 from write_mcp_client import (
     get_recent_flag_changes,
+    pin_autoscaler,
     pin_to_accelerator,
+    plan_accelerator_pin,
+    plan_autoscaler_pin,
+    plan_flag,
+    plan_rollback,
+    plan_scale_out,
     restart_service,
     restore_accelerator_pin,
     restore_deployment,
     roll_back_deployment,
+    scale_out,
     set_feature_flag,
     was_flag_changed_by_argus_since,
     was_flag_changed_by_others_since,
@@ -35,8 +46,12 @@ from write_mcp_client import (
 
 from write_mcp_client_test.a_write_server_holding_one_run import THE_RUN_HELD
 from write_mcp_client_test.fake_deployment_platform import (
+    THE_AUTOSCALER_CEILING,
+    THE_AUTOSCALER_FLOOR,
+    THE_COUNT_RUNNING,
     THE_HISTORY_BEFORE_IT,
     THE_HISTORY_RUNNING_NOW,
+    THE_PLATFORM_S_TIME,
     THE_REVISION_BEFORE_IT,
     THE_REVISION_RUNNING_NOW,
     FakeDeploymentPlatformHandler,
@@ -45,6 +60,7 @@ from write_mcp_client_test.fake_deployment_platform import (
 from write_mcp_client_test.fake_feature_flag_provider import (
     THE_ARGUS_ACTOR,
     THE_ENVIRONMENT,
+    THE_PROVIDER_S_TIME,
     FakeUnleashHandler,
     a_running_write_mcp,
 )
@@ -55,6 +71,7 @@ DONT_CARE_ACTOR = "dont-care-actor"
 SOME_HUMAN = "admin"
 SOME_APPLICATION = "io-shop"
 SOME_CARD = "Tesla-V100-SXM2-16GB"
+SOME_FLAG = "monthly-spend-feature"
 # The action row a walk's platform writes are made for.
 SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
 # Where the mark lands on what the platform was asked to write. Spelled out
@@ -65,6 +82,56 @@ THE_ACTION_ANNOTATION = "argus/action"
 # Somebody who deployed after Argus rolled back, and the revision they deployed.
 SOME_PERSON_DEPLOYING = "alice"
 A_REVISION_SOMEBODY_DEPLOYED = "9b2c4e1f0a7d8c6b5e4f3a2d1c0b9a8f7e6d5c4b"
+
+# A moment after each party's clock stands, which is where a change somebody
+# made since a plan is recorded.
+AFTER_THE_PLATFORM_S_PLAN = THE_PLATFORM_S_TIME + timedelta(minutes=30)
+AFTER_THE_PROVIDER_S_PLAN = THE_PROVIDER_S_TIME + timedelta(minutes=1)
+
+# The rollback the platform's history plans: from the entry running back to the
+# one before it, from a platform reconciling the application itself.
+THE_ROLLBACK_PLANNED = DeploymentRollbackUndo(
+    application=SOME_APPLICATION,
+    was_on_history_id=THE_HISTORY_RUNNING_NOW,
+    was_on_revision=THE_REVISION_RUNNING_NOW,
+    rolled_back_to_revision=THE_REVISION_BEFORE_IT,
+    rolled_back_to_history_id=THE_HISTORY_BEFORE_IT,
+    was_syncing_itself=True
+)
+# Twice the count running, under the most replicas Argus may ask for.
+THE_SCALE_OUT_PLANNED = ReplicaUndo(
+    application=SOME_APPLICATION,
+    was_replicas=THE_COUNT_RUNNING,
+    replicas_asked_for=2 * THE_COUNT_RUNNING,
+    was_syncing_itself=True
+)
+# The floor raised to the ceiling, which is under the most Argus may ask for.
+THE_AUTOSCALER_PIN_PLANNED = AutoscalerUndo(
+    application=SOME_APPLICATION,
+    was_min_replicas=THE_AUTOSCALER_FLOOR,
+    min_replicas_asked_for=THE_AUTOSCALER_CEILING,
+    was_syncing_itself=True
+)
+# From a Deployment held to no card.
+THE_ACCELERATOR_PIN_PLANNED = AcceleratorPinUndo(
+    application=SOME_APPLICATION,
+    was_pinned_to=None,
+    pinned_to=SOME_CARD,
+    was_syncing_itself=True
+)
+
+# Every plan the platform answers, what it is asked with, whether the case needs
+# an autoscaler staged beside the Deployment, and the change it plans.
+EVERY_PLATFORM_PLAN = [
+    pytest.param(lambda client: plan_rollback(SOME_APPLICATION, client=client),
+                 False, THE_ROLLBACK_PLANNED, id="rollback"),
+    pytest.param(lambda client: plan_scale_out(SOME_APPLICATION, client=client),
+                 False, THE_SCALE_OUT_PLANNED, id="scale-out"),
+    pytest.param(lambda client: plan_autoscaler_pin(SOME_APPLICATION, client=client),
+                 True, THE_AUTOSCALER_PIN_PLANNED, id="autoscaler-pin"),
+    pytest.param(lambda client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD, client=client),
+                 False, THE_ACCELERATOR_PIN_PLANNED, id="accelerator-pin")
+]
 
 # A claim of the server's run from before it was last taken back.
 A_CLAIM_THE_RUN_MOVED_PAST = Fence(run_id=THE_RUN_HELD.run_id, epoch=THE_RUN_HELD.epoch - 1)
@@ -91,24 +158,43 @@ def running_write_mcp() -> Iterator[type[FakeUnleashHandler]]:
 
 
 @pytest.mark.integration
+def test_a_flag_s_plan_survives_the_wire_and_changes_nothing(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # Asked holding no run, because the walk plans before it claims. What comes
+    # back is the plan whole: what the flag was found in, and the provider's own
+    # time for the read - a moment a resumed walk later asks the history from.
+    Scenario() \
+        .given(
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
+        ) \
+        .when(
+            _asking_the_server_as(None, lambda client: plan_flag(
+                SOME_FLAG, enabled=False, client=client
+            ))
+        ) \
+        .then(all_of(
+            _the_plan_is(FlagUndo(flag=SOME_FLAG, was_enabled=True), THE_PROVIDER_S_TIME),
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
+        ))
+
+
+@pytest.mark.integration
 def test_switching_a_flag_off_reaches_the_provider_through_the_real_write_server(
     running_write_mcp: type[FakeUnleashHandler]
 ) -> None:
-    # The whole path in one call: the typed client, a real MCP round trip, the
-    # tool, the admin adapter, and the provider's own wire shape - with only the
-    # provider at the far end faked. And the assertion is on the provider's
-    # state, not on what the client said: an action Argus reports taking and did
-    # not take is the failure that matters.
-    some_flag = "monthly-spend-feature"
-
+    # The whole path in two calls: the typed client, a real MCP round trip for
+    # the plan and another for the change made from it, the tool, the admin
+    # adapter, and the provider's own wire shape - with only the provider at the
+    # far end faked. And the assertion is on the provider's state, not on what
+    # the client said: an action Argus reports taking and did not take is the
+    # failure that matters.
     Scenario() \
         .given(
-            calling(the_provider_has_enabled(running_write_mcp, some_flag))
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(
-            _asking_the_server(lambda client: set_feature_flag(
-                some_flag, enabled=False, client=client
-            ))
+            _asking_the_server(lambda client: _setting(SOME_FLAG, False, client))
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=True),
@@ -122,20 +208,41 @@ def test_switching_a_flag_on_reaches_the_provider_through_the_real_write_server(
 ) -> None:
     # The direction a revert-only write tier could not perform, and the one an
     # incident caused by a flag being switched off needs.
-    some_flag = "monthly-spend-feature"
-
     Scenario() \
         .given(
             calling(the_provider_has_enabled(running_write_mcp))
         ) \
         .when(
-            _asking_the_server(lambda client: set_feature_flag(
-                some_flag, enabled=True, client=client
-            ))
+            _asking_the_server(lambda client: _setting(SOME_FLAG, True, client))
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=False),
-            the_provider_now_reports_enabled(running_write_mcp, [some_flag]),
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG]),
+        ))
+
+
+@pytest.mark.integration
+def test_a_flag_somebody_changed_since_its_plan_arrives_as_changed_since_and_is_left_as_set(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # Somebody switched it off and back on after the plan read it: the value
+    # is what the plan found, and only the history says a person is acting on
+    # it. The refusal reaches the walk as its own type - the walk escalates on
+    # it rather than act beside them - saying it left nothing, and the flag is
+    # as they left it.
+    Scenario() \
+        .given(
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
+        ) \
+        .when(attempting(
+            _asking_the_server(lambda client: _planned_and_then_toggled_by_somebody(
+                running_write_mcp, client
+            ))
+        )) \
+        .then(all_of(
+            an_error_was_raised(ChangedSince),
+            _it_left_behind(None),
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
         ))
 
 
@@ -145,13 +252,11 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
 ) -> None:
     # Asked holding no run, because a read changes nothing a stale walk could
     # get wrong, and is answered without asking after any run.
-    some_flag = "monthly-spend-feature"
-
     Scenario() \
         .given(
             calling(the_provider_recorded(
                 running_write_mcp,
-                [a_disabling_of(some_flag, at=INSIDE_THE_WINDOW)],
+                [a_disabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW)],
             ))
         ) \
         .when(
@@ -160,7 +265,7 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
             )
         ) \
         .then(
-            the_changes_are([(some_flag, False)])
+            the_changes_are([(SOME_FLAG, False)])
         )
 
 
@@ -171,18 +276,16 @@ def test_asking_whether_argus_changed_a_flag_reaches_the_provider_through_the_re
     # The whole path of the question a resumed walk asks: the typed client, a
     # real MCP round trip, the tool, the provider's own log and the name the
     # server was told Argus writes under. Asked holding no run, as a read is.
-    some_flag = "monthly-spend-feature"
-
     Scenario() \
         .given(
             calling(the_provider_recorded(
                 running_write_mcp,
-                [a_disabling_of(some_flag, at=INSIDE_THE_WINDOW, by=THE_ARGUS_ACTOR)]
+                [a_disabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, by=THE_ARGUS_ACTOR)]
             ))
         ) \
         .when(
             _asking_the_server_as(None, lambda client: was_flag_changed_by_argus_since(
-                some_flag, parse_iso(SINCE), client=client
+                SOME_FLAG, parse_iso(SINCE), client=client
             ))
         ) \
         .then(
@@ -196,18 +299,16 @@ def test_asking_whether_others_changed_a_flag_reaches_the_provider_through_the_r
 ) -> None:
     # The question an undo asks before it writes, over the same path - and
     # answered from the same row the other question would call somebody else's.
-    some_flag = "monthly-spend-feature"
-
     Scenario() \
         .given(
             calling(the_provider_recorded(
                 running_write_mcp,
-                [a_disabling_of(some_flag, at=INSIDE_THE_WINDOW, by=SOME_HUMAN)]
+                [a_disabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, by=SOME_HUMAN)]
             ))
         ) \
         .when(
             _asking_the_server_as(None, lambda client: was_flag_changed_by_others_since(
-                some_flag, parse_iso(SINCE), client=client
+                SOME_FLAG, parse_iso(SINCE), client=client
             ))
         ) \
         .then(
@@ -227,31 +328,28 @@ def _the_answer_is(expected: bool | None) -> Assertion[bool | None]:
 
 
 @pytest.mark.integration
-def test_a_change_the_client_made_can_be_undone_through_the_same_call(
+def test_a_change_the_client_made_can_be_undone_through_the_same_calls(
     running_write_mcp: type[FakeUnleashHandler]
 ) -> None:
-    # Undoing a refuted mitigation is this same tool with the state reversed,
-    # which is the only reason one tool serves both directions. If the round
-    # trip only worked one way, a refuted action could not be put back.
+    # Undoing a refuted mitigation is the same plan and the same write with the
+    # state reversed, which is the only reason one tool serves both directions.
+    # If the round trip only worked one way, a refuted action could not be put
+    # back.
     #
-    # Both writes go over one session, which is how the walk makes them: an
-    # action and the undo that follows it are two calls by one worker, and a
-    # session good for only the first would leave a refuted flag where it was.
-    some_flag = "monthly-spend-feature"
-
+    # Every call goes over one session, which is how the walk makes them: an
+    # action and the undo that follows it are calls by one worker, and a session
+    # good for only the first would leave a refuted flag where it was.
     Scenario() \
         .given(
-            calling(the_provider_has_enabled(running_write_mcp, some_flag))
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(
             _asking_the_server(lambda client: _undoing(
-                set_feature_flag(some_flag, enabled=False, client=client),
-                some_flag,
-                client
+                _setting(SOME_FLAG, False, client), SOME_FLAG, client
             ))
         ) \
         .then(
-            the_provider_now_reports_enabled(running_write_mcp, [some_flag])
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
         )
 
 
@@ -286,6 +384,33 @@ def test_restarting_a_service_reaches_the_platform_through_the_real_write_server
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(("ask", "with_an_autoscaler", "planned"), EVERY_PLATFORM_PLAN)
+def test_a_platform_plan_survives_the_wire_and_changes_nothing(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
+    ask: Callable[[McpClient], Planned[Any]],
+    with_an_autoscaler: bool,
+    planned: UndoDescriptor
+) -> None:
+    # Asked holding no run, because the walk plans before it claims. What comes
+    # back is the plan whole - a descriptor of the action's own kind, every
+    # field of it - dated by the platform's own clock: the moment a resumed walk
+    # later asks whether anything landed after.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            calling(_an_autoscaler_staged_on(handler, with_an_autoscaler))
+        ) \
+        .when(
+            _asking_the_server_as(None, ask)
+        ) \
+        .then(all_of(
+            _the_plan_is(planned, THE_PLATFORM_S_TIME),
+            _nothing_was_written_to(handler)
+        ))
+
+
+@pytest.mark.integration
 def test_rolling_a_configuration_back_reaches_the_platform_through_the_real_write_server(
     running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
 ) -> None:
@@ -297,9 +422,7 @@ def test_rolling_a_configuration_back_reaches_the_platform_through_the_real_writ
     # rather than assume.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: roll_back_deployment(
-                SOME_APPLICATION, client=client
-            ))
+            _asking_the_server(_rolling_back)
         ) \
         .then(all_of(
             the_platform_stopped_reconciling(running_write_mcp_over_a_platform),
@@ -331,8 +454,7 @@ def test_restoring_a_configuration_reaches_the_platform_through_the_real_write_s
     Scenario() \
         .when(
             _asking_the_server(lambda client: restore_deployment(
-                roll_back_deployment(SOME_APPLICATION, client=client),
-                client=client
+                _rolling_back(client), client=client
             ))
         ) \
         .then(all_of(
@@ -373,6 +495,30 @@ def test_a_rollback_somebody_deployed_over_is_left_as_they_set_it_through_the_re
 
 
 @pytest.mark.integration
+def test_a_rollback_somebody_deployed_over_since_its_plan_arrives_as_changed_since(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # This action's earlier asking suspended the sync and its answer was lost;
+    # somebody has deployed since the plan. The rollback is not made over them,
+    # and the refusal reaches the walk as its own type carrying the suspension
+    # this action's mark shows landed - the one change of Argus's out there,
+    # recorded nowhere else - and saying that is all of it.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .when(attempting(
+            _asking_the_server(lambda client: _planned_and_then_deployed_over_after_a_suspension(
+                handler, client
+            ))
+        )) \
+        .then(all_of(
+            an_error_was_raised(ChangedSince),
+            _it_left_behind(THE_ROLLBACK_PLANNED),
+            _the_platform_was_never_rolled_back(handler)
+        ))
+
+
+@pytest.mark.integration
 def test_an_unreachable_platform_arrives_as_its_own_type_through_the_client(
     running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
 ) -> None:
@@ -388,12 +534,56 @@ def test_an_unreachable_platform_arrives_as_its_own_type_through_the_client(
     Scenario() \
         .when(
             attempting(
-                _asking_the_server(lambda client: roll_back_deployment(
-                    SOME_APPLICATION, client=client
-                ))
+                _asking_the_server(_rolling_back)
             )
         ) \
         .then(all_of(_it_came_back_as_an_unreachable_platform()))
+
+
+@pytest.mark.integration
+def test_scaling_out_from_its_plan_reaches_the_platform_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The count the plan asked for is the count the platform's Deployment now
+    # declares, and reconciliation was suspended first - a count left under
+    # automated sync is put straight back by the next sync.
+    Scenario() \
+        .when(
+            _asking_the_server(lambda client: scale_out(
+                plan_scale_out(SOME_APPLICATION, client=client), client=client
+            ))
+        ) \
+        .then(all_of(
+            _the_platform_runs(running_write_mcp_over_a_platform,
+                               THE_SCALE_OUT_PLANNED.replicas_asked_for),
+            the_platform_stopped_reconciling(running_write_mcp_over_a_platform),
+            _it_answered_as(THE_SCALE_OUT_PLANNED)
+        ))
+
+
+@pytest.mark.integration
+def test_pinning_an_autoscaler_from_its_plan_reaches_the_platform_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The floor the plan raised to is the floor the platform's autoscaler now
+    # declares, and reconciliation was suspended first - a floor left under
+    # automated sync is put back by the next sync.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            calling(_an_autoscaler_staged_on(handler, True))
+        ) \
+        .when(
+            _asking_the_server(lambda client: pin_autoscaler(
+                plan_autoscaler_pin(SOME_APPLICATION, client=client), client=client
+            ))
+        ) \
+        .then(all_of(
+            _the_autoscaler_s_floor_is(handler, THE_AUTOSCALER_PIN_PLANNED.min_replicas_asked_for),
+            the_platform_stopped_reconciling(handler),
+            _it_answered_as(THE_AUTOSCALER_PIN_PLANNED)
+        ))
 
 
 @pytest.mark.integration
@@ -407,19 +597,12 @@ def test_pinning_to_a_card_reaches_the_platform_through_the_real_write_server(
     # sync is taken off by the next sync.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: pin_to_accelerator(
-                SOME_APPLICATION, SOME_CARD, client=client
-            ))
+            _asking_the_server(lambda client: _pinning_to(SOME_CARD, client))
         ) \
         .then(all_of(
             _the_platform_selects(running_write_mcp_over_a_platform, SOME_CARD),
             the_platform_stopped_reconciling(running_write_mcp_over_a_platform),
-            _the_pin_descriptor_is(AcceleratorPinUndo(
-                application=SOME_APPLICATION,
-                was_pinned_to=None,
-                pinned_to=SOME_CARD,
-                was_syncing_itself=True
-            ))
+            _it_answered_as(THE_ACCELERATOR_PIN_PLANNED)
         ))
 
 
@@ -434,8 +617,7 @@ def test_restoring_a_pin_reaches_the_platform_through_the_real_write_server(
     Scenario() \
         .when(
             _asking_the_server(lambda client: restore_accelerator_pin(
-                pin_to_accelerator(SOME_APPLICATION, SOME_CARD, client=client),
-                client=client
+                _pinning_to(SOME_CARD, client), client=client
             ))
         ) \
         .then(all_of(
@@ -457,9 +639,7 @@ def test_a_platform_write_carries_the_action_it_was_made_for_to_the_platform(
     # rollback's own merge patch and so what the platform keeps.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: roll_back_deployment(
-                SOME_APPLICATION, client=client
-            ))
+            _asking_the_server(_rolling_back)
         ) \
         .then(
             _every_sync_patch_was_for(running_write_mcp_over_a_platform, SOME_ACTION_ID)
@@ -472,16 +652,16 @@ def test_a_platform_write_made_while_no_action_is_taken_is_refused_and_changes_n
 ) -> None:
     # Made, it would be a write on the platform nobody could tell from a
     # person's. Refused as an ordinary refusal - the run is still held, so not a
-    # lost one - and before anything was asked to change.
+    # lost one - and before anything was asked to change. The plan before it is
+    # a read, and is answered.
     Scenario() \
         .when(attempting(
-            _asking_the_server_as(THE_RUN_HELD, lambda client: roll_back_deployment(
-                SOME_APPLICATION, client=client
-            ))
+            _asking_the_server_as(THE_RUN_HELD, _rolling_back)
         )) \
         .then(all_of(
             an_error_was_raised(McpToolError),
             _it_did_not_come_back_as(RunLost),
+            _it_did_not_come_back_as(ChangedSince),
             _the_sync_policy_was_never_patched(running_write_mcp_over_a_platform)
         ))
 
@@ -506,21 +686,18 @@ def test_a_change_for_a_claim_the_run_moved_past_arrives_as_a_lost_run_and_chang
     # The walk that made it stops writing on `RunLost`, so the tier's refusal
     # has to reach it as that and not as a tool that broke - and the flag has to
     # be where it was, or a second walk changed the world for somebody else's
-    # incident.
-    some_flag = "monthly-spend-feature"
-
+    # incident. The plan is a read, and is answered whoever asks.
     Scenario() \
         .given(
-            calling(the_provider_has_enabled(running_write_mcp, some_flag))
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(attempting(
-            _asking_the_server_as(A_CLAIM_THE_RUN_MOVED_PAST, lambda client: set_feature_flag(
-                some_flag, enabled=False, client=client
-            ))
+            _asking_the_server_as(A_CLAIM_THE_RUN_MOVED_PAST,
+                                  lambda client: _setting(SOME_FLAG, False, client))
         )) \
         .then(all_of(
             an_error_was_raised(RunLost),
-            the_provider_now_reports_enabled(running_write_mcp, [some_flag])
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
         ))
 
 
@@ -530,22 +707,89 @@ def test_a_change_made_while_no_run_is_held_is_refused_and_changes_nothing(
 ) -> None:
     # A caller that forgot to say which claim it acts for is a bug, not a walk
     # that lost its run - so it is an ordinary refusal that says it left nothing.
-    some_flag = "monthly-spend-feature"
-
     Scenario() \
         .given(
-            calling(the_provider_has_enabled(running_write_mcp, some_flag))
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(attempting(
-            _asking_the_server_as(None, lambda client: set_feature_flag(
-                some_flag, enabled=False, client=client
-            ))
+            _asking_the_server_as(None, lambda client: _setting(SOME_FLAG, False, client))
         )) \
         .then(all_of(
             an_error_was_raised(McpToolError),
             _it_did_not_come_back_as(RunLost),
-            the_provider_now_reports_enabled(running_write_mcp, [some_flag])
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
         ))
+
+
+def _setting(flag: str, enabled: bool, client: McpClient) -> UndoDescriptor:
+    """`flag` planned and then set to `enabled` from its plan, as the walk
+    makes a change: two calls over one session."""
+    return set_feature_flag(plan_flag(flag, enabled, client=client), enabled, client=client)
+
+
+def _undoing(undo_descriptor: UndoDescriptor,
+             flag: str,
+             client: McpClient) -> UndoDescriptor:
+    assert isinstance(undo_descriptor, FlagUndo)
+
+    return _setting(flag, undo_descriptor.was_enabled, client)
+
+
+def _planned_and_then_toggled_by_somebody(handler: type[FakeUnleashHandler],
+                                          client: McpClient) -> UndoDescriptor:
+    """The flag planned to go off, then switched off and back on by somebody
+    after the plan's read - the provider's history says so, its state does not
+    - then set from the plan."""
+    planned = plan_flag(SOME_FLAG, False, client=client)
+    handler.events = [
+        a_disabling_of(SOME_FLAG, at=to_iso(AFTER_THE_PROVIDER_S_PLAN), by=SOME_HUMAN),
+        an_enabling_of(SOME_FLAG, at=to_iso(AFTER_THE_PROVIDER_S_PLAN), by=SOME_HUMAN)
+    ]
+
+    return set_feature_flag(planned, False, client=client)
+
+
+def _rolling_back(client: McpClient) -> DeploymentRollbackUndo:
+    """`SOME_APPLICATION` planned and then rolled back from its plan, as the
+    walk makes a change: two calls over one session."""
+    return roll_back_deployment(plan_rollback(SOME_APPLICATION, client=client), client=client)
+
+
+def _pinning_to(card: str, client: McpClient) -> AcceleratorPinUndo:
+    """`SOME_APPLICATION` planned and then pinned to `card` from its plan."""
+    return pin_to_accelerator(plan_accelerator_pin(SOME_APPLICATION, card, client=client),
+                              client=client)
+
+
+def _planned_and_then_deployed_over_after_a_suspension(
+    handler: type[FakeDeploymentPlatformHandler], client: McpClient
+) -> DeploymentRollbackUndo:
+    """The rollback planned; then the sync off under this action's own mark, as
+    an earlier asking whose answer was lost left it, and a deployment of
+    somebody else's recorded after the plan; then the rollback asked again from
+    the plan."""
+    planned = plan_rollback(SOME_APPLICATION, client=client)
+    handler.sync_policy = {AUTOMATED: {"selfHeal": True, ENABLED: False}}
+    handler.syncs_itself = False
+    handler.application_annotations = {THE_ACTION_ANNOTATION: SOME_ACTION_ID}
+    handler.history = handler.history + [{
+        "id": handler.history[-1]["id"] + 1,
+        "revision": A_REVISION_SOMEBODY_DEPLOYED,
+        "deployedAt": to_iso(AFTER_THE_PLATFORM_S_PLAN),
+        "initiatedBy": {"username": SOME_PERSON_DEPLOYING}
+    }]
+
+    return roll_back_deployment(planned, client=client)
+
+
+def _an_autoscaler_staged_on(handler: type[FakeDeploymentPlatformHandler],
+                             staged: bool) -> Callable[[], None]:
+    """An autoscaler beside the Deployment at its declared floor, where
+    `staged` - and none, as the platform starts, where not."""
+    def step() -> None:
+        handler.autoscaler_floor = THE_AUTOSCALER_FLOOR if staged else None
+
+    return step
 
 
 def _every_sync_patch_was_for(handler: type[FakeDeploymentPlatformHandler],
@@ -582,6 +826,40 @@ def _the_sync_policy_was_never_patched(
     return assertion
 
 
+def _nothing_was_written_to(handler: type[FakeDeploymentPlatformHandler]) -> Assertion[object]:
+    """No patch of the application or of any resource, no rollback and no
+    action run: the platform holds what it held."""
+    def assertion(dont_care_result: object) -> bool:
+        written = {
+            "sync patches": handler.sync_patches_received,
+            "resource patches": handler.resource_patches_received,
+            "rollbacks": handler.rolled_back_to,
+            "actions": handler.actions_run
+        }
+
+        if any(written.values()):
+            raise AssertionError(f"Expected nothing written to the platform, and it got {written}")
+
+        return True
+
+    return assertion
+
+
+def _the_platform_was_never_rolled_back(
+    handler: type[FakeDeploymentPlatformHandler]
+) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        if handler.rolled_back_to:
+            raise AssertionError(
+                f"Expected the platform never rolled back, and it was rolled back to "
+                f"{handler.rolled_back_to}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_did_not_come_back_as(excluded: type[Exception]) -> Assertion[Exception | None]:
     def assertion(raised: Exception | None) -> bool:
         if isinstance(raised, excluded):
@@ -595,14 +873,73 @@ def _it_did_not_come_back_as(excluded: type[Exception]) -> Assertion[Exception |
     return assertion
 
 
-def _undoing(undo_descriptor: UndoDescriptor,
-             flag: str,
-             client: McpClient) -> UndoDescriptor:
-    assert isinstance(undo_descriptor, FlagUndo)
+def _it_left_behind(expected: UndoDescriptor | None) -> Assertion[Exception | None]:
+    """The refusal says the whole of what it left behind, and it is `expected` -
+    every field of it but the moment it was written, which is the tier's to
+    stamp."""
+    def assertion(raised: Exception | None) -> bool:
+        if not isinstance(raised, McpToolError):
+            raise AssertionError(f"Expected a refusal of the tool's, and {raised!r} was raised.")
 
-    return set_feature_flag(
-        flag, enabled=undo_descriptor.was_enabled, client=client
-    )
+        if not raised.left_behind_known:
+            raise AssertionError(
+                f"Expected the refusal to say the whole of what it left behind, and it did "
+                f"not: {raised!r}."
+            )
+
+        if _without_its_moment(raised.undo_descriptor) != _without_its_moment(expected):
+            raise AssertionError(
+                f"Expected the refusal to have left behind [{expected!r}], and it carried "
+                f"[{raised.undo_descriptor!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _without_its_moment(descriptor: UndoDescriptor | None) -> dict[str, Any] | None:
+    if descriptor is None:
+        return None
+
+    return descriptor.model_dump(exclude={"written_at"})
+
+
+def _the_plan_is(descriptor: UndoDescriptor, since: datetime) -> Assertion[Planned[Any]]:
+    """The plan came back whole: the change it describes, every field of it,
+    and the moment the state it was worked out from was read."""
+    def assertion(planned: Planned[Any]) -> bool:
+        wrong = {
+            field: (expected, got)
+            for field, expected, got in [("descriptor", descriptor, planned.descriptor),
+                                         ("since", since, planned.since)]
+            if expected != got
+        }
+
+        if wrong:
+            raise AssertionError(
+                f"Expected the plan to describe {descriptor!r} read at [{since}], and "
+                f"{wrong} differed (expected, got)."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_answered_as(planned: UndoDescriptor) -> Assertion[UndoDescriptor]:
+    """What the write answered is the change its plan described, every field of
+    it but the moment it was written, which the write stamps."""
+    def assertion(answered: UndoDescriptor) -> bool:
+        if _without_its_moment(answered) != _without_its_moment(planned):
+            raise AssertionError(
+                f"Expected the write to answer with the change planned, {planned!r}, and "
+                f"it answered {answered!r}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
@@ -660,6 +997,20 @@ def a_disabling_of(flag: str, at: str, by: str = DONT_CARE_ACTOR) -> dict[str, A
     return {
         "id": 11,
         "type": "feature-environment-disabled",
+        "createdBy": by,
+        "createdAt": at,
+        "featureName": flag,
+        "project": "default",
+        "environment": THE_ENVIRONMENT
+    }
+
+
+def an_enabling_of(flag: str, at: str, by: str = DONT_CARE_ACTOR) -> dict[str, Any]:
+    """The row the provider records for a flag switched on - the row after
+    `a_disabling_of`'s, where a case records both."""
+    return {
+        "id": 12,
+        "type": "feature-environment-enabled",
         "createdBy": by,
         "createdAt": at,
         "featureName": flag,
@@ -776,8 +1127,8 @@ def the_platform_stopped_reconciling(
         if not handler.sync_patches_received:
             raise AssertionError(
                 "Expected the sync policy to have been patched before the "
-                "rollback, and the platform was never asked to change it - so "
-                "the rollback was asked for against an application still "
+                "change, and the platform was never asked to change it - so "
+                "the change was asked for against an application still "
                 "reconciling itself."
             )
 
@@ -921,14 +1272,31 @@ def _the_platform_selects(handler: type[FakeDeploymentPlatformHandler],
     return assertion
 
 
-def _the_pin_descriptor_is(
-    expected: AcceleratorPinUndo
-) -> Assertion[AcceleratorPinUndo]:
-    def assertion(descriptor: AcceleratorPinUndo) -> bool:
-        if descriptor != expected:
+def _the_platform_runs(handler: type[FakeDeploymentPlatformHandler],
+                       replicas: int | None) -> Assertion[object]:
+    """The count the platform's own Deployment now declares, read from the
+    platform for `_the_platform_selects`'s reason."""
+    def assertion(dont_care_result: object) -> bool:
+        if handler.replicas != replicas:
             raise AssertionError(
-                f"Expected the pin to come back as {expected!r}, and it came back "
-                f"as {descriptor!r}."
+                f"Expected the platform's Deployment to declare [{replicas}] replicas, "
+                f"and it declares [{handler.replicas}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_autoscaler_s_floor_is(handler: type[FakeDeploymentPlatformHandler],
+                               floor: int) -> Assertion[object]:
+    """The floor the platform's own autoscaler now declares, read from the
+    platform for `_the_platform_selects`'s reason."""
+    def assertion(dont_care_result: object) -> bool:
+        if handler.autoscaler_floor != floor:
+            raise AssertionError(
+                f"Expected the platform's autoscaler to declare the floor [{floor}], "
+                f"and it declares [{handler.autoscaler_floor}]."
             )
 
         return True
@@ -955,11 +1323,11 @@ def _rolled_back_and_then_deployed_over(handler: type[FakeDeploymentPlatformHand
     """A real rollback through the server, and then a deployment of somebody
     else's recorded after it - the descriptor the rollback answered with, to
     put back."""
-    rolled_back = roll_back_deployment(SOME_APPLICATION, client=client)
+    rolled_back = _rolling_back(client)
     handler.history = handler.history + [{
         "id": handler.history[-1]["id"] + 1,
         "revision": A_REVISION_SOMEBODY_DEPLOYED,
-        "deployedAt": "2026-08-20T12:35:00Z",
+        "deployedAt": to_iso(AFTER_THE_PLATFORM_S_PLAN),
         "initiatedBy": {"username": SOME_PERSON_DEPLOYING}
     }]
 

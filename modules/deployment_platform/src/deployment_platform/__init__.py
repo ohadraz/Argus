@@ -24,6 +24,11 @@ from deployment_platform.port import (
     DeploymentPlatformWrites,
     DeploymentRecord,
     Mark,
+    MarkedObject,
+    RequestedSync,
+    SyncOperations,
+    SyncPhase,
+    SyncRun,
 )
 
 __all__ = [
@@ -34,6 +39,11 @@ __all__ = [
     "DeploymentPlatformWrites",
     "DeploymentRecord",
     "Mark",
+    "MarkedObject",
     "PlatformRefused",
-    "PlatformUnreachable"
+    "PlatformUnreachable",
+    "RequestedSync",
+    "SyncOperations",
+    "SyncPhase",
+    "SyncRun"
 ]

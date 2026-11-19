@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 import psycopg
 from core.models import (
     ActionProgress,
     ActionType,
+    Planned,
     TakenAction,
     UndoDescriptor,
     Undone,
@@ -23,6 +25,8 @@ def claim(
     action_type: ActionType,
     subject: str | None,
     at: datetime,
+    *,
+    planned: Planned[Any] | None = None
 ) -> str | None:
     """Takes the right to act on one candidate, and answers with the claim's id
     where it got it, or `None` where an earlier attempt holds it (spec §11.1,
@@ -82,12 +86,23 @@ def claim(
     simulated one included. It is not when the action was taken - the claim is
     written before the agent taking it is called in - and a reader dating the
     action asks its announcement (`when_it_was_taken`).
+
+    `planned` is the change the claim is taken to make, worked out before it,
+    and when the platform said what it was worked out from - one value, so the
+    two are written together or not at all, here and by nothing after, for the
+    reason `subject` is: a resumed walk finding the row asks the estate whether
+    it is as the plan found it, as the plan asked for, or neither, and only a
+    plan written before anything moved can be asked that. A second claim on a
+    held candidate writes nothing, its plan included: the plan belongs to the
+    claim that holds the candidate. Never into `undo_descriptor`, which says
+    something of Argus's is out there and would send a withdrawal to put back a
+    change never made. `None` for a kind that plans nothing.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO action (incident_id, hypothesis_id, type, subject, "
-            "                    has_a_way_back, taken_at, progress) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+            "                    has_a_way_back, taken_at, progress, plan, since) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
             "WHERE hypothesis_id IS NOT NULL DO NOTHING "
             "RETURNING id",
@@ -99,6 +114,8 @@ def claim(
                 leaves_something_to_put_back(action_type),
                 at,
                 ActionProgress.CLAIMED,
+                _as_column(planned.descriptor if planned is not None else None),
+                planned.since if planned is not None else None
             ),
         )
         claimed = cursor.fetchone()
@@ -256,6 +273,7 @@ def record(
     *,
     left_behind_known: bool,
     undone: Undone | None = None,
+    planned: Planned[Any] | None = None
 ) -> None:
     """One action, claimed and completed in a single step.
 
@@ -265,7 +283,7 @@ def record(
     it as the two halves at every call site would spread the ordering rule
     across everything that writes one.
     """
-    claim(conn, incident_id, hypothesis_id, action_type, subject, at)
+    claim(conn, incident_id, hypothesis_id, action_type, subject, at, planned=planned)
     complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor, performed,
              left_behind_known=left_behind_known, undone=undone)
 
@@ -284,7 +302,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
             "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
-            "       undone "
+            "       undone, plan, since "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id),
@@ -305,7 +323,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
             "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
-            "       undone "
+            "       undone, plan, since "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",
@@ -315,6 +333,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
 
 
 def _as_column(undo_descriptor: UndoDescriptor | None) -> Jsonb | None:
-    """A descriptor as the column stores it, NULL where there is none."""
+    """A descriptor as a column stores it - the change made, or the plan - NULL
+    where there is none."""
     return (Jsonb(undo_descriptor.model_dump(mode="json"))
             if undo_descriptor is not None else None)

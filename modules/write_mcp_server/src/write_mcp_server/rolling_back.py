@@ -58,13 +58,35 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from enum import Enum, auto
 
-from core.mcp_transport import an_exhausted_action
-from core.models import DeploymentRestored, DeploymentRollbackUndo
-from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites, Mark
+from core.mcp_transport import (
+    a_change_made_since,
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
+    with_what_it_left,
+)
+from core.models import DeploymentRestored, DeploymentRollbackUndo, Planned
+from deployment_platform import (
+    DeploymentPlatformError,
+    DeploymentPlatformWrites,
+    DeploymentRecord,
+    Mark,
+    MarkedObject,
+    RequestedSync,
+    SyncOperations,
+    SyncPhase,
+    SyncRun,
+)
 
 from write_mcp_server.refusing import a_platform_refusal
+from write_mcp_server.sync_switch import (
+    Switch,
+    suspend_where_it_is_to_be,
+    the_switch,
+    this_claim_s_suspension_stands,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +98,9 @@ class _Standing(Enum):
     STILL_ARGUS_S = auto()
     # The deployment is already on the revision Argus found it on.
     ALREADY_BACK = auto()
+    # The platform is running a sync nobody else asked for - its own, or Argus's
+    # rollback not yet finished - which a put-back cannot be asked beside.
+    MID_SYNC = auto()
 
 
 class NoEarlierRevision(Exception):
@@ -114,42 +139,43 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
     ))
 
 
-def roll_back_deployment(application: str,
-                         platform: DeploymentPlatformWrites,
-                         mark: Mark) -> DeploymentRollbackUndo:
-    """Returns `application` to the revision it was running before the current
-    one, and reports what that cost.
+def plan_rollback(application: str,
+                  platform: DeploymentPlatformWrites) -> Planned[DeploymentRollbackUndo]:
+    """The rollback of `application` to make, worked out and dated - and nothing
+    changed.
 
-    The suspension carries `mark`. The rollback cannot: the platform records
-    under whose account it was made, and its request has nowhere to put more.
+    The entry returned to is worked out from the history alone, the way
+    `argocd app rollback APPNAME` chooses with its id omitted, once the history
+    is read for what it is. The platform adds an entry on every full sync, so a
+    run of entries of one revision is one deployment, and the entry returned to
+    is the last of the run before the one running. Where the running revision
+    appears earlier in the history, the newest run is itself a return - a
+    rollback already made, whoever made it, or a revision deployed again - and
+    rolling back from it would roll forward to what that return went away from,
+    so it is refused as having nothing earlier to return to. Nobody's account is
+    read for that.
 
-    The entry rolled back to is the platform's to choose, and the choice is the
-    one `argocd app rollback APPNAME` makes with its history id omitted: the
-    immediately preceding deployment, in the order the platform keeps its
-    history. Nothing above this port holds a deployment history to choose from,
-    so a caller naming an entry would be naming one it could not have read.
-
-    Raises rather than half-succeeding. An application with no earlier entry
-    raises before anything is touched; a platform that refuses the rollback
-    raises after sync was suspended, and that is deliberate - the suspension is
-    recorded nowhere yet, so leaving it in place and saying so is honest where
-    quietly restoring it would hide a state somebody has to know about.
+    Dated by the platform's clock, read before anything it dates. An application
+    with nothing to return to raises here, before a claim is written for it.
     """
     try:
+        since = platform.now(application)
         history = platform.deployments_of(application)
     except DeploymentPlatformError as error:
         raise _refusing(f"could not read [{application}]: {error}", error,
                         asked_to_change=False) from error
 
-    if len(history) < 2:
+    previous = _the_entry_to_return_to(history)
+
+    if previous is None:
         raise NoEarlierRevision(
             an_exhausted_action(
-                f"[{application}] has no revision before the one it is running, so "
-                f"there is nothing to roll back to"
+                f"[{application}] has no revision before the one it is running that "
+                f"a rollback could return to, so there is nothing to roll back to"
             )
         )
 
-    running, previous = history[-1], history[-2]
+    running = history[-1]
 
     try:
         was_syncing_itself = platform.is_syncing_itself(application)
@@ -159,49 +185,314 @@ def roll_back_deployment(application: str,
             asked_to_change=False
         ) from error
 
-    # Apart from the read before it, because this is the first change asked
-    # for: a failure here may have suspended the sync, where one there cannot.
-    if was_syncing_itself:
-        try:
-            platform.suspend_sync(application, mark)
-        except DeploymentPlatformError as error:
-            raise _refusing(
-                f"could not suspend the sync of [{application}]: {error}", error,
-                asked_to_change=True
-            ) from error
-
-    # Built before the action rather than after it, because it describes what
-    # has already been changed: where sync was suspended, this is what a caller
-    # has to put back whether the rollback then lands or the platform vanishes.
-    undo = DeploymentRollbackUndo(
-        application=application,
-        was_on_history_id=running.history_id,
-        was_on_revision=running.revision,
-        rolled_back_to_revision=previous.revision,
-        was_syncing_itself=was_syncing_itself
+    return Planned(
+        descriptor=DeploymentRollbackUndo(
+            application=application,
+            was_on_history_id=running.history_id,
+            was_on_revision=running.revision,
+            rolled_back_to_revision=previous.revision,
+            rolled_back_to_history_id=previous.history_id,
+            was_syncing_itself=was_syncing_itself
+        ),
+        since=since
     )
 
+
+def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
+                         platform: DeploymentPlatformWrites,
+                         mark: Mark,
+                         argus_account: str) -> DeploymentRollbackUndo:
+    """Makes the rollback `planned` describes, where the platform still stands as
+    the plan found it, and reports what that cost.
+
+    The suspension carries `mark`. The rollback cannot: the platform records
+    under whose account it was made - `argus_account`, for Argus's - and its
+    request has nowhere to put more.
+
+    Every comparison is made before anything is written. The plan is first held
+    to this tier's own rule: the entry it returns to has to be the one the rule
+    gives over the history up to the entry it found running, holding the
+    revision it names - anything else is refused plainly, nothing written.
+
+    Then the platform is compared with it, from the plan's `since` on. Running
+    the revision the plan found, with no entry since by any named account and no
+    sync asked by one, is written - to the entry the plan names, never one worked
+    out again. This rollback already made is answered with the plan and nothing
+    written: running the revision the plan returns to with an entry of it since
+    by Argus's account and by no other, or - before the platform has written that
+    entry - a sync to it asked by Argus's account and not yet finished, or one
+    running or finished since the plan. A sync of Argus's that failed is not
+    made, and leaves nothing behind it. Anything else is somebody's change since
+    - a named account's entry since the plan among it, even where the running
+    revision has come back to the one found; a sync another account asked for
+    that is still being run, or started since the plan however it ended; and
+    this rollback's own sync being terminated, which only somebody does -
+    refused with nothing written.
+
+    Every refusal after the platform is read carries the plan where this
+    claim's suspension or rollback shows part of it landed, so a re-ask finding
+    this claim's work out there never says it left nothing. An entry naming nobody is the
+    platform's own sync, and is no change of anybody's - but a sync of its own
+    still being run is refused plainly, nothing written, because a rollback asked
+    beside it can only come back as an answer nobody can read. The sync switch is
+    held to the same rule (`sync_switch`).
+
+    With no `argus_account` to look for, Argus's own entries cannot be told from
+    anybody's. Where no named account has deployed or asked for a sync since the
+    plan, the rollback is written as above; where one has, nobody can say whose
+    it was, and the refusal says nothing it cannot establish - not marked as
+    known, and carrying the suspension where this claim's still stands.
+
+    Raises rather than half-succeeding. A platform that refuses the rollback
+    after sync was suspended leaves the suspension in place and says so -
+    quietly restoring it would hide a state somebody has to know about.
+    """
+    descriptor = planned.descriptor
+    application = descriptor.application
+    target_revision = descriptor.rolled_back_to_revision
+    target_entry = descriptor.rolled_back_to_history_id
+
+    if target_revision is None or target_entry is None:
+        raise RollbackRefused(a_refusal_saying_what_it_left(
+            f"the rollback of [{application}] names no entry to return to"
+        ))
+
     try:
-        platform.roll_back(application, previous.history_id)
+        history = platform.deployments_of(application)
+        operations = platform.sync_operations_of(application)
+        syncing_now = platform.is_syncing_itself(application)
+        switch_marked_by = platform.mark_on(application, MarkedObject.APPLICATION)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not read what [{application}] is now: {error}", error,
+            asked_to_change=False
+        ) from error
+
+    # What of this claim's is out there is worked out before any refusal that
+    # follows the reads, so every one of them carries it: the suspension under
+    # this claim's mark, and the rollback itself - asked and not yet finished,
+    # running or done, or in the history.
+    requested, last_run = operations.requested, operations.last_run
+    suspension_stands = this_claim_s_suspension_stands(
+        descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
+    )
+    asked = _asked_by_argus(operations, target_revision, argus_account)
+    run = _run_by_argus_since(operations, target_revision, argus_account, planned.since)
+    rollback_under_way = asked or run is not None
+
+    try:
+        since_the_plan = [entry for entry in history
+                          if datetime.fromisoformat(entry.deployed_at) >= planned.since]
+    except ValueError as error:
+        landed = rollback_under_way or suspension_stands
+        raise RollbackRefused(a_refusal_saying_what_it_left(
+            f"[{application}]'s history says a time that is not one: {error}",
+            descriptor if landed else None
+        )) from error
+
+    named_since = [entry for entry in since_the_plan if entry.initiated_by]
+    this_rollback_s = [entry for entry in named_since
+                       if argus_account and entry.initiated_by == argus_account
+                       and entry.revision == target_revision]
+    # Asked, running or done: the change itself has been made, whatever came
+    # of it after.
+    performed = bool(this_rollback_s) or rollback_under_way
+    left_behind = descriptor if performed or suspension_stands else None
+
+    the_rule_s = _the_entry_to_return_to(
+        [entry for entry in history if entry.history_id <= descriptor.was_on_history_id]
+    )
+
+    if the_rule_s is None or (the_rule_s.history_id, the_rule_s.revision) != (
+            target_entry, target_revision):
+        raise RollbackRefused(a_refusal_saying_what_it_left(
+            f"the rollback of [{application}] asks to return to entry [{target_entry}] "
+            f"of revision [{target_revision}], which is not the entry before the one it "
+            f"found running",
+            left_behind
+        ))
+
+    # The platform's own sync, still being run: nobody's change, and nothing to
+    # roll back beside - the platform refuses a rollback asked while it runs,
+    # in words that say nothing of what lands.
+    if requested is not None and requested.initiated_by is None:
+        raise RollbackRefused(a_refusal_saying_what_it_left(
+            f"[{application}] is in the middle of a sync of its own, to revision "
+            f"[{requested.revision}], and a rollback asked beside it could not be "
+            f"told apart from it",
+            left_behind
+        ))
+
+    named_sync_since = (
+        (requested is not None and requested.initiated_by is not None)
+        or (last_run is not None and last_run.initiated_by is not None
+            and last_run.started_at >= planned.since)
+    )
+
+    if not argus_account and (named_since or named_sync_since):
+        raise RollbackRefused(with_what_it_left(
+            f"[{application}] has {_who_deployed(named_since)} since the plan"
+            f"{_and_who_asked(requested)}, and with no account of Argus's to look "
+            f"for, nobody can say whether any of it was this rollback",
+            left_behind
+        ))
+
+    somebody_s = [entry for entry in named_since if entry not in this_rollback_s]
+    somebody_asked = (requested is not None and requested.initiated_by is not None
+                      and not asked)
+    # A sync another account started since the plan, however it ended; and this
+    # rollback's own sync being terminated, which only somebody does.
+    somebody_ran = last_run is not None and last_run.started_at >= planned.since and (
+        (last_run.initiated_by is not None and last_run.initiated_by != argus_account)
+        or ((last_run.revision, last_run.initiated_by) == (target_revision, argus_account)
+            and last_run.phase is SyncPhase.TERMINATING)
+    )
+    running = history[-1].revision if history else None
+
+    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
+    nobody_else_s = not somebody_s and not somebody_asked and not somebody_ran
+    made = nobody_else_s and (
+        (bool(this_rollback_s) and running == target_revision)
+        # The history gains its entry only once the sync finishes.
+        or (rollback_under_way
+            and running in (target_revision, descriptor.was_on_revision))
+    )
+    still_as_found = (nobody_else_s and not this_rollback_s and not rollback_under_way
+                      and running == descriptor.was_on_revision)
+
+    if switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
+            made and switch is Switch.TO_SUSPEND):
+        raise RollbackRefused(a_change_made_since(
+            f"[{application}] is running revision [{running}] with "
+            f"{_who_deployed(somebody_s)} since the plan"
+            f"{_and_who_asked(requested) if somebody_asked else ''}"
+            f"{_and_who_ran(last_run) if somebody_ran else ''}, and "
+            f"{'is' if syncing_now else 'is not'} syncing itself, which is not where "
+            f"the rollback from [{descriptor.was_on_revision}] to [{target_revision}] "
+            f"found it or would leave it",
+            left_behind,
+            performed=performed
+        ))
+
+    if made:
+        logger.info("deployment already rolled back", extra={
+            "application": application, "to_history_id": target_entry
+        })
+        return descriptor
+
+    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
+
+    try:
+        platform.roll_back(application, target_entry)
     except DeploymentPlatformError as error:
         logger.warning("rollback refused", extra={
-            "application": application, "sync_suspended": was_syncing_itself
+            "application": application, "sync_suspended": descriptor.was_syncing_itself
         })
         raise _refusing(
             f"[{application}] could not be rolled back to history entry "
-            f"[{previous.history_id}]: {error}",
+            f"[{target_entry}]: {error}",
             error,
             asked_to_change=True,
-            left_behind=undo if was_syncing_itself else None
+            left_behind=descriptor if descriptor.was_syncing_itself else None
         ) from error
 
     logger.info("deployment rolled back", extra={
         "application": application,
-        "from_history_id": running.history_id,
-        "to_history_id": previous.history_id
+        "from_history_id": descriptor.was_on_history_id,
+        "to_history_id": target_entry
     })
 
-    return undo
+    return descriptor
+
+
+def _asked_by_argus(operations: SyncOperations, revision: str, argus_account: str) -> bool:
+    """Whether the sync asked and not yet finished is one to `revision` asked by
+    `argus_account` - which, pending, is the rollback whose answer was lost."""
+    requested = operations.requested
+
+    return bool(argus_account) and requested is not None and (
+        requested.revision, requested.initiated_by) == (revision, argus_account)
+
+
+def _run_by_argus_since(operations: SyncOperations,
+                        revision: str,
+                        argus_account: str,
+                        since: datetime) -> SyncRun | None:
+    """The last sync the platform ran, where it is one to `revision` asked by
+    `argus_account`, started at or after `since`, and running or done - a sync
+    that failed made nothing."""
+    run = operations.last_run
+
+    if not argus_account or run is None:
+        return None
+
+    if (run.revision, run.initiated_by) != (revision, argus_account):
+        return None
+
+    if run.started_at < since or run.phase not in (SyncPhase.RUNNING, SyncPhase.SUCCEEDED):
+        return None
+
+    return run
+
+
+def _and_who_asked(requested: RequestedSync | None) -> str:
+    """A sync somebody asked for that is still being run, as a sentence adds it."""
+    if requested is None:
+        return ""
+
+    return (f" and a sync to [{requested.revision}] asked by [{requested.initiated_by}] "
+            f"still being run")
+
+
+def _and_who_ran(run: SyncRun | None) -> str:
+    """A sync somebody started since the plan, as a sentence adds it."""
+    if run is None:
+        return ""
+
+    return (f" and a sync to [{run.revision}] by [{run.initiated_by}] started since, "
+            f"now [{run.phase.name.lower()}]")
+
+
+def _the_entry_to_return_to(history: list[DeploymentRecord]) -> DeploymentRecord | None:
+    """The entry a rollback from the newest of `history` returns to: the last of
+    the run before the one running - or `None` where there is none, or where the
+    newest run is itself a return to a revision earlier in the history."""
+    runs = _runs_of(history)
+
+    if len(runs) < 2 or runs[-1].revision in {run.revision for run in runs[:-1]}:
+        return None
+
+    return runs[-2]
+
+
+def _runs_of(history: list[DeploymentRecord]) -> list[DeploymentRecord]:
+    """The last entry of each run of one revision, oldest first: consecutive
+    entries of one revision are one deployment synced more than once."""
+    runs: list[DeploymentRecord] = []
+
+    for entry in history:
+        if runs and runs[-1].revision == entry.revision:
+            runs[-1] = entry
+        else:
+            runs.append(entry)
+
+    return runs
+
+
+def _who_deployed(entries: list[DeploymentRecord]) -> str:
+    """The accounts named on `entries`, as a sentence says them."""
+    if not entries:
+        return "no deployment by anybody else"
+
+    accounts = ", ".join(sorted({f"[{entry.initiated_by}]" for entry in entries}))
+
+    return f"deployments by {accounts}"
+
+
+def _refusing_a_change(said: str, error: DeploymentPlatformError) -> RollbackRefused:
+    """This module's refusal of a change it asked for, with nothing before it
+    left behind."""
+    return _refusing(said, error, asked_to_change=True)
 
 
 def restore_deployment(descriptor: DeploymentRollbackUndo,
@@ -233,7 +524,9 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     half back, nothing found - and neither does a descriptor recorded without
     the revision it rolled back to, nor an empty `argus_account`, since whose
     the newest entry is cannot be asked without both. A put-back made blind is
-    the one the check exists to prevent.
+    the one the check exists to prevent. Nor does a platform in the middle of a
+    sync of its own, or of Argus's rollback not yet finished: nobody else's
+    change, and nothing a rollback can be asked beside.
 
     The revision first and reconciliation second, which is the order the
     platform allows: automated sync refuses a rollback, so re-enabling it
@@ -267,6 +560,12 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
 
     if isinstance(found, str):
         return _left_as_somebody_set_it(found, descriptor, platform)
+
+    if found is _Standing.MID_SYNC:
+        # Nobody's change, and nothing that can be put back while it runs: the
+        # put-back goes to a person, as one that could not be made does.
+        logger.warning("restore impossible mid-sync", extra={"application": application})
+        return _said(_nothing_established(), application)
 
     if found is _Standing.ALREADY_BACK:
         # Already where Argus found it, whoever put it there: nothing is written
@@ -306,12 +605,38 @@ def _what_became_of_the_rollback(descriptor: DeploymentRollbackUndo,
     """Where the rollback `descriptor` records stands now, or - where it is
     somebody's change since - what was found, said.
 
-    Reads the history, then the images: the Deployment's, and those the
-    platform renders for the revision the newest entry says it should be on.
-    Raises `DeploymentPlatformError` where any read fails, so the caller can
-    write nothing on it.
+    Reads the syncs first. The history gains its entry only when a sync
+    finishes, so a put-back of Argus's already asked for or running - one whose
+    answer was lost - shows only there, and is taken as the revision put back
+    rather than asked again; a sync somebody else asked for and that is still
+    being run is their change. Then the history, then the images: the
+    Deployment's, and those the platform renders for the revision the newest
+    entry says it should be on. Raises `DeploymentPlatformError` where any read
+    fails, so the caller can write nothing on it.
     """
     application = descriptor.application
+    operations = platform.sync_operations_of(application)
+    requested, run = operations.requested, operations.last_run
+
+    if requested is not None:
+        if (requested.revision, requested.initiated_by) == (descriptor.was_on_revision,
+                                                            argus_account):
+            return _Standing.ALREADY_BACK
+
+        # The platform's own sync, or Argus's own forward rollback not yet
+        # finished: nobody else's change, and nothing to put back beside.
+        if requested.initiated_by in (None, argus_account):
+            return _Standing.MID_SYNC
+
+        return (
+            f"a sync of [{application}] to revision [{requested.revision}], asked by "
+            f"[{requested.initiated_by}], is still being run"
+        )
+
+    if run is not None and run.phase is SyncPhase.RUNNING and (
+            run.revision, run.initiated_by) == (descriptor.was_on_revision, argus_account):
+        return _Standing.ALREADY_BACK
+
     history = platform.deployments_of(application)
 
     if not history:

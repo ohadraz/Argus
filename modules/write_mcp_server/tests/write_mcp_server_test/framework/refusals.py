@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from argus_testkit import Assertion
 from core.mcp_transport import (
+    CHANGED_SINCE_MARKER,
+    EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_KNOWN_MARKER,
+    PERFORMED_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
 )
@@ -23,6 +26,55 @@ def it_was_refused_as(refusal: type[Exception]) -> Assertion[object]:
             raise AssertionError(
                 f"Expected the action to be refused with {refusal.__name__}, and "
                 f"what was raised was {raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def it_was_refused_as_changed_since() -> Assertion[object]:
+    """The refusal carries the changed-since marker, and neither of the others.
+
+    Its own marker because the walk does something different with each: a
+    changed-since refusal escalates - somebody is acting on the service now, and
+    Argus hands it to a person rather than act beside them - an exhausted one is
+    spent, and an unreachable platform narrows every action through it. Asserted
+    against the marker rather than the sentence, which is allowed to change.
+    """
+    def assertion(raised: object) -> bool:
+        said = str(raised)
+
+        if raised is None or CHANGED_SINCE_MARKER not in said:
+            raise AssertionError(
+                f"Expected the refusal to carry [{CHANGED_SINCE_MARKER}], and it "
+                f"said [{raised}]."
+            )
+
+        others = [marker for marker in (EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER)
+                  if marker in said]
+
+        if others:
+            raise AssertionError(
+                f"Expected a changed-since refusal to carry no other marker, and it "
+                f"carried {others}: [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def its_change_is_said_performed(expected: bool) -> Assertion[object]:
+    """Whether a changed-since refusal says this claim's own change - the value,
+    under this claim's mark - had landed before somebody overtook it. The walk
+    records the action performed where it had and not performed where it had not,
+    and a suspension alone is not the change."""
+    def assertion(raised: object) -> bool:
+        if (PERFORMED_MARKER in str(raised)) is not expected:
+            raise AssertionError(
+                f"Expected the refusal to say this claim's change "
+                f"{'had' if expected else 'had not'} landed, and it said [{raised}]."
             )
 
         return True

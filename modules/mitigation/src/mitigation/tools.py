@@ -10,7 +10,7 @@ from typing import Protocol
 
 from core import SettingsSlice, parse_iso, to_iso, utc_now
 from core.anomaly import the_end_of_the_onset
-from core.mcp_transport import McpClient
+from core.mcp_transport import ActionExhausted, McpClient
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -25,7 +25,9 @@ from core.models import (
     DeploymentRollbackUndo,
     FlagChange,
     FlagHistory,
+    FlagUndo,
     MetricBucket,
+    Planned,
     ReplicaUndo,
     RestartedService,
     RolloutProgress,
@@ -42,6 +44,11 @@ from write_mcp_client import (
     get_recent_flag_changes,
     pin_autoscaler,
     pin_to_accelerator,
+    plan_accelerator_pin,
+    plan_autoscaler_pin,
+    plan_flag,
+    plan_rollback,
+    plan_scale_out,
     restart_service,
     restore_accelerator_pin,
     restore_autoscaler_floor,
@@ -174,7 +181,88 @@ class RuleReader(Protocol):
 
 
 class FlagSetter(Protocol):
+    """Setting a flag to a state with nothing planned for it - what puts a
+    flag back, which plans and writes in one breath because the check that
+    guards it was asked a moment before. A flag already in the state asked for
+    is answered as put there, with nothing written (`set_flag`)."""
+
     def __call__(self, flag: str, enabled: bool, /) -> UndoDescriptor: ...
+
+
+class FlagPlanner(Protocol):
+    """Working out a flag change before it is claimed: the state the provider
+    holds the flag in, and the provider's own time for that read.
+
+    The flag and the state asked for, and nothing else - which state the flag
+    is in is the tier's to read, through the admin credential only it holds. A
+    read: it changes nothing, and refuses as spent a flag already as asked.
+    """
+
+    def __call__(self, flag: str, enabled: bool, /) -> Planned[FlagUndo]: ...
+
+
+class PlannedFlagSetter(Protocol):
+    """The first of the writes: setting the planned flag to a state.
+
+    Handed the plan the claim carries rather than the flag's name, because the
+    write compares the provider's history since the plan's read with it before
+    it changes anything, and a write handed the name alone would have nothing to
+    compare with. Refuses with `ChangedSince` where somebody else has changed
+    the flag since.
+    """
+
+    def __call__(self, planned: Planned[FlagUndo], enabled: bool, /) -> UndoDescriptor: ...
+
+
+class RollbackPlanner(Protocol):
+    """Working out a rollback before it is claimed: the entry the deployment is
+    on, the one it would go back to, and whether the platform reconciles it
+    itself, dated by the platform's clock.
+
+    The application, and nothing else, for the reason `DeploymentRoller` once
+    took nothing else: which entry to return to is the platform's history to
+    resolve, and nothing above this port holds it.
+    """
+
+    def __call__(self, application: str, /) -> Planned[DeploymentRollbackUndo]: ...
+
+
+class ScaleOutPlanner(Protocol):
+    """Working out a scale-out before it is claimed: the count running, the count
+    it would be given, and whether the platform reconciles it itself.
+
+    No count goes with it: what to scale to is the tier's to resolve from what
+    is running, and a figure named here would be this layer asserting a fact
+    about live state it cannot read. Refuses as spent a deployment already as
+    large as Argus may make it.
+    """
+
+    def __call__(self, application: str, /) -> Planned[ReplicaUndo]: ...
+
+
+class AutoscalerPinPlanner(Protocol):
+    """Working out an autoscaler pin before it is claimed: the floor it has, the
+    floor it would be raised to, and whether the platform reconciles it itself.
+
+    The application alone, for `ScaleOutPlanner`'s reason: the floor is worked
+    out from the autoscaler's own ceiling, which only the tier reads.
+    """
+
+    def __call__(self, application: str, /) -> Planned[AutoscalerUndo]: ...
+
+
+class AcceleratorPinPlanner(Protocol):
+    """Working out a pin to a card before it is claimed: the card the pods are
+    held to now, the card they would be held to, and whether the platform
+    reconciles the application itself.
+
+    The application and the card. Which card is worked out from where the
+    replicas started before the onset, a reading the tier never saw - so the
+    tier is told it here, once, and the write holds the pods to the card the
+    claim recorded.
+    """
+
+    def __call__(self, application: str, accelerator: str, /) -> Planned[AcceleratorPinUndo]: ...
 
 
 class ServiceRestarter(Protocol):
@@ -193,11 +281,12 @@ class DeploymentRoller(Protocol):
     """The tier's third write: returning a deployment to a revision it already
     ran.
 
-    The application, and nothing else. Which entry to return to is the
-    platform's to resolve - the immediately preceding deployment - because
-    nothing above this port holds a deployment history to choose from, and a
-    commit Argus found in a diff is not necessarily a revision this
-    application ever ran.
+    The plan, and nothing else. Which entry to return to was the platform's to
+    resolve when the rollback was planned - nothing above this port holds a
+    deployment history to choose from, and a commit Argus found in a diff is not
+    necessarily a revision this application ever ran - and the write returns to
+    the entry the claim recorded rather than working it out again from a
+    history that may have moved since.
 
     It answers with the descriptor recording what it changed, and the
     descriptor records *two* things: the platform refuses a rollback while it
@@ -207,24 +296,27 @@ class DeploymentRoller(Protocol):
     anybody ships to it.
     """
 
-    def __call__(self, application: str, /) -> DeploymentRollbackUndo: ...
+    def __call__(self,
+                 planned: Planned[DeploymentRollbackUndo], /) -> DeploymentRollbackUndo: ...
 
 
 class DeploymentScaler(Protocol):
     """The tier's fourth write: giving a deployment more replicas than it has.
 
-    The application, and nothing else. How many is the tier's to resolve - it
-    reads what is running, doubles it, and bounds the result by a ceiling of its
-    own - because a target count is meaningless without the count it replaces, and
-    nothing above the port can read that.
+    The plan, and nothing else. How many was the tier's to resolve when it
+    planned - it read what was running and doubled it - and the write bounds the
+    result by a ceiling of its own, because a target count is meaningless without
+    the count it replaces and nothing above the port can read that.
 
     It answers with the descriptor recording what it changed, and the descriptor
     records *two* things for the reason a rollback's does: a platform reconciling
     the application itself puts a live replica count straight back, so suspending
-    that is part of performing this rather than a separate concern.
+    that is part of performing this rather than a separate concern. The count it
+    records is the one the write found, which an autoscaler may have moved since
+    the plan.
     """
 
-    def __call__(self, application: str, /) -> ReplicaUndo: ...
+    def __call__(self, planned: Planned[ReplicaUndo], /) -> ReplicaUndo: ...
 
 
 class CapacityRestorer(Protocol):
@@ -242,11 +334,12 @@ class CapacityRestorer(Protocol):
 class AutoscalerPinner(Protocol):
     """Stopping a deployment's autoscaler moving its replica count about.
 
-    The application, and nothing else. How high the floor goes is the tier's to
-    resolve - it reads the autoscaler's own ceiling and raises the floor to meet
-    it, bounded by a ceiling of its own - because a floor is meaningless without
-    the ceiling it is raised to, and because that ceiling is a bound somebody
-    declared for the deployment rather than a figure an agent may assert.
+    The plan, and nothing else. How high the floor goes was the tier's to
+    resolve when it planned - it read the autoscaler's own ceiling and raised the
+    floor to meet it, bounded by a ceiling of its own - because a floor is
+    meaningless without the ceiling it is raised to, and because that ceiling is
+    a bound somebody declared for the deployment rather than a figure an agent
+    may assert.
 
     It answers with the descriptor recording what it changed, and the descriptor
     records *two* things for the reason a scale-out's does: a platform reconciling
@@ -255,7 +348,7 @@ class AutoscalerPinner(Protocol):
     concern.
     """
 
-    def __call__(self, application: str, /) -> AutoscalerUndo: ...
+    def __call__(self, planned: Planned[AutoscalerUndo], /) -> AutoscalerUndo: ...
 
 
 class CacheEntryDiscarder(Protocol):
@@ -298,9 +391,9 @@ class AutoscalingRestorer(Protocol):
 class AcceleratorPinner(Protocol):
     """Holding a deployment's pods to one accelerator card.
 
-    The application and the card. Which card is worked out from where the
-    replicas started before the onset, a reading the tier never saw - so the tier
-    is told it, as it is told nothing about a scale-out's count.
+    The plan, which carries the card: the tier was told it when the pin was
+    planned, and holds the pods to the card the claim recorded rather than one
+    it is told a second time.
 
     It answers with the descriptor recording what it changed, and the descriptor
     records *two* things for the reason the autoscaler pin's does: a platform
@@ -308,7 +401,7 @@ class AcceleratorPinner(Protocol):
     included, so suspending that is part of performing this.
     """
 
-    def __call__(self, application: str, accelerator: str, /) -> AcceleratorPinUndo: ...
+    def __call__(self, planned: Planned[AcceleratorPinUndo], /) -> AcceleratorPinUndo: ...
 
 
 class AcceleratorPinRestorer(Protocol):
@@ -351,15 +444,25 @@ class PerformingWrites:
     those belong to putting a change back rather than to making one, which is a
     different moment with a different caller. What performs an action and what
     undoes one are two collaborations, and `PuttingBack` holds the second.
+
+    The planners are here, though each is a read, because a plan is asked of the
+    tier that writes from it: it is what that write compares the estate with,
+    read through the same port the compare reads through - and a flag's plan
+    needs the admin credential only the write tier holds.
     """
 
-    set_state: FlagSetter
+    set_state: PlannedFlagSetter
     restart: ServiceRestarter
     roll_back: DeploymentRoller
     scale_out: DeploymentScaler
     pin: AutoscalerPinner
     discard: CacheEntryDiscarder
     pin_to_accelerator: AcceleratorPinner
+    plan_flag: FlagPlanner
+    plan_rollback: RollbackPlanner
+    plan_scale_out: ScaleOutPlanner
+    plan_autoscaler_pin: AutoscalerPinPlanner
+    plan_accelerator_pin: AcceleratorPinPlanner
 
 
 @dataclass(frozen=True)
@@ -487,9 +590,15 @@ def rollout_progress_over(client: McpClient) -> RolloutReader:
 
 
 def flag_setter_over(client: McpClient) -> FlagSetter:
-    """The first of the writes Argus makes, over one connection to the write
-    tier."""
+    """Setting a flag with nothing planned for it, over one connection to the
+    write tier - what puts a flag back."""
     return partial(set_flag, client=client)
+
+
+def planned_flag_setter_over(client: McpClient) -> PlannedFlagSetter:
+    """The first of the writes Argus makes, from its plan, over one connection
+    to the write tier."""
+    return partial(set_a_planned_flag, client=client)
 
 
 def service_restarter_over(client: McpClient) -> ServiceRestarter:
@@ -523,13 +632,18 @@ def performing_writes_over(client: McpClient) -> PerformingWrites:
     over one client and the fourth over another would be a caller nothing stopped.
     """
     return PerformingWrites(
-        set_state=flag_setter_over(client),
+        set_state=planned_flag_setter_over(client),
         restart=service_restarter_over(client),
         roll_back=deployment_roller_over(client),
         scale_out=deployment_scaler_over(client),
         pin=autoscaler_pinner_over(client),
         discard=cache_entry_discarder_over(client),
-        pin_to_accelerator=accelerator_pinner_over(client)
+        pin_to_accelerator=accelerator_pinner_over(client),
+        plan_flag=partial(plan_a_flag, client=client),
+        plan_rollback=partial(plan_a_rollback, client=client),
+        plan_scale_out=partial(plan_a_scale_out, client=client),
+        plan_autoscaler_pin=partial(plan_an_autoscaler_pin, client=client),
+        plan_accelerator_pin=partial(plan_a_pin_to_a_card, client=client)
     )
 
 
@@ -791,10 +905,23 @@ def restart_a_service(service: str, *, client: McpClient) -> RestartedService:
     return restart_service(service, client=client)
 
 
-def roll_back_a_deployment(application: str,
+def plan_a_rollback(application: str,
+                    *,
+                    client: McpClient) -> Planned[DeploymentRollbackUndo]:
+    """Works out returning a deployment to the revision it ran before, changing
+    nothing.
+
+    A named function rather than `plan_rollback` itself, for the reason
+    `restart_a_service` is one: a seam is only useful if a test can spec against
+    the shape the caller actually uses.
+    """
+    return plan_rollback(application, client=client)
+
+
+def roll_back_a_deployment(planned: Planned[DeploymentRollbackUndo],
                            *,
                            client: McpClient) -> DeploymentRollbackUndo:
-    """Returns a deployment to the revision it ran before, answering with what
+    """Returns a deployment to the entry its plan named, answering with what
     that cost.
 
     A named function rather than `roll_back_deployment` itself, for the
@@ -802,7 +929,7 @@ def roll_back_a_deployment(application: str,
     calling shapes, and a seam is only useful if a test can spec against the
     shape the caller actually uses.
     """
-    return roll_back_deployment(application, client=client)
+    return roll_back_deployment(planned, client=client)
 
 
 def restore_a_deployment(descriptor: DeploymentRollbackUndo,
@@ -813,10 +940,18 @@ def restore_a_deployment(descriptor: DeploymentRollbackUndo,
     return restore_deployment(descriptor, client=client)
 
 
-def scale_out_a_deployment(application: str,
+def plan_a_scale_out(application: str,
+                     *,
+                     client: McpClient) -> Planned[ReplicaUndo]:
+    """Works out giving a deployment more replicas than it is running, changing
+    nothing. Named for `plan_a_rollback`'s reason."""
+    return plan_scale_out(application, client=client)
+
+
+def scale_out_a_deployment(planned: Planned[ReplicaUndo],
                            *,
                            client: McpClient) -> ReplicaUndo:
-    """Gives a deployment more replicas than it is running, answering with what
+    """Gives a deployment the replicas its plan asked for, answering with what
     that cost.
 
     A named function rather than `scale_out` itself, for the reason
@@ -824,7 +959,7 @@ def scale_out_a_deployment(application: str,
     and a seam is only useful if a test can spec against the shape the caller
     actually uses.
     """
-    return scale_out(application, client=client)
+    return scale_out(planned, client=client)
 
 
 def restore_a_replica_count(descriptor: ReplicaUndo,
@@ -835,18 +970,26 @@ def restore_a_replica_count(descriptor: ReplicaUndo,
     return restore_replica_count(descriptor, client=client)
 
 
-def pin_an_autoscaler(application: str,
+def plan_an_autoscaler_pin(application: str,
+                           *,
+                           client: McpClient) -> Planned[AutoscalerUndo]:
+    """Works out stopping a deployment's autoscaler scaling it back down,
+    changing nothing. Named for `plan_a_rollback`'s reason."""
+    return plan_autoscaler_pin(application, client=client)
+
+
+def pin_an_autoscaler(planned: Planned[AutoscalerUndo],
                       *,
                       client: McpClient) -> AutoscalerUndo:
-    """Stops a deployment's autoscaler scaling it back down, answering with what
-    that changed.
+    """Stops a deployment's autoscaler scaling it back down as its plan said,
+    answering with what that changed.
 
     A named function rather than `pin_autoscaler` itself, for the reason
     `scale_out_a_deployment` is one: the Mitigator needs one of that tool's calling
     shapes, and a seam is only useful if a test can spec against the shape the
     caller actually uses.
     """
-    return pin_autoscaler(application, client=client)
+    return pin_autoscaler(planned, client=client)
 
 
 def discard_the_cache_entries(keys: Sequence[str],
@@ -869,17 +1012,26 @@ def restore_an_autoscaler(descriptor: AutoscalerUndo,
     return restore_autoscaler_floor(descriptor, client=client)
 
 
-def pin_a_deployment_to_a_card(application: str,
-                               accelerator: str,
+def plan_a_pin_to_a_card(application: str,
+                         accelerator: str,
+                         *,
+                         client: McpClient) -> Planned[AcceleratorPinUndo]:
+    """Works out holding a deployment's pods to one card, changing nothing.
+    Named for `plan_a_rollback`'s reason."""
+    return plan_accelerator_pin(application, accelerator, client=client)
+
+
+def pin_a_deployment_to_a_card(planned: Planned[AcceleratorPinUndo],
                                *,
                                client: McpClient) -> AcceleratorPinUndo:
-    """Holds a deployment's pods to one card, answering with what that changed.
+    """Holds a deployment's pods to the card its plan named, answering with what
+    that changed.
 
     A named function rather than the client's own, for the reason
     `pin_an_autoscaler` is one: a seam is only useful if a test can spec against
     the shape the caller actually uses.
     """
-    return pin_to_accelerator(application, accelerator, client=client)
+    return pin_to_accelerator(planned, client=client)
 
 
 def restore_a_card_pin(descriptor: AcceleratorPinUndo,
@@ -890,11 +1042,43 @@ def restore_a_card_pin(descriptor: AcceleratorPinUndo,
     return restore_accelerator_pin(descriptor, client=client)
 
 
-def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:
-    """Sets a flag to a state, returning the undo descriptor for the change.
+def plan_a_flag(flag: str, enabled: bool, *, client: McpClient) -> Planned[FlagUndo]:
+    """Works out setting a flag to a state, changing nothing. Named for
+    `plan_a_rollback`'s reason."""
+    return plan_flag(flag, enabled, client=client)
 
-    One seam for both taking an action and undoing it: undoing is the same call
-    with the state reversed. That is not a convenience - it is what lets a
-    refuted mitigation be put back in whichever direction it went.
+
+def set_a_planned_flag(planned: Planned[FlagUndo],
+                       enabled: bool,
+                       *,
+                       client: McpClient) -> UndoDescriptor:
+    """Sets the flag its plan named to a state, returning the undo descriptor
+    for the change. Named for `plan_a_rollback`'s reason."""
+    return set_feature_flag(planned, enabled, client=client)
+
+
+def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:
+    """Sets a flag to a state, planned and written in one breath, returning the
+    undo descriptor for the change.
+
+    What puts a flag back. The tier writes a flag only from a plan, and a
+    put-back has no claim to have carried one: the check that guards it - has
+    anybody but Argus changed the flag since Argus set it - was asked a moment
+    before, so the plan is read here, immediately before the write it is for,
+    and the write compares the provider's history since that read as it does an
+    action's.
+
+    A flag the plan finds already in the state asked for is answered as put
+    there, and nothing is written. That check has just established nobody but
+    Argus has changed the flag since Argus set it, so a flag already back can
+    only be Argus's own put-back having landed - a put-back whose answer was
+    lost, asked again. Refusing it as spent would report a change that is back
+    where Argus found it as one nobody can account for. The answer is what the
+    flag was found in, which is the state asked for.
     """
-    return set_feature_flag(flag, enabled, client=client)
+    try:
+        planned = plan_flag(flag, enabled, client=client)
+    except ActionExhausted:
+        return FlagUndo(flag=flag, was_enabled=enabled)
+
+    return set_feature_flag(planned, enabled, client=client)

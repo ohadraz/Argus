@@ -32,6 +32,7 @@ from core.models import (
     FlagUndo,
     PinAutoscaler,
     PinToAccelerator,
+    Planned,
     ReplicaUndo,
     RestartService,
     RevertFeatureFlag,
@@ -65,6 +66,7 @@ __all__ = [
     "UndoingKindOf",
     "arrival_of",
     "kind_of",
+    "kind_planning",
     "kind_undoing",
     "undo_change"
 ]
@@ -91,16 +93,21 @@ class Performed(NamedTuple):
     undo_descriptor: UndoDescriptor | None
 
 
-class ActionKind[A](Protocol):
+class ActionKind[A, P](Protocol):
     """Everything about one kind of action that differs from every other kind.
+
+    `A` is the action, and `P` what it is performed from: `Planned` of the
+    change it makes, for a kind that leaves one, and `None` for a restart and a
+    discard, which leave the write nothing to compare and have no plan.
 
     Separate from `UndoableKind` rather than a base of it, because two kinds
     leave nothing behind - a restart and a discard - and a kind made to answer
     how its change is put back would have to invent an answer for nothing.
     """
 
-    def perform(self, action: A, writes: PerformingWrites, /) -> Performed:
-        """Does the one thing this action is, and says what it did.
+    def perform(self, action: A, planned: P, writes: PerformingWrites, /) -> Performed:
+        """Does the one thing this action is, from its plan, and says what it
+        did.
 
         The only place the kinds part company. Each kind names its own write and
         phrases its own account of it, because the two are one decision: the
@@ -125,7 +132,37 @@ class ActionKind[A](Protocol):
 
 
 class UndoableKind[U](Protocol):
-    """How one kind of change is put back, for a kind that leaves one."""
+    """How one kind of change is planned, made from its plan, and put back, for
+    a kind that leaves one.
+
+    The action is `Any` here because this protocol is named for the change -
+    `U`, what puts it back - and a kind is found by its change as often as by
+    its action (`kind_undoing`). Each kind's own methods take its own action.
+    """
+
+    def plan(self, action: Any, writes: PerformingWrites, /) -> Planned[U]:
+        """Asks the write tier to work out this action's change, before it is
+        claimed, and answers with what it worked out.
+
+        Through the write tier because that is where the write it is handed back
+        to compares the estate with it: one port for the read and the compare.
+        Nothing is worked out here, and nothing is written - a change made
+        before the claim is one no row records. The tier's refusals - an action
+        already spent, a platform not answering - are raised as the tier raised
+        them, for whoever planned it to read by their type.
+        """
+        ...
+
+    def perform(self, action: Any, planned: Planned[U], writes: PerformingWrites, /) -> Performed:
+        """Makes the change its plan worked out, and says what it did.
+
+        Handed the plan the claim carries, and no other: the write compares the
+        estate with it before it changes anything, so a plan worked out again
+        here would be compared against a state nobody wrote down. A change
+        somebody else made since the plan is refused by the tier with
+        `ChangedSince`, and raised as it was raised.
+        """
+        ...
 
     def undo(self, descriptor: U, putting_back: PuttingBack, /) -> UndoAttempt:
         """Puts one change of this kind back, where it is still Argus's to put
@@ -145,7 +182,7 @@ class UndoableKind[U](Protocol):
 class KindOf(Protocol):
     """Which kind an action is, for a caller that takes one."""
 
-    def __call__(self, action: Action, /) -> ActionKind[Any]: ...
+    def __call__(self, action: Action, /) -> ActionKind[Any, Any]: ...
 
 
 class UndoingKindOf(Protocol):
@@ -157,10 +194,16 @@ class UndoingKindOf(Protocol):
 class RevertFeatureFlagKind:
     """Setting a flag to a state, and setting it back."""
 
-    def perform(self, action: RevertFeatureFlag, writes: PerformingWrites, /) -> Performed:
+    def plan(self, action: RevertFeatureFlag, writes: PerformingWrites, /) -> Planned[FlagUndo]:
+        return writes.plan_flag(action.flag, action.enabled)
+
+    def perform(self,
+                action: RevertFeatureFlag,
+                planned: Planned[FlagUndo],
+                writes: PerformingWrites, /) -> Performed:
         return Performed(
             said=f"set flag [{action.flag}] {state_name(action.enabled)}",
-            undo_descriptor=writes.set_state(action.flag, action.enabled)
+            undo_descriptor=writes.set_state(planned, action.enabled)
         )
 
     def intent(self, action: RevertFeatureFlag, /) -> str:
@@ -247,7 +290,10 @@ class RestartServiceKind:
     """Bringing a service back under a new process, which leaves nothing to put
     back."""
 
-    def perform(self, action: RestartService, writes: PerformingWrites, /) -> Performed:
+    def perform(self,
+                action: RestartService,
+                planned: None,
+                writes: PerformingWrites, /) -> Performed:
         restarted = writes.restart(action.service)
 
         return Performed(
@@ -271,8 +317,16 @@ class RollBackDeploymentKind:
     """Returning a deployment to the revision it ran before, and putting it back
     on the one it was running."""
 
-    def perform(self, action: RollBackDeployment, writes: PerformingWrites, /) -> Performed:
-        rolled_back = writes.roll_back(action.application)
+    def plan(self,
+             action: RollBackDeployment,
+             writes: PerformingWrites, /) -> Planned[DeploymentRollbackUndo]:
+        return writes.plan_rollback(action.application)
+
+    def perform(self,
+                action: RollBackDeployment,
+                planned: Planned[DeploymentRollbackUndo],
+                writes: PerformingWrites, /) -> Performed:
+        rolled_back = writes.roll_back(planned)
 
         return Performed(
             said=(
@@ -412,8 +466,14 @@ class ScaleOutKind:
     """Giving a deployment more replicas than it has, and putting it back to the
     count it was running."""
 
-    def perform(self, action: ScaleOut, writes: PerformingWrites, /) -> Performed:
-        scaled = writes.scale_out(action.application)
+    def plan(self, action: ScaleOut, writes: PerformingWrites, /) -> Planned[ReplicaUndo]:
+        return writes.plan_scale_out(action.application)
+
+    def perform(self,
+                action: ScaleOut,
+                planned: Planned[ReplicaUndo],
+                writes: PerformingWrites, /) -> Performed:
+        scaled = writes.scale_out(planned)
 
         return Performed(
             said=(
@@ -421,6 +481,12 @@ class ScaleOutKind:
                 # records and what a reader needs to know was undone. Where
                 # it went is the tier's to have decided, and it reports that
                 # figure nowhere a verdict can quote it.
+                #
+                # The write's count and not the plan's: an autoscaler moves a
+                # count between the two as a matter of course, the write
+                # scales out from the count it finds, and the plan's figure is
+                # one the deployment was no longer running when Argus changed
+                # it.
                 f"scaled [{action.application}] out from "
                 f"[{scaled.was_replicas}] {_replicas(scaled.was_replicas)}"
             ),
@@ -557,8 +623,14 @@ class PinAutoscalerKind:
     """Stopping a deployment's autoscaler scaling it down, and letting it move
     again."""
 
-    def perform(self, action: PinAutoscaler, writes: PerformingWrites, /) -> Performed:
-        pinned = writes.pin(action.application)
+    def plan(self, action: PinAutoscaler, writes: PerformingWrites, /) -> Planned[AutoscalerUndo]:
+        return writes.plan_autoscaler_pin(action.application)
+
+    def perform(self,
+                action: PinAutoscaler,
+                planned: Planned[AutoscalerUndo],
+                writes: PerformingWrites, /) -> Performed:
+        pinned = writes.pin(planned)
 
         return Performed(
             said=(
@@ -680,7 +752,10 @@ class DiscardCacheEntriesKind:
     """Throwing away cached figures that disagree with their records, which owes
     no undo."""
 
-    def perform(self, action: DiscardCacheEntries, writes: PerformingWrites, /) -> Performed:
+    def perform(self,
+                action: DiscardCacheEntries,
+                planned: None,
+                writes: PerformingWrites, /) -> Performed:
         discarded = writes.discard(action.keys)
 
         return Performed(
@@ -721,8 +796,16 @@ class DiscardCacheEntriesKind:
 class PinToAcceleratorKind:
     """Holding a deployment's pods to one card, and letting them off it."""
 
-    def perform(self, action: PinToAccelerator, writes: PerformingWrites, /) -> Performed:
-        held = writes.pin_to_accelerator(action.application, action.accelerator)
+    def plan(self,
+             action: PinToAccelerator,
+             writes: PerformingWrites, /) -> Planned[AcceleratorPinUndo]:
+        return writes.plan_accelerator_pin(action.application, action.accelerator)
+
+    def perform(self,
+                action: PinToAccelerator,
+                planned: Planned[AcceleratorPinUndo],
+                writes: PerformingWrites, /) -> Performed:
+        held = writes.pin_to_accelerator(planned)
 
         return Performed(
             said=(
@@ -831,7 +914,7 @@ _DISCARD_CACHE_ENTRIES = DiscardCacheEntriesKind()
 _PIN_TO_ACCELERATOR = PinToAcceleratorKind()
 
 
-def kind_of(action: Action) -> ActionKind[Any]:
+def kind_of(action: Action) -> ActionKind[Any, Any]:
     """The kind that takes `action`.
 
     A `match` rather than a table, with `assert_never` on the remaining branch,
@@ -853,6 +936,34 @@ def kind_of(action: Action) -> ActionKind[Any]:
             return _PIN_TO_ACCELERATOR
         case DiscardCacheEntries():
             return _DISCARD_CACHE_ENTRIES
+        case _:
+            assert_never(action)
+
+
+def kind_planning(action: Action) -> UndoableKind[Any] | None:
+    """The kind that plans `action`, or `None` for an action with nothing to
+    plan.
+
+    The five kinds that leave a change behind are planned: the write compares
+    the estate with the plan before it changes anything. A restart changes
+    nothing that outlives it and a discard's figures are not Argus's to write
+    back, so neither leaves the write anything to compare with - and the claim
+    carries no plan rather than a plan of nothing. Exhaustive for `kind_of`'s
+    reason.
+    """
+    match action:
+        case RevertFeatureFlag():
+            return _REVERT_FEATURE_FLAG
+        case RollBackDeployment():
+            return _ROLL_BACK_DEPLOYMENT
+        case ScaleOut():
+            return _SCALE_OUT
+        case PinAutoscaler():
+            return _PIN_AUTOSCALER
+        case PinToAccelerator():
+            return _PIN_TO_ACCELERATOR
+        case RestartService() | DiscardCacheEntries():
+            return None
         case _:
             assert_never(action)
 

@@ -55,9 +55,9 @@ class FlagUndo(BaseModel):
     flag: str
     was_enabled: bool
     tool: str = SET_FEATURE_FLAG_TOOL
-    # The provider environment the change was made in. Absent on a descriptor
-    # built before the write, which is proposing a change rather than reporting
-    # one and has no environment of its own to name.
+    # The provider environment the change was made in, as the provider's answer
+    # to the write named it. Absent where the descriptor was not taken from that
+    # answer - a plan, or a change answered as made or found in the history.
     environment: str | None = None
     written_at: datetime | None = None
 
@@ -91,6 +91,12 @@ class DeploymentRollbackUndo(BaseModel):
     only on a row recorded before it was kept, and a put-back answers that as
     not established - read as a guess, it would put back a deployment somebody
     has since made their own.
+
+    `rolled_back_to_history_id` is the entry the rollback is addressed to, chosen
+    when the rollback is planned and never again: the write it is handed to
+    returns to the entry the claim recorded rather than one worked out from a
+    history that may have moved since. `None` only on a row recorded before it
+    was kept.
     """
 
     kind: Literal["deployment-revision"] = "deployment-revision"
@@ -99,6 +105,7 @@ class DeploymentRollbackUndo(BaseModel):
     was_on_revision: str
     was_syncing_itself: bool
     rolled_back_to_revision: str | None = None
+    rolled_back_to_history_id: int | None = None
     tool: str = ROLL_BACK_DEPLOYMENT_TOOL
     written_at: datetime | None = None
 

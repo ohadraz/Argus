@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime
 from functools import partial
+from typing import Any
 
 from core import utc_now, was_lost
 from core.events import (
@@ -25,6 +26,7 @@ from core.models import (
     Actor,
     AlarmClaim,
     IncidentStatus,
+    Planned,
     UndoDescriptor,
     UnreadVerdict,
     the_accelerator_of,
@@ -35,7 +37,7 @@ from core.models import (
     the_subject_of,
 )
 from incident_record import IsStillWanted
-from mitigation import Verdict
+from mitigation import Outcome, Verdict, stopped_before_it_was_taken
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
@@ -45,6 +47,7 @@ from orchestrator.walk.ports import (
     ChangeLanded,
     ClaimedAction,
     CompleteAction,
+    PlanAction,
     RecordAction,
     RecordOutcome,
     TakeAction,
@@ -68,6 +71,7 @@ def mitigation_node(
     record_outcome: RecordOutcome,
     still_wanted: IsStillWanted,
     take: TakeAction,
+    plan_action: PlanAction,
     change_landed: ChangeLanded,
     acting_for: ActingFor,
     publisher: Publisher = nobody,
@@ -95,6 +99,11 @@ def mitigation_node(
 
     `acting_for` makes the claim's action the one the write tier marks every
     change of this attempt with (`Holding.acting_for`).
+
+    `plan_action` works out, before the claim, the change the action will
+    make: the claim carries it from the moment it is written, and the action is
+    taken on it. A plan the tier refused is the attempt's outcome, recorded on
+    the claim as the same refusal from the write was - and nothing is taken.
     """
     # Both, because an action is taken *for* a candidate: one without the other
     # is not an attempt this node can account for, and recording it would leave
@@ -102,6 +111,15 @@ def mitigation_node(
     # so in a way the type checker can read.
     if state.proposed_action is None or state.hypothesis is None:
         return _nothing_to_act_on()
+
+    # Before the claim, so the claim carries what the write will compare the
+    # estate with from the moment it exists: a plan made after it leaves a claim
+    # a resumed walk has nothing to compare with, for exactly the stretch it is
+    # likeliest to be resumed in. A plan changes nothing, so a walk that loses
+    # the claim below has changed nothing by planning.
+    planning = plan_action(state.proposed_action)
+    planned = planning if isinstance(planning, Planned) else None
+    refused = planning if isinstance(planning, Outcome) else None
 
     # The claim goes in before anything happens, so that a walk resumed inside
     # this node is refused by the database rather than by a check it could race
@@ -124,7 +142,10 @@ def mitigation_node(
         # agent is called in after it, and the action announced after that.
         # Dated by the claim, the action came before the agent that took it -
         # so what dates the action is its announcement.
-        at=now()
+        at=now(),
+        # Absent for an action with nothing to plan, and for a plan the tier
+        # refused, since none was made.
+        planned=planned
     )
 
     if action_id is None:
@@ -143,10 +164,61 @@ def mitigation_node(
         assert claimed is not None
         action_id = claimed.action_id
 
+        # And on that claim's plan, where it was written with one: the write
+        # compares the estate with what the claim recorded - so this walk's own
+        # plan, made from an estate read later, is neither acted on nor
+        # refused on.
+        if claimed.planned is not None:
+            planned = claimed.planned
+            refused = None
+
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
     # The announcement, once the agent says the change was made - and none for
     # an attempt that ended before its write, which its verdict says instead.
     announced: list[ActionTaken] = []
+
+    # A plan the tier refused is the attempt: nothing is taken, and the refusal
+    # is recorded on the claim below exactly as the same refusal from the write
+    # was - so the cap on attempts per subject, the write-up and the memory of
+    # what was tried all read the row they always read. Unless a person ended
+    # the incident meanwhile, which `take` asks before it does anything and so
+    # is asked here in its place: then the attempt is the stop, as it would
+    # have been had the plan been made.
+    if refused is not None:
+        result = (refused if still_wanted(state.incident_id)
+                  else stopped_before_it_was_taken())
+    else:
+        result = _take_on_the_claim(
+            state, take, planned, action_id, acting_for, still_wanted, advance_action,
+            announced, publisher, now
+        )
+    # When the change was made, for the round that remembers the attempt - and
+    # nothing where none was: an action never performed is no attempt a later
+    # round may be told was refuted.
+    acted_at = announced[0].at if announced else None
+    logger.info("verdict reached", extra={
+        "verdict": result.verdict,
+        "action_type": state.proposed_action.action_type,
+        "subject": the_subject_of(state.proposed_action)
+    })
+
+    return _the_attempt_recorded(state, result, acted_at, complete_action, record_outcome,
+                                 publisher)
+
+
+def _take_on_the_claim(state: IncidentState,
+                       take: TakeAction,
+                       planned: Planned[Any] | None,
+                       action_id: str,
+                       acting_for: ActingFor,
+                       still_wanted: IsStillWanted,
+                       advance_action: AdvanceAction,
+                       announced: list[ActionTaken],
+                       publisher: Publisher,
+                       now: Callable[[], datetime]) -> Outcome:
+    """Takes the claimed action on its plan, inside the claim's action, and
+    answers with what came of it."""
+    assert state.proposed_action is not None and state.hypothesis is not None
 
     # The incident and the publisher travel with the action, so the
     # verification wait - the longest silence in an incident - is narrated
@@ -162,8 +234,12 @@ def mitigation_node(
     # Inside the claim's action, put-back of a refuted change included, so that
     # every write the tier makes for it carries its mark.
     with acting_for(action_id):
-        result = take(
+        return take(
             state.proposed_action,
+            # The plan the claim carries - this walk's, or on a resume the
+            # earlier claim's - and not one worked out again: the write
+            # compares the estate with what the claim recorded.
+            plan=planned,
             still_wanted=partial(still_wanted, state.incident_id),
             incident_id=state.incident_id,
             publisher=publisher,
@@ -192,16 +268,20 @@ def mitigation_node(
                 alerting_service=state.alert.service
             )
         )
-    # When the change was made, for the round that remembers the attempt - and
-    # nothing where none was: an action never performed is no attempt a later
-    # round may be told was refuted.
-    acted_at = announced[0].at if announced else None
+
+
+def _the_attempt_recorded(state: IncidentState,
+                          result: Outcome,
+                          acted_at: datetime | None,
+                          complete_action: CompleteAction,
+                          record_outcome: RecordOutcome,
+                          publisher: Publisher) -> StateDelta:
+    """Records what came of the attempt on its claim and its candidate, and
+    answers with what the walk carries on with - whether the action was taken
+    or its plan refused."""
+    assert state.proposed_action is not None and state.hypothesis is not None
+
     outcome = result.verdict
-    logger.info("verdict reached", extra={
-        "verdict": outcome,
-        "action_type": state.proposed_action.action_type,
-        "subject": the_subject_of(state.proposed_action)
-    })
 
     # The verdict and the line reporting it, in that order and in one write.
     # Announced first, as it was, a walk that stopped in between left a verdict

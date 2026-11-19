@@ -148,6 +148,21 @@ LEFT_BEHIND_KNOWN_MARKER: Final = "argus:left-behind-known"
 # now, and the caller is to stop rather than try anything else.
 RUN_LOST_MARKER: Final = "argus:run-lost"
 
+# What a write tool puts at the front of a refusal of a change somebody else has
+# made to the estate since the change was planned. Its own token, because the
+# walk does something with it no other refusal asks: an exhausted action is
+# spent and an unreachable platform narrows every action through it, where this
+# says somebody is acting on the service now, and Argus is not to act beside
+# them.
+CHANGED_SINCE_MARKER: Final = "argus:changed-since"
+
+# What a changed-since refusal carries beside its marker where this claim's own
+# change - the value, not only a suspension before it - is marked as having
+# landed. Its own token, because the walk records the two differently: an action
+# whose change landed and was overtaken was performed, and one that never landed
+# was not, whatever a suspension before it left behind.
+PERFORMED_MARKER: Final = "argus:performed"
+
 # What the MCP SDK's own server puts in front of the words of a tool that raised
 # (`mcp.server.fastmcp.tools.base.Tool.run`), the tool's name in it. The words
 # after it are the tool's.
@@ -279,6 +294,44 @@ class PlatformUnreachable(McpToolError):
         super().__init__(said, undo_descriptor=undo_descriptor, left_behind_known=True)
 
 
+class ChangedSince(McpToolError):
+    """A tool was reached, and what it reported is that somebody else has
+    changed what the action would change since the action was planned.
+
+    The refusal that is about people rather than the action. The estate is
+    neither as the plan found it nor as the plan asked for under this claim's
+    own mark, so somebody is acting on the service now - and Argus does not act
+    beside them. Nothing was written by the call that was refused, and a
+    caller's next move is to hand the incident to a person, which is a different
+    move from trying something else or passing over a platform.
+
+    It does carry `undo_descriptor`, for `PlatformUnreachable`'s reason: an
+    earlier asking of the same action whose answer was lost may have landed part
+    of the change - a suspension, under this claim's mark - and that is recorded
+    nowhere but here. `None` where this claim's marks show nothing landed.
+
+    A subclass of `McpToolError` for `ActionExhausted`'s reason: a caller that
+    does not know about this catches it exactly as it always did.
+
+    Recognised here rather than in the tier's own client, because this is the
+    point where `isError` becomes an exception, and a distinction drawn anywhere
+    later would be a second reading of the same field.
+
+    What it left behind is known, whatever it carries: the marker is only ever
+    applied to a refusal raised before anything was written (`a_change_made_since`).
+
+    `performed` is whether this claim's own change - the value, under this
+    claim's mark - had landed before somebody overtook it. A suspension alone is
+    not the change, and leaves it false.
+    """
+
+    def __init__(self, said: str,
+                 undo_descriptor: UndoDescriptor | None = None,
+                 performed: bool = False) -> None:
+        super().__init__(said, undo_descriptor=undo_descriptor, left_behind_known=True)
+        self.performed = performed
+
+
 class McpUnreachable(RuntimeError):
     """No session to the server could be had at all.
 
@@ -362,6 +415,26 @@ def with_what_it_left(said: str, left_behind: UndoDescriptor | None) -> str:
         return said
 
     return f"{said} {LEFT_BEHIND_MARKER}{left_behind.model_dump_json()}"
+
+
+def a_change_made_since(said: str,
+                        left_behind: UndoDescriptor | None = None,
+                        performed: bool = False) -> str:
+    """`said`, marked as a refusal of a change somebody else made since the plan.
+
+    For a write tool to wrap the words of a refusal it raises *before writing
+    anything*, when the estate is neither as the plan found it nor as the plan
+    asked for under this claim's own mark. What it left behind is known, and is
+    `left_behind`: nothing this call wrote, and whatever this claim's marks show
+    an earlier asking of it landed. `performed` says the change itself was among
+    what landed, marked so (`PERFORMED_MARKER`).
+    """
+    markers = f"{CHANGED_SINCE_MARKER} {LEFT_BEHIND_KNOWN_MARKER}"
+
+    if performed:
+        markers = f"{markers} {PERFORMED_MARKER}"
+
+    return with_what_it_left(f"{markers} {said}", left_behind)
 
 
 def a_lost_run(said: str) -> str:
@@ -903,6 +976,10 @@ def _answered(name: str, result: CallToolResult) -> object:
 
         if UNREACHABLE_PLATFORM_MARKER in spoken:
             raise PlatformUnreachable(said, what_was_left_behind(spoken))
+
+        if CHANGED_SINCE_MARKER in spoken:
+            raise ChangedSince(said, what_was_left_behind(spoken),
+                               performed=PERFORMED_MARKER in spoken)
 
         # Any refusal may carry what it left, the unmarked ones too: a change
         # request whose answer was lost still reports the suspension before it.
