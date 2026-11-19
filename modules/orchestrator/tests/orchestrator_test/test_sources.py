@@ -33,6 +33,7 @@ from postmortem_writing import Sources
 DONT_CARE_START = datetime(2026, 9, 2, 11, 0, tzinfo=UTC)
 DONT_CARE_END = datetime(2026, 9, 2, 12, 30, tzinfo=UTC)
 DONT_CARE_INCIDENT_ID = "kuki-123"
+DONT_CARE_RULE = "dont-care-rule"
 # What a read that failed says, which nothing here reads.
 SOME_FAILURE = "some failure"
 
@@ -174,7 +175,7 @@ def test_a_rule_the_read_tier_cannot_read_is_answered_as_unread(
     # rule no more than one refused; raised instead, it loses the postmortem.
     Scenario() \
         .given(read := _a_session_whose_tool_fails(failure)) \
-        .when(lambda: _the_sources_over(read).alert_rule("dont-care-rule")) \
+        .when(lambda: _the_sources_over(read).alert_rule(DONT_CARE_RULE)) \
         .then(
             all_of(
                 the_answer_was(None),
