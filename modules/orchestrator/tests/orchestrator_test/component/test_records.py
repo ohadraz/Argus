@@ -20,6 +20,7 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core import connect_from_env, utc_now
 from core.events import (
+    ActionTaken,
     ExecutiveSynopsisWithheld,
     ExecutiveSynopsisWritten,
     IncidentEvent,
@@ -39,6 +40,7 @@ from core.models import (
     FlagUndo,
     IncidentStatus,
     Meaning,
+    Planned,
     PostmortemDocument,
     Standing,
     ThreadMessage,
@@ -1363,6 +1365,109 @@ def test_a_change_owed_back_is_on_the_claim_for_anybody_who_reads_it_next(
         ))
 
 
+# The plan a resumed walk takes its action on, read by the platform at its own
+# moment - and the plan a claim already carried, read earlier.
+THIS_WALK_S_PLAN: Planned[UndoDescriptor] = Planned(
+    descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True),
+    since=datetime(2026, 11, 18, 13, 4, tzinfo=UTC)
+)
+THE_PLAN_THE_CLAIM_CARRIES: Planned[UndoDescriptor] = Planned(
+    descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=False),
+    since=THIS_WALK_S_PLAN.since - timedelta(minutes=1)
+)
+
+
+@pytest.mark.component
+def test_this_walk_s_plan_is_on_a_claim_written_with_none_for_anybody_who_reads_it_next(
+    a_clean_database: None
+) -> None:
+    # A claim whose plan was refused carries none, and the resumed walk plans
+    # for itself: that plan is committed onto the claim before the write, so
+    # the write compares with what the claim holds - and seen from another
+    # connection, with nothing said about it.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=DONT_CARE_FLAG,
+                            at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.plan_the_claim(incident_id, hypothesis_id=a_candidate.id,
+                                           planned=THIS_WALK_S_PLAN)
+        ) \
+        .then(all_of(
+            _the_claim_is_planned_as(incident_id, THIS_WALK_S_PLAN),
+            _nothing_was_narrated(incident_id)
+        ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(
+    ("a_plan_already_on_it", "moved_on"),
+    [
+        pytest.param(THE_PLAN_THE_CLAIM_CARRIES, False, id="a-claim-carrying-a-plan"),
+        pytest.param(None, True, id="a-row-moved-past-its-claim")
+    ]
+)
+def test_this_walk_s_plan_leaves_a_planned_or_moved_on_row_as_it_was(
+    a_plan_already_on_it: Planned[UndoDescriptor] | None,
+    moved_on: bool,
+    a_clean_database: None
+) -> None:
+    # A plan already on a claim is the one its write compares with, and a row
+    # past its claim says more than a plan: neither is written over.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=DONT_CARE_FLAG,
+                            at=utc_now(), planned=a_plan_already_on_it)
+        if moved_on:
+            taken_actions.advance(conn, incident_id, hypothesis_id=a_candidate.id,
+                                  to=ActionProgress.UNKNOWN, undo_descriptor=None)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.plan_the_claim(incident_id, hypothesis_id=a_candidate.id,
+                                           planned=THIS_WALK_S_PLAN)
+        ) \
+        .then(
+            _the_claim_is_planned_as(incident_id, a_plan_already_on_it)
+        )
+
+
+def _the_claim_is_planned_as(incident_id: str,
+                             expected: Planned[UndoDescriptor] | None) -> Assertion[None]:
+    """The plan the incident's one claim carries, as a connection of its own
+    reads it."""
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            seen = [taken.planned
+                    for taken in taken_actions.get_by_incident(conn, incident_id)]
+
+        if seen != [expected]:
+            raise AssertionError(f"Expected one claim carrying the plan [{expected}], "
+                                 f"got {seen}.")
+
+        return True
+
+    return assertion
+
+
 def _the_action_is_seen_made_at(incident_id: str, expected: datetime) -> Assertion[None]:
     """When the incident's one action was made, as a connection of its own reads it."""
     def assertion(_result: None) -> bool:
@@ -1373,6 +1478,179 @@ def _the_action_is_seen_made_at(incident_id: str, expected: datetime) -> Asserti
         if seen != [expected]:
             raise AssertionError(f"Expected one action seen as made at [{expected}], "
                                  f"got {seen}.")
+
+        return True
+
+    return assertion
+
+
+# ---------------------------------------------------------------------------
+# What a resumed walk reads off the claim and the account
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.component
+def test_a_claim_owed_back_comes_back_with_its_way_back_when_it_was_made_and_why(
+    a_clean_database: None
+) -> None:
+    # Putting-back (held): a resumed walk puts the change back from what the
+    # claim says - the way back, the watch's finding - and dates it by when it
+    # was made. Each has to come back with the claim, as the row holds it.
+    some_flag = "monthly-spend-feature"
+    some_way_back = FlagUndo(flag=some_flag, was_enabled=True)
+    some_moment_it_was_made = utc_now()
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=some_flag,
+                            at=utc_now())
+        taken_actions.advance(conn, incident_id, hypothesis_id=a_candidate.id,
+                              to=ActionProgress.PERFORMED, undo_descriptor=some_way_back,
+                              performed_at=some_moment_it_was_made)
+        taken_actions.owe_a_put_back(conn, incident_id, hypothesis_id=a_candidate.id,
+                                     because=SOME_FINDING)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.claimed_action(incident_id, hypothesis_id=a_candidate.id)
+        ) \
+        .then(
+            _it_came_back_carrying(undo_descriptor=some_way_back,
+                                   performed_at=some_moment_it_was_made,
+                                   put_back_because=SOME_FINDING)
+        )
+
+
+@pytest.mark.component
+def test_a_claim_and_nothing_more_comes_back_carrying_nothing_of_a_change(
+    a_clean_database: None
+) -> None:
+    # The other half: a claim the walk never got past says nothing of a
+    # change, rather than carrying one somebody could read as made.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=a_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=DONT_CARE_FLAG,
+                            at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.claimed_action(incident_id, hypothesis_id=a_candidate.id)
+        ) \
+        .then(
+            _it_came_back_carrying(undo_descriptor=None, performed_at=None,
+                                   put_back_because=None)
+        )
+
+
+@pytest.mark.component
+def test_an_action_announced_for_a_candidate_is_on_file_for_that_candidate_alone(
+    a_clean_database: None
+) -> None:
+    # A resumed walk announces a change only where
+    # none is on file for its claim - and a claim is one candidate's on one
+    # incident, so the account is asked by both and answers for nothing else.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        another_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        hypotheses.record(conn, another_candidate)
+        events.record(conn, ActionTaken(incident_id=incident_id,
+                                        hypothesis_id=a_candidate.id,
+                                        candidate_number=a_candidate.number,
+                                        action_type=DONT_CARE_ACTION,
+                                        subject=DONT_CARE_FLAG))
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: (records.action_announced(incident_id, a_candidate.id),
+                     records.action_announced(incident_id, another_candidate.id))
+        ) \
+        .then(
+            _the_answers_were((True, False))
+        )
+
+
+@pytest.mark.component
+def test_no_action_is_on_file_for_an_incident_that_announced_none(
+    a_clean_database: None
+) -> None:
+    # Another incident's line naming the same candidate is no line of this
+    # one's.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        another_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        events.record(conn, ActionTaken(incident_id=another_incident_id,
+                                        hypothesis_id=a_candidate.id,
+                                        candidate_number=a_candidate.number,
+                                        action_type=DONT_CARE_ACTION,
+                                        subject=DONT_CARE_FLAG))
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.action_announced(incident_id, a_candidate.id)
+        ) \
+        .then(
+            _the_answers_were(False)
+        )
+
+
+def _it_came_back_carrying(*,
+                           undo_descriptor: UndoDescriptor | None,
+                           performed_at: datetime | None,
+                           put_back_because: str | None
+                           ) -> Assertion[ClaimedAction | None]:
+    def assertion(claimed: ClaimedAction | None) -> bool:
+        wanted = {"undo_descriptor": undo_descriptor, "performed_at": performed_at,
+                  "put_back_because": put_back_because}
+        if claimed is None:
+            raise AssertionError(f"Expected the claim read back carrying {wanted}, got none.")
+
+        wrong = {name: (expected, getattr(claimed, name))
+                 for name, expected in wanted.items() if getattr(claimed, name) != expected}
+        if wrong:
+            raise AssertionError(
+                f"Expected the claim read back carrying {wanted}, and {wrong} differed "
+                f"(expected, got)."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_answers_were(expected: object) -> Assertion[object]:
+    def assertion(answered: object) -> bool:
+        if answered != expected:
+            raise AssertionError(f"Expected [{expected}], got [{answered}].")
 
         return True
 

@@ -101,7 +101,7 @@ from core.models.model_policy import (
 from core.models.money import said_as_money
 from core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from core.models.placement import PodPlacement, RecordedPlacement
-from core.models.planned import FlagState, Planned
+from core.models.planned import ChangeFound, FlagState, Made, NotMade, Planned
 from core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
 from core.models.postmortem_sections import (
     NOT_JUDGED,
@@ -381,6 +381,9 @@ __all__ = [
     "PinAutoscaler",
     "PinToAccelerator",
     "Planned",
+    "Made",
+    "NotMade",
+    "ChangeFound",
     "PodPlacement",
     "RecordedPlacement",
     "ReplicaUndo",

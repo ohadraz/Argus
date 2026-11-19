@@ -82,15 +82,20 @@ from deployment_platform import (
 from write_mcp_server.rolling_back import (
     NoEarlierRevision,
     RollbackRefused,
+    RollbackStanding,
     plan_rollback,
     restore_deployment,
     roll_back_deployment,
+    still_argus_s,
+    what_became_of_the_rollback,
+    whether_it_was_made,
 )
 
 from write_mcp_server_test.framework.marks import (
     ANOTHER_CLAIM,
     THIS_CLAIM,
     a_mark,
+    a_mark_found,
     every_write_carried,
 )
 from write_mcp_server_test.framework.putting_back import (
@@ -106,12 +111,25 @@ from write_mcp_server_test.framework.refusals import (
     its_change_is_said_performed,
     what_it_left_is_known,
 )
+from write_mcp_server_test.framework.resuming import (
+    it_is_not_said_changed_since,
+    it_is_still_argus_s,
+    it_refused_as_the_write_does,
+    it_was_changed_since,
+    it_was_made,
+    nobody_can_say,
+    nothing_landed,
+    what_was_found_does_not_say,
+)
 
 SOME_APPLICATION = "io-shop"
 # What every rollback and restore here is made under. One for the file: which
 # action a write is for is the caller's, and what is asserted is only that the
 # writes carry it.
 SOME_MARK = a_mark()
+# What the platform says when it fails or refuses a call: whatever it says, the
+# refusal here is decided by which call failed and how.
+DONT_CARE_PLATFORM_WORDS = "the platform did not do it"
 
 # The time the platform's own clock gives on the answer a plan reads - the
 # plan's `since` - and a moment either side of it, which is all a history entry's
@@ -121,6 +139,9 @@ BEFORE_THE_PLAN = SOME_PLATFORM_TIME - timedelta(hours=1)
 AFTER_THE_PLAN = SOME_PLATFORM_TIME + timedelta(minutes=1)
 # When the platform answered the rollback it was asked for, by its own clock.
 THE_MOMENT_THE_PLATFORM_ANSWERED = AFTER_THE_PLAN + timedelta(seconds=2)
+# When Argus's run of a rollback started, after the plan and before the entry
+# the platform wrote once it finished.
+A_RUN_STARTED_BEFORE_ITS_ENTRY = AFTER_THE_PLAN - timedelta(seconds=30)
 
 THE_ENTRY_RUNNING = 2
 THE_ENTRY_BEFORE_IT = 1
@@ -161,6 +182,25 @@ THE_SUSPENSION = DeploymentRollbackUndo(
 # which keeps no state of its runs, among them - so the history alone says
 # what was deployed.
 NO_SYNC_ASKED_OR_RUN = SyncOperations(requested=None, last_run=None)
+# Where a run stands while the platform still keeps the request it was asked
+# by: it clears the request only once the run completes.
+THE_PHASES_A_REQUEST_IS_KEPT_THROUGH = {SyncPhase.RUNNING, SyncPhase.TERMINATING}
+# Where a run that failed of itself stands - failed, or errored - and so no
+# stop of anybody's. A run somebody terminated stands apart from both.
+EVERY_WAY_A_RUN_FAILS_OF_ITSELF = [SyncPhase.FAILED, SyncPhase.ERROR]
+# A put-back stopped: being terminated, its request still kept, or terminated -
+# by somebody, or by the platform's own sync timeout where one is set.
+EVERY_WAY_SOMEBODY_STOPS_A_PUT_BACK = [
+    pytest.param(SyncPhase.TERMINATING, id="being-terminated"),
+    pytest.param(SyncPhase.TERMINATED, id="terminated")
+]
+# How a performed rollback whose run of Argus's failed of itself is said - which
+# a run somebody terminated is not.
+THE_RUN_FAILED = "the rollback's run failed"
+# Why nobody can say whose a rollback is whose newest entry is Argus's own, of a
+# revision it did not roll back to - not a change since: Argus's account is
+# Argus's, whichever walk or person used it.
+ARGUS_S_ACCOUNT_ELSEWHERE = "Argus's account at a revision this rollback did not go to"
 # The platform in the middle of a sync of its own - asked by nobody, to the
 # revision it already runs - as an automated sync is.
 THE_PLATFORM_MID_SYNC = SyncOperations(
@@ -303,15 +343,45 @@ def _a_plan(was_syncing_itself: bool) -> Planned[DeploymentRollbackUndo]:
                    since=SOME_PLATFORM_TIME)
 
 
-def _a_run(phase: SyncPhase, started_at: datetime) -> SyncOperations:
-    """The last sync the platform ran: to the revision the plan returns to, by
-    Argus's account, started at `started_at` and standing at `phase` - and none
-    asked since."""
+def _a_run(phase: SyncPhase,
+           started_at: datetime,
+           revision: str = THE_REVISION_BEFORE_IT) -> SyncOperations:
+    """The last sync the platform ran: to `revision` - the one the plan returns
+    to, unless a case names the one it found - by Argus's account, started at
+    `started_at` and standing at `phase` - with its request still kept while it
+    runs or is being terminated, as the platform keeps it until the run
+    completes, and none asked once it has."""
     return SyncOperations(
-        requested=None,
-        last_run=SyncRun(revision=THE_REVISION_BEFORE_IT, initiated_by=SOME_ARGUS_ACCOUNT,
+        requested=(
+            RequestedSync(revision=revision, initiated_by=SOME_ARGUS_ACCOUNT)
+            if phase in THE_PHASES_A_REQUEST_IS_KEPT_THROUGH else None
+        ),
+        last_run=SyncRun(revision=revision, initiated_by=SOME_ARGUS_ACCOUNT,
                          started_at=started_at, phase=phase)
     )
+
+
+def _a_platform_terminating_this_rollback() -> Any:
+    """A platform this claim's rollback was asked of, whose run of it somebody
+    is terminating: the request kept, the run terminating, the sync suspended
+    under this claim's mark, and no entry of the rollback in the history."""
+    return a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
+                      operations=_a_run(SyncPhase.TERMINATING, started_at=AFTER_THE_PLAN))
+
+
+def _a_platform_where_somebody_terminated_this_rollback() -> Any:
+    """A platform this claim's rollback was asked of, whose run of it somebody
+    terminated: the run finished terminated, no request kept, the sync
+    suspended under this claim's mark, no entry of the rollback in the history,
+    and the Deployment still running what the revision it was on renders."""
+    platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
+                          operations=_a_run(SyncPhase.TERMINATED, started_at=AFTER_THE_PLAN))
+    platform.images_running.return_value = _the_images_rendered_for(THE_REVISION_RUNNING)
+    platform.images_at.side_effect = (
+        lambda dont_care_application, revision: _the_images_rendered_for(revision)
+    )
+
+    return platform
 
 
 def a_platform_as_the_rollback_left_it(newest: DeploymentRecord | None = None,
@@ -373,7 +443,9 @@ def a_platform(history: list[DeploymentRecord] | None = None,
     platform.now.return_value = SOME_PLATFORM_TIME
     # The Application is the one object a rollback marks: its sync switch.
     platform.mark_on.side_effect = (
-        lambda dont_care_application, kind: marked_by if kind == MarkedObject.APPLICATION else None
+        lambda dont_care_application, kind: (
+            a_mark_found(marked_by) if kind == MarkedObject.APPLICATION else None
+        )
     )
 
     return platform
@@ -564,7 +636,7 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
     # honest: the walk is told that four actions are unavailable and told
     # nothing about a state somebody has to put back.
     platform = a_platform()
-    platform.deployments_of.side_effect = PlatformUnreachable("no route to host")
+    platform.deployments_of.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(platform) \
@@ -578,7 +650,7 @@ def test_a_history_the_platform_would_not_give_is_known_to_have_changed_nothing(
     # here says it left nothing - and is not written up as nobody knowing
     # whether anything was changed.
     platform = a_platform()
-    platform.deployments_of.side_effect = PlatformRefused("does not say what was asked")
+    platform.deployments_of.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(platform) \
@@ -597,7 +669,7 @@ def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
     # gone and the estate as untouched.
     platform = a_platform()
     platform.is_syncing_itself.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
     )
 
     Scenario() \
@@ -748,11 +820,11 @@ def test_a_rollback_argus_s_sync_started_since_the_plan_is_answered_as_made(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("phase", [SyncPhase.FAILED, SyncPhase.ERROR])
+@pytest.mark.parametrize("phase", EVERY_WAY_A_RUN_FAILS_OF_ITSELF)
 def test_a_rollback_argus_s_sync_could_not_make_is_made_again(phase: SyncPhase) -> None:
-    # A sync that failed returned nothing: the platform still runs the revision
-    # the plan found, so the rollback is asked again - under the suspension this
-    # action already made, which is not made twice.
+    # A sync that failed of itself returned nothing: the platform still runs the
+    # revision the plan found, so the rollback is asked again - under the
+    # suspension this action already made, which is not made twice.
     platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
                           operations=_a_run(phase, started_at=AFTER_THE_PLAN))
 
@@ -843,13 +915,27 @@ def test_a_rollback_whose_sync_somebody_is_terminating_is_a_change_since() -> No
     # rollback's own reads as still asked - and terminating it is something only
     # somebody does. Refused as their change, nothing written, and said to have
     # been performed: the rollback was asked, whatever is left of it.
-    platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
-                          operations=SyncOperations(
-                              requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
-                                                      initiated_by=SOME_ARGUS_ACCOUNT),
-                              last_run=_a_run(SyncPhase.TERMINATING,
-                                              started_at=AFTER_THE_PLAN).last_run
-                          ))
+    platform = _a_platform_terminating_this_rollback()
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(
+            lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)
+        )) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            its_change_is_said_performed(True),
+            it_left_behind(THE_SUSPENSION),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_sync_somebody_terminated_is_a_change_since() -> None:
+    # Terminated, not failed of itself - which is asked again: somebody stopped
+    # this rollback, and asking it again would overrule them. Refused as their
+    # change, nothing written, and said performed: the rollback was asked.
+    platform = _a_platform_where_somebody_terminated_this_rollback()
 
     Scenario() \
         .given(planned := _a_plan(was_syncing_itself=True)) \
@@ -871,9 +957,13 @@ def test_a_sync_another_account_started_since_the_plan_is_a_change_since(
 ) -> None:
     # Whatever came of it: somebody deployed this application after the plan,
     # and one that failed leaves no entry in the history to say so.
+    # The request kept beside a run still going, as the platform keeps it.
+    still_asked = (RequestedSync(revision=A_REVISION_SOMEBODY_ELSE_DEPLOYED,
+                                 initiated_by=SOME_PERSON)
+                   if phase in THE_PHASES_A_REQUEST_IS_KEPT_THROUGH else None)
     platform = a_platform(syncing_itself=True,
                           operations=SyncOperations(
-                              requested=None,
+                              requested=still_asked,
                               last_run=SyncRun(revision=A_REVISION_SOMEBODY_ELSE_DEPLOYED,
                                                initiated_by=SOME_PERSON,
                                                started_at=AFTER_THE_PLAN, phase=phase)
@@ -1216,7 +1306,7 @@ def test_a_rollback_that_could_not_read_the_platform_writes_nothing(read: str) -
     # estate as untouched.
     platform = a_platform(syncing_itself=True)
     getattr(platform, read).side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
     )
 
     Scenario() \
@@ -1235,7 +1325,7 @@ def test_a_rollback_that_could_not_read_the_platform_writes_nothing(read: str) -
 @pytest.mark.unit
 def test_a_platform_that_will_not_answer_is_not_reported_as_rolled_back() -> None:
     platform = a_platform()
-    platform.roll_back.side_effect = PlatformUnreachable("no route to host")
+    platform.roll_back.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(planned := _a_plan(was_syncing_itself=True)) \
@@ -1314,7 +1404,7 @@ def test_a_restore_that_only_managed_the_revision_says_so() -> None:
     # The half that is easy to lose. The deployment looks right and is
     # receiving nothing anybody ships to it.
     platform = a_platform_as_the_rollback_left_it()
-    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1325,8 +1415,8 @@ def test_a_restore_that_only_managed_the_revision_says_so() -> None:
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform_as_the_rollback_left_it()
-    platform.roll_back.side_effect = PlatformUnreachable("no route to host")
-    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+    platform.roll_back.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1394,7 +1484,9 @@ def test_a_deployment_already_back_on_its_revision_is_not_rolled_back_again() ->
             last_run=None
         ), id="asked-and-not-yet-run"),
         pytest.param(SyncOperations(
-            requested=None,
+            # Kept beside the run while it runs, as the platform keeps it.
+            requested=RequestedSync(revision=THE_REVISION_RUNNING,
+                                    initiated_by=SOME_ARGUS_ACCOUNT),
             last_run=SyncRun(revision=THE_REVISION_RUNNING, initiated_by=SOME_ARGUS_ACCOUNT,
                              started_at=AFTER_THE_PLAN, phase=SyncPhase.RUNNING)
         ), id="running")
@@ -1418,6 +1510,45 @@ def test_a_put_back_argus_already_asked_for_is_not_asked_again(
             _it_did_not_roll_back(platform),
             every_write_carried(platform, "resume_sync", SOME_MARK),
             _it_reports_restored(revision=True, automated_sync=True)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("phase", EVERY_WAY_SOMEBODY_STOPS_A_PUT_BACK)
+def test_a_put_back_somebody_terminated_is_left_as_they_set_it(phase: SyncPhase) -> None:
+    # Argus's own sync back to the revision it found, stopped by somebody - while
+    # the platform still keeps its request, or once the run has finished. Not
+    # already back: the revision is not put back, and resuming the sync would
+    # have the platform re-apply git over the stop.
+    platform = a_platform_as_the_rollback_left_it(operations=_a_run(
+        phase, started_at=AFTER_THE_PLAN, revision=THE_REVISION_RUNNING
+    ))
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            it_was_left_because(THE_REVISION_RUNNING),
+            the_suspension_is_said_to_stand(True)
+        ))
+
+
+@pytest.mark.unit
+def test_a_restore_while_somebody_is_terminating_argus_s_rollback_leaves_it_as_they_set_it(
+) -> None:
+    # The rollback's own run being terminated: somebody is stopping Argus's
+    # change, and a put-back asked beside them would overrule what they are
+    # doing. Nothing written, the suspension said to stand.
+    platform = _a_platform_terminating_this_rollback()
+
+    Scenario() \
+        .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_deployment(descriptor, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            it_was_left_because(THE_REVISION_BEFORE_IT),
+            the_suspension_is_said_to_stand(True)
         ))
 
 
@@ -1632,7 +1763,7 @@ def test_a_restore_that_could_not_read_whose_the_rollback_is_writes_nothing(read
     # exists to prevent - so neither half is written, neither is said to be
     # back, and nothing is said to have been found.
     platform = a_platform_as_the_rollback_left_it()
-    getattr(platform, read).side_effect = PlatformUnreachable("no route to host")
+    getattr(platform, read).side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1654,7 +1785,7 @@ def test_a_restore_that_could_not_read_whether_sync_is_back_on_writes_nothing(
     # says nothing it could not establish.
     dont_care_syncing_now = False
     platform = a_platform_somebody_changed(dont_care_syncing_now)
-    platform.is_syncing_itself.side_effect = PlatformRefused("403")
+    platform.is_syncing_itself.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1671,7 +1802,8 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     # The suspension is the first thing a rollback changes, so a platform that
     # said it did not handle it has left the estate exactly as it found it.
     platform = a_platform(syncing_itself=True)
-    platform.suspend_sync.side_effect = PlatformUnreachable("503", known_not_applied=True)
+    platform.suspend_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS,
+                                                            known_not_applied=True)
 
     Scenario() \
         .given(planned := _a_plan(was_syncing_itself=True)) \
@@ -1688,7 +1820,7 @@ def test_a_platform_that_died_before_a_rollback_that_changed_nothing_is_unreacha
     # it took nothing with it.
     platform = a_platform(syncing_itself=False)
     platform.roll_back.side_effect = PlatformUnreachable(
-        "no route to host", known_not_applied=True
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=True
     )
 
     Scenario() \
@@ -1713,7 +1845,7 @@ def test_a_rollback_that_left_sync_suspended_says_so_and_still_reports_the_platf
     # suspension was recorded nowhere, and now it is recorded here.
     platform = a_platform(syncing_itself=True)
     platform.roll_back.side_effect = PlatformUnreachable(
-        "no route to host", known_not_applied=True
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=True
     )
 
     Scenario() \
@@ -1733,7 +1865,7 @@ def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
     # walk would narrow onto an estate that may have moved.
     platform = a_platform(syncing_itself=True)
     platform.suspend_sync.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
     )
 
     Scenario() \
@@ -1755,7 +1887,8 @@ def test_a_rollback_rejected_after_sync_was_suspended_says_the_suspension_is_lef
     # the application sits un-reconciled, and the refusal is the only record
     # of it, so the suspension travels on it.
     platform = a_platform(syncing_itself=True)
-    platform.roll_back.side_effect = PlatformRefused("400", known_not_applied=True)
+    platform.roll_back.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS,
+                                                     known_not_applied=True)
 
     Scenario() \
         .given(planned := _a_plan(was_syncing_itself=True)) \
@@ -1775,7 +1908,7 @@ def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_no_more() -
     # because it is in place either way, and nothing is said to be all of it.
     platform = a_platform(syncing_itself=True)
     platform.roll_back.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
     )
 
     Scenario() \
@@ -1796,7 +1929,7 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
     # rollback is what it would not do, so the other actions through it are
     # still worth trying.
     platform = a_platform(syncing_itself=False)
-    platform.roll_back.side_effect = PlatformRefused("400")
+    platform.roll_back.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(planned := _a_plan(was_syncing_itself=False)) \
@@ -1833,7 +1966,7 @@ def test_a_rollback_refused_after_sync_was_suspended_is_logged_as_a_warning(
     # an application nobody is reconciling looks healthy until the next deploy
     # quietly does not arrive.
     platform = a_platform(syncing_itself=True)
-    platform.roll_back.side_effect = PlatformRefused("400")
+    platform.roll_back.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(planned := _a_plan(was_syncing_itself=True)) \
@@ -1873,7 +2006,7 @@ def test_a_restore_that_only_managed_the_revision_is_logged_as_a_warning(
     # The quiet half. The application looks put back and is receiving nothing
     # anybody ships to it, and no other line would say so.
     platform = a_platform_as_the_rollback_left_it()
-    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1894,7 +2027,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
     # The restore reports which half it lost, never why. The why is here, and
     # it is what a person putting the other half back by hand needs first.
     platform = a_platform_as_the_rollback_left_it()
-    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -2238,3 +2371,791 @@ def test_a_rollback_whose_answer_said_no_moment_is_answered_undated() -> None:
 def _dated(descriptor: DeploymentRollbackUndo, at: datetime | None) -> DeploymentRollbackUndo:
     """`descriptor` as a rollback made at `at` answers with it."""
     return descriptor.model_copy(update={"written_at": at})
+
+
+# Argus's own rollback, asked of the platform and not yet in its history: asked
+# and not yet run, or running - with its request kept beside the run.
+EVERY_WAY_ARGUS_S_ROLLBACK_IS_UNDER_WAY = [
+    pytest.param(SyncOperations(
+        requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
+                                initiated_by=SOME_ARGUS_ACCOUNT),
+        last_run=None
+    ), id="asked-and-not-yet-run"),
+    pytest.param(_a_run(SyncPhase.RUNNING, started_at=AFTER_THE_PLAN), id="running")
+]
+
+# Every read the check on where a rollback stands makes - the one the put-back
+# and the resumed walk share. One that never comes back establishes nothing.
+EVERY_READ_THE_CHECK_MAKES = ["sync_operations_of", "deployments_of", "images_running",
+                              "images_at"]
+# And the resumed walk's, which reads the sync switch beside it: a rollback the
+# platform reconciles again is no longer where Argus left it.
+EVERY_READ_STILL_ARGUS_S_MAKES = [*EVERY_READ_THE_CHECK_MAKES, "is_syncing_itself"]
+
+
+def _a_platform_mid_way_through_argus_s_rollback(operations: SyncOperations) -> Any:
+    """A platform Argus's rollback was asked of and has not finished: its sync
+    suspended under this claim's mark, the history with no entry of the
+    rollback yet - the platform writes it when the sync finishes - and the
+    Deployment still running what the revision it was on renders."""
+    platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM, operations=operations)
+    platform.images_running.return_value = _the_images_rendered_for(THE_REVISION_RUNNING)
+    platform.images_at.side_effect = (
+        lambda dont_care_application, revision: _the_images_rendered_for(revision)
+    )
+
+    return platform
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_newest_entry_is_argus_s_and_runs_its_images_stands_as_argus_s(
+) -> None:
+    platform = a_platform_as_the_rollback_left_it()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_stands(RollbackStanding.STILL_ARGUS_S))
+
+
+@pytest.mark.unit
+def test_a_deployment_back_on_the_revision_argus_found_stands_as_already_back() -> None:
+    # Whoever put it there, running what that revision renders.
+    platform = a_platform_as_the_rollback_left_it(
+        newest=_a_deployment(THE_NEXT_ENTRY, THE_REVISION_RUNNING, initiated_by=SOME_PERSON)
+    )
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_stands(RollbackStanding.ALREADY_BACK))
+
+
+@pytest.mark.unit
+def test_the_platform_in_a_sync_of_its_own_stands_as_mid_sync() -> None:
+    platform = a_platform_as_the_rollback_left_it(operations=THE_PLATFORM_MID_SYNC)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_stands(RollbackStanding.MID_SYNC))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("under_way", EVERY_WAY_ARGUS_S_ROLLBACK_IS_UNDER_WAY)
+def test_argus_s_own_rollback_not_yet_in_the_history_stands_as_under_way(
+    under_way: SyncOperations
+) -> None:
+    # Not the platform's own sync, and not the deployment already back: the
+    # history has no entry of it yet, so the revision it reads is the one the
+    # rollback is going away from - and the images too, while it rolls out.
+    platform = _a_platform_mid_way_through_argus_s_rollback(under_way)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_stands(RollbackStanding.UNDER_WAY))
+
+
+@pytest.mark.unit
+def test_argus_s_own_rollback_somebody_is_terminating_is_said_as_what_was_found() -> None:
+    # The platform keeps this rollback's request while its run is terminated,
+    # so the request alone reads as Argus's change on its way - but only
+    # somebody terminates a sync, as the write reads it. The run is read before
+    # the request.
+    platform = _a_platform_terminating_this_rollback()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_was_found_somebody_s(THE_REVISION_BEFORE_IT))
+
+
+@pytest.mark.unit
+def test_argus_s_own_rollback_somebody_terminated_is_said_as_what_was_found() -> None:
+    # No entry of the rollback, and the deployment still on the revision Argus
+    # found - which alone reads as already back. The run says somebody stopped
+    # it, as the write reads it.
+    platform = _a_platform_where_somebody_terminated_this_rollback()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_was_found_somebody_s(THE_REVISION_BEFORE_IT))
+
+
+@pytest.mark.unit
+def test_argus_s_rollback_asked_again_after_a_terminated_run_stands_as_under_way() -> None:
+    # The platform clears a request once its run ends, so one standing beside an
+    # ended run was asked after it: Argus's rollback, asked again since somebody
+    # terminated the last run of it. The request is the newer, and says the
+    # rollback is on its way - not stopped.
+    platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
+        requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
+                                initiated_by=SOME_ARGUS_ACCOUNT),
+        last_run=SyncRun(revision=THE_REVISION_BEFORE_IT, initiated_by=SOME_ARGUS_ACCOUNT,
+                         started_at=AFTER_THE_PLAN, phase=SyncPhase.TERMINATED)
+    ))
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_stands(RollbackStanding.UNDER_WAY))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("phase", EVERY_WAY_SOMEBODY_STOPS_A_PUT_BACK)
+def test_a_put_back_somebody_terminated_is_said_as_what_was_found(phase: SyncPhase) -> None:
+    # Argus's own sync back to the revision it found, stopped by somebody: not
+    # the put-back whose answer was lost, and not already back. The run is read
+    # before the request the platform keeps beside it.
+    platform = a_platform_as_the_rollback_left_it(operations=_a_run(
+        phase, started_at=AFTER_THE_PLAN, revision=THE_REVISION_RUNNING
+    ))
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_was_found_somebody_s(THE_REVISION_RUNNING))
+
+
+@pytest.mark.unit
+def test_a_revision_somebody_deployed_since_is_said_as_what_was_found() -> None:
+    platform = a_platform_as_the_rollback_left_it(
+        newest=_a_deployment(THE_NEXT_ENTRY, A_REVISION_SOMEBODY_ELSE_DEPLOYED,
+                             initiated_by=SOME_PERSON)
+    )
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_was_found_somebody_s(A_REVISION_SOMEBODY_ELSE_DEPLOYED, SOME_PERSON))
+
+
+@pytest.mark.unit
+def test_images_set_by_hand_on_argus_s_entry_are_said_as_what_was_found() -> None:
+    # A `kubectl set image` leaves no entry in the history, and changes exactly
+    # the images.
+    platform = a_platform_as_the_rollback_left_it(
+        images_running={SOME_CONTAINER: AN_IMAGE_SET_BY_HAND}
+    )
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_was_found_somebody_s(AN_IMAGE_SET_BY_HAND))
+
+
+@pytest.mark.unit
+def test_a_sync_somebody_else_asked_for_still_being_run_is_said_as_what_was_found() -> None:
+    platform = a_platform_as_the_rollback_left_it(operations=SyncOperations(
+        requested=RequestedSync(revision=A_REVISION_SOMEBODY_ELSE_DEPLOYED,
+                                initiated_by=SOME_PERSON),
+        last_run=None
+    ))
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_was_found_somebody_s(A_REVISION_SOMEBODY_ELSE_DEPLOYED, SOME_PERSON))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", EVERY_READ_THE_CHECK_MAKES)
+def test_the_check_raises_where_a_read_never_came_back(read: str) -> None:
+    # Raised as the platform raised it, so whoever asked writes nothing on it -
+    # and says nothing it cannot establish.
+    platform = a_platform_as_the_rollback_left_it()
+    getattr(platform, read).side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(attempting(lambda: what_became_of_the_rollback(
+            a_descriptor, platform, SOME_ARGUS_ACCOUNT))) \
+        .then(an_error_was_raised(PlatformUnreachable))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("under_way", EVERY_WAY_ARGUS_S_ROLLBACK_IS_UNDER_WAY)
+def test_a_restore_while_argus_s_own_rollback_is_under_way_writes_nothing(
+    under_way: SyncOperations
+) -> None:
+    # A pin that the lift keeps what the restore did: the withdrawal arrived
+    # while the platform still had Argus's rollback to finish, and nothing a
+    # put-back can be asked beside - so it is answered as one that could not be
+    # made, and goes to a person, whether the check calls it under way or mid
+    # sync.
+    platform = _a_platform_mid_way_through_argus_s_rollback(under_way)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: restore_deployment(a_descriptor, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            _nothing_was_written(platform),
+            _it_reports_restored(revision=False, automated_sync=False),
+            it_was_not_left_alone()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("was_syncing_itself", [True, False],
+                         ids=["argus-suspended-the-sync", "the-sync-was-already-off"])
+def test_a_rollback_as_argus_left_it_is_still_argus_s(was_syncing_itself: bool) -> None:
+    # Argus's entry, running its images, and the platform not reconciling the
+    # application - suspended by the rollback, or off as it was found.
+    platform = a_platform_as_the_rollback_left_it()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_is_still_argus_s())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("was_syncing_itself", [True, False],
+                         ids=["somebody-resumed-what-argus-suspended",
+                              "somebody-turned-on-a-sync-found-off"])
+def test_a_rollback_the_platform_reconciles_again_is_a_change_since(
+    was_syncing_itself: bool
+) -> None:
+    # Argus's entry is still the newest, and the platform is reconciling the
+    # application: it re-applies git at its next pass, so the rollback is not
+    # Argus's to watch any more - as the write, and every patch kind, read it.
+    platform = a_platform_as_the_rollback_left_it(syncing_itself=True)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_was_changed_since())
+
+
+@pytest.mark.unit
+def test_argus_s_own_rollback_somebody_is_terminating_is_a_change_since() -> None:
+    # Its request still kept, and its run being terminated - by somebody, or by
+    # the platform's own sync timeout where one is set: what is left of the
+    # rollback is not Argus's to watch.
+    platform = _a_platform_terminating_this_rollback()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_was_changed_since())
+
+
+@pytest.mark.unit
+def test_argus_s_own_rollback_somebody_terminated_is_somebody_s_change_since() -> None:
+    # Not a run that failed of itself: terminated, by somebody or by the
+    # platform's own sync timeout where one is set. A change since, said as what
+    # was found, and not as the rollback's run having failed.
+    platform = _a_platform_where_somebody_terminated_this_rollback()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            it_was_changed_since(f"[{THE_REVISION_BEFORE_IT}]"),
+            what_was_found_does_not_say(THE_RUN_FAILED)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_newest_entry_is_argus_s_at_another_revision_is_nobody_s_to_say(
+) -> None:
+    # Argus's own account deployed a revision this rollback never named: some
+    # other walk's doing, or a person's under Argus's account. Not a change of
+    # somebody else's since - and not this rollback either.
+    platform = a_platform_as_the_rollback_left_it(
+        newest=_a_deployment(THE_NEXT_ENTRY, AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT)
+    )
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(nobody_can_say(ARGUS_S_ACCOUNT_ELSEWHERE, f"[{AN_OLDER_REVISION}]"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("under_way", EVERY_WAY_ARGUS_S_ROLLBACK_IS_UNDER_WAY)
+def test_argus_s_own_rollback_still_under_way_is_still_argus_s(
+    under_way: SyncOperations
+) -> None:
+    # The forward sync of Argus's that the dead worker asked for, still being
+    # run: Argus's change on its way, to be watched - whose arrival the watch
+    # waits on - and not somebody's.
+    platform = _a_platform_mid_way_through_argus_s_rollback(under_way)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_is_still_argus_s())
+
+
+@pytest.mark.unit
+def test_a_deployment_already_back_where_argus_found_it_is_a_change_since() -> None:
+    # Somebody put it back: there is no rollback of Argus's left to watch, and
+    # what was found says the revision it is back on.
+    platform = a_platform_as_the_rollback_left_it(
+        newest=_a_deployment(THE_NEXT_ENTRY, THE_REVISION_RUNNING, initiated_by=SOME_PERSON)
+    )
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_was_changed_since(f"[{THE_REVISION_RUNNING}]"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("a_platform_somebody_changed", EVERY_WAY_A_ROLLBACK_BECOMES_SOMEBODY_S)
+@pytest.mark.parametrize("syncing_now", [True, False],
+                         ids=["syncing-again", "still-suspended"])
+def test_a_rollback_somebody_changed_since_is_a_change_since(
+    a_platform_somebody_changed: Callable[[bool], Any], syncing_now: bool
+) -> None:
+    platform = a_platform_somebody_changed(syncing_now)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_was_changed_since())
+
+
+@pytest.mark.unit
+def test_a_rollback_while_the_platform_runs_a_sync_of_its_own_is_a_change_since() -> None:
+    # A sync of its own runs only where the platform reconciles the
+    # application again: it re-applies git at this pass, so the rollback is not
+    # Argus's to watch any more, whatever this sync lands.
+    platform = a_platform_as_the_rollback_left_it(operations=THE_PLATFORM_MID_SYNC,
+                                                  syncing_itself=True)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_was_changed_since())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", EVERY_READ_STILL_ARGUS_S_MAKES)
+def test_a_rollback_whose_platform_could_not_be_read_is_nobody_s_to_say(read: str) -> None:
+    # Not "changed since": a read that never came back found nothing.
+    platform = a_platform_as_the_rollback_left_it()
+    getattr(platform, read).side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(nobody_can_say())
+
+
+@pytest.mark.unit
+def test_a_rollback_recorded_without_the_revision_it_went_to_is_nobody_s_to_say() -> None:
+    # Whether the newest entry is Argus's rollback cannot be asked without the
+    # revision it rolled back to.
+    platform = a_platform_as_the_rollback_left_it()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True).model_copy(
+            update={"rolled_back_to_revision": None})) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(nobody_can_say())
+
+
+@pytest.mark.unit
+def test_a_rollback_with_no_account_to_look_for_is_nobody_s_to_say() -> None:
+    # No history entry is ever made by nobody, so with no account of Argus's to
+    # look for, its own rollback would read as somebody else's.
+    platform = a_platform_as_the_rollback_left_it()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, NO_ACCOUNT)) \
+        .then(nobody_can_say())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "a_platform_found",
+    [
+        pytest.param(lambda: a_platform_as_the_rollback_left_it(), id="still-argus-s"),
+        pytest.param(lambda: a_platform_as_the_rollback_left_it(
+            newest=_a_deployment(THE_NEXT_ENTRY, A_REVISION_SOMEBODY_ELSE_DEPLOYED,
+                                 initiated_by=SOME_PERSON)
+        ), id="changed-since"),
+        pytest.param(lambda: a_platform_as_the_rollback_left_it(
+            operations=THE_PLATFORM_MID_SYNC
+        ), id="mid-sync")
+    ]
+)
+def test_asking_whether_a_rollback_is_still_argus_s_writes_nothing(
+    a_platform_found: Callable[[], Any]
+) -> None:
+    # A read, whatever it finds: a walk asking it has decided nothing yet.
+    platform = a_platform_found()
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_no_write_was_asked(platform))
+
+
+def _it_stands(expected: RollbackStanding) -> Assertion[RollbackStanding | str]:
+    def assertion(standing: RollbackStanding | str) -> bool:
+        if standing is not expected:
+            raise AssertionError(f"Expected the rollback to stand [{expected}], got [{standing}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_found_somebody_s(*mentioning: str) -> Assertion[RollbackStanding | str]:
+    """Somebody's change since, said - naming each of `mentioning`."""
+    def assertion(standing: RollbackStanding | str) -> bool:
+        if not isinstance(standing, str):
+            raise AssertionError(
+                f"Expected the rollback found somebody's change since, got [{standing}]."
+            )
+
+        missing = [each for each in mentioning if each not in standing]
+
+        if missing:
+            raise AssertionError(
+                f"Expected what was found to name {list(mentioning)}, got [{standing}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_argus_s_sync_to_another_revision_stands_as_mid_sync() -> None:
+    # A sync of Argus's own, to neither revision this rollback names: not this
+    # rollback under way, and not its put-back - nothing that can be asked
+    # beside.
+    platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
+        requested=RequestedSync(revision=AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT),
+        last_run=None
+    ))
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(_it_stands(RollbackStanding.MID_SYNC))
+
+
+@pytest.mark.unit
+def test_argus_s_sync_to_another_revision_is_nobody_s_to_say() -> None:
+    # Argus's own account, syncing a revision this claim's rollback never
+    # named: some other walk's doing, or a person's under Argus's account - and
+    # whatever it lands is not known yet.
+    platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
+        requested=RequestedSync(revision=AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT),
+        last_run=None
+    ))
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(nobody_can_say())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("phase", EVERY_WAY_A_RUN_FAILS_OF_ITSELF)
+def test_a_rollback_whose_run_failed_is_a_change_since_saying_so(phase: SyncPhase) -> None:
+    # The row says the rollback was performed, and the platform's last run of it
+    # failed of itself: no entry of it, the deployment still where it was. There
+    # is no change of Argus's to watch - and what was found says why, rather than
+    # reading as somebody having put it back.
+    platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
+        requested=None,
+        last_run=SyncRun(revision=THE_REVISION_BEFORE_IT, initiated_by=SOME_ARGUS_ACCOUNT,
+                         started_at=AFTER_THE_PLAN, phase=phase)
+    ))
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_was_changed_since(THE_RUN_FAILED))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "operations",
+    [
+        pytest.param(NO_SYNC_ASKED_OR_RUN, id="no-run-on-record"),
+        pytest.param(_a_run(SyncPhase.SUCCEEDED, started_at=A_RUN_STARTED_BEFORE_ITS_ENTRY),
+                     id="its-run-started-before-its-entry")
+    ]
+)
+def test_a_rollback_argus_made_since_the_plan_is_found_made_and_dated_by_its_entry(
+    operations: SyncOperations
+) -> None:
+    # The entry is the platform's record of the change landing; a run it has
+    # finished started earlier, and is not the moment the change was made.
+    platform = a_platform(history=[*_two_deployments(), _argus_s_rollback_since_the_plan()],
+                          syncing_itself=False, marked_by=THIS_CLAIM, operations=operations)
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(planned, platform, THIS_CLAIM, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            it_was_made(_dated(planned.descriptor, AFTER_THE_PLAN), made_at=AFTER_THE_PLAN),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("phase", [SyncPhase.RUNNING, SyncPhase.SUCCEEDED])
+def test_a_rollback_argus_s_run_started_since_the_plan_is_found_made_and_dated_by_its_start(
+    phase: SyncPhase
+) -> None:
+    # No entry yet - the platform writes it once the run finishes - so the run's
+    # own start is the moment.
+    platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
+                          operations=_a_run(phase, started_at=AFTER_THE_PLAN))
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(planned, platform, THIS_CLAIM, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            it_was_made(_dated(planned.descriptor, AFTER_THE_PLAN), made_at=AFTER_THE_PLAN),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_argus_asked_for_that_has_not_started_is_found_made_with_no_moment() -> None:
+    # Taken by the platform and not yet run: made - asked again, it would be
+    # refused as another operation in progress - and nothing yet says when, so
+    # the walk dates it by its own claim rather than by a moment made up here.
+    no_moment = None
+    platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
+                          operations=SyncOperations(
+                              requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
+                                                      initiated_by=SOME_ARGUS_ACCOUNT),
+                              last_run=None
+                          ))
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(planned, platform, THIS_CLAIM, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            it_was_made(planned.descriptor, made_at=no_moment),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_nothing_of_which_landed_has_nothing_landed_and_nothing_left() -> None:
+    # Running the revision the plan found, syncing itself as the plan found it,
+    # and nothing of this rollback's in the history or under way: the write is
+    # still to make, and nothing of this claim's is out there.
+    no_suspension = None
+    platform = a_platform(syncing_itself=True)
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(planned, platform, THIS_CLAIM, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            nothing_landed(left_behind=no_suspension),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_planned_with_sync_off_nothing_of_which_landed_leaves_nothing() -> None:
+    # The plan found the sync off, so the rollback suspends nothing: still off
+    # and under no mark, there is nothing of this claim's out there to carry.
+    no_suspension = None
+    platform = a_platform(syncing_itself=False)
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=False)) \
+        .when(lambda: whether_it_was_made(planned, platform, THIS_CLAIM, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            nothing_landed(left_behind=no_suspension),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_suspension_alone_landed_has_nothing_landed_carrying_it() -> None:
+    # The suspension before the rollback landed under this claim's mark, and
+    # the rollback did not: the write is still to make - and the answer carries
+    # the plan, so a walk stopped before it writes still has what puts the
+    # suspension back.
+    platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM)
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(planned, platform, THIS_CLAIM, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            nothing_landed(left_behind=planned.descriptor),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("phase", EVERY_WAY_A_RUN_FAILS_OF_ITSELF)
+def test_a_rollback_whose_run_failed_of_itself_has_nothing_landed_carrying_the_suspension(
+    phase: SyncPhase
+) -> None:
+    # A run of this rollback that failed of itself made nothing: the write is
+    # still to make, as the write itself asks it again - and the suspension
+    # under this claim's mark is carried as it stands.
+    platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
+                          operations=_a_run(phase, started_at=AFTER_THE_PLAN))
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(planned, platform, THIS_CLAIM, SOME_ARGUS_ACCOUNT)) \
+        .then(all_of(
+            nothing_landed(left_behind=planned.descriptor),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "a_platform_changed_since",
+    [
+        pytest.param(lambda: a_platform(
+            history=[*_two_deployments(),
+                     _a_deployment(THE_NEXT_ENTRY, A_REVISION_SOMEBODY_ELSE_DEPLOYED,
+                                   deployed_at=AFTER_THE_PLAN, initiated_by=SOME_PERSON)],
+            syncing_itself=False, marked_by=THIS_CLAIM
+        ), id="a-revision-somebody-deployed-since"),
+        pytest.param(lambda: a_platform(
+            history=[*_two_deployments(), _argus_s_rollback_since_the_plan(),
+                     _a_deployment(THE_ENTRY_AFTER_THAT, THE_REVISION_RUNNING,
+                                   deployed_at=AFTER_THE_PLAN, initiated_by=SOME_PERSON)],
+            syncing_itself=False, marked_by=THIS_CLAIM
+        ), id="argus-s-rollback-undone-by-somebody"),
+        pytest.param(lambda: a_platform(syncing_itself=False, marked_by=ANOTHER_CLAIM),
+                     id="a-sync-suspended-under-another-claim"),
+        pytest.param(lambda: a_platform(syncing_itself=True, marked_by=THIS_CLAIM),
+                     id="a-sync-somebody-resumed"),
+        pytest.param(lambda: _a_platform_terminating_this_rollback(),
+                     id="this-rollback-s-run-being-terminated"),
+        pytest.param(lambda: _a_platform_where_somebody_terminated_this_rollback(),
+                     id="this-rollback-s-run-terminated")
+    ]
+)
+def test_a_rollback_changed_since_its_plan_is_refused_as_the_write_refuses_it(
+    a_platform_changed_since: Callable[[], Any]
+) -> None:
+    # The same estate, the same answer: changed since, saying whether this
+    # claim's rollback landed, and leaving behind what the write would.
+    platform = a_platform_changed_since()
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(planned, platform, THIS_CLAIM,
+                                                     SOME_ARGUS_ACCOUNT))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            it_refused_as_the_write_does(
+                lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)
+            ),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", ["deployments_of", "sync_operations_of", "is_syncing_itself",
+                                  "mark_on"])
+def test_a_rollback_whose_platform_could_not_be_read_is_refused_as_the_write_refuses_it(
+    read: str
+) -> None:
+    platform = a_platform(syncing_itself=True)
+    getattr(platform, read).side_effect = PlatformUnreachable(
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
+    )
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(planned, platform, THIS_CLAIM,
+                                                     SOME_ARGUS_ACCOUNT))) \
+        .then(all_of(
+            it_was_refused_as(RollbackRefused),
+            it_refused_as_the_write_does(
+                lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)
+            ),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "a_platform_nobody_can_answer_for",
+    [
+        pytest.param(lambda: a_platform(operations=THE_PLATFORM_MID_SYNC),
+                     id="mid-sync-of-its-own"),
+        pytest.param(lambda: a_platform(history=[_a_deployment(THE_ENTRY_RUNNING,
+                                                               THE_REVISION_RUNNING)]),
+                     id="a-plan-the-tier-s-rule-does-not-give")
+    ]
+)
+def test_a_rollback_nobody_can_answer_for_is_refused_as_the_write_refuses_it(
+    a_platform_nobody_can_answer_for: Callable[[], Any]
+) -> None:
+    # Refused plainly by the write, nothing said known of what landed - and so
+    # by the read, which is no evidence anybody acted.
+    platform = a_platform_nobody_can_answer_for()
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(planned, platform, THIS_CLAIM,
+                                                     SOME_ARGUS_ACCOUNT))) \
+        .then(all_of(
+            it_was_refused_as(RollbackRefused),
+            it_is_not_said_changed_since(),
+            it_refused_as_the_write_does(
+                lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)
+            ),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_asked_after_by_no_claim_is_refused_saying_nobody_can_say() -> None:
+    # Whose mark the sync switch carries is part of the write's compare, and a
+    # call naming no claim has none to compare it with - which is not evidence
+    # anybody acted.
+    no_claim = None
+    platform = a_platform(history=[*_two_deployments(), _argus_s_rollback_since_the_plan()],
+                          syncing_itself=False, marked_by=THIS_CLAIM)
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(planned, platform, no_claim,
+                                                     SOME_ARGUS_ACCOUNT))) \
+        .then(all_of(
+            it_was_refused_as(RollbackRefused),
+            it_is_not_said_changed_since(),
+            _no_write_was_asked(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_with_no_account_to_look_for_is_refused_as_the_write_refuses_it() -> None:
+    # Somebody named has deployed since the plan, and with no account of Argus's
+    # to look for nobody can say whether it was this rollback: refused as the
+    # write refuses it, not said to be anybody's.
+    named_since = _a_deployment(THE_NEXT_ENTRY, THE_REVISION_BEFORE_IT,
+                                deployed_at=AFTER_THE_PLAN, initiated_by=SOME_PERSON)
+    platform = a_platform(history=[*_two_deployments(), named_since],
+                          syncing_itself=False, marked_by=THIS_CLAIM)
+
+    Scenario() \
+        .given(planned := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(planned, platform, THIS_CLAIM,
+                                                     NO_ACCOUNT))) \
+        .then(all_of(
+            it_was_refused_as(RollbackRefused),
+            it_is_not_said_changed_since(),
+            it_refused_as_the_write_does(
+                lambda: roll_back_deployment(planned, platform, SOME_MARK, NO_ACCOUNT)
+            ),
+            _no_write_was_asked(platform)
+        ))

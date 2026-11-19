@@ -40,6 +40,7 @@ from deployment_platform import (
     DeploymentRecord,
     Mark,
     MarkedObject,
+    MarkFound,
     PlatformRefused,
     PlatformUnreachable,
     RequestedSync,
@@ -110,12 +111,19 @@ SOME_MARK = Mark(
 # The mark as it lands on the written object's own metadata. The moment is
 # spelled out rather than worked out from the one above: the spelling - UTC, to
 # the second, with a `Z` - is the wire shape this file pins.
+THE_ACTION_ANNOTATION = "argus/action"
+THE_WRITTEN_AT_ANNOTATION = "argus/written-at"
 THE_MARKED_METADATA = {
     "annotations": {
-        "argus/action": SOME_MARK.action_id,
-        "argus/written-at": "2026-11-18T13:05:00Z"
+        THE_ACTION_ANNOTATION: SOME_MARK.action_id,
+        THE_WRITTEN_AT_ANNOTATION: "2026-11-18T13:05:00Z"
     }
 }
+# The moment the mark above says it was written, read back off the object: cut
+# to the second, as it was spelled there.
+THE_MOMENT_THE_MARK_SAYS = SOME_MARK.written_at.replace(microsecond=0)
+# A moment a mark says it was written at that does not read as a time.
+AN_UNREADABLE_MOMENT = "not a moment"
 # What somebody else wrote about an object, which a mark is read from beside.
 SOMEBODY_ELSES_ANNOTATIONS = {"kubernetes.io/change-cause": "kubectl scale --replicas=6"}
 
@@ -134,6 +142,23 @@ SOME_HISTORY_ID = 41
 # When the controller started a sync, as Argo CD spells it and as Argus reads it.
 SOME_SYNC_START = "2026-11-18T13:05:00Z"
 THE_SYNC_START_READ = datetime(2026, 11, 18, 13, 5, tzinfo=UTC)
+# What the controller says of a run that failed of itself - objects that would
+# not apply - which is no stop of anybody's.
+A_FAILED_RUN_S_MESSAGE = "one or more objects failed to apply"
+# And of a run that errored of itself - the repository it renders from could
+# not be reached.
+AN_ERRORED_RUN_S_MESSAGE = "rpc error: code = Unavailable desc = connection refused"
+# How gitops-engine's `Terminate()` finishes a run somebody terminated: failed,
+# saying so, or errored, where the termination itself had errors. Spelled out
+# rather than imported, because this file is what pins the wire shape.
+THE_TERMINATED_RUN_S_MESSAGE = "Operation terminated"
+THE_ERRED_TERMINATION_S_MESSAGE = "Operation termination had errors"
+# And errored where it could not read a hook's health while terminating: the
+# words `Terminate()` alone writes, followed by whatever error it met - one
+# here, as the API server says a resource is gone.
+THE_UNREAD_HOOK_S_MESSAGE = (
+    "Failed to get hook health: the server could not find the requested resource"
+)
 # gRPC's code for a request refused for the state the system is in, which Argo
 # CD's gateway serves a sync asked during another as.
 FAILED_PRECONDITION = 9
@@ -1292,7 +1317,8 @@ def test_the_mark_on_an_object_is_read_off_its_own_metadata(
     # Where each write puts it: the application's on its own route, the
     # Deployment's and the autoscaler's on their live manifests - the autoscaler
     # addressed as the tree names it, as its pin is. What comes back is the
-    # action it was made for, read from beside somebody else's annotations.
+    # action it was made for and the moment it says it was written, read from
+    # beside somebody else's annotations.
     platform = _a_platform_where(kind, _metadata_annotated({
         **SOMEBODY_ELSES_ANNOTATIONS, **THE_MARKED_METADATA["annotations"]
     }))
@@ -1301,7 +1327,8 @@ def test_the_mark_on_an_object_is_read_off_its_own_metadata(
         .given(argo_cd := _argo_cd_over(platform)) \
         .when(lambda: argo_cd.mark_on(SOME_APPLICATION, kind)) \
         .then(all_of(
-            the_answer_was(SOME_MARK.action_id),
+            the_answer_was(MarkFound(action_id=SOME_MARK.action_id,
+                                     written_at=THE_MOMENT_THE_MARK_SAYS)),
             lambda _: _only_these_were_asked(platform, asked),
             lambda _: _the_last_request_was(platform, GET, asked[-1][1], query=selectors)
         ))
@@ -1371,6 +1398,49 @@ def test_the_last_sync_run_is_read_off_the_application_s_operation_state(
             "operation": {"sync": {"revision": SOME_REVISION},
                           "initiatedBy": {"username": SOME_ACCOUNT}},
             "phase": phase,
+            "startedAt": SOME_SYNC_START
+        }}
+    }))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.sync_operations_of(SOME_APPLICATION)) \
+        .then(the_answer_was(SyncOperations(
+            requested=None,
+            last_run=SyncRun(revision=SOME_REVISION, initiated_by=SOME_ACCOUNT,
+                             started_at=THE_SYNC_START_READ, phase=read_as)
+        )))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("phase", "message", "read_as"),
+    [
+        pytest.param("Failed", THE_TERMINATED_RUN_S_MESSAGE, SyncPhase.TERMINATED,
+                     id="terminated"),
+        pytest.param("Error", THE_ERRED_TERMINATION_S_MESSAGE, SyncPhase.TERMINATED,
+                     id="termination-had-errors"),
+        pytest.param("Error", THE_UNREAD_HOOK_S_MESSAGE, SyncPhase.TERMINATED,
+                     id="termination-could-not-read-a-hook"),
+        pytest.param("Failed", A_FAILED_RUN_S_MESSAGE, SyncPhase.FAILED,
+                     id="failed-of-itself"),
+        pytest.param("Error", AN_ERRORED_RUN_S_MESSAGE, SyncPhase.ERROR,
+                     id="errored-of-itself")
+    ]
+)
+def test_a_run_somebody_terminated_is_read_apart_from_one_that_failed_of_itself(
+    phase: str, message: str, read_as: SyncPhase
+) -> None:
+    # A terminated run finishes failed or errored, as one that failed of itself
+    # does - its message is all that tells the two apart, and only the adapter
+    # knows the words. Terminated is somebody's stop; failed is nobody's.
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok({
+        **_an_application(),
+        "status": {"operationState": {
+            "operation": {"sync": {"revision": SOME_REVISION},
+                          "initiatedBy": {"username": SOME_ACCOUNT}},
+            "phase": phase,
+            "message": message,
             "startedAt": SOME_SYNC_START
         }}
     }))
@@ -1859,3 +1929,34 @@ def test_a_write_whose_answer_does_not_say_when_answers_with_no_moment(
         .given(argo_cd := _argo_cd_over(platform)) \
         .when(lambda: write(argo_cd)) \
         .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "kind",
+    [MarkedObject.APPLICATION, MarkedObject.DEPLOYMENT, MarkedObject.AUTOSCALER],
+    ids=["the application", "the deployment", "the autoscaler"]
+)
+@pytest.mark.parametrize(
+    "the_moment_as_found",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({THE_WRITTEN_AT_ANNOTATION: AN_UNREADABLE_MOMENT}, id="unreadable")
+    ]
+)
+def test_a_mark_whose_moment_cannot_be_read_still_names_its_claim(
+    kind: MarkedObject, the_moment_as_found: dict[str, str]
+) -> None:
+    # A walk resumed after its worker died dates a change it finds made by the
+    # moment the claim's mark says it was written - the only record of when. So
+    # a mark is read back whole, and whose the change is does not wait on when:
+    # the claim is read, and a moment absent or not a time is said to be
+    # unknown rather than made up.
+    platform = _a_platform_where(kind, _metadata_annotated({
+        THE_ACTION_ANNOTATION: SOME_MARK.action_id, **the_moment_as_found
+    }))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.mark_on(SOME_APPLICATION, kind)) \
+        .then(the_answer_was(MarkFound(action_id=SOME_MARK.action_id, written_at=None)))

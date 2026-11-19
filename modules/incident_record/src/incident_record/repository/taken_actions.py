@@ -116,7 +116,7 @@ def claim(
                 ActionProgress.CLAIMED,
                 _as_column(planned.descriptor if planned is not None else None),
                 planned.since if planned is not None else None
-            ),
+            )
         )
         claimed = cursor.fetchone()
 
@@ -132,7 +132,7 @@ def complete(
     performed: bool = True,
     *,
     left_behind_known: bool,
-    undone: Undone | None = None,
+    undone: Undone | None = None
 ) -> None:
     """Records what came of an action already claimed (spec §11.1, §13), and
     whether it was performed at all.
@@ -188,8 +188,8 @@ def complete(
                 "known": left_behind_known,
                 "undone": undone,
                 "incident": incident_id,
-                "hypothesis": hypothesis_id,
-            },
+                "hypothesis": hypothesis_id
+            }
         )
 
 
@@ -238,8 +238,38 @@ def advance(
                 performed_at,
                 incident_id,
                 hypothesis_id,
-                ActionProgress.CLAIMED,
-            ),
+                ActionProgress.CLAIMED
+            )
+        )
+
+
+def plan_the_claim(conn: psycopg.Connection,
+                   incident_id: str,
+                   hypothesis_id: str,
+                   planned: Planned[Any]) -> None:
+    """Writes onto a claim written with no plan the plan a resumed walk is about
+    to take its action on - before the write, so the plan the write compares
+    with lives on the claim, as `claim` writes it for a walk that planned first.
+
+    A claim is written with none where its plan was refused, and its worker died
+    before recording the refusal; the resumed walk then plans for itself. Only
+    onto a claim still `claimed` and still carrying no plan: a plan already on a
+    claim is the one its write compares with, and is never written over.
+
+    Committing is the caller's, as `advance`'s is.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE action SET plan = %s, since = %s "
+            " WHERE incident_id = %s AND hypothesis_id = %s "
+            "   AND progress = %s AND plan IS NULL",
+            (
+                _as_column(planned.descriptor),
+                planned.since,
+                incident_id,
+                hypothesis_id,
+                ActionProgress.CLAIMED
+            )
         )
 
 
@@ -272,8 +302,8 @@ def owe_a_put_back(conn: psycopg.Connection,
                 because,
                 incident_id,
                 hypothesis_id,
-                ActionProgress.PERFORMED,
-            ),
+                ActionProgress.PERFORMED
+            )
         )
 
 
@@ -307,7 +337,7 @@ def settle_claims(conn: psycopg.Connection, incident_id: str) -> None:
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE action SET progress = %s WHERE incident_id = %s AND progress = %s",
-            (ActionProgress.UNKNOWN, incident_id, ActionProgress.CLAIMED),
+            (ActionProgress.UNKNOWN, incident_id, ActionProgress.CLAIMED)
         )
 
 
@@ -356,7 +386,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
             "       undone, plan, since, performed_at, put_back_because "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
-            (incident_id, hypothesis_id),
+            (incident_id, hypothesis_id)
         )
 
         return cursor.fetchone()
@@ -378,7 +408,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",
-            (incident_id,),
+            (incident_id,)
         )
         return cursor.fetchall()
 

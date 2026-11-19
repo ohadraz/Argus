@@ -13,10 +13,13 @@ from core.models import (
     AutoscalingRestored,
     CacheEntriesDiscarded,
     CapacityRestored,
+    ChangeFound,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     FlagUndo,
+    Made,
+    NotMade,
     OpenedPullRequest,
     Planned,
     ReplicaUndo,
@@ -33,7 +36,7 @@ from pydantic import TypeAdapter
 # place for it to be decided differently.
 _FLAG_CHANGES: Final = TypeAdapter(list[FlagChange])
 
-# Either question about whose a flag change was, answered as a yes, a no, or
+# Whether anybody else changed a flag, answered as a yes, a no, or
 # nobody-can-say - validated rather than cast, so `None` crosses as itself and
 # anything else the tier said is refused here rather than read as an answer.
 _AN_ANSWER_OR_NONE: Final[TypeAdapter[bool | None]] = TypeAdapter(bool | None)
@@ -59,6 +62,28 @@ _PLANNED_ROLLBACK: Final = TypeAdapter(Planned[DeploymentRollbackUndo])
 _PLANNED_SCALE_OUT: Final = TypeAdapter(Planned[ReplicaUndo])
 _PLANNED_AUTOSCALER_PIN: Final = TypeAdapter(Planned[AutoscalerUndo])
 _PLANNED_ACCELERATOR_PIN: Final = TypeAdapter(Planned[AcceleratorPinUndo])
+
+# What a resumed walk's two reads answer: a claim's change found made or not
+# made - what of the claim's is out there all the same carried on the second -
+# read as the kind the tool asks after; and a performed change found still
+# Argus's, changed since, or nobody's to say. The two answers share no field
+# and `NotMade` refuses extra ones, so neither is read as the other.
+_MADE_FLAG: Final[TypeAdapter[Made[FlagUndo] | NotMade[FlagUndo]]] = TypeAdapter(
+    Made[FlagUndo] | NotMade[FlagUndo]
+)
+_MADE_ROLLBACK: Final[
+    TypeAdapter[Made[DeploymentRollbackUndo] | NotMade[DeploymentRollbackUndo]]
+] = TypeAdapter(Made[DeploymentRollbackUndo] | NotMade[DeploymentRollbackUndo])
+_MADE_SCALE_OUT: Final[TypeAdapter[Made[ReplicaUndo] | NotMade[ReplicaUndo]]] = TypeAdapter(
+    Made[ReplicaUndo] | NotMade[ReplicaUndo]
+)
+_MADE_AUTOSCALER_PIN: Final[
+    TypeAdapter[Made[AutoscalerUndo] | NotMade[AutoscalerUndo]]
+] = TypeAdapter(Made[AutoscalerUndo] | NotMade[AutoscalerUndo])
+_MADE_ACCELERATOR_PIN: Final[
+    TypeAdapter[Made[AcceleratorPinUndo] | NotMade[AcceleratorPinUndo]]
+] = TypeAdapter(Made[AcceleratorPinUndo] | NotMade[AcceleratorPinUndo])
+_CHANGE_FOUND: Final = TypeAdapter(ChangeFound)
 
 # The branch a fix was written to, which the server answers with as a bare
 # string. Validated rather than cast: what comes back is handed straight to
@@ -171,7 +196,7 @@ def discard_cache_entries(keys: Sequence[str],
     return client.call(
         "discard_cache_entries",
         _CACHE_ENTRIES_DISCARDED.validate_python,
-        keys=list(keys),
+        keys=list(keys)
     )
 
 
@@ -197,7 +222,7 @@ def restart_service(service: str,
     return client.call(
         "restart_service",
         _RESTARTED_SERVICE.validate_python,
-        service=service,
+        service=service
     )
 
 
@@ -282,7 +307,7 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     return client.call(
         "restore_deployment",
         _DEPLOYMENT_RESTORED.validate_python,
-        descriptor=descriptor.model_dump(mode="json"),
+        descriptor=descriptor.model_dump(mode="json")
     )
 
 
@@ -365,7 +390,7 @@ def restore_replica_count(descriptor: ReplicaUndo,
     return client.call(
         "restore_replica_count",
         _CAPACITY_RESTORED.validate_python,
-        descriptor=descriptor.model_dump(mode="json"),
+        descriptor=descriptor.model_dump(mode="json")
     )
 
 
@@ -447,7 +472,7 @@ def restore_autoscaler_floor(descriptor: AutoscalerUndo,
     return client.call(
         "restore_autoscaler_floor",
         _AUTOSCALING_RESTORED.validate_python,
-        descriptor=descriptor.model_dump(mode="json"),
+        descriptor=descriptor.model_dump(mode="json")
     )
 
 
@@ -551,27 +576,156 @@ def get_recent_flag_changes(since: str,
     return client.call(
         "get_recent_flag_changes",
         _FLAG_CHANGES.validate_python,
-        since=since,
+        since=since
     )
 
 
-def was_flag_changed_by_argus_since(flag: str,
-                                    since: datetime,
-                                    *,
-                                    client: McpClient) -> bool | None:
-    """Whether Argus's own change to `flag` was recorded at or after `since`,
-    or `None` where nobody can say.
+def whether_flag_was_made(planned: Planned[FlagUndo],
+                          *,
+                          client: McpClient) -> Made[FlagUndo] | NotMade[FlagUndo]:
+    """Whether the flag change a claim planned was made: made, with what puts it
+    back and when the provider recorded it; not made, leaving nothing behind,
+    where nothing landed.
 
-    The question a walk resumed after its worker died asks: did the change it
-    was claiming land? Only the provider's history knows, and the provider's
-    adapter decides whose each change in it was - this carries the answer and
-    adds nothing, least of all a `False` where the tier said nobody can say.
+    The first question a walk resumed after its worker died asks of a claim -
+    the write's own rule on the claim's plan, with the write left out. So it
+    refuses where `set_feature_flag` would: `ChangedSince` where somebody else
+    changed the flag since the plan, carrying what of the claim's landed, and a
+    plain refusal where nobody can say.
     """
     return client.call(
-        "was_flag_changed_by_argus_since",
-        _AN_ANSWER_OR_NONE.validate_python,
-        flag=flag,
-        since=to_iso(since)
+        "whether_flag_was_made",
+        _MADE_FLAG.validate_python,
+        planned=planned.model_dump(mode="json")
+    )
+
+
+def flag_still_argus_s(planned: Planned[FlagUndo],
+                       descriptor: FlagUndo,
+                       *,
+                       client: McpClient) -> ChangeFound:
+    """Whether a flag change Argus made from `planned` is still as Argus left
+    it - or somebody changed it since, saying what was found, or nobody can say,
+    saying why.
+
+    What a walk resumed after its worker died asks before it watches a change
+    an earlier worker made. A read; the plan and the descriptor go over the wire
+    whole, as the claim stored them - the history is read from the plan's.
+    """
+    return client.call(
+        "flag_still_argus_s",
+        _CHANGE_FOUND.validate_python,
+        planned=planned.model_dump(mode="json"),
+        descriptor=descriptor.model_dump(mode="json")
+    )
+
+
+def whether_rollback_was_made(planned: Planned[DeploymentRollbackUndo],
+                              *,
+                              client: McpClient
+                              ) -> Made[DeploymentRollbackUndo] | NotMade[DeploymentRollbackUndo]:
+    """Whether the rollback a claim planned was made: made, with when the
+    platform says it was - `None` for a rollback taken and not yet started -
+    or not made where nothing landed, carrying the plan where the claim's
+    suspension of the sync stands. Refuses where `roll_back_deployment` would,
+    `ChangedSince` among it, since the read is the write's own compare."""
+    return client.call(
+        "whether_rollback_was_made",
+        _MADE_ROLLBACK.validate_python,
+        planned=planned.model_dump(mode="json")
+    )
+
+
+def rollback_still_argus_s(descriptor: DeploymentRollbackUndo,
+                           *,
+                           client: McpClient) -> ChangeFound:
+    """Whether a rollback Argus made is still as Argus left it - the restore's
+    own check, asked on its own - or somebody's change since, or nobody can
+    say."""
+    return client.call(
+        "rollback_still_argus_s",
+        _CHANGE_FOUND.validate_python,
+        descriptor=descriptor.model_dump(mode="json")
+    )
+
+
+def whether_scale_out_was_made(planned: Planned[ReplicaUndo],
+                               *,
+                               client: McpClient) -> Made[ReplicaUndo] | NotMade[ReplicaUndo]:
+    """Whether the scale-out a claim planned was made under the claim the call
+    is made for: made, with when its mark says it was written, or not made
+    where nothing landed, carrying the plan where the claim's suspension of the
+    sync stands. Refuses where `scale_out` would."""
+    return client.call(
+        "whether_scale_out_was_made",
+        _MADE_SCALE_OUT.validate_python,
+        planned=planned.model_dump(mode="json")
+    )
+
+
+def scale_out_still_argus_s(descriptor: ReplicaUndo, *, client: McpClient) -> ChangeFound:
+    """Whether a scale-out Argus made is still as Argus left it under the claim
+    the call is made for, or somebody's change since, or nobody can say."""
+    return client.call(
+        "scale_out_still_argus_s",
+        _CHANGE_FOUND.validate_python,
+        descriptor=descriptor.model_dump(mode="json")
+    )
+
+
+def whether_autoscaler_pin_was_made(planned: Planned[AutoscalerUndo],
+                                    *,
+                                    client: McpClient
+                                    ) -> Made[AutoscalerUndo] | NotMade[AutoscalerUndo]:
+    """Whether the autoscaler pin a claim planned was made under the claim the
+    call is made for: made, with when its mark says it was written, or not made
+    where nothing landed, carrying the plan where the claim's suspension of the
+    sync stands. Refuses where `pin_autoscaler` would."""
+    return client.call(
+        "whether_autoscaler_pin_was_made",
+        _MADE_AUTOSCALER_PIN.validate_python,
+        planned=planned.model_dump(mode="json")
+    )
+
+
+def autoscaler_pin_still_argus_s(descriptor: AutoscalerUndo,
+                                 *,
+                                 client: McpClient) -> ChangeFound:
+    """Whether an autoscaler pin Argus made is still as Argus left it under the
+    claim the call is made for, or somebody's change since, or nobody can
+    say."""
+    return client.call(
+        "autoscaler_pin_still_argus_s",
+        _CHANGE_FOUND.validate_python,
+        descriptor=descriptor.model_dump(mode="json")
+    )
+
+
+def whether_accelerator_pin_was_made(planned: Planned[AcceleratorPinUndo],
+                                     *,
+                                     client: McpClient
+                                     ) -> Made[AcceleratorPinUndo] | NotMade[AcceleratorPinUndo]:
+    """Whether the pin to a card a claim planned was made under the claim the
+    call is made for: made, with when its mark says it was written, or not made
+    where nothing landed, carrying the plan where the claim's suspension of the
+    sync stands. Refuses where `pin_to_accelerator` would."""
+    return client.call(
+        "whether_accelerator_pin_was_made",
+        _MADE_ACCELERATOR_PIN.validate_python,
+        planned=planned.model_dump(mode="json")
+    )
+
+
+def accelerator_pin_still_argus_s(descriptor: AcceleratorPinUndo,
+                                  *,
+                                  client: McpClient) -> ChangeFound:
+    """Whether a pin to a card Argus made is still as Argus left it under the
+    claim the call is made for, or somebody's change since, or nobody can
+    say."""
+    return client.call(
+        "accelerator_pin_still_argus_s",
+        _CHANGE_FOUND.validate_python,
+        descriptor=descriptor.model_dump(mode="json")
     )
 
 
@@ -620,7 +774,7 @@ def commit_to_new_branch(branch: str,
         branch=branch,
         base_branch=base_branch,
         files=dict(files),
-        message=message,
+        message=message
     )
 
 
@@ -655,5 +809,5 @@ def open_pull_request(head_branch: str,
         head_branch=head_branch,
         base_branch=base_branch,
         title=title,
-        body=body,
+        body=body
     )

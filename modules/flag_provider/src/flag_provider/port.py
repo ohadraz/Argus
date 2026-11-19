@@ -45,18 +45,11 @@ class FlagAudit(Protocol):
         """
         ...
 
-    def argus_changed_since(self, flag: str, since: datetime, /) -> bool | None:
-        """Whether Argus's own change to `flag` was recorded at or after `since`.
-
-        `None` where nobody can say - the history could not be read, or the
-        provider cannot tell Argus's changes from anybody else's.
-        """
-        ...
-
     def others_changed_since(self, flag: str, since: datetime, /) -> bool | None:
         """Whether anybody but Argus changed `flag` at or after `since`.
 
-        `None` where nobody can say, for the reasons the question above has.
+        `None` where nobody can say - the history could not be read, or the
+        provider cannot tell Argus's changes from anybody else's.
         """
         ...
 

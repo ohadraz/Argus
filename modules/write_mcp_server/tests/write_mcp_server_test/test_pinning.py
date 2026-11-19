@@ -48,6 +48,7 @@ as text - is the adapter's, and pinned in its own suite.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import create_autospec
@@ -75,6 +76,7 @@ from deployment_platform import (
     AutoscalerBounds,
     DeploymentPlatformWrites,
     MarkedObject,
+    MarkFound,
     PlatformRefused,
     PlatformUnreachable,
 )
@@ -84,13 +86,17 @@ from write_mcp_server.pinning import (
     pin_autoscaler,
     plan_autoscaler_pin,
     restore_autoscaler_floor,
+    still_argus_s,
+    whether_it_was_made,
 )
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 
 from write_mcp_server_test.framework.marks import (
     ANOTHER_CLAIM,
+    THE_MOMENT_A_MARK_SAYS,
     THIS_CLAIM,
     a_mark,
+    a_mark_found,
     every_write_carried,
 )
 from write_mcp_server_test.framework.putting_back import (
@@ -106,12 +112,24 @@ from write_mcp_server_test.framework.refusals import (
     its_change_is_said_performed,
     what_it_left_is_known,
 )
+from write_mcp_server_test.framework.resuming import (
+    it_is_not_said_changed_since,
+    it_is_still_argus_s,
+    it_refused_as_the_write_does,
+    it_was_changed_since,
+    it_was_made,
+    nobody_can_say,
+    nothing_landed,
+)
 
 SOME_APPLICATION = "io-shop"
 # What every pin and restore here is made under. One for the file: which action
 # a write is for is the caller's, and what is asserted is only that the writes
 # carry it.
 SOME_MARK = a_mark()
+# What the platform says when it fails or refuses a call: whatever it says, the
+# refusal here is decided by which call failed and how.
+DONT_CARE_PLATFORM_WORDS = "the platform did not do it"
 
 # The platform's own clock when a plan reads it.
 SOME_TIME_ON_THE_PLATFORM = datetime(2026, 11, 18, 13, 4, 30, tzinfo=UTC)
@@ -150,7 +168,7 @@ def a_platform(floor: int = THE_FLOOR,
                ceiling: int = THE_CEILING,
                reconciling_itself: bool = True,
                holding_an_autoscaler: bool = True,
-               marked: dict[MarkedObject, str] | None = None) -> Any:
+               marked: Mapping[MarkedObject, str | MarkFound] | None = None) -> Any:
     """A platform whose autoscaler holds `floor`, its objects carrying the claims
     `marked` names by object - none, unless a case says so."""
     platform = create_autospec(DeploymentPlatformWrites, instance=True)
@@ -166,7 +184,12 @@ def a_platform(floor: int = THE_FLOOR,
     platform.set_autoscaler_floor.return_value = None
 
     marks = marked or {}
-    platform.mark_on.side_effect = lambda application, kind: marks.get(kind)
+    def mark_on(dont_care_application: str, kind: MarkedObject) -> MarkFound | None:
+        found = marks.get(kind)
+
+        return a_mark_found(found) if isinstance(found, str) else found
+
+    platform.mark_on.side_effect = mark_on
 
     return platform
 
@@ -369,7 +392,7 @@ def test_an_autoscaler_with_no_room_refuses_in_a_way_a_caller_can_recognise() ->
 @pytest.mark.unit
 def test_a_platform_that_will_not_answer_is_not_planned_on() -> None:
     platform = a_platform()
-    platform.autoscaler_of.side_effect = PlatformUnreachable("no route to the platform")
+    platform.autoscaler_of.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(platform) \
@@ -388,7 +411,7 @@ def test_bounds_the_platform_would_not_report_are_not_planned_on() -> None:
     # deployment untouched: a guessed ceiling would hold a shop at a size nobody
     # declared.
     platform = a_platform()
-    platform.autoscaler_bounds.side_effect = PlatformRefused("not found")
+    platform.autoscaler_bounds.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(platform) \
@@ -405,7 +428,7 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
     # a platform that is down this is where it finds out. Nothing has been
     # touched, which is what makes the report honest.
     platform = a_platform()
-    platform.autoscaler_of.side_effect = PlatformUnreachable("no route to host")
+    platform.autoscaler_of.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(platform) \
@@ -417,7 +440,7 @@ def test_a_platform_that_never_answered_the_read_is_reported_as_unreachable() ->
 def test_a_platform_that_would_not_say_its_time_is_not_planned_on() -> None:
     # A plan with no date is one a resumed walk could not ask "since when?" of.
     platform = a_platform()
-    platform.now.side_effect = PlatformUnreachable("no route to host")
+    platform.now.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(platform) \
@@ -433,7 +456,7 @@ def test_a_platform_that_would_not_say_its_time_is_not_planned_on() -> None:
 def test_bounds_the_platform_would_not_give_are_known_to_have_changed_nothing() -> None:
     # Nothing had been asked to change, so however the read failed, nothing did.
     platform = a_platform()
-    platform.autoscaler_bounds.side_effect = PlatformRefused("not found")
+    platform.autoscaler_bounds.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(platform) \
@@ -450,7 +473,7 @@ def test_bounds_the_platform_would_not_give_are_known_to_have_changed_nothing() 
 def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
     platform = a_platform()
     platform.is_syncing_itself.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
     )
 
     Scenario() \
@@ -820,7 +843,7 @@ def test_a_pin_that_could_not_read_what_is_there_now_writes_nothing(read: str) -
     # The compare is what makes the write safe to ask, and a compare against a
     # read that never came back is no compare at all.
     platform = a_platform(floor=THE_FLOOR)
-    getattr(platform, read).side_effect = PlatformUnreachable("no route to host")
+    getattr(platform, read).side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(a_plan := _a_plan(was_syncing_itself=True)) \
@@ -938,7 +961,7 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
     # floor looks right from every angle a reader has, while the application
     # receives nothing anybody ships to it.
     platform = a_platform_as_the_pin_left_it()
-    platform.resume_sync.side_effect = PlatformUnreachable("no route to the platform")
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -949,8 +972,8 @@ def test_a_restore_that_only_managed_the_floor_says_so() -> None:
 @pytest.mark.unit
 def test_a_restore_that_could_not_reach_the_platform_at_all_says_so() -> None:
     platform = a_platform_as_the_pin_left_it()
-    platform.set_autoscaler_floor.side_effect = PlatformUnreachable("no route")
-    platform.resume_sync.side_effect = PlatformUnreachable("no route")
+    platform.set_autoscaler_floor.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1042,7 +1065,7 @@ def test_a_restore_that_could_not_read_whose_the_floor_is_writes_nothing(read: s
     # back, and nothing is said to have been found. An autoscaler the platform
     # could not be asked about is not one somebody removed.
     platform = a_platform_as_the_pin_left_it()
-    getattr(platform, read).side_effect = PlatformUnreachable("no route to host")
+    getattr(platform, read).side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1060,7 +1083,7 @@ def test_a_restore_that_could_not_read_whether_sync_is_back_on_writes_nothing() 
     # can say whether Argus's suspension still stands, and the answer says
     # nothing it could not establish.
     platform = a_platform_as_the_pin_left_it(floor=A_FLOOR_SOMEBODY_SET)
-    platform.is_syncing_itself.side_effect = PlatformRefused("403")
+    platform.is_syncing_itself.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1077,7 +1100,8 @@ def test_a_platform_unavailable_when_sync_is_suspended_is_reported_as_unreachabl
     # The suspension is the first thing a pin changes, so a platform that said
     # it did not handle it has left the estate as it found it.
     platform = a_platform()
-    platform.suspend_sync.side_effect = PlatformUnreachable("503", known_not_applied=True)
+    platform.suspend_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS,
+                                                            known_not_applied=True)
 
     Scenario() \
         .given(a_plan := _a_plan(was_syncing_itself=True)) \
@@ -1092,7 +1116,7 @@ def test_a_platform_that_died_before_a_pin_that_changed_nothing_is_unreachable()
     # nothing with it.
     platform = a_platform(reconciling_itself=False)
     platform.set_autoscaler_floor.side_effect = PlatformUnreachable(
-        "no route to host", known_not_applied=True
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=True
     )
 
     Scenario() \
@@ -1114,7 +1138,7 @@ def test_a_pin_that_left_sync_suspended_says_so_and_still_reports_the_platform()
     # have to name the cap instead.
     platform = a_platform(reconciling_itself=True)
     platform.set_autoscaler_floor.side_effect = PlatformUnreachable(
-        "no route to host", known_not_applied=True
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=True
     )
 
     Scenario() \
@@ -1130,7 +1154,7 @@ def test_a_pin_that_left_sync_suspended_says_so_and_still_reports_the_platform()
 def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing() -> None:
     platform = a_platform()
     platform.suspend_sync.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
     )
 
     Scenario() \
@@ -1148,7 +1172,7 @@ def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
 def test_a_pin_rejected_after_sync_was_suspended_says_the_suspension_is_left() -> None:
     platform = a_platform(reconciling_itself=True)
     platform.set_autoscaler_floor.side_effect = PlatformRefused(
-        "400", known_not_applied=True
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=True
     )
 
     Scenario() \
@@ -1167,7 +1191,7 @@ def test_a_pin_whose_answer_was_lost_carries_the_suspension_and_no_more() -> Non
     # nothing is said to be all of it.
     platform = a_platform(reconciling_itself=True)
     platform.set_autoscaler_floor.side_effect = PlatformUnreachable(
-        "timed out", known_not_applied=False
+        DONT_CARE_PLATFORM_WORDS, known_not_applied=False
     )
 
     Scenario() \
@@ -1186,7 +1210,7 @@ def test_a_platform_that_answered_and_refused_is_not_reported_as_unreachable() -
     # scale-out are still worth reaching for, and what a person has to look at
     # is the refusal rather than the platform.
     platform = a_platform(reconciling_itself=False)
-    platform.set_autoscaler_floor.side_effect = PlatformRefused("400")
+    platform.set_autoscaler_floor.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(a_plan := _a_plan(was_syncing_itself=False)) \
@@ -1222,7 +1246,7 @@ def test_a_pin_refused_after_sync_was_suspended_is_logged_as_a_warning(
     # an application nobody is reconciling looks healthy until the next deploy
     # quietly does not arrive.
     platform = a_platform(reconciling_itself=True)
-    platform.set_autoscaler_floor.side_effect = PlatformRefused("400")
+    platform.set_autoscaler_floor.side_effect = PlatformRefused(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(a_plan := _a_plan(was_syncing_itself=True)) \
@@ -1260,7 +1284,7 @@ def test_a_restore_that_only_managed_the_floor_is_logged_as_a_warning(
     # The quiet half. The application looks put back and is receiving nothing
     # anybody ships to it, and no other line would say so.
     platform = a_platform_as_the_pin_left_it()
-    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1281,7 +1305,7 @@ def test_a_restore_step_that_failed_is_logged_as_an_error(
     # The restore reports which half it lost, never why. The why is here, and
     # it is what a person putting the other half back by hand needs first.
     platform = a_platform_as_the_pin_left_it()
-    platform.resume_sync.side_effect = PlatformUnreachable("no route to host")
+    platform.resume_sync.side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
 
     Scenario() \
         .given(descriptor := _a_descriptor(was_syncing_itself=True)) \
@@ -1647,4 +1671,340 @@ def test_a_pin_made_is_answered_dated_by_the_platform_s_answer_to_it() -> None:
         .when(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)) \
         .then(_it_answered_with(
             a_plan.descriptor.model_copy(update={"written_at": THE_MOMENT_THE_PLATFORM_ANSWERED})
+        ))
+
+
+# What a pin of Argus's that suspended the sync left marked: the autoscaler's
+# floor, and the switch.
+MARKED_BY_THIS_CLAIM = {MarkedObject.AUTOSCALER: THIS_CLAIM,
+                        MarkedObject.APPLICATION: THIS_CLAIM}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("was_syncing_itself", "marked"),
+    [
+        pytest.param(True, MARKED_BY_THIS_CLAIM, id="argus-suspended-the-sync"),
+        pytest.param(False, {MarkedObject.AUTOSCALER: THIS_CLAIM},
+                     id="the-sync-was-already-off")
+    ]
+)
+def test_a_pin_as_argus_left_it_is_still_argus_s(
+    was_syncing_itself: bool, marked: dict[MarkedObject, str]
+) -> None:
+    # The floor it asked for under this claim's mark, and the sync off - under
+    # this claim's mark where it suspended it, as it was found where it was
+    # already off.
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False, marked=marked)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(it_is_still_argus_s())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("floor", [THE_FLOOR, A_FLOOR_SOMEBODY_SET],
+                         ids=["back-where-the-plan-found-it", "somewhere-else"])
+def test_a_floor_moved_since_the_pin_is_a_change_since(floor: int) -> None:
+    # This claim's floor landed and somebody moved it after - back where it was
+    # included. What was found says the floor the autoscaler has now.
+    platform = a_platform(floor=floor, reconciling_itself=False, marked=MARKED_BY_THIS_CLAIM)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(it_was_changed_since(f"[{floor}]"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("marked_by", [None, ANOTHER_CLAIM],
+                         ids=["unmarked", "under-another-claim"])
+def test_the_floor_asked_for_without_this_claims_mark_is_a_change_since(
+    marked_by: str | None
+) -> None:
+    # The right floor by somebody else's hand - written over Argus's since,
+    # whoever wrote it.
+    floor_marked = {} if marked_by is None else {MarkedObject.AUTOSCALER: marked_by}
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM, **floor_marked})
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(it_was_changed_since())
+
+
+@pytest.mark.unit
+def test_an_autoscaler_taken_away_since_the_pin_is_a_change_since() -> None:
+    # Somebody removed the controller the pin held still: there is nothing of
+    # Argus's left on it to watch.
+    platform = a_platform(holding_an_autoscaler=False, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(it_was_changed_since())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("was_syncing_itself", "marked"),
+    [
+        pytest.param(True, MARKED_BY_THIS_CLAIM,
+                     id="somebody-resumed-what-this-claim-suspended"),
+        pytest.param(False, {MarkedObject.AUTOSCALER: THIS_CLAIM},
+                     id="somebody-turned-on-a-sync-found-off")
+    ]
+)
+def test_a_sync_running_again_since_the_pin_is_a_change_since(
+    was_syncing_itself: bool, marked: dict[MarkedObject, str]
+) -> None:
+    # The floor is still the one asked for, and the platform is reconciling the
+    # application again - it re-applies the declared floor at its next pass, so
+    # the change is not Argus's to watch any more.
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=True, marked=marked)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(it_was_changed_since())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", ["autoscaler_of", "autoscaler_bounds",
+                                  "is_syncing_itself", "mark_on"])
+def test_a_pin_whose_platform_could_not_be_read_is_nobody_s_to_say(read: str) -> None:
+    # Not "changed since": a read that never came back found nothing.
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked=MARKED_BY_THIS_CLAIM)
+    getattr(platform, read).side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(nobody_can_say())
+
+
+@pytest.mark.unit
+def test_a_pin_asked_after_by_no_claim_is_nobody_s_to_say() -> None:
+    # Whose mark the floor carries is the whole question, and a call naming no
+    # claim has none to compare it with.
+    no_claim = None
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked=MARKED_BY_THIS_CLAIM)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, no_claim)) \
+        .then(nobody_can_say())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("floor", [THE_CEILING, A_FLOOR_SOMEBODY_SET],
+                         ids=["still-argus-s", "changed-since"])
+def test_asking_whether_a_pin_is_still_argus_s_writes_nothing(floor: int) -> None:
+    # A read, whatever it finds: a walk asking it has decided nothing yet.
+    platform = a_platform(floor=floor, reconciling_itself=False, marked=MARKED_BY_THIS_CLAIM)
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(_nothing_was_written(platform))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("marked_by", [None, ANOTHER_CLAIM],
+                         ids=["unmarked", "under-another-claim"])
+def test_a_floor_back_where_it_was_with_this_claims_mark_gone_is_a_change_since(
+    marked_by: str | None
+) -> None:
+    # Both halves of the pin gone - the floor back where the plan found it, and
+    # this claim's mark off the autoscaler: somebody put it back, and there is
+    # nothing of Argus's left on it to watch.
+    floor_marked = {} if marked_by is None else {MarkedObject.AUTOSCALER: marked_by}
+    platform = a_platform(floor=THE_FLOOR, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM, **floor_marked})
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, THIS_CLAIM)) \
+        .then(it_was_changed_since())
+
+
+# When this claim's mark on the autoscaler says the floor was written - a moment
+# of its own, apart from the switch's, so a case can tell which one dates it.
+THE_MOMENT_THE_FLOOR_WAS_MARKED = THE_MOMENT_A_MARK_SAYS + timedelta(seconds=1)
+# What an autoscaler carries where this claim's floor landed and its mark says so.
+THE_FLOOR_S_MARK = a_mark_found(THIS_CLAIM, written_at=THE_MOMENT_THE_FLOOR_WAS_MARKED)
+
+
+@pytest.mark.unit
+def test_a_pin_this_claim_made_is_found_made_and_dated_by_its_mark() -> None:
+    # The floor's mark, not the switch's: the floor is the change, and the
+    # suspension only what it needed first.
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked={MarkedObject.AUTOSCALER: THE_FLOOR_S_MARK,
+                                  MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM)) \
+        .then(all_of(
+            it_was_made(a_plan.descriptor, made_at=THE_MOMENT_THE_FLOOR_WAS_MARKED),
+            _nothing_was_written(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_made_under_a_mark_saying_no_moment_is_found_made_undated() -> None:
+    no_moment = None
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked={MarkedObject.AUTOSCALER: a_mark_found(THIS_CLAIM, no_moment),
+                                  MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM)) \
+        .then(it_was_made(a_plan.descriptor, made_at=no_moment))
+
+
+@pytest.mark.unit
+def test_a_pin_nothing_of_which_landed_has_nothing_landed_and_nothing_left() -> None:
+    # The floor where the plan found it, syncing itself as the plan found it,
+    # under no mark of this claim's: the write is still to make, and nothing of
+    # this claim's is out there.
+    no_suspension = None
+    platform = a_platform(floor=THE_FLOOR, reconciling_itself=True, marked={})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM)) \
+        .then(all_of(
+            nothing_landed(left_behind=no_suspension),
+            _nothing_was_written(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_planned_with_sync_off_nothing_of_which_landed_leaves_nothing() -> None:
+    # The plan found the sync off, so the pin suspends nothing: still off and
+    # under no mark, there is nothing of this claim's out there to carry.
+    no_suspension = None
+    platform = a_platform(floor=THE_FLOOR, reconciling_itself=False, marked={})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=False)) \
+        .when(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM)) \
+        .then(all_of(
+            nothing_landed(left_behind=no_suspension),
+            _nothing_was_written(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_whose_suspension_alone_landed_has_nothing_landed_carrying_it() -> None:
+    # The suspension before the floor landed under this claim's mark, and the
+    # floor did not: the write is still to make, and the answer carries the
+    # plan, so a walk stopped before it writes still has what puts the
+    # suspension back.
+    platform = a_platform(floor=THE_FLOOR, reconciling_itself=False,
+                          marked={MarkedObject.APPLICATION: THIS_CLAIM})
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM)) \
+        .then(all_of(
+            nothing_landed(left_behind=a_plan.descriptor),
+            _nothing_was_written(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "a_platform_changed_since",
+    [
+        pytest.param(lambda: a_platform(floor=A_FLOOR_SOMEBODY_SET, reconciling_itself=False,
+                                        marked=MARKED_BY_THIS_CLAIM),
+                     id="this-claim-s-floor-moved-since"),
+        pytest.param(lambda: a_platform(floor=THE_CEILING, reconciling_itself=False,
+                                        marked={MarkedObject.AUTOSCALER: ANOTHER_CLAIM,
+                                                MarkedObject.APPLICATION: THIS_CLAIM}),
+                     id="the-floor-asked-for-under-another-claim"),
+        pytest.param(lambda: a_platform(floor=A_FLOOR_SOMEBODY_SET),
+                     id="a-floor-somebody-set"),
+        pytest.param(lambda: a_platform(holding_an_autoscaler=False),
+                     id="the-autoscaler-taken-away"),
+        pytest.param(lambda: a_platform(floor=THE_CEILING, reconciling_itself=True,
+                                        marked=MARKED_BY_THIS_CLAIM),
+                     id="a-sync-somebody-resumed")
+    ]
+)
+def test_a_pin_changed_since_its_plan_is_refused_as_the_write_refuses_it(
+    a_platform_changed_since: Callable[[], Any]
+) -> None:
+    # The same estate, the same answer: changed since, saying whether this
+    # claim's floor landed, and leaving behind what the write would.
+    platform = a_platform_changed_since()
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM))) \
+        .then(all_of(
+            it_was_refused_as_changed_since(),
+            it_refused_as_the_write_does(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("read", ["autoscaler_of", "autoscaler_bounds",
+                                  "is_syncing_itself", "mark_on"])
+def test_a_pin_whose_platform_could_not_be_read_is_refused_as_the_write_refuses_it(
+    read: str
+) -> None:
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked=MARKED_BY_THIS_CLAIM)
+    getattr(platform, read).side_effect = PlatformUnreachable(DONT_CARE_PLATFORM_WORDS)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_refused_as_the_write_does(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_plan_past_the_ceiling_is_refused_as_the_write_refuses_it() -> None:
+    # The ceiling is a human's declaration, read where the floor is asked
+    # after, for the read as for the write.
+    platform = a_platform(floor=THE_FLOOR, ceiling=THE_CEILING)
+
+    Scenario() \
+        .given(a_plan := _a_plan_asking_for(THE_CEILING + 1)) \
+        .when(attempting(lambda: whether_it_was_made(a_plan, platform, THIS_CLAIM))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_refused_as_the_write_does(lambda: pin_autoscaler(a_plan, platform, SOME_MARK)),
+            _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_pin_asked_after_by_no_claim_is_refused_saying_nobody_can_say() -> None:
+    no_claim = None
+    platform = a_platform(floor=THE_CEILING, reconciling_itself=False,
+                          marked=MARKED_BY_THIS_CLAIM)
+
+    Scenario() \
+        .given(a_plan := _a_plan(was_syncing_itself=True)) \
+        .when(attempting(lambda: whether_it_was_made(a_plan, platform, no_claim))) \
+        .then(all_of(
+            it_was_refused_as(PinRefused),
+            it_is_not_said_changed_since(),
+            _nothing_was_changed(platform)
         ))

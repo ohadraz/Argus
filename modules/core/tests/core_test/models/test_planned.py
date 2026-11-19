@@ -1,4 +1,5 @@
-"""A change worked out before it is made, and what a flag reads as now.
+"""A change worked out before it is made, what a flag reads as now, and what a
+walk resumed after its worker died finds of a change.
 
 A plan is written by the write tier, carried across the MCP wire to the walk,
 stored on the claim as JSONB, and handed back across the wire to the write that
@@ -15,12 +16,12 @@ from the model.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from core.models.planned import FlagState, Planned
+from core.models.planned import FlagState, Made, NotMade, Planned
 from core.models.undo_descriptor import (
     PIN_AUTOSCALER_TOOL,
     PIN_TO_ACCELERATOR_TOOL,
@@ -50,6 +51,10 @@ SOME_FLOOR_IT_HAD = 2
 SOME_FLOOR_TO_ASK_FOR = SOME_FLOOR_IT_HAD * 3
 # The platform's own clock, read before the state the plan was worked out from.
 THE_MOMENT_THE_STATE_WAS_READ = datetime(2026, 11, 18, 9, 30, 12, tzinfo=UTC)
+# When the estate says a claim's change was made, and a moment a reader of the
+# answer might try to put in its place.
+SOME_MOMENT_IT_WAS_MADE = THE_MOMENT_THE_STATE_WAS_READ + timedelta(minutes=2)
+SOME_OTHER_MOMENT = SOME_MOMENT_IT_WAS_MADE + timedelta(minutes=5)
 
 
 def _the_wire_shape_of_a_planned_flag_change() -> dict[str, Any]:
@@ -191,6 +196,67 @@ def test_a_flag_state_that_does_not_say_when_the_provider_read_it_is_rejected() 
             an_error_was_raised(ValidationError),
             _it_complains_about("read_at")
         ))
+
+
+@pytest.mark.unit
+def test_a_change_found_made_cannot_be_changed_once_found() -> None:
+    # The answer a resumed walk acts on, and dates its row by: one moved after
+    # it was found would date the change by something the estate never said.
+    a_change_found_made = Made[FlagUndo](
+        descriptor=FlagUndo.model_validate(_the_wire_shape_of_a_planned_flag_change()),
+        made_at=SOME_MOMENT_IT_WAS_MADE
+    )
+
+    Scenario() \
+        .given(
+            a_change_found_made
+        ) \
+        .when(
+            attempting(lambda: _redated(a_change_found_made, SOME_OTHER_MOMENT))
+        ) \
+        .then(all_of(
+            an_error_was_raised(ValidationError),
+            _it_still_says_it_was_made_at(a_change_found_made, SOME_MOMENT_IT_WAS_MADE)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_found_made_is_never_read_off_the_wire_as_one_found_not_made() -> None:
+    # Both answers cross the same wire. A made answer read as not made, its
+    # fields dropped, would send the walk to write a change already made.
+    a_made_answer_on_the_wire = {
+        "descriptor": _the_wire_shape_of_a_planned_flag_change(),
+        "made_at": to_iso(SOME_MOMENT_IT_WAS_MADE)
+    }
+
+    Scenario() \
+        .given(
+            a_made_answer_on_the_wire
+        ) \
+        .when(
+            attempting(lambda: NotMade[FlagUndo].model_validate(a_made_answer_on_the_wire))
+        ) \
+        .then(all_of(
+            an_error_was_raised(ValidationError),
+            _it_complains_about("made_at")
+        ))
+
+
+def _redated(made: Made[FlagUndo], moment: datetime) -> None:
+    made.made_at = moment
+
+
+def _it_still_says_it_was_made_at(made: Made[FlagUndo],
+                                  moment: datetime) -> Assertion[Exception | None]:
+    def assertion(dont_care_error: Exception | None) -> bool:
+        if made.made_at != moment:
+            raise AssertionError(
+                f"Expected the change found made still dated [{moment}], got [{made.made_at}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_plans_a(member: type) -> Assertion[Planned[UndoDescriptor]]:

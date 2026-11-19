@@ -39,23 +39,33 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from core.mcp_transport import (
     a_change_made_since,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
 )
-from core.models import AcceleratorPinRestored, AcceleratorPinUndo, Planned
+from core.models import (
+    AcceleratorPinRestored,
+    AcceleratorPinUndo,
+    ChangeFound,
+    Made,
+    NotMade,
+    Planned,
+)
 from deployment_platform import (
     DeploymentPlatformError,
     DeploymentPlatformWrites,
     Mark,
     MarkedObject,
+    MarkFound,
 )
 
-from write_mcp_server.refusing import a_platform_refusal
+from write_mcp_server.refusing import a_platform_refusal, no_claim_to_compare_with
 from write_mcp_server.sync_switch import (
     Switch,
+    is_this_claim_s,
     suspend_where_it_is_to_be,
     the_switch,
     this_claim_s_suspension_stands,
@@ -170,46 +180,9 @@ def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
     descriptor = planned.descriptor
     application = descriptor.application
     accelerator = descriptor.pinned_to
+    _, compared = _compared_with_the_plan(planned, platform, mark)
 
-    # The plan is held to this tier's own rule from its own "was": a pin moves
-    # the pods somewhere they were not held.
-    if accelerator == descriptor.was_pinned_to:
-        raise AcceleratorPinRefused(a_refusal_saying_what_it_left(
-            f"the pin of [{application}] asks to hold its pods to [{accelerator}], "
-            f"where it found them held already"
-        ))
-
-    try:
-        held_to = platform.accelerator_pin_of(application)
-        syncing_now = platform.is_syncing_itself(application)
-        switch_marked_by = platform.mark_on(application, MarkedObject.APPLICATION)
-        pin_marked_by = platform.mark_on(application, MarkedObject.DEPLOYMENT)
-    except DeploymentPlatformError as error:
-        raise _refusing(
-            f"could not read which card [{application}] is held to now: {error}", error,
-            asked_to_change=False
-        ) from error
-
-    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
-    pin_landed = pin_marked_by == mark.action_id
-    made = pin_landed and held_to == accelerator
-    still_as_found = not pin_landed and held_to == descriptor.was_pinned_to
-
-    if switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
-            made and switch is Switch.TO_SUSPEND):
-        landed = pin_landed or this_claim_s_suspension_stands(
-            descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
-        )
-        raise AcceleratorPinRefused(a_change_made_since(
-            f"[{application}]'s pods are held to {_the_card(held_to)} and the "
-            f"application {'is' if syncing_now else 'is not'} syncing itself, which "
-            f"is not where the pin from {_the_card(descriptor.was_pinned_to)} to "
-            f"[{accelerator}] found it or would leave it",
-            descriptor if landed else None,
-            performed=pin_landed
-        ))
-
-    if made:
+    if compared.made:
         logger.info("deployment already pinned to accelerator", extra={
             "application": application, "accelerator": accelerator
         })
@@ -217,7 +190,7 @@ def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
         # the mark's is Argus's clock.
         return descriptor.model_copy(update={"written_at": None})
 
-    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
+    suspend_where_it_is_to_be(application, compared.switch, platform, mark, _refusing_a_change)
 
     try:
         answered_at = platform.pin_to_accelerator(application, accelerator, mark)
@@ -243,6 +216,188 @@ def _refusing_a_change(said: str, error: DeploymentPlatformError) -> Accelerator
     """This module's refusal of a change it asked for, with nothing before it
     left behind."""
     return _refusing(said, error, asked_to_change=True)
+
+
+def whether_it_was_made(planned: Planned[AcceleratorPinUndo],
+                        platform: DeploymentPlatformWrites,
+                        action_id: str | None
+                        ) -> Made[AcceleratorPinUndo] | NotMade[AcceleratorPinUndo]:
+    """Whether the pin `planned` describes was made under the claim `action_id`
+    - the write's own rule on the plan, with the write left out, for a walk
+    resumed after the worker that claimed it died.
+
+    Made is answered with what the write would answer, dated by the moment the
+    claim's mark on the Deployment says the pin was written, `None` where it
+    says none. Pods still held where the plan found them, under no mark of the
+    claim's, are nothing landed - carrying the plan where the claim's
+    suspension of the sync stands, as `scaling`'s read does. Anything else is
+    refused exactly as the write refuses it on the same estate, since the two
+    are one compare. A call naming no claim is refused plainly, as `scaling`'s
+    read refuses one. Writes nothing.
+    """
+    if action_id is None:
+        raise AcceleratorPinRefused(no_claim_to_compare_with(
+            f"the pin of [{planned.descriptor.application}] to a card"
+        ))
+
+    found, compared = _compared_with_the_plan(planned, platform, action_id)
+
+    if not compared.made:
+        return NotMade[AcceleratorPinUndo](left_behind=compared.left_behind)
+
+    return Made[AcceleratorPinUndo](
+        descriptor=planned.descriptor.model_copy(update={"written_at": None}),
+        made_at=None if found.pin_marked_by is None else found.pin_marked_by.written_at
+    )
+
+
+def still_argus_s(descriptor: AcceleratorPinUndo,
+                  platform: DeploymentPlatformWrites,
+                  action_id: str | None) -> ChangeFound:
+    """Whether the pin `descriptor` records is still as Argus left it - the
+    write's own "made" rule, read and not acted on, for a walk resumed after the
+    worker that made it died.
+
+    The pods held to the card the pin named under the claim `action_id`'s
+    mark, and the sync switch where the pin left it, is still Argus's. Anything
+    else is somebody's change since, saying what was found. A read that never
+    came back, or a call naming no claim, is a question nobody can answer.
+    Writes nothing.
+    """
+    application = descriptor.application
+
+    if action_id is None:
+        return ChangeFound(still_argus_s=None, found=no_claim_to_compare_with(
+            f"the pin of [{application}] to a card"
+        ))
+
+    try:
+        found = _what_is_there(application, platform)
+    except DeploymentPlatformError as error:
+        logger.warning("still-argus-s check failed", exc_info=True,
+                       extra={"application": application})
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"could not read which card [{application}] is held to now: {error}"
+        )
+
+    if _compared(descriptor, found, action_id).made:
+        return ChangeFound(still_argus_s=True)
+
+    return ChangeFound(
+        still_argus_s=False,
+        found=f"{_as_it_stands(application, found)}, which is not where the pin from "
+              f"{_the_card(descriptor.was_pinned_to)} to [{descriptor.pinned_to}] left it"
+    )
+
+
+@dataclass(frozen=True)
+class _Found:
+    """What the platform says of a pin's Deployment now: the card its pods are
+    held to, whether the application reconciles itself, and the marks on the
+    Application and on the Deployment."""
+
+    held_to: str | None
+    syncing_now: bool
+    switch_marked_by: MarkFound | None
+    pin_marked_by: MarkFound | None
+
+
+@dataclass(frozen=True)
+class _Compared:
+    """A pin held against what was found: where the sync switch stands, whether
+    the claim's pin landed, whether the change is made or somebody's since, and
+    what of the claim's is out there."""
+
+    switch: Switch
+    pin_landed: bool
+    made: bool
+    changed_since: bool
+    left_behind: AcceleratorPinUndo | None
+
+
+def _what_is_there(application: str, platform: DeploymentPlatformWrites) -> _Found:
+    """The reads a pin to a card is compared with. Raises
+    `DeploymentPlatformError` where any of them fails."""
+    return _Found(
+        held_to=platform.accelerator_pin_of(application),
+        syncing_now=platform.is_syncing_itself(application),
+        switch_marked_by=platform.mark_on(application, MarkedObject.APPLICATION),
+        pin_marked_by=platform.mark_on(application, MarkedObject.DEPLOYMENT)
+    )
+
+
+def _compared(descriptor: AcceleratorPinUndo, found: _Found, claim: Mark | str) -> _Compared:
+    """The one rule the write, the claimed read and the performed read share:
+    made is the pods on the plan's card under `claim`'s mark, with the switch
+    where the change needs it; as the plan found it is the pods where it found
+    them under no mark of `claim`'s; anything else - a selector somebody took
+    off as much as one somebody moved - is changed since."""
+    pin_landed = is_this_claim_s(found.pin_marked_by, claim)
+    left_behind = descriptor if pin_landed or this_claim_s_suspension_stands(
+        descriptor.was_syncing_itself, found.syncing_now, found.switch_marked_by, claim
+    ) else None
+    switch = the_switch(descriptor.was_syncing_itself, found.syncing_now,
+                        found.switch_marked_by, claim)
+    made = pin_landed and found.held_to == descriptor.pinned_to
+    still_as_found = not pin_landed and found.held_to == descriptor.was_pinned_to
+    changed_since = switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
+        made and switch is Switch.TO_SUSPEND)
+
+    return _Compared(switch=switch, pin_landed=pin_landed,
+                     made=made and not changed_since, changed_since=changed_since,
+                     left_behind=left_behind)
+
+
+def _compared_with_the_plan(planned: Planned[AcceleratorPinUndo],
+                            platform: DeploymentPlatformWrites,
+                            claim: Mark | str) -> tuple[_Found, _Compared]:
+    """What the platform is now, held against `planned` for `claim` - every
+    comparison the write makes before it writes, raising as it raises.
+
+    The plan is held to this tier's own rule from its own "was" first - a pin
+    moves the pods somewhere they were not held - and refused plainly where it
+    is not. A read that fails is refused as the platform's failure says.
+    Somebody's change since is refused as changed since, carrying what of the
+    claim's is out there.
+    """
+    descriptor = planned.descriptor
+    application = descriptor.application
+    accelerator = descriptor.pinned_to
+
+    if accelerator == descriptor.was_pinned_to:
+        raise AcceleratorPinRefused(a_refusal_saying_what_it_left(
+            f"the pin of [{application}] asks to hold its pods to [{accelerator}], "
+            f"where it found them held already"
+        ))
+
+    try:
+        found = _what_is_there(application, platform)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not read which card [{application}] is held to now: {error}", error,
+            asked_to_change=False
+        ) from error
+
+    compared = _compared(descriptor, found, claim)
+
+    if compared.changed_since:
+        raise AcceleratorPinRefused(a_change_made_since(
+            f"{_as_it_stands(application, found)}, which is not where the pin from "
+            f"{_the_card(descriptor.was_pinned_to)} to [{accelerator}] found it or would "
+            f"leave it",
+            compared.left_behind,
+            performed=compared.pin_landed
+        ))
+
+    return found, compared
+
+
+def _as_it_stands(application: str, found: _Found) -> str:
+    """The card the pods are held to and the application's reconciliation, as a
+    sentence says them."""
+    return (f"[{application}]'s pods are held to {_the_card(found.held_to)} and the "
+            f"application {'is' if found.syncing_now else 'is not'} syncing itself")
 
 
 def restore_accelerator_pin(descriptor: AcceleratorPinUndo,

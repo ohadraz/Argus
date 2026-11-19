@@ -8,8 +8,11 @@ two places.
 The other half is what a resumed walk does. The claim on an action is written
 before the action and outlives the worker that wrote it, so a walk refused the
 claim is a walk that has been resumed inside this node - and what it does next
-depends on what the earlier attempt left behind: a recorded outcome, a change
-that reached the provider with nothing measured after it, or nothing at all.
+depends on how far the row says the earlier attempt got: an outcome on file is
+reported; a claim and nothing more is asked of the estate, on its own plan,
+whether its change was made, and carried on from whatever that finds; a change
+told as made is asked whether it is still Argus's and watched; one owed back is
+put back; one nobody could account for is handed over.
 
 Before either, the action is planned: the change it will make, worked out by the
 write tier from the estate as it stands, is written onto the claim, and the
@@ -50,15 +53,22 @@ from core.events import (
 from core.models import (
     DEPLOYMENT_PLATFORM,
     FLAG_PROVIDER,
+    AcceleratorPinUndo,
     Action,
     ActionProgress,
     AlarmClaim,
     Alert,
+    AutoscalerUndo,
+    ChangeFound,
+    DeploymentRollbackUndo,
+    DiscardCacheEntries,
     EstablishedOnset,
     FlagUndo,
     HowTheMinuteIsKnown,
     Hypothesis,
     IncidentStatus,
+    Made,
+    NotMade,
     Outcome,
     PinAutoscaler,
     PinToAccelerator,
@@ -76,7 +86,7 @@ from core.models import (
     the_subject_of,
 )
 from incident_record import IsStillWanted
-from mitigation import ChangeMade, PutBackOwed
+from mitigation import ChangeMade, NobodyCanSay, Performed, PutBackOwed
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
@@ -103,12 +113,16 @@ SOME_MOMENT_IT_WAS_MADE = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN + timedelta(seconds=
 SOME_MOMENT_IT_WAS_ANNOUNCED = SOME_MOMENT_IT_WAS_MADE + timedelta(milliseconds=3)
 # What the watch found that left a change owing its put-back, in its words.
 SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
+# What a write refused for a lost run says.
+A_NEWER_CLAIM_HOLDS_THE_RUN = "a newer claim holds this run"
 
-# The two ways a resumed walk hands an incident over, in the words a person reads.
-A_CHANGE_MADE_AND_NEVER_RECORDED = ("an earlier attempt carried out this action and "
-                                    "stopped before recording what came of it")
+# How a resumed walk hands over a claim nobody can account for, in the words a
+# person reads.
 A_CHANGE_NOBODY_CAN_ACCOUNT_FOR = ("an earlier attempt claimed this action and nothing "
                                    "can say whether it was carried out")
+# And a row that says its change was made and keeps nothing to go on with it.
+A_CHANGE_MADE_AND_NEVER_RECORDED = ("an earlier attempt carried out this action and stopped "
+                                    "before recording what came of it")
 
 # The action rows a claim answers with: the one this walk writes, and the one a
 # worker that is gone wrote before it.
@@ -182,8 +196,11 @@ def still_wanted() -> MagicMock:
 
 
 @pytest.fixture
-def change_landed() -> MagicMock:
-    return cast(MagicMock, create_autospec(ports.ChangeLanded, instance=True))
+def resuming() -> ports.Resuming:
+    """What a resumed walk reads and carries on with, each answering as a claim
+    that nothing landed and a change still Argus's would - until a case says
+    otherwise."""
+    return _resuming_nobody_checks()
 
 
 @pytest.fixture
@@ -216,7 +233,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -255,7 +272,7 @@ def test_the_verdict_an_action_reached_is_logged(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -302,7 +319,7 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -347,7 +364,7 @@ def test_the_claim_is_dated_on_the_walks_clock_before_the_action_is_announced(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -389,7 +406,7 @@ def test_a_refuted_action_carries_what_the_wait_judged_for_the_next_round(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -421,7 +438,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -453,7 +470,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -498,7 +515,7 @@ def test_an_unavailable_platform_is_published_where_the_walk_learnt_it(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -539,7 +556,7 @@ def test_an_escalated_action_publishes_nothing_about_a_platform(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -578,7 +595,7 @@ def test_an_unreachable_platform_is_recorded_against_the_walk(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -620,7 +637,7 @@ def test_the_platform_recorded_is_the_one_the_action_acted_through(
         .when(lambda: mitigation_node(a_flag_reverting_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -655,7 +672,7 @@ def test_an_escalated_action_says_nothing_about_any_platform(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -690,7 +707,7 @@ def test_the_node_that_takes_the_action_decides_no_status(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -731,7 +748,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -771,7 +788,7 @@ def test_the_action_row_records_whether_the_action_was_performed(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -811,7 +828,7 @@ def test_the_action_row_records_whether_what_the_attempt_left_is_known(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -853,7 +870,7 @@ def test_a_candidate_passed_over_untested_keeps_why_on_its_row_and_its_line(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -899,7 +916,7 @@ def test_the_action_row_and_its_line_keep_what_putting_it_back_did(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -938,7 +955,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -983,7 +1000,7 @@ def test_a_candidate_nothing_was_measured_for_is_not_recorded_as_tested(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -1023,7 +1040,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -1063,7 +1080,7 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       complete_action=complete_action,
@@ -1105,7 +1122,7 @@ def test_the_moment_an_action_was_taken_travels_with_the_walk(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1150,7 +1167,7 @@ def test_an_attempt_that_ended_before_its_write_announces_no_action(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1190,7 +1207,7 @@ def test_the_verdict_on_a_change_made_says_it_was_made(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1230,7 +1247,7 @@ def test_the_verdict_says_whether_the_action_was_judged(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1274,7 +1291,7 @@ def test_the_plan_is_made_before_the_claim_and_written_on_it(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=planning,
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1315,7 +1332,7 @@ def test_the_action_is_taken_on_the_plan_its_claim_carries(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_planning_answering(some_plan),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1352,7 +1369,7 @@ def test_an_action_with_nothing_to_plan_is_claimed_and_taken_with_no_plan(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_planning_answering(None),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1400,7 +1417,7 @@ def test_a_plan_refused_is_recorded_as_the_attempt_and_the_action_is_not_taken(
                                       plan_action=_planning_answering(
                                           _a_plan_refused_as(verdict)
                                       ),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1448,7 +1465,7 @@ def test_a_plan_refused_as_spent_passes_the_candidate_over_untested_saying_why(
                                       plan_action=_planning_answering(
                                           _a_plan_refused_as(Verdict.NOT_ATTEMPTED)
                                       ),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1491,7 +1508,7 @@ def test_a_plan_whose_platform_was_not_there_narrows_the_walk(
                                       plan_action=_planning_answering(
                                           _a_plan_refused_as(Verdict.PLATFORM_UNREACHABLE)
                                       ),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1524,7 +1541,7 @@ def test_a_resumed_walk_acting_again_acts_on_the_plan_the_earlier_claim_carries(
     complete_action: MagicMock,
     already_taken: MagicMock,
     acting_for: ports.ActingFor,
-    change_landed: MagicMock,
+    resuming: ports.Resuming,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1543,7 +1560,7 @@ def test_a_resumed_walk_acting_again_acts_on_the_plan_the_earlier_claim_carries(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
                 record_action, already_taken, nothing_recorded=None,
                 planned=the_plan_the_claim_carries)),
-            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
+            calling(lambda: _nothing_of_it_landed(resuming)),
             calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor()
@@ -1554,7 +1571,7 @@ def test_a_resumed_walk_acting_again_acts_on_the_plan_the_earlier_claim_carries(
                                       plan_action=_planning_answering(
                                           this_walks_own_planning()
                                       ),
-                                      change_landed=change_landed,
+                                      resuming=resuming,
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1595,7 +1612,7 @@ def test_a_plan_refused_after_a_person_ended_the_incident_is_recorded_as_the_sto
                                       plan_action=_planning_answering(
                                           _a_plan_refused_as(Verdict.NOT_ATTEMPTED)
                                       ),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1642,7 +1659,7 @@ def test_a_resumed_walk_reports_the_earlier_outcome_whatever_its_own_plan_found(
                                       plan_action=_planning_answering(
                                           _a_plan_refused_as(Verdict.NOT_ATTEMPTED)
                                       ),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1685,7 +1702,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1726,7 +1743,7 @@ def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
         .when(lambda: mitigation_node(an_incident_past_a_refuted_round,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1736,43 +1753,6 @@ def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(_the_walk_is_told_no_reason())
-
-
-@pytest.mark.unit
-def test_a_walk_resumed_after_the_action_carries_the_moment_it_was_claimed(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    record_outcome: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    still_wanted: MagicMock
-) -> None:
-    # The worker that acted is gone, and announced the action in a walk this
-    # one cannot see. The claim is the moment the row keeps: written just
-    # before the action was taken.
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, Verdict.REFUTED,
-                written_at=SOME_MOMENT_THE_CLAIM_WAS_WRITTEN)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor()
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
-                                      advance_action=_an_advance_nobody_checks(),
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      record_outcome=record_outcome,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      still_wanted=still_wanted)) \
-        .then(_the_walk_carries(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN))
 
 
 @pytest.mark.unit
@@ -1804,7 +1784,7 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1841,7 +1821,7 @@ def test_a_walk_that_claimed_the_action_takes_it(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -1852,99 +1832,6 @@ def test_a_walk_that_claimed_the_action_takes_it(
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_taken(take),
                      _no_earlier_outcome_was_looked_up(already_taken)))
-
-
-@pytest.mark.unit
-def test_a_claim_with_no_outcome_whose_change_landed_escalates(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # The worst state to find: the flag was changed and nobody recorded what
-    # happened next. Argus cannot invent that measurement, and acting again
-    # would not produce it either - so it says so and stops. The answer is
-    # kept on the claim, so the walk resumed after this one reads it rather
-    # than asking again.
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_change_reached_the_provider(change_landed)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor(),
-                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(all_of(_the_action_was_not_taken(take),
-                     _the_incident_was_escalated(),
-                     _the_walk_says(A_CHANGE_MADE_AND_NEVER_RECORDED),
-                     _the_claim_was_advanced_to(ActionProgress.PERFORMED,
-                                                an_action_taking_incident, advance_action)))
-
-
-@pytest.mark.unit
-def test_a_claim_whose_change_never_landed_is_acted_on(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # The claim was written and the worker died before it reached the provider.
-    # Nothing happened, so there is nothing to be careful about: this walk takes
-    # the action the claim was for.
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
-            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor(),
-                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(all_of(_the_action_was_taken(take),
-                     _the_verdict_reported_is(Verdict.CONFIRMED),
-                     # Once, by this walk's change being made - the resume
-                     # itself writes nothing on a claim whose change never
-                     # landed.
-                     _the_claim_was_advanced_to(ActionProgress.PERFORMED,
-                                                an_action_taking_incident, advance_action)))
 
 
 @pytest.mark.unit
@@ -1981,7 +1868,7 @@ def test_the_action_is_taken_while_acting_for_the_row_this_walk_claimed(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       acting_for=_Acting(happened),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=advance_action,
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
@@ -2001,7 +1888,7 @@ def test_a_resumed_walk_acting_again_acts_for_the_row_the_earlier_attempt_claime
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
-    change_landed: MagicMock,
+    resuming: ports.Resuming,
     advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -2014,8 +1901,9 @@ def test_a_resumed_walk_acting_again_acts_for_the_row_the_earlier_attempt_claime
     Scenario() \
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
+                record_action, already_taken, nothing_recorded=None,
+                planned=DONT_CARE_PLAN)),
+            calling(lambda: _nothing_of_it_landed(resuming)),
             calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
             calling(lambda: _noting_when_it_is_taken(take, happened)),
             an_action_taking_incident := _a_mitigating_incident(
@@ -2030,7 +1918,7 @@ def test_a_resumed_walk_acting_again_acts_for_the_row_the_earlier_attempt_claime
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       acting_for=_Acting(happened),
-                                      change_landed=change_landed,
+                                      resuming=resuming,
                                       advance_action=advance_action,
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
@@ -2045,259 +1933,13 @@ def test_a_resumed_walk_acting_again_acts_for_the_row_the_earlier_attempt_claime
 
 
 @pytest.mark.unit
-def test_a_resumed_walk_that_does_not_act_again_acts_for_no_action(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # Nothing is written to the platform, so nothing is marked - and an action
-    # acted for with nothing taken would put its id on whatever the walk asked
-    # the write tier next.
-    happened: list[str] = []
-
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_change_reached_the_provider(change_landed)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor(),
-                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=_Acting(happened),
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(
-            _happened_in_order(happened, [])
-        )
-
-
-@pytest.mark.unit
-def test_a_claim_the_provider_cannot_answer_for_escalates(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # Unreachable, or a deployment where Argus and its operators share a
-    # credential. Either way nobody can say whether the change was made, and
-    # acting on a guess is the one thing that is worse than stopping. That
-    # nobody can say is kept on the claim, and is final.
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_provider_cannot_say(change_landed)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor(),
-                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(all_of(_the_action_was_not_taken(take),
-                     _the_incident_was_escalated(),
-                     _the_walk_says(A_CHANGE_NOBODY_CAN_ACCOUNT_FOR),
-                     _the_claim_was_advanced_to(ActionProgress.UNKNOWN,
-                                                an_action_taking_incident, advance_action)))
-
-
-@pytest.mark.unit
-def test_a_resumed_claim_is_asked_after_under_the_flag_the_action_names(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # The candidate blames a flag in prose; the action names the flag the
-    # provider actually recorded moving, and those are not always the same
-    # word. The provider's log can only answer about the second, so asking it
-    # about the first gets "no such change" back and the walk acts again on a
-    # flag an earlier attempt may already have set.
-    some_flag_the_action_names = "kuki-flag"
-
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_provider_cannot_say(change_landed)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=RevertFeatureFlag(
-                    flag=some_flag_the_action_names,
-                    enabled=False,
-                    undo_descriptor=FlagUndo(
-                        flag=some_flag_the_action_names, was_enabled=True
-                    )
-                ),
-                about=_a_candidate_blaming("the monthly spend feature, probably")
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(_the_provider_was_asked_about(
-            some_flag_the_action_names, change_landed
-        ))
-
-
-@pytest.mark.unit
-def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # A restart writes to no flag provider, so no log anywhere says whether the
-    # dead worker managed it. That is the same position as a provider that
-    # cannot say, and it ends the same way: a change may have been made and
-    # nothing measured what followed, so a human looks rather than Argus
-    # restarting a service a second time on a guess.
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=RestartService(service="kuki-service"),
-                about=_a_candidate_blaming(
-                    "kuki heap (memory_used_bytes / heap of 2048MiB limit)"
-                )
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(all_of(_the_action_was_not_taken(take),
-                     _the_incident_was_escalated(),
-                     _the_provider_was_never_asked(change_landed),
-                     _the_claim_was_advanced_to(ActionProgress.UNKNOWN,
-                                                an_action_taking_incident, advance_action)))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "some_deployment_action",
-    [
-        RollBackDeployment(application="kuki-service"),
-        ScaleOut(application="kuki-service"),
-        PinAutoscaler(application="kuki-service"),
-        PinToAccelerator(application="kuki-service", accelerator=SOME_ACCELERATOR)
-    ],
-    ids=["rollback", "scale-out", "autoscaler-pin", "card-pin"]
-)
-def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_about_it(
-    some_deployment_action: Action,
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # These change a deployment, and the flag provider's log answers about
-    # flags. Asked about a "flag" named after the application it finds no such
-    # change, which reads as the change never having landed - so the walk acted
-    # a second time on a deployment the dead worker may already have changed,
-    # and recorded what the first attempt left as what there is to put back.
-    # No record here says whether that worker managed it, so it ends the way
-    # the restart does: a human looks.
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None)),
-            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=some_deployment_action,
-                about=_a_candidate_blaming("kuki-service's latest deployment")
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(all_of(_the_action_was_not_taken(take),
-                     _the_incident_was_escalated(),
-                     _the_provider_was_never_asked(change_landed),
-                     _the_claim_was_advanced_to(ActionProgress.UNKNOWN,
-                                                an_action_taking_incident, advance_action)))
-
-
-@pytest.mark.unit
 def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
     already_taken: MagicMock,
     acting_for: ports.ActingFor,
-    change_landed: MagicMock,
+    resuming: ports.Resuming,
     advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -2330,74 +1972,14 @@ def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       acting_for=acting_for,
-                                      change_landed=change_landed,
+                                      resuming=resuming,
                                       advance_action=advance_action,
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
                      _the_incident_was_escalated(),
-                     _the_provider_was_never_asked(change_landed),
-                     _the_claim_was_not_advanced(advance_action)))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "some_action",
-    [
-        RevertFeatureFlag(flag=DONT_CARE_FLAG, enabled=False,
-                          undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)),
-        RollBackDeployment(application="kuki-service")
-    ],
-    ids=["flag-revert", "rollback"]
-)
-@pytest.mark.parametrize("progress", [ActionProgress.PERFORMED, ActionProgress.PUTTING_BACK],
-                         ids=["made", "owed-back"])
-def test_a_claim_already_told_as_made_escalates_without_asking_anybody(
-    some_action: Action,
-    progress: ActionProgress,
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    change_landed: MagicMock,
-    advance_action: MagicMock,
-    record_outcome: MagicMock,
-    still_wanted: MagicMock
-) -> None:
-    # The dead worker said the change was made before its wait, and recorded
-    # nothing after. Made is made whoever the provider would credit with it -
-    # and a rollback has no provider to ask at all - so nobody is asked and
-    # nothing is written: the claim already says what there is to say. A
-    # claim owing its put-back says more - the change was made and judged -
-    # and until a resumed walk puts it back, it is handed over the same way.
-    Scenario() \
-        .given(
-            calling(lambda: _an_earlier_attempt_holds_the_claim(
-                record_action, already_taken, nothing_recorded=None,
-                progress=progress)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=some_action,
-                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      change_landed=change_landed,
-                                      advance_action=advance_action,
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_outcome=record_outcome,
-                                      still_wanted=still_wanted)) \
-        .then(all_of(_the_action_was_not_taken(take),
-                     _the_incident_was_escalated(),
-                     _the_walk_says(A_CHANGE_MADE_AND_NEVER_RECORDED),
-                     _the_provider_was_never_asked(change_landed),
+                     _nothing_was_read_of_the_estate(resuming),
                      _the_claim_was_not_advanced(advance_action)))
 
 
@@ -2408,7 +1990,7 @@ def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
     complete_action: MagicMock,
     already_taken: MagicMock,
     acting_for: ports.ActingFor,
-    change_landed: MagicMock,
+    resuming: ports.Resuming,
     advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
@@ -2421,7 +2003,6 @@ def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
                 record_action, already_taken, nothing_recorded=None,
                 progress=ActionProgress.UNKNOWN)),
-            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor(),
                 about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
@@ -2434,7 +2015,7 @@ def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       acting_for=acting_for,
-                                      change_landed=change_landed,
+                                      resuming=resuming,
                                       advance_action=advance_action,
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_outcome=record_outcome,
@@ -2442,8 +2023,9 @@ def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
         .then(all_of(_the_action_was_not_taken(take),
                      _the_incident_was_escalated(),
                      _the_walk_says(A_CHANGE_NOBODY_CAN_ACCOUNT_FOR),
-                     _the_provider_was_never_asked(change_landed),
-                     _the_claim_was_not_advanced(advance_action)))
+                     _nothing_was_read_of_the_estate(resuming),
+                     _the_claim_was_not_advanced(advance_action),
+                     _nothing_was_completed(complete_action)))
 
 
 @pytest.mark.unit
@@ -2472,7 +2054,7 @@ def test_the_change_is_put_on_the_claim_the_moment_the_agent_says_it_was_made(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=advance_action,
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2516,7 +2098,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_does_not_stop_the_attempt(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=advance_action,
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2561,7 +2143,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_att
         .when(attempting(lambda: mitigation_node(an_action_taking_incident,
                                                  take=take,
                                                  plan_action=_a_plan_nobody_checks(),
-                                                 change_landed=_nothing_landed(),
+                                                 resuming=_resuming_nobody_checks(),
                                                  advance_action=advance_action,
                                                  owe_a_put_back=_an_owing_nobody_checks(),
                                                  record_action=record_action,
@@ -2632,7 +2214,7 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2673,7 +2255,7 @@ def test_the_action_announced_says_the_number_of_the_candidate_it_was_for(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2716,7 +2298,7 @@ def test_an_attempt_that_ended_before_its_write_says_the_candidate_it_was_for(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2754,7 +2336,7 @@ def test_the_graph_says_which_way_it_moved_the_flag(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2794,7 +2376,7 @@ def test_the_graph_says_which_card_it_held_the_deployment_to(
         .when(lambda: mitigation_node(a_pinning_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2830,7 +2412,7 @@ def test_the_graph_says_what_verdict_came_back(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2859,7 +2441,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
             _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor()),
             take=take,
             plan_action=_a_plan_nobody_checks(),
-            change_landed=_nothing_landed(),
+            resuming=_resuming_nobody_checks(),
             advance_action=_an_advance_nobody_checks(),
             owe_a_put_back=_an_owing_nobody_checks(),
             record_action=record_action,
@@ -2912,7 +2494,7 @@ def test_an_action_aimed_at_a_dependency_is_announced_as_one(
         .when(lambda: mitigation_node(an_incident_acting_elsewhere,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2950,7 +2532,7 @@ def test_an_action_on_the_service_that_alerted_is_announced_as_nobodys_dependenc
         .when(lambda: mitigation_node(an_incident_acting_on_the_alerting_service,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -2990,7 +2572,7 @@ def test_a_flag_reverted_is_announced_as_nobodys_dependency(
         .when(lambda: mitigation_node(an_incident_reverting_a_flag,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -3029,7 +2611,7 @@ def test_the_minute_the_alert_dated_the_incident_to_reaches_the_agent(
         .when(lambda: mitigation_node(an_incident_its_alert_dated,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -3065,7 +2647,7 @@ def test_an_incident_no_alert_dated_hands_over_no_minute(
         .when(lambda: mitigation_node(an_incident_nothing_dated,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -3142,7 +2724,7 @@ def test_the_minute_the_investigation_dated_the_incident_from_reaches_the_agent(
         .when(lambda: mitigation_node(an_incident_the_investigation_dated,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -3206,7 +2788,7 @@ def test_the_rule_a_series_alert_names_is_handed_to_the_agent(
         .when(lambda: mitigation_node(an_incident_paged_by_a_rule,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -3241,7 +2823,7 @@ def test_a_finding_hands_the_agent_no_rule_to_wait_on(
         .when(lambda: mitigation_node(an_incident_a_check_found,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -3476,7 +3058,10 @@ def _an_earlier_attempt_holds_the_claim(
         nothing_recorded: Verdict | UnreadVerdict | None,
         written_at: datetime = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN,
         progress: ActionProgress = ActionProgress.CLAIMED,
-        planned: Planned[Any] | None = None) -> None:
+        planned: Planned[Any] | None = None,
+        undo_descriptor: UndoDescriptor | None = None,
+        performed_at: datetime | None = None,
+        put_back_because: str | None = None) -> None:
     """The claim was written by a worker that is gone.
 
     `nothing_recorded` is what it left against it - an outcome, or `None` where
@@ -3485,24 +3070,16 @@ def _an_earlier_attempt_holds_the_claim(
     outcome to read is the one that asks the provider what happened after it.
     `progress` is how far the row says it got - a claim and nothing more,
     unless a case says otherwise - and `planned` the plan it was written with,
-    none unless a case gives one.
+    none unless a case gives one. `undo_descriptor`, `performed_at` and
+    `put_back_because` are what the row says of a change it was told was made
+    and, where it got that far, owed back.
     """
     record_action.return_value = None
     already_taken.return_value = ports.ClaimedAction(
         outcome=nothing_recorded, claimed_at=written_at, progress=progress,
-        action_id=THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED, planned=planned)
-
-
-def _the_change_reached_the_provider(change_landed: MagicMock) -> None:
-    change_landed.return_value = True
-
-
-def _the_change_never_reached_the_provider(change_landed: MagicMock) -> None:
-    change_landed.return_value = False
-
-
-def _the_provider_cannot_say(change_landed: MagicMock) -> None:
-    change_landed.return_value = None
+        action_id=THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED, planned=planned,
+        undo_descriptor=undo_descriptor, performed_at=performed_at,
+        put_back_because=put_back_because)
 
 
 def _the_walk_is_told_no_reason() -> Assertion[StateDelta]:
@@ -3685,7 +3262,7 @@ def _the_claim_cannot_be_written(advance_action: MagicMock) -> None:
 
 
 def _the_claim_is_refused_for_a_lost_run(advance_action: MagicMock) -> None:
-    advance_action.side_effect = RunLost("a newer claim holds this run")
+    advance_action.side_effect = RunLost(A_NEWER_CLAIM_HOLDS_THE_RUN)
 
 
 def _no_action_row_was_completed(complete_action: MagicMock) -> Assertion[Exception | None]:
@@ -3801,7 +3378,7 @@ def _the_action_row_records_whether_what_it_left_is_known(expected: bool,
     return assertion
 
 
-def _the_action_row_records_the_way_back(expected: UndoDescriptor,
+def _the_action_row_records_the_way_back(expected: UndoDescriptor | None,
                                          complete_action: MagicMock
                                          ) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
@@ -3941,8 +3518,8 @@ def _the_action_was_taken(take: MagicMock) -> Assertion[StateDelta]:
     return assertion
 
 
-def _the_action_was_not_taken(take: MagicMock) -> Assertion[StateDelta]:
-    def assertion(dont_care_result: StateDelta) -> bool:
+def _the_action_was_not_taken(take: MagicMock) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
         if take.called:
             raise AssertionError(
                 f"Expected the action not to be taken, it was taken with "
@@ -4194,68 +3771,6 @@ def _the_resumption_published_was(candidate: Hypothesis,
     return assertion
 
 
-def _nothing_landed() -> ports.ChangeLanded:
-    """A provider that says Argus's own change never reached it.
-
-    Named rather than defaulted. The node used to reach the real write tier
-    when nobody said otherwise, which is what let a test pass while talking to
-    a client that was never running.
-    """
-    return lambda dont_care_flag, dont_care_since: False
-
-
-def _the_provider_was_asked_about(flag: str,
-                                  change_landed: MagicMock) -> Assertion[StateDelta]:
-    """The provider was asked about the flag the action names.
-
-    Which flag is the whole question. The provider's log answers about a flag,
-    so asking it under the candidate's prose asks about a flag nobody has, and
-    the "no such change" that comes back reads as licence to act again on a
-    subject an earlier attempt may already have changed.
-    """
-    def assertion(_updates: StateDelta) -> bool:
-        if not change_landed.called:
-            raise AssertionError(
-                f"Expected the provider to be asked about [{flag}], and it was "
-                f"not asked at all."
-            )
-
-        asked_about = change_landed.call_args.args[0]
-        if asked_about != flag:
-            raise AssertionError(
-                f"Expected the provider to be asked about [{flag}], "
-                f"got [{asked_about}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_provider_was_never_asked(change_landed: MagicMock) -> Assertion[StateDelta]:
-    """Nobody asked whether the change landed.
-
-    Two claims reach this, and neither has a question the provider can answer.
-    One already carries an outcome - a verdict spelled by a version that is
-    gone - so asking would take a `True` back as "a change was made and nobody
-    measured it", which is a different incident from the one on file, and a
-    `False` as licence to act again on a subject somebody already settled. The
-    other was for an action that leaves nothing behind: a restart writes to no
-    provider, so there is no log with a record of it either way.
-    """
-    def assertion(_updates: StateDelta) -> bool:
-        if change_landed.called:
-            raise AssertionError(
-                f"Expected the provider not to be asked about a claim that "
-                f"already carries an outcome, and it was asked "
-                f"{change_landed.call_count} time(s)."
-            )
-
-        return True
-
-    return assertion
-
-
 def _the_action_was_announced_as_a_dependency_of(expected: str | None,
                                                  published: list[IncidentEvent]
                                                  ) -> Assertion[StateDelta]:
@@ -4425,7 +3940,7 @@ def test_the_change_made_is_put_on_the_claim_with_the_walk_s_clock_before_it_is_
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=advance_action,
                                       owe_a_put_back=_an_owing_nobody_checks(),
                                       record_action=record_action,
@@ -4467,7 +3982,7 @@ def test_a_change_owed_back_is_put_on_the_claim_with_what_the_watch_found(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=owe_a_put_back,
                                       record_action=record_action,
@@ -4511,7 +4026,7 @@ def test_a_put_back_that_could_not_be_put_on_the_claim_as_owed_does_not_stop_the
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       plan_action=_a_plan_nobody_checks(),
-                                      change_landed=_nothing_landed(),
+                                      resuming=_resuming_nobody_checks(),
                                       advance_action=_an_advance_nobody_checks(),
                                       owe_a_put_back=owe_a_put_back,
                                       record_action=record_action,
@@ -4554,7 +4069,7 @@ def test_a_put_back_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_a
         .when(attempting(lambda: mitigation_node(an_action_taking_incident,
                                                  take=take,
                                                  plan_action=_a_plan_nobody_checks(),
-                                                 change_landed=_nothing_landed(),
+                                                 resuming=_resuming_nobody_checks(),
                                                  advance_action=_an_advance_nobody_checks(),
                                                  owe_a_put_back=owe_a_put_back,
                                                  record_action=record_action,
@@ -4579,7 +4094,7 @@ def _the_put_back_cannot_be_owed(owe_a_put_back: MagicMock) -> None:
 
 
 def _the_put_back_is_refused_for_a_lost_run(owe_a_put_back: MagicMock) -> None:
-    owe_a_put_back.side_effect = RunLost("a newer claim holds this run")
+    owe_a_put_back.side_effect = RunLost(A_NEWER_CLAIM_HOLDS_THE_RUN)
 
 
 def _an_agent_that_owes_a_put_back(undo_descriptor: UndoDescriptor,
@@ -4618,3 +4133,2645 @@ def _the_put_back_was_owed_on_the_claim(state: IncidentState,
         return True
 
     return assertion
+
+
+# ---------------------------------------------------------------------------
+# A resumed walk: what it reads, and what it carries on with
+# ---------------------------------------------------------------------------
+
+# How far back the metrics are kept (`metrics_window_minutes`), for a resumed
+# walk asking whether they still reach back to when the incident began. The
+# configured default, though only its relation to the onsets below matters.
+THE_METRICS_KEPT = timedelta(minutes=360)
+# The resumed walk's clock, in the cases about where the incident began.
+SOME_NOW = datetime(2026, 9, 5, 3, 0, tzinfo=UTC)
+# An incident that began well inside what the metrics keep.
+SOME_RECENT_ONSET = SOME_NOW - THE_METRICS_KEPT / 2
+# The way back an earlier attempt's row kept for its change: the one the flag
+# revert below (`_an_action_with_an_undo_descriptor`) makes.
+THE_WAY_BACK_THE_ROW_KEPT = FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
+# The plan that row was claimed with, which the estate is read from.
+THE_PLAN_THE_ROW_KEPT = Planned(descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                                since=SOME_MOMENT_THE_PLAN_WAS_READ)
+# The words that flag revert's kind says its change in - it turns the flag OFF.
+WHAT_THE_REVERT_SAID = f"set flag [{DONT_CARE_FLAG}] OFF"
+# When an earlier attempt's change was made, as the estate dates it.
+SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN + timedelta(
+    seconds=3)
+# What a write-tier read found, in its words.
+SOME_FINDING_ON_THE_ESTATE = "flag [dont-care-flag] was changed by [kuki] since Argus set it"
+
+# How a resumed walk hands an incident over, in the words a person reads.
+THE_METRICS_NO_LONGER_REACH_BACK = (
+    "the metrics kept no longer reach back to when the incident began, so whether "
+    "the change helped cannot be judged"
+)
+CHANGED_SINCE_IT_WAS_MADE = (
+    "an earlier attempt carried out this action, and it has been changed since"
+)
+NOBODY_CAN_SAY_IT_STILL_STANDS = (
+    "an earlier attempt carried out this action, and nothing can say whether it "
+    "still stands as it was left"
+)
+
+
+def _resuming_nobody_checks() -> ports.Resuming:
+    """What a resumed walk reads and carries on with, in a case about something
+    else: nothing of a claim landed, a change told as made is still Argus's,
+    nothing is on file, and the watch and the put-back answer as they would."""
+    whether_made = cast(MagicMock, create_autospec(ports.WhetherItWasMade, instance=True))
+    whether_made.return_value = NotMade(left_behind=None)
+    still_argus_s = cast(MagicMock, create_autospec(ports.StillArgusS, instance=True))
+    still_argus_s.return_value = ChangeFound(still_argus_s=True)
+    watch = cast(MagicMock, create_autospec(ports.WatchWhatWasPerformed, instance=True))
+    watch.return_value = _an_outcome(Verdict.CONFIRMED)
+    settle = cast(MagicMock, create_autospec(ports.SettleTheRefutation, instance=True))
+    settle.return_value = _an_outcome(Verdict.REFUTED)
+    announced = cast(MagicMock, create_autospec(ports.ActionAnnounced, instance=True))
+    announced.return_value = False
+    plan_the_claim = cast(MagicMock, create_autospec(ports.PlanTheClaim, instance=True))
+
+    return ports.Resuming(whether_it_was_made=whether_made, still_argus_s=still_argus_s,
+                          watch=watch, settle=settle, announced=announced,
+                          plan_the_claim=plan_the_claim, metrics_window=THE_METRICS_KEPT)
+
+
+def _an_outcome(verdict: Verdict,
+                undo_descriptor: UndoDescriptor | None = THE_WAY_BACK_THE_ROW_KEPT,
+                undone: Undone | None = None) -> Outcome:
+    return Outcome(verdict=verdict, detail="dont care", undo_descriptor=undo_descriptor,
+                   left_behind_known=True, undone=undone)
+
+
+def _mocked(port: object) -> MagicMock:
+    return cast(MagicMock, port)
+
+
+def _nothing_of_it_landed(resuming: ports.Resuming,
+                          left_behind: UndoDescriptor | None = None) -> None:
+    """The claim's change not made - carrying `left_behind`, what of the claim's
+    is out there all the same, where a case names it."""
+    _mocked(resuming.whether_it_was_made).return_value = NotMade(left_behind=left_behind)
+
+
+def _it_was_found_made(resuming: ports.Resuming, made: Made[Any]) -> None:
+    _mocked(resuming.whether_it_was_made).return_value = made
+
+
+def _the_read_answered(resuming: ports.Resuming, answer: Outcome | NobodyCanSay) -> None:
+    _mocked(resuming.whether_it_was_made).return_value = answer
+
+
+def _it_was_found(resuming: ports.Resuming, found: ChangeFound) -> None:
+    _mocked(resuming.still_argus_s).return_value = found
+
+
+def _an_announcement_is_on_file(resuming: ports.Resuming) -> None:
+    _mocked(resuming.announced).return_value = True
+
+
+def _the_watch_came_back(resuming: ports.Resuming, outcome: Outcome) -> None:
+    _mocked(resuming.watch).return_value = outcome
+
+
+def _the_put_back_came_back(resuming: ports.Resuming, outcome: Outcome) -> None:
+    _mocked(resuming.settle).return_value = outcome
+
+
+def _noting_each_step_of(resuming: ports.Resuming, happened: list[str]) -> None:
+    """Each read and step of the resumption noting into `happened` when it was
+    asked, answering as the case set it."""
+    for name, said in (("whether_it_was_made", "read whether made"),
+                       ("still_argus_s", "checked"),
+                       ("watch", "watched"),
+                       ("settle", "put back")):
+        port = _mocked(getattr(resuming, name))
+        answer = port.return_value
+
+        def answering(*dont_care_args: object, _said: str = said, _answer: object = answer,
+                      **dont_care_keywords: object) -> object:
+            happened.append(_said)
+
+            return _answer
+
+        port.side_effect = answering
+
+
+def _a_minute(instant: datetime) -> str:
+    """`instant` as the investigation states a minute."""
+    return instant.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _a_resumed_incident(began: datetime = SOME_RECENT_ONSET,
+                        proposing: Action | None = None) -> IncidentState:
+    """A mitigating incident the investigation dated from `began`."""
+    state = _a_mitigating_incident(proposing=proposing or _an_action_with_an_undo_descriptor())
+
+    return state.model_copy(update={"onset": EstablishedOnset(
+        minute=_a_minute(began), how_known=HowTheMinuteIsKnown.MEASURED
+    )})
+
+
+def _a_resumed_incident_paged_by(rule: str) -> IncidentState:
+    """A resumed incident whose alert, about a series, names the rule that fired."""
+    state = _a_resumed_incident()
+
+    return state.model_copy(update={"alert": state.alert.model_copy(
+        update={"rule": rule, "claim": AlarmClaim.A_SERIES_CONDITION})})
+
+
+def _the_clock_at(moment: datetime) -> Callable[[], datetime]:
+    return lambda: moment
+
+
+def _a_plan_of(action: Action) -> Planned[Any]:
+    """A plan of the change `action` makes, read before its claim."""
+    match action:
+        case RevertFeatureFlag():
+            descriptor: UndoDescriptor = FlagUndo(flag=action.flag,
+                                                  was_enabled=not action.enabled)
+        case RollBackDeployment():
+            descriptor = DeploymentRollbackUndo(
+                application=action.application, was_on_history_id=7, was_on_revision="b2",
+                rolled_back_to_revision="a1", rolled_back_to_history_id=6,
+                was_syncing_itself=True)
+        case ScaleOut():
+            descriptor = ReplicaUndo(application=action.application, was_replicas=3,
+                                     replicas_asked_for=6, was_syncing_itself=True)
+        case PinAutoscaler():
+            descriptor = AutoscalerUndo(application=action.application, was_min_replicas=2,
+                                        min_replicas_asked_for=8, was_syncing_itself=True)
+        case PinToAccelerator():
+            descriptor = AcceleratorPinUndo(application=action.application,
+                                            was_pinned_to=None, pinned_to=action.accelerator,
+                                            was_syncing_itself=True)
+        case _:
+            raise AssertionError(f"Expected an action that plans, got [{action}].")
+
+    return Planned(descriptor=descriptor, since=SOME_MOMENT_THE_PLAN_WAS_READ)
+
+
+def _it_was_asked_whether_made_on(action: Action,
+                                  plan: Planned[Any],
+                                  resuming: ports.Resuming) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        asked = [call.args for call in _mocked(resuming.whether_it_was_made).call_args_list]
+
+        if asked != [(action, plan)]:
+            raise AssertionError(
+                f"Expected the estate asked once whether [{action}] was made on the plan "
+                f"[{plan}], got {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_change_was_watched_as(action: Action,
+                               performed: Performed,
+                               resuming: ports.Resuming) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        watched = [call.args for call in _mocked(resuming.watch).call_args_list]
+
+        if watched != [(action, performed)]:
+            raise AssertionError(
+                f"Expected [{action}] watched once as [{performed}], got {watched}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_not_watched(resuming: ports.Resuming) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if _mocked(resuming.watch).called:
+            raise AssertionError(
+                f"Expected nothing watched, got {_mocked(resuming.watch).call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_put_back_as(action: Action,
+                        performed: Performed,
+                        because: str,
+                        resuming: ports.Resuming) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        settled = [call.args for call in _mocked(resuming.settle).call_args_list]
+        wanted = [(action.action_type, performed, because)]
+
+        if settled != wanted:
+            raise AssertionError(f"Expected the refutation settled as {wanted}, got {settled}.")
+
+        return True
+
+    return assertion
+
+
+def _it_was_checked_whether_still_argus_s(plan: Planned[Any] | None,
+                                          descriptor: UndoDescriptor,
+                                          resuming: ports.Resuming) -> Assertion[StateDelta]:
+    """Asked of the change the row says was made, and of the plan it was made
+    from - the estate's own records are read from the plan's moment, as the
+    write read them."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        asked = [call.args for call in _mocked(resuming.still_argus_s).call_args_list]
+
+        if asked != [(plan, descriptor)]:
+            raise AssertionError(
+                f"Expected the estate asked once whether [{descriptor}], made from the "
+                f"plan [{plan}], is still Argus's, got {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_read_of_the_estate(resuming: ports.Resuming) -> Assertion[object]:
+    """Neither asked whether the change was made or still stands, nor watched,
+    nor put back: the row already says all a resumed walk can do with it."""
+    def assertion(dont_care_result: object) -> bool:
+        asked = {name: _mocked(getattr(resuming, name)).call_args_list
+                 for name in ("whether_it_was_made", "still_argus_s", "watch", "settle")
+                 if _mocked(getattr(resuming, name)).called}
+
+        if asked:
+            raise AssertionError(f"Expected nothing read of the estate or done, got {asked}.")
+
+        return True
+
+    return assertion
+
+
+def _it_was_asked_whether_announced_for(state: IncidentState,
+                                        resuming: ports.Resuming) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        assert state.hypothesis is not None
+        asked = [(call.args, call.kwargs)
+                 for call in _mocked(resuming.announced).call_args_list]
+        flattened = [tuple(args) + tuple(keywords.values()) for args, keywords in asked]
+        wanted = (state.incident_id, state.hypothesis.id)
+
+        if flattened != [wanted]:
+            raise AssertionError(
+                f"Expected the account asked once whether {wanted} was announced, "
+                f"got {flattened}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_actions_announced_were_at(expected: list[datetime],
+                                   published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        announced = [event.at for event in published if isinstance(event, ActionTaken)]
+
+        if announced != expected:
+            raise AssertionError(f"Expected actions announced at {expected}, got {announced}.")
+
+        return True
+
+    return assertion
+
+
+def _the_put_back_was_never_owed(owe_a_put_back: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if owe_a_put_back.called:
+            raise AssertionError(
+                f"Expected no put-back owed, got {owe_a_put_back.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+# ---------------------------------------------------------------------------
+# A resumed walk: an outcome on file
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.PERFORMED, ActionProgress.PUTTING_BACK],
+                         ids=["made", "owed-back"])
+def test_a_resumed_outcome_of_a_change_made_carries_when_it_was_made(
+    progress: ActionProgress,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # The round that remembers the attempt is told when the change was made,
+    # which the row keeps once a change is - not when it was claimed, which is
+    # before the write, and before the agent was even called in. A row the
+    # walk completed owing its put-back is a change made all the same.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, Verdict.REFUTED, progress=progress,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(_the_walk_carries(SOME_MOMENT_IT_WAS_MADE))
+
+
+@pytest.mark.unit
+def test_a_resumed_outcome_of_a_change_made_at_no_recorded_moment_carries_when_it_was_claimed(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # Made, and the row cannot say when - a rollback found made while its
+    # operation was still pending has no moment to give. The claim is the
+    # nearest the row has: written just before the change.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, Verdict.REFUTED,
+                written_at=SOME_MOMENT_THE_CLAIM_WAS_WRITTEN,
+                progress=ActionProgress.PERFORMED,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, performed_at=None)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(_the_walk_carries(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN))
+
+
+@pytest.mark.unit
+def test_a_resumed_outcome_of_a_change_never_made_carries_no_moment_of_change(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # As the live walk tells it: an action never performed is no attempt a
+    # later round may be told was made at some moment.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, Verdict.NOT_ATTEMPTED,
+                progress=ActionProgress.NOT_PERFORMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(_the_walk_carries_no_moment_of_change())
+
+
+@pytest.mark.unit
+def test_a_refutation_completed_owing_its_put_back_is_reported_as_the_outcome_on_file(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A person ended the incident between the refutation and the put-back, and
+    # the walk recorded the refutation with nothing put back. That is an
+    # outcome on file like any other: reported, and not put back here - the
+    # withdrawal's unwinding is what puts it back.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, Verdict.REFUTED,
+                progress=ActionProgress.PUTTING_BACK,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, put_back_because=SOME_FINDING)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(_the_verdict_reported_is(Verdict.REFUTED),
+                     _the_action_was_not_taken(take),
+                     _nothing_was_read_of_the_estate(resuming),
+                     _nothing_was_completed(complete_action)))
+
+
+# ---------------------------------------------------------------------------
+# A resumed walk: a change owed back
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_a_change_owed_back_is_put_back_in_the_words_it_was_made_with(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The watch refuted the change and the worker died before putting it back.
+    # It is put back - not watched again, not made again - for what the watch
+    # found, and said in the words the walk that made it used.
+    an_action = _an_action_with_an_undo_descriptor()
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PUTTING_BACK,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE, put_back_because=SOME_FINDING)),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_put_back_as(an_action,
+                                Performed(said=WHAT_THE_REVERT_SAID,
+                                          undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT),
+                                SOME_FINDING, resuming),
+            _it_was_not_watched(resuming),
+            _the_action_was_not_taken(take)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_owed_back_is_recorded_as_the_live_walk_records_its_put_back(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The row is completed with what the put-back did, the candidate is tested
+    # and settled, and the verdict reported - the same three things the walk
+    # that died would have done.
+    some_candidate = _a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PUTTING_BACK,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, put_back_because=SOME_FINDING)),
+            calling(lambda: _the_put_back_came_back(
+                resuming, _an_outcome(Verdict.REFUTED, undone=Undone.RESTORED))),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(), about=some_candidate
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(
+            _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action),
+            _the_action_row_records_the_way_back(THE_WAY_BACK_THE_ROW_KEPT, complete_action),
+            _the_candidate_was_tested_and_settled(some_candidate, Verdict.REFUTED,
+                                                  record_outcome),
+            _the_verdict_reported_is(Verdict.REFUTED)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_owed_back_is_put_back_acting_for_the_row_that_owes_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The put-back is a write, marked with the action it puts back.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PUTTING_BACK,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, put_back_because=SOME_FINDING)),
+            calling(lambda: _noting_each_step_of(resuming, happened)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(happened),
+                                      still_wanted=still_wanted)) \
+        .then(_happened_in_order(happened, [
+            f"acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}",
+            "put back",
+            f"no longer acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}"
+        ]))
+
+
+@pytest.mark.unit
+def test_a_change_owed_back_asks_whether_its_own_incident_is_still_wanted(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The put-back is a change to the world, and the walk asks before every
+    # one - of this incident, bound before the question is handed over.
+    def asking_the_put_back_s_question(dont_care_result: StateDelta) -> bool:
+        handed = _mocked(resuming.settle).call_args.kwargs["still_wanted"]
+        handed()
+
+        if still_wanted.call_args.args != (an_action_taking_incident.incident_id,):
+            raise AssertionError(
+                f"Expected the put-back's question asked of incident "
+                f"[{an_action_taking_incident.incident_id}], got {still_wanted.call_args}."
+            )
+
+        return True
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PUTTING_BACK,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, put_back_because=SOME_FINDING)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(asking_the_put_back_s_question)
+
+
+@pytest.mark.unit
+def test_a_change_owed_back_carries_when_it_was_made_and_is_neither_owed_again_nor_moved_on(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    owe_a_put_back: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The row already says the change is owed back and why; the walk carries
+    # the moment it was made on to the round that remembers it.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PUTTING_BACK,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE, put_back_because=SOME_FINDING)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=owe_a_put_back,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(_the_walk_carries(SOME_MOMENT_IT_WAS_MADE),
+                     _the_put_back_was_never_owed(owe_a_put_back),
+                     _the_claim_was_not_advanced(advance_action)))
+
+
+# ---------------------------------------------------------------------------
+# A resumed walk: a claim and nothing more
+# ---------------------------------------------------------------------------
+
+SOME_UNDOABLE_ACTIONS = [
+    pytest.param(RevertFeatureFlag(flag=DONT_CARE_FLAG, enabled=False,
+                                   undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG,
+                                                            was_enabled=True)),
+                 id="flag-revert"),
+    pytest.param(RollBackDeployment(application=SOME_APPLICATION), id="rollback"),
+    pytest.param(ScaleOut(application=SOME_APPLICATION), id="scale-out"),
+    pytest.param(PinAutoscaler(application=SOME_APPLICATION), id="autoscaler-pin"),
+    pytest.param(PinToAccelerator(application=SOME_APPLICATION, accelerator=SOME_ACCELERATOR),
+                 id="card-pin")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_action", SOME_UNDOABLE_ACTIONS)
+def test_a_claimed_change_is_asked_after_on_its_own_plan_before_it_is_taken(
+    some_action: Action,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Every kind that plans has a record of whether its change was made - a
+    # mark, an entry in a history - so a claim with nothing after it is asked
+    # first, on the plan it was written with, and taken on that plan where
+    # nothing of it landed. Nothing else is asked before the read.
+    happened: list[str] = []
+    the_plan_the_claim_carries = _a_plan_of(some_action)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=the_plan_the_claim_carries)),
+            calling(lambda: _nothing_of_it_landed(resuming)),
+            calling(lambda: _noting_each_step_of(resuming, happened)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            calling(lambda: _noting_when_it_is_taken(take, happened)),
+            an_action_taking_incident := _a_resumed_incident(proposing=some_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(happened),
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_asked_whether_made_on(some_action, the_plan_the_claim_carries, resuming),
+            _the_action_was_taken_on(the_plan_the_claim_carries, take),
+            _happened_in_order(happened, [
+                f"acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}",
+                "read whether made",
+                "taken",
+                f"no longer acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}"
+            ])
+        ))
+
+
+@pytest.mark.unit
+def test_a_claim_written_with_no_plan_is_asked_after_and_taken_on_this_walk_s_plan(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A claim whose plan the tier refused was written with none, and its worker
+    # died before recording the refusal. Nothing was written for it, so this
+    # walk's own plan is the one there is - asked after and taken on.
+    an_action = _an_action_with_an_undo_descriptor()
+    this_walk_s_plan = _a_plan_of(an_action)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=None)),
+            calling(lambda: _nothing_of_it_landed(resuming)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_planning_answering(this_walk_s_plan),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_asked_whether_made_on(an_action, this_walk_s_plan, resuming),
+            _the_action_was_taken_on(this_walk_s_plan, take)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_made_is_moved_on_to_made_when_the_estate_says_it_was(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The dead worker's change landed. Recorded as made with what the estate
+    # says puts it back, at the moment the estate says it was made - the only
+    # record of when it happened - and not made a second time.
+    an_action = _an_action_with_an_undo_descriptor()
+    what_the_estate_found = FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True,
+                                     written_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=what_the_estate_found,
+                made_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE))),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
+                                       advance_action, undo_descriptor=what_the_estate_found,
+                                       performed_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_made_is_watched_in_the_words_it_was_made_with(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Then carried on as a change told as made: watched, judged, and recorded
+    # as the live walk records it.
+    an_action = _an_action_with_an_undo_descriptor()
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                made_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE))),
+            calling(lambda: _the_watch_came_back(resuming, _an_outcome(Verdict.CONFIRMED))),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_change_was_watched_as(an_action,
+                                       Performed(said=WHAT_THE_REVERT_SAID,
+                                                 undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT),
+                                       resuming),
+            _the_action_row_records_the_outcome(Verdict.CONFIRMED, complete_action),
+            _the_verdict_reported_is(Verdict.CONFIRMED)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_made_and_announced_nowhere_is_announced_when_it_was_made(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The dead worker died before it announced the change. The account gets
+    # the line, dated when the change was made rather than when this walk found
+    # it, and the round that remembers the attempt is told the same moment.
+    an_action = _an_action_with_an_undo_descriptor()
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                made_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE))),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_asked_whether_announced_for(an_action_taking_incident, resuming),
+            _the_actions_announced_were_at([SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE],
+                                           published),
+            _the_walk_carries(SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_made_and_already_announced_is_not_announced_again(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The dead worker announced the change whether or not its advance landed,
+    # so a claim with nothing after it can still have its line on file. Two
+    # lines would read as Argus acting twice.
+    an_action = _an_action_with_an_undo_descriptor()
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                made_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE))),
+            calling(lambda: _an_announcement_is_on_file(resuming)),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_actions_announced_were_at([], published),
+            _the_walk_carries(SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_found_made_while_its_operation_is_pending_is_dated_by_its_claim(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Asked and not yet run, the platform's operation has no start to date it
+    # by. The row is told it was made at no moment - never this walk's clock,
+    # which would put it minutes after it happened - and the walk is told the
+    # claim's, the nearest the row has.
+    a_rollback = RollBackDeployment(application=SOME_APPLICATION)
+    the_plan = _a_plan_of(a_rollback)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                written_at=SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, planned=the_plan)),
+            calling(lambda: _it_was_found_made(resuming, Made(descriptor=the_plan.descriptor,
+                                                              made_at=None))),
+            an_action_taking_incident := _a_resumed_incident(proposing=a_rollback)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
+                                       advance_action, undo_descriptor=the_plan.descriptor),
+            _the_claim_was_told_no_moment_it_was_made(advance_action),
+            _the_walk_carries(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN)
+        ))
+
+
+def _the_claim_was_told_no_moment_it_was_made(advance_action: MagicMock
+                                              ) -> Assertion[StateDelta]:
+    """Told outright, rather than left to a default: no moment, and never the
+    walk's own clock."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        told = [call.kwargs.get("performed_at", "nothing at all")
+                for call in advance_action.call_args_list]
+
+        if told != [None]:
+            raise AssertionError(
+                f"Expected the claim told once that it was made at no moment, got {told}."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_changed_since_is_recorded_as_the_live_write_s_refusal_is(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The read answers as the write would have: somebody changed it since the
+    # plan, and this claim's change had landed first. What the live walk's
+    # changed-since path made of that is the attempt, recorded on the claim
+    # with what it left behind - and nothing taken, nothing watched.
+    an_action = _an_action_with_an_undo_descriptor()
+    the_changed_since_outcome = Outcome(
+        verdict=Verdict.ESCALATED, detail="dont care", left_behind_known=True,
+        undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, performed=True, judged=False)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _the_read_answered(resuming, the_changed_since_outcome)),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_row_records_the_outcome(Verdict.ESCALATED, complete_action),
+            _the_action_row_records_the_way_back(THE_WAY_BACK_THE_ROW_KEPT, complete_action),
+            _the_action_row_records_whether_it_was_performed(True, complete_action),
+            _the_verdict_reported_is(Verdict.ESCALATED),
+            _the_action_was_not_taken(take),
+            _it_was_not_watched(resuming)
+        ))
+
+
+def _the_read_tells_of_the_change(dont_care_action: Action,
+                                  dont_care_plan: Planned[Any], /, *,
+                                  change_made: ChangeMade) -> Outcome:
+    """The changed-since path's read: this claim's change had landed before
+    somebody overtook it, told through the walk's own hook."""
+    change_made(THE_WAY_BACK_THE_ROW_KEPT)
+
+    return _an_outcome(Verdict.ESCALATED)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("on_file", "announced_at"), [
+    pytest.param(False, [SOME_MOMENT_THE_CLAIM_WAS_WRITTEN], id="announced-nowhere"),
+    pytest.param(True, [], id="already-announced")
+])
+def test_a_claimed_change_the_read_tells_of_is_put_on_the_claim_as_the_live_walk_puts_it(
+    on_file: bool,
+    announced_at: list[datetime],
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The changed-since path tells of a change that landed through the walk's
+    # own hook, so the claim is moved on to made with what puts it back - at no
+    # moment: the refusal says nothing of when, and this walk's clock is no
+    # stand-in. Dated by its claim, the nearest the row has, and announced at it
+    # only where no line for the claim is on file.
+    an_action = _an_action_with_an_undo_descriptor()
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                written_at=SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, planned=_a_plan_of(an_action))),
+            calling(lambda: setattr(_mocked(resuming.whether_it_was_made), "side_effect",
+                                    _the_read_tells_of_the_change)),
+            calling(lambda: setattr(_mocked(resuming.announced), "return_value", on_file)),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
+                                       advance_action,
+                                       undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT),
+            _the_claim_was_told_no_moment_it_was_made(advance_action),
+            _the_actions_announced_were_at(announced_at, published),
+            _the_walk_carries(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_nobody_can_say_was_made_is_handed_over_as_unknown(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The estate could not be read, or could not say whose a change was. Not a
+    # "no": acting on it would be acting on a guess about whether production
+    # was already changed. Kept on the claim, which is final, and nothing is
+    # completed - there is no attempt this walk can account for.
+    an_action = _an_action_with_an_undo_descriptor()
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _the_read_answered(
+                resuming, NobodyCanSay(because=SOME_FINDING_ON_THE_ESTATE))),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_incident_was_escalated(),
+            _the_walk_says(A_CHANGE_NOBODY_CAN_ACCOUNT_FOR),
+            _the_claim_was_advanced_to(ActionProgress.UNKNOWN, an_action_taking_incident,
+                                       advance_action),
+            _nothing_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_nobody_can_say_was_made_keeps_what_the_refusal_said_it_left(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The platform in a sync of its own: nobody can say whether the change was
+    # made, and the refusal says this claim's suspension stands. Kept on the
+    # claim as it goes to unknown, so whatever puts the incident's changes back
+    # reaches the suspension.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=ITS_PLAN)),
+            calling(lambda: _the_read_answered(resuming, NobodyCanSay(
+                because=SOME_FINDING_ON_THE_ESTATE, left_behind=ITS_PLAN.descriptor))),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_incident_was_escalated(),
+            _the_claim_was_advanced_to(ActionProgress.UNKNOWN, an_action_taking_incident,
+                                       advance_action, undo_descriptor=ITS_PLAN.descriptor)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "some_action",
+    [
+        pytest.param(RestartService(service="kuki-service"), id="restart"),
+        pytest.param(DiscardCacheEntries(service="kuki-service", keys=("kuki:1",)),
+                     id="discard")
+    ]
+)
+def test_a_claimed_restart_or_discard_is_not_redone_and_is_handed_over_as_unknown(
+    some_action: Action,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Neither leaves a record of whether it ran - no mark, no history - and
+    # neither may be done twice on a guess. Nothing is read, nothing is acted
+    # for, and nobody can say is kept on the claim.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=None)),
+            an_action_taking_incident := _a_resumed_incident(proposing=some_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_planning_answering(None),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(happened),
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_incident_was_escalated(),
+            _the_walk_says(A_CHANGE_NOBODY_CAN_ACCOUNT_FOR),
+            _nothing_was_read_of_the_estate(resuming),
+            _the_claim_was_advanced_to(ActionProgress.UNKNOWN, an_action_taking_incident,
+                                       advance_action),
+            _happened_in_order(happened, [])
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_nothing_of_which_landed_is_not_taken_once_the_metrics_cannot_judge_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Taken now, the change would be watched against metrics that no longer
+    # reach back to when the incident began - so whether it helped could not
+    # be judged, and a change nobody can judge is not made.
+    an_action = _an_action_with_an_undo_descriptor()
+    an_onset_past_what_is_kept = SOME_NOW - THE_METRICS_KEPT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _nothing_of_it_landed(resuming)),
+            an_action_taking_incident := _a_resumed_incident(
+                began=an_onset_past_what_is_kept, proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_incident_was_escalated(),
+            _the_walk_says(THE_METRICS_NO_LONGER_REACH_BACK)
+        ))
+
+
+# A change whose kind suspends the platform's own sync before it writes - so a
+# claim of it can leave the suspension out there with the change itself never
+# made - and the plan its claim was written with.
+A_CHANGE_THAT_SUSPENDS_FIRST = ScaleOut(application=SOME_APPLICATION)
+ITS_PLAN = _a_plan_of(A_CHANGE_THAT_SUSPENDS_FIRST)
+
+# Every way taking a claimed change found not made ends before its change is
+# made, as the agent answers: nobody wants it any more, the tier refused it,
+# or it was handed over - each with nothing of its own to say it left.
+EVERY_WAY_TAKING_IT_ENDS_UNMADE = [
+    pytest.param(Verdict.STOPPED, False, id="nobody-wants-it-any-more"),
+    pytest.param(Verdict.NOT_ATTEMPTED, True, id="refused"),
+    pytest.param(Verdict.ESCALATED, True, id="escalated")
+]
+
+
+@pytest.mark.unit
+def test_a_claim_s_suspension_left_out_there_is_recorded_when_the_metrics_cannot_judge_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The change was not made, and the suspension before it was: the walk
+    # stops before it writes, and the row records the suspension as left
+    # behind - the one record of it a withdrawal can put back from.
+    an_onset_past_what_is_kept = SOME_NOW - THE_METRICS_KEPT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=ITS_PLAN)),
+            calling(lambda: _nothing_of_it_landed(resuming, left_behind=ITS_PLAN.descriptor)),
+            an_action_taking_incident := _a_resumed_incident(
+                began=an_onset_past_what_is_kept, proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_action_row_records_the_way_back(ITS_PLAN.descriptor, complete_action),
+            _the_action_row_records_whether_what_it_left_is_known(True, complete_action)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("verdict", "wanted"), EVERY_WAY_TAKING_IT_ENDS_UNMADE)
+def test_a_claim_s_suspension_left_out_there_is_recorded_when_taking_it_ends_unmade(
+    verdict: Verdict,
+    wanted: bool,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Not made, and taken on the claim's plan as a live walk takes it - which
+    # ends before the change, saying nothing of its own left behind. What the
+    # read carried still stands out there, and the row records it.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=ITS_PLAN)),
+            calling(lambda: _nothing_of_it_landed(resuming, left_behind=ITS_PLAN.descriptor)),
+            calling(lambda: setattr(still_wanted, "return_value", wanted)),
+            calling(lambda: _the_action_came_back(take, verdict, undo_descriptor=None,
+                                                  judged=False, performed=False)),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_row_records_the_way_back(ITS_PLAN.descriptor, complete_action),
+            _the_action_row_records_whether_what_it_left_is_known(True, complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claim_nothing_of_which_landed_records_nothing_left_when_nobody_wants_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The same exit with nothing of the claim's out there: the row records
+    # nothing left behind, and knows it - the plan is no change of anybody's.
+    nothing_left = None
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=ITS_PLAN)),
+            calling(lambda: _nothing_of_it_landed(resuming, left_behind=nothing_left)),
+            calling(lambda: _nobody_wants_it_any_more(still_wanted)),
+            calling(lambda: _the_action_came_back(take, Verdict.STOPPED, undo_descriptor=None,
+                                                  judged=False, performed=False)),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_row_records_the_way_back(nothing_left, complete_action),
+            _the_action_row_records_whether_what_it_left_is_known(True, complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_made_is_never_recorded_untaken_when_nobody_wants_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The estate is read before anybody is asked whether the change is still
+    # wanted: the dead worker's change landed, so it is recorded as made -
+    # whatever a person decided since - and never as an action not taken.
+    an_action = _an_action_with_an_undo_descriptor()
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                made_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE))),
+            calling(lambda: _noting_each_step_of(resuming, happened)),
+            calling(lambda: _nobody_wants_it_noting(still_wanted, happened)),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_estate_was_read_before_anybody_was_asked(happened),
+            _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
+                                       advance_action, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                                       performed_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE),
+            _never_recorded_untaken(complete_action)
+        ))
+
+
+# What a case notes when the walk asks whether anybody still wants the change.
+ASKED_WHETHER_WANTED = "asked whether wanted"
+
+
+def _nobody_wants_it_noting(still_wanted: MagicMock, happened: list[str]) -> None:
+    """A person ended the incident, and each asking notes into `happened`."""
+    def answering(*dont_care_args: object, **dont_care_keywords: object) -> bool:
+        happened.append(ASKED_WHETHER_WANTED)
+
+        return False
+
+    still_wanted.side_effect = answering
+
+
+def _the_estate_was_read_before_anybody_was_asked(happened: list[str]) -> Assertion[StateDelta]:
+    """Whether the change was made is read first; any asking whether it is still
+    wanted comes after it."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        read = "read whether made"
+
+        if read not in happened or (
+                ASKED_WHETHER_WANTED in happened
+                and happened.index(ASKED_WHETHER_WANTED) < happened.index(read)):
+            raise AssertionError(
+                f"Expected the estate read whether made before anybody was asked whether "
+                f"the change is wanted, got {happened}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _never_recorded_untaken(complete_action: MagicMock) -> Assertion[StateDelta]:
+    """No completion of the row says the change was not performed."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        untaken = [call.kwargs for call in complete_action.call_args_list
+                   if call.kwargs.get("performed") is False]
+
+        if untaken:
+            raise AssertionError(
+                f"Expected a change found made never recorded as not performed, got {untaken}."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_made_is_not_watched_once_the_metrics_cannot_judge_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Recorded as made - it was - and handed over rather than watched.
+    an_action = _an_action_with_an_undo_descriptor()
+    an_onset_past_what_is_kept = SOME_NOW - THE_METRICS_KEPT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=_a_plan_of(an_action))),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                made_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE))),
+            an_action_taking_incident := _a_resumed_incident(
+                began=an_onset_past_what_is_kept, proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_not_watched(resuming),
+            _the_incident_was_escalated(),
+            _the_walk_says(THE_METRICS_NO_LONGER_REACH_BACK),
+            _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
+                                       advance_action, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                                       performed_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE)
+        ))
+
+
+# ---------------------------------------------------------------------------
+# A resumed walk: a change told as made
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_and_still_argus_s_is_watched_and_recorded(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The worker died in the wait. The change is still as it left it, so it is
+    # watched afresh - in the words it was made with - and what the watch
+    # finds is recorded as the live walk records it. Not made again.
+    an_action = _an_action_with_an_undo_descriptor()
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=THE_PLAN_THE_ROW_KEPT, progress=ActionProgress.PERFORMED,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _it_was_found(resuming, ChangeFound(still_argus_s=True))),
+            calling(lambda: _the_watch_came_back(resuming, _an_outcome(Verdict.REFUTED))),
+            an_action_taking_incident := _a_resumed_incident(proposing=an_action)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_checked_whether_still_argus_s(THE_PLAN_THE_ROW_KEPT,
+                                                  THE_WAY_BACK_THE_ROW_KEPT, resuming),
+            _the_change_was_watched_as(an_action,
+                                       Performed(said=WHAT_THE_REVERT_SAID,
+                                                 undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT),
+                                       resuming),
+            _the_action_was_not_taken(take),
+            _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action),
+            _the_verdict_reported_is(Verdict.REFUTED),
+            _the_walk_carries(SOME_MOMENT_IT_WAS_MADE)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_is_checked_and_watched_acting_for_its_own_row(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Whose mark the estate carries is asked of this claim's, and a refutation
+    # the watch puts back is a write marked as that action's.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _noting_each_step_of(resuming, happened)),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(happened),
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(_happened_in_order(happened, [
+            f"acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}",
+            "checked",
+            "watched",
+            f"no longer acting for {THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED}"
+        ]))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_is_watched_for_its_own_incident_and_owes_its_put_back_there(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    owe_a_put_back: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The watch is handed what the live walk hands it - the incident, the
+    # moments it began, the rule that paged - and a refutation it reaches is
+    # put on this claim as owed back before it is put back.
+    some_rule = "some-rule"
+
+    def the_watch_was_handed_its_incident(dont_care_result: StateDelta) -> bool:
+        assert an_incident.hypothesis is not None
+        handed = _mocked(resuming.watch).call_args.kwargs
+        handed["put_back_owed"](SOME_FINDING)
+        wanted = {"incident_id": an_incident.incident_id,
+                  "onset": an_incident.alert.stated_onset,
+                  "incident_began": _a_minute(SOME_RECENT_ONSET),
+                  "rule": some_rule}
+        got = {name: handed.get(name) for name in wanted}
+        owed = [(call.args, call.kwargs) for call in owe_a_put_back.call_args_list]
+        flattened = [tuple(args) + tuple(keywords.values()) for args, keywords in owed]
+
+        if got != wanted or flattened != [(an_incident.incident_id, an_incident.hypothesis.id,
+                                           SOME_FINDING)]:
+            raise AssertionError(
+                f"Expected the watch handed {wanted} and its put-back owed on this claim, "
+                f"got {got} and owed {flattened}."
+            )
+
+        return True
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            an_incident := _a_resumed_incident_paged_by(some_rule)
+        ) \
+        .when(lambda: mitigation_node(an_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=owe_a_put_back,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(the_watch_was_handed_its_incident)
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_that_somebody_changed_since_is_handed_over_saying_what(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # What the service does now is no longer Argus's change alone to answer
+    # for, so it is not watched. The row keeps the way back it already holds,
+    # so a withdrawal can still put back whatever of it is Argus's.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _it_was_found(resuming, ChangeFound(
+                still_argus_s=False, found=SOME_FINDING_ON_THE_ESTATE))),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_not_watched(resuming),
+            _the_action_was_not_taken(take),
+            _the_incident_was_escalated(),
+            _the_walk_says(f"{CHANGED_SINCE_IT_WAS_MADE}: {SOME_FINDING_ON_THE_ESTATE}"),
+            _the_claim_was_not_advanced(advance_action),
+            _nothing_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_that_nobody_can_say_still_stands_is_handed_over(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A reading of a service whose state nobody can describe would judge a
+    # change nobody can say is there.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _it_was_found(resuming, ChangeFound(
+                still_argus_s=None, found=SOME_FINDING_ON_THE_ESTATE))),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_not_watched(resuming),
+            _the_incident_was_escalated(),
+            _the_walk_says(f"{NOBODY_CAN_SAY_IT_STILL_STANDS}: {SOME_FINDING_ON_THE_ESTATE}"),
+            _the_claim_was_not_advanced(advance_action),
+            _nothing_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_whose_read_failed_unexpectedly_is_handed_over_as_unsayable(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A read that raised anything at all, of any kind, found nothing: nobody
+    # can say whether the change still stands, in the failure's own words -
+    # not a walk that stops with the incident in nobody's hands.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: setattr(_mocked(resuming.still_argus_s), "side_effect",
+                                    RuntimeError(SOME_FINDING_ON_THE_ESTATE))),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=advance_action,
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_not_watched(resuming),
+            _the_incident_was_escalated(),
+            _the_walk_says(f"{NOBODY_CAN_SAY_IT_STILL_STANDS}: {SOME_FINDING_ON_THE_ESTATE}"),
+            _the_claim_was_not_advanced(advance_action),
+            _nothing_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_whose_read_found_the_run_lost_stops_the_walk(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    advance_action: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The incident is another claim's walk now: raised, with nothing recorded
+    # and nothing said by this one.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: setattr(_mocked(resuming.still_argus_s), "side_effect",
+                                    RunLost(A_NEWER_CLAIM_HOLDS_THE_RUN))),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(attempting(lambda: mitigation_node(an_action_taking_incident,
+                                                 take=take,
+                                                 plan_action=_a_plan_nobody_checks(),
+                                                 resuming=resuming,
+                                                 advance_action=advance_action,
+                                                 owe_a_put_back=_an_owing_nobody_checks(),
+                                                 record_action=record_action,
+                                                 complete_action=complete_action,
+                                                 record_outcome=record_outcome,
+                                                 already_taken=already_taken,
+                                                 acting_for=acting_for,
+                                                 still_wanted=still_wanted,
+                                                 now=_the_clock_at(SOME_NOW)))) \
+        .then(all_of(
+            an_error_was_raised(RunLost),
+            _no_action_row_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("change_found", "words"), [
+    pytest.param(False, CHANGED_SINCE_IT_WAS_MADE, id="changed-since"),
+    pytest.param(None, NOBODY_CAN_SAY_IT_STILL_STANDS, id="nobody-can-say")
+])
+def test_a_change_told_as_made_and_found_not_argus_s_is_announced_before_it_is_handed_over(
+    change_found: bool | None,
+    words: str,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Whatever the estate says now, the change was made: where the dead worker
+    # died before announcing it, the line is on file, dated when it was made,
+    # before the incident goes to a person.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _it_was_found(resuming, ChangeFound(
+                still_argus_s=change_found, found=SOME_FINDING_ON_THE_ESTATE))),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_actions_announced_were_at([SOME_MOMENT_IT_WAS_MADE], published),
+            _the_incident_was_escalated(),
+            _the_walk_says(f"{words}: {SOME_FINDING_ON_THE_ESTATE}")
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_with_no_plan_is_asked_after_on_its_way_back_alone(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Every kind but a flag asks of the change alone: a row that kept no plan
+    # is asked after all the same, and watched where it still stands - not
+    # handed over for a plan its read never needed.
+    no_plan = None
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=no_plan,
+                progress=ActionProgress.PERFORMED, undo_descriptor=ITS_PLAN.descriptor,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_checked_whether_still_argus_s(no_plan, ITS_PLAN.descriptor, resuming),
+            _the_verdict_reported_is(Verdict.CONFIRMED)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("progress", "undo_descriptor", "put_back_because"), [
+    pytest.param(ActionProgress.PERFORMED, None, None, id="made-with-no-way-back"),
+    pytest.param(ActionProgress.PUTTING_BACK, None, SOME_FINDING,
+                 id="owed-back-with-no-way-back"),
+    pytest.param(ActionProgress.PUTTING_BACK, THE_WAY_BACK_THE_ROW_KEPT, None,
+                 id="owed-back-with-no-reason")
+])
+def test_a_row_said_made_that_keeps_nothing_to_go_on_is_handed_over_as_never_recorded(
+    progress: ActionProgress,
+    undo_descriptor: UndoDescriptor | None,
+    put_back_because: str | None,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A change made with nothing that puts it back, or owed back with no reason
+    # the watch gave: nothing to ask after it with, nothing to put it back for.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, progress=progress,
+                undo_descriptor=undo_descriptor, performed_at=SOME_MOMENT_IT_WAS_MADE,
+                put_back_because=put_back_because)),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_incident_was_escalated(),
+            _the_walk_says(A_CHANGE_MADE_AND_NEVER_RECORDED),
+            _nothing_was_read_of_the_estate(resuming),
+            _nothing_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_row_not_performed_with_no_outcome_is_handed_over_as_unaccountable(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A row no walk writes: not performed, and nothing recorded against it.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.NOT_PERFORMED)),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_incident_was_escalated(),
+            _the_walk_says(A_CHANGE_NOBODY_CAN_ACCOUNT_FOR),
+            _nothing_was_read_of_the_estate(resuming),
+            _nothing_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("wanted", "recorded"), [
+    pytest.param(True, Verdict.NOT_ATTEMPTED, id="still-wanted"),
+    pytest.param(False, Verdict.STOPPED, id="nobody-wants-it-any-more")
+])
+def test_a_claim_with_no_plan_whose_fresh_plan_is_refused_records_the_refusal(
+    wanted: bool,
+    recorded: Verdict,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The dead worker's plan was refused and so is this walk's: nothing was
+    # written, so nothing is asked of the estate, and the refusal is the
+    # attempt - or the stop, where a person ended the incident since.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=None)),
+            calling(lambda: setattr(still_wanted, "return_value", wanted)),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_planning_answering(
+                                          _a_plan_refused_as(Verdict.NOT_ATTEMPTED)),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _nothing_was_read_of_the_estate(resuming),
+            _the_action_row_records_the_outcome(recorded, complete_action),
+            _the_action_row_records_whether_it_was_performed(False, complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claim_with_no_plan_has_this_walk_s_plan_written_onto_it_before_the_write(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The plan lives on the claim, and the write compares with it: a walk
+    # resumed after this one dies asks after the change on the plan it was
+    # taken on, so the plan is on the claim before anything is asked or written.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=None)),
+            calling(lambda: _noting_each_step_of(resuming, happened)),
+            calling(lambda: _noting_the_plan_put_on_the_claim(resuming, happened)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            calling(lambda: _noting_when_it_is_taken(take, happened)),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_planning_answering(ITS_PLAN),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_claim_was_planned_as(an_action_taking_incident, ITS_PLAN, resuming),
+            _happened_in_order(happened, [PLANNED_THE_CLAIM, "read whether made", "taken"])
+        ))
+
+
+@pytest.mark.unit
+def test_a_claim_with_no_plan_whose_plan_cannot_be_written_onto_it_is_not_taken(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A write made with the plan nowhere on the claim would leave a walk
+    # resumed after this one to plan again, and read a change that landed as
+    # never attempted. So the run fails here: nothing is asked of the estate,
+    # and nothing written - its escalation is all it costs.
+    dont_care_failure = "the database went away"
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=None)),
+            calling(lambda: setattr(_mocked(resuming.plan_the_claim), "side_effect",
+                                    RuntimeError(dont_care_failure))),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST)
+        ) \
+        .when(attempting(lambda: mitigation_node(an_action_taking_incident,
+                                                 take=take,
+                                                 plan_action=_planning_answering(ITS_PLAN),
+                                                 resuming=resuming,
+                                                 advance_action=_an_advance_nobody_checks(),
+                                                 owe_a_put_back=_an_owing_nobody_checks(),
+                                                 record_action=record_action,
+                                                 complete_action=complete_action,
+                                                 record_outcome=record_outcome,
+                                                 already_taken=already_taken,
+                                                 acting_for=acting_for,
+                                                 still_wanted=still_wanted,
+                                                 now=_the_clock_at(SOME_NOW)))) \
+        .then(all_of(
+            an_error_was_raised(RuntimeError),
+            _the_action_was_not_taken(take),
+            _nothing_was_read_of_the_estate(resuming)
+        ))
+
+
+# What a case notes when the walk writes its plan onto a claim.
+PLANNED_THE_CLAIM = "planned the claim"
+
+
+def _noting_the_plan_put_on_the_claim(resuming: ports.Resuming, happened: list[str]) -> None:
+    def planning(*dont_care_args: object, **dont_care_keywords: object) -> None:
+        happened.append(PLANNED_THE_CLAIM)
+
+    _mocked(resuming.plan_the_claim).side_effect = planning
+
+
+def _the_claim_was_planned_as(state: IncidentState,
+                              planned: Planned[Any],
+                              resuming: ports.Resuming) -> Assertion[StateDelta]:
+    """The claim on this incident's candidate was given `planned`, once."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        assert state.hypothesis is not None
+        given = [(call.args, call.kwargs)
+                 for call in _mocked(resuming.plan_the_claim).call_args_list]
+        flattened = [tuple(args) + tuple(keywords.values()) for args, keywords in given]
+        wanted = (state.incident_id, state.hypothesis.id, planned)
+
+        if flattened != [wanted]:
+            raise AssertionError(
+                f"Expected the claim given the plan {wanted} once, got {flattened}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _an_incident_dated_only_by(source: str, instant: datetime) -> IncidentState:
+    """A resumed incident whose beginning only `source` states: the
+    investigation's minute, the minute the alert stated, or the alert's own
+    time."""
+    state = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
+
+    match source:
+        case "investigation":
+            return state.model_copy(update={"onset": EstablishedOnset(
+                minute=_a_minute(instant), how_known=HowTheMinuteIsKnown.MEASURED)})
+        case "stated-onset":
+            return state.model_copy(update={"onset": None, "alert": state.alert.model_copy(
+                update={"stated_onset": instant, "started_at": None})})
+        case "alert":
+            return state.model_copy(update={"onset": None, "alert": state.alert.model_copy(
+                update={"stated_onset": None, "started_at": instant})})
+
+    raise AssertionError(f"Expected a source of an incident's beginning, got [{source}].")
+
+
+def _an_incident_nothing_dates() -> IncidentState:
+    """A resumed incident with no minute measured, none stated, and no time on
+    its alert."""
+    state = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
+
+    return state.model_copy(update={"onset": None, "alert": state.alert.model_copy(
+        update={"stated_onset": None, "started_at": None})})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("source", ["investigation", "stated-onset", "alert"])
+def test_a_change_told_as_made_is_not_watched_once_the_metrics_cannot_reach_back(
+    source: str,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The watch compares the service with how it was before the incident, and
+    # the metrics are kept only so far back. Where the incident began is the
+    # investigation's minute, else the one the alert stated, else when the alert
+    # fired - the same instant whichever states it.
+    an_onset_past_what_is_kept = SOME_NOW - THE_METRICS_KEPT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            an_incident_long_begun := _an_incident_dated_only_by(source,
+                                                                  an_onset_past_what_is_kept)
+        ) \
+        .when(lambda: mitigation_node(an_incident_long_begun,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_not_watched(resuming),
+            _the_incident_was_escalated(),
+            _the_walk_says(THE_METRICS_NO_LONGER_REACH_BACK)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_is_watched_while_the_metrics_reach_back_to_the_very_minute(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Within means within: the oldest minute the metrics keep is still kept.
+    an_onset_at_the_edge = SOME_NOW - THE_METRICS_KEPT
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            an_incident_begun_at_the_edge := _a_resumed_incident(began=an_onset_at_the_edge)
+        ) \
+        .when(lambda: mitigation_node(an_incident_begun_at_the_edge,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(_the_change_was_watched_as(
+            _an_action_with_an_undo_descriptor(),
+            Performed(said=WHAT_THE_REVERT_SAID, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT),
+            resuming))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("on_file", [False, True], ids=["none-on-file", "one-on-file"])
+def test_a_change_told_as_made_is_announced_only_where_no_announcement_is_on_file(
+    on_file: bool,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The dead worker told the claim the change was made, then announced it -
+    # and may have died in between. Where it did, the line is announced now,
+    # dated when the change was made.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _an_announcement_is_on_file(resuming) if on_file else None),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_asked_whether_announced_for(an_action_taking_incident, resuming),
+            _the_actions_announced_were_at([] if on_file else [SOME_MOMENT_IT_WAS_MADE],
+                                           published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_of_an_incident_nothing_dates_is_watched(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Nothing states when it began - no minute measured, none stated, no time on
+    # the alert - so no window can be said to have passed it: watched, as the
+    # live walk watches such an incident.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            an_incident_nothing_dates := _an_incident_nothing_dates()
+        ) \
+        .when(lambda: mitigation_node(an_incident_nothing_dates,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(_the_change_was_watched_as(
+            _an_action_with_an_undo_descriptor(),
+            Performed(said=WHAT_THE_REVERT_SAID, undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT),
+            resuming))

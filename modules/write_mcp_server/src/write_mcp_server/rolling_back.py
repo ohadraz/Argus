@@ -58,8 +58,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
+from typing import Final
 
 from core.mcp_transport import (
     a_change_made_since,
@@ -67,7 +69,14 @@ from core.mcp_transport import (
     an_exhausted_action,
     with_what_it_left,
 )
-from core.models import DeploymentRestored, DeploymentRollbackUndo, Planned
+from core.models import (
+    ChangeFound,
+    DeploymentRestored,
+    DeploymentRollbackUndo,
+    Made,
+    NotMade,
+    Planned,
+)
 from deployment_platform import (
     DeploymentPlatformError,
     DeploymentPlatformWrites,
@@ -80,7 +89,7 @@ from deployment_platform import (
     SyncRun,
 )
 
-from write_mcp_server.refusing import a_platform_refusal
+from write_mcp_server.refusing import a_platform_refusal, no_claim_to_compare_with
 from write_mcp_server.sync_switch import (
     Switch,
     suspend_where_it_is_to_be,
@@ -90,17 +99,33 @@ from write_mcp_server.sync_switch import (
 
 logger = logging.getLogger(__name__)
 
+# Where a run stands that was stopped - being terminated, or ended so. Somebody
+# stops one, or the platform's own sync timeout where one is set; a stop of the
+# timeout's that takes more than one pass ends in the same words a person's
+# does, so the two are not told apart, and neither is written over.
+_STOPPED: Final = frozenset({SyncPhase.TERMINATING, SyncPhase.TERMINATED})
+# What a stopped run is said as having been: who stopped it is not known.
+_STOPPED_BY: Final = "by somebody or by the platform's own sync timeout where one is set"
+# Why nobody can say whose a rollback is whose newest entry is Argus's own, at a
+# revision it did not roll back to: Argus's account is Argus's, whichever walk or
+# person used it, so it is no change of somebody else's - and not this rollback.
+_ARGUS_S_ACCOUNT_ELSEWHERE: Final = "Argus's account at a revision this rollback did not go to"
 
-class _Standing(Enum):
+
+class RollbackStanding(Enum):
     """Where a rollback stands that nobody else has changed since."""
 
     # The rollback Argus made is still what the platform runs.
     STILL_ARGUS_S = auto()
     # The deployment is already on the revision Argus found it on.
     ALREADY_BACK = auto()
-    # The platform is running a sync nobody else asked for - its own, or Argus's
-    # rollback not yet finished - which a put-back cannot be asked beside.
+    # The platform is running a sync nobody else asked for and that is not this
+    # rollback - its own, or Argus's to another revision - which a put-back
+    # cannot be asked beside.
     MID_SYNC = auto()
+    # Argus's own rollback, asked or running and not yet in the history: Argus's
+    # change on its way, and nothing a put-back can be asked beside either.
+    UNDER_WAY = auto()
 
 
 class NoEarlierRevision(Exception):
@@ -226,8 +251,10 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     - a named account's entry since the plan among it, even where the running
     revision has come back to the one found; a sync another account asked for
     that is still being run, or started since the plan however it ended; and
-    this rollback's own sync being terminated, which only somebody does -
-    refused with nothing written.
+    this rollback's own sync being terminated or ended by termination - by
+    somebody, or by the platform's own sync timeout where one is set, which
+    ends in the same words - which says the rollback was asked: refused with
+    nothing written.
 
     Every refusal after the platform is read carries the plan where this
     claim's suspension or rollback shows part of it landed, so a re-ask finding
@@ -255,6 +282,103 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     """
     descriptor = planned.descriptor
     application = descriptor.application
+    target_entry, compared = _compared_with_the_plan(planned, platform, mark, argus_account)
+
+    if compared.made:
+        logger.info("deployment already rolled back", extra={
+            "application": application, "to_history_id": target_entry
+        })
+        return descriptor.model_copy(update={"written_at": compared.made_at})
+
+    suspend_where_it_is_to_be(application, compared.switch, platform, mark, _refusing_a_change)
+
+    try:
+        answered_at = platform.roll_back(application, target_entry)
+    except DeploymentPlatformError as error:
+        logger.warning("rollback refused", extra={
+            "application": application, "sync_suspended": descriptor.was_syncing_itself
+        })
+        raise _refusing(
+            f"[{application}] could not be rolled back to history entry "
+            f"[{target_entry}]: {error}",
+            error,
+            asked_to_change=True,
+            left_behind=descriptor if descriptor.was_syncing_itself else None
+        ) from error
+
+    logger.info("deployment rolled back", extra={
+        "application": application,
+        "from_history_id": descriptor.was_on_history_id,
+        "to_history_id": target_entry
+    })
+
+    return descriptor.model_copy(update={"written_at": answered_at})
+
+
+def whether_it_was_made(planned: Planned[DeploymentRollbackUndo],
+                        platform: DeploymentPlatformWrites,
+                        action_id: str | None,
+                        argus_account: str
+                        ) -> Made[DeploymentRollbackUndo] | NotMade[DeploymentRollbackUndo]:
+    """Whether the rollback `planned` describes was made - the write's own
+    compare on the plan, made, as the plan found it, or changed since, with the
+    write left out, for a walk resumed after the worker that claimed it died.
+    Not `what_became_of_the_rollback`, which asks a different question of a
+    different moment.
+
+    Made is answered with what the write would answer, dated as it dates it:
+    by Argus's entry, else by the start of Argus's run of it, else `None` for a
+    rollback the platform has taken and not yet started. Running the revision
+    the plan found, with nothing of this rollback's in the history or under
+    way, is nothing landed - carrying the plan where this claim's suspension of
+    the sync stands, since that is the claim's all the same, and nothing where
+    it does not. Anything else is refused exactly as the write refuses it on
+    the same estate, since the two are one compare - an empty `argus_account`
+    among it.
+
+    `action_id` is the claim the sync switch is compared under, as the write's
+    mark is; a call naming none is refused plainly, as `scaling`'s read refuses
+    one. Writes nothing.
+    """
+    if action_id is None:
+        raise RollbackRefused(no_claim_to_compare_with(
+            f"the rollback of [{planned.descriptor.application}]"
+        ))
+
+    _, compared = _compared_with_the_plan(planned, platform, action_id, argus_account)
+
+    if not compared.made:
+        return NotMade[DeploymentRollbackUndo](left_behind=compared.left_behind)
+
+    return Made[DeploymentRollbackUndo](
+        descriptor=planned.descriptor.model_copy(update={"written_at": compared.made_at}),
+        made_at=compared.made_at
+    )
+
+
+@dataclass(frozen=True)
+class _Compared:
+    """A rollback's plan held against what was found: where the sync switch
+    stands, whether the rollback is already made - and when the platform says
+    it was, where it says - or still to make, and what of the claim's is out
+    there."""
+
+    switch: Switch
+    made: bool
+    made_at: datetime | None
+    left_behind: DeploymentRollbackUndo | None
+
+
+def _compared_with_the_plan(planned: Planned[DeploymentRollbackUndo],
+                            platform: DeploymentPlatformWrites,
+                            claim: Mark | str,
+                            argus_account: str) -> tuple[int, _Compared]:
+    """What the platform is now, held against `planned` for `claim` - every
+    comparison `roll_back_deployment` makes before it writes, raising as it
+    raises - with the entry the rollback returns to. The write and the claimed
+    read share it, so the two cannot come to read one estate two ways."""
+    descriptor = planned.descriptor
+    application = descriptor.application
     target_revision = descriptor.rolled_back_to_revision
     target_entry = descriptor.rolled_back_to_history_id
 
@@ -280,7 +404,7 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     # running or done, or in the history.
     requested, last_run = operations.requested, operations.last_run
     suspension_stands = this_claim_s_suspension_stands(
-        descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
+        descriptor.was_syncing_itself, syncing_now, switch_marked_by, claim
     )
     asked = _asked_by_argus(operations, target_revision, argus_account)
     run = _run_by_argus_since(operations, target_revision, argus_account, planned.since)
@@ -300,9 +424,12 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     this_rollback_s = [entry for entry in named_since
                        if argus_account and entry.initiated_by == argus_account
                        and entry.revision == target_revision]
-    # Asked, running or done: the change itself has been made, whatever came
-    # of it after.
-    performed = bool(this_rollback_s) or rollback_under_way
+    # Asked, running or done - or stopped, which only a sync that was asked can
+    # be: the change itself has been made, whatever came of it after.
+    stopped = (last_run is not None and last_run.started_at >= planned.since
+               and (last_run.revision, last_run.initiated_by) == (target_revision, argus_account)
+               and bool(argus_account) and last_run.phase in _STOPPED)
+    performed = bool(this_rollback_s) or rollback_under_way or stopped
     left_behind = descriptor if performed or suspension_stands else None
 
     the_rule_s = _the_entry_to_return_to(
@@ -347,15 +474,15 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     somebody_asked = (requested is not None and requested.initiated_by is not None
                       and not asked)
     # A sync another account started since the plan, however it ended; and this
-    # rollback's own sync being terminated, which only somebody does.
-    somebody_ran = last_run is not None and last_run.started_at >= planned.since and (
-        (last_run.initiated_by is not None and last_run.initiated_by != argus_account)
-        or ((last_run.revision, last_run.initiated_by) == (target_revision, argus_account)
-            and last_run.phase is SyncPhase.TERMINATING)
+    # rollback's own sync being terminated or ended by termination, which only
+    # somebody does.
+    somebody_ran = stopped or (
+        last_run is not None and last_run.started_at >= planned.since
+        and last_run.initiated_by is not None and last_run.initiated_by != argus_account
     )
     running = history[-1].revision if history else None
 
-    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
+    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, claim)
     nobody_else_s = not somebody_s and not somebody_asked and not somebody_ran
     made = nobody_else_s and (
         (bool(this_rollback_s) and running == target_revision)
@@ -380,37 +507,12 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
             performed=performed
         ))
 
-    if made:
-        logger.info("deployment already rolled back", extra={
-            "application": application, "to_history_id": target_entry
-        })
-        return descriptor.model_copy(update={
-            "written_at": _when_argus_s_rollback_landed(this_rollback_s, run)
-        })
-
-    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
-
-    try:
-        answered_at = platform.roll_back(application, target_entry)
-    except DeploymentPlatformError as error:
-        logger.warning("rollback refused", extra={
-            "application": application, "sync_suspended": descriptor.was_syncing_itself
-        })
-        raise _refusing(
-            f"[{application}] could not be rolled back to history entry "
-            f"[{target_entry}]: {error}",
-            error,
-            asked_to_change=True,
-            left_behind=descriptor if descriptor.was_syncing_itself else None
-        ) from error
-
-    logger.info("deployment rolled back", extra={
-        "application": application,
-        "from_history_id": descriptor.was_on_history_id,
-        "to_history_id": target_entry
-    })
-
-    return descriptor.model_copy(update={"written_at": answered_at})
+    return target_entry, _Compared(
+        switch=switch,
+        made=made,
+        made_at=_when_argus_s_rollback_landed(this_rollback_s, run) if made else None,
+        left_behind=left_behind
+    )
 
 
 def _when_argus_s_rollback_landed(entries: list[DeploymentRecord],
@@ -443,7 +545,9 @@ def _run_by_argus_since(operations: SyncOperations,
                         since: datetime) -> SyncRun | None:
     """The last sync the platform ran, where it is one to `revision` asked by
     `argus_account`, started at or after `since`, and running or done - a sync
-    that failed made nothing."""
+    that failed made nothing, and one terminated - by somebody, or by the
+    platform's own sync timeout where one is set - is not Argus's to read as
+    done."""
     run = operations.last_run
 
     if not argus_account or run is None:
@@ -539,9 +643,13 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     already back on the revision Argus found, running what that renders, needs
     no rollback, and counts as put back. Anything else is somebody's change
     since: nothing is written, sync is not resumed, and the answer says what was
-    found and whether Argus's suspension still stands. Writing over it would be
-    this module deciding that somebody else's change should not stand, which is
-    not its question to answer.
+    found and whether Argus's suspension still stands. A sync of Argus's -
+    the rollback or an earlier put-back - that is being terminated or has been
+    is among it: somebody stops a sync, or the platform's own sync timeout where
+    one is set, in the same words, and a put-back asked beside a person's stop
+    would overrule what they did. Writing over it would be this module deciding
+    that somebody else's change should not stand, which is not its question to
+    answer.
 
     A read that never came back writes nothing and claims nothing - neither
     half back, nothing found - and neither does a descriptor recorded without
@@ -574,8 +682,7 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
         return _said(_nothing_established(), application)
 
     try:
-        found = _what_became_of_the_rollback(descriptor, rolled_back_to, platform,
-                                             argus_account)
+        found = what_became_of_the_rollback(descriptor, platform, argus_account)
     except DeploymentPlatformError:
         logger.error("restore check failed", exc_info=True,
                      extra={"application": application, "read": "the deployment"})
@@ -584,13 +691,13 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     if isinstance(found, str):
         return _left_as_somebody_set_it(found, descriptor, platform)
 
-    if found is _Standing.MID_SYNC:
-        # Nobody's change, and nothing that can be put back while it runs: the
-        # put-back goes to a person, as one that could not be made does.
+    if found in (RollbackStanding.MID_SYNC, RollbackStanding.UNDER_WAY):
+        # Nobody else's change, and nothing that can be put back while it runs:
+        # the put-back goes to a person, as one that could not be made does.
         logger.warning("restore impossible mid-sync", extra={"application": application})
         return _said(_nothing_established(), application)
 
-    if found is _Standing.ALREADY_BACK:
+    if found is RollbackStanding.ALREADY_BACK:
         # Already where Argus found it, whoever put it there: nothing is written
         # for the revision, and it counts as put back.
         revision = True
@@ -621,44 +728,191 @@ def restore_deployment(descriptor: DeploymentRollbackUndo,
     )
 
 
-def _what_became_of_the_rollback(descriptor: DeploymentRollbackUndo,
-                                 rolled_back_to: str,
-                                 platform: DeploymentPlatformWrites,
-                                 argus_account: str) -> _Standing | str:
+def what_became_of_the_rollback(descriptor: DeploymentRollbackUndo,
+                                platform: DeploymentPlatformWrites,
+                                argus_account: str) -> RollbackStanding | str:
     """Where the rollback `descriptor` records stands now, or - where it is
     somebody's change since - what was found, said.
 
-    Reads the syncs first. The history gains its entry only when a sync
-    finishes, so a put-back of Argus's already asked for or running - one whose
-    answer was lost - shows only there, and is taken as the revision put back
-    rather than asked again; a sync somebody else asked for and that is still
-    being run is their change. Then the history, then the images: the
-    Deployment's, and those the platform renders for the revision the newest
-    entry says it should be on. Raises `DeploymentPlatformError` where any read
-    fails, so the caller can write nothing on it.
+    One check for its two callers - the put-back, before it writes anything,
+    and a walk resumed after the worker that made the rollback died, before it
+    watches it again - so the two cannot come to read one platform two ways.
+
+    Reads the syncs first, the last run before the request. A sync of Argus's
+    to either revision this rollback names that somebody is terminating or has
+    terminated is their change, said as what was found - read off the run
+    first, because the platform keeps the request while a run is terminated,
+    and the request alone would read as Argus's change on its way. A put-back
+    somebody stopped is not already back. The history gains its entry only when
+    a sync finishes, so a sync of Argus's already asked for or running shows
+    only there: one back to the revision Argus found is the put-back whose
+    answer was lost, taken as the revision put back rather than asked again; one
+    to the revision the rollback went to is the rollback itself still under way;
+    Argus's to any other revision, and the platform's own, are nobody else's
+    change and nothing a put-back can be asked beside. A sync somebody else
+    asked for and that is still being run is their change. Then the history,
+    then the images: the Deployment's, and those the platform renders for the
+    revision the newest entry says it should be on.
+
+    The newest entry is Argus's rollback only where it is of the revision the
+    descriptor records as rolled back to, so a descriptor recorded without one
+    finds none - its callers ask without it no question. One by Argus's account
+    at another revision is not this rollback, and is said so. With no
+    `argus_account`, no entry is Argus's. Raises `DeploymentPlatformError` where
+    any read fails, so the caller can write nothing on it.
+    """
+    found = _what_became_of(descriptor, platform.sync_operations_of(descriptor.application),
+                            platform, argus_account)
+
+    return found.said if isinstance(found, _ArgusSAccountElsewhere) else found
+
+
+def still_argus_s(descriptor: DeploymentRollbackUndo,
+                  platform: DeploymentPlatformWrites,
+                  argus_account: str) -> ChangeFound:
+    """Whether the rollback `descriptor` records is still as Argus left it, for
+    a walk resumed after the worker that made it died - answered from
+    `what_became_of_the_rollback`, the put-back's own check.
+
+    Still Argus's, or Argus's own rollback still under way - whose arrival the
+    watch waits on - is Argus's to watch. Already back where Argus found it,
+    the platform reconciling the application again, a sync of Argus's somebody
+    is terminating or has terminated, or anything else of somebody else's, is a
+    change since, saying what was found; so is a rollback whose run of Argus's
+    failed of itself, with no entry of it and the deployment not on it - said as
+    that, rather than read as somebody having put it back. The platform in a
+    sync of its own or of Argus's to another revision, a newest entry by Argus's
+    account at a revision this rollback did not go to, a read that never came
+    back, a rollback recorded without the revision it went to, and no account
+    of Argus's to look for are questions nobody can answer. Writes nothing.
     """
     application = descriptor.application
-    operations = platform.sync_operations_of(application)
+
+    if descriptor.rolled_back_to_revision is None:
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"the rollback of [{application}] was recorded without the revision it "
+                  f"went to"
+        )
+
+    # No history entry is ever made by nobody, so with no account to look for,
+    # Argus's own rollback would read as somebody else's.
+    if not argus_account:
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"with no account of Argus's to look for, whose the newest deployment "
+                  f"of [{application}] is cannot be said"
+        )
+
+    try:
+        operations = platform.sync_operations_of(application)
+        found = _what_became_of(descriptor, operations, platform, argus_account)
+        syncing_now = platform.is_syncing_itself(application)
+    except DeploymentPlatformError as error:
+        logger.warning("still-argus-s check failed", exc_info=True,
+                       extra={"application": application})
+        return ChangeFound(still_argus_s=None,
+                           found=f"could not read what [{application}] is now: {error}")
+
+    # The platform reconciling the application again re-applies git over the
+    # rollback at its next pass, as it does over a patch kind's change: not
+    # Argus's to watch any more, whoever turned it on.
+    if syncing_now:
+        return ChangeFound(
+            still_argus_s=False,
+            found=f"[{application}] is syncing itself again"
+                  f"{'' if isinstance(found, RollbackStanding) else f', and {_in_words(found)}'}"
+        )
+
+    if found is RollbackStanding.STILL_ARGUS_S or found is RollbackStanding.UNDER_WAY:
+        return ChangeFound(still_argus_s=True)
+
+    if found is RollbackStanding.MID_SYNC:
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"[{application}] is in the middle of a sync that is not this rollback, "
+                  f"and what it lands is not known yet"
+        )
+
+    if isinstance(found, _ArgusSAccountElsewhere):
+        return ChangeFound(still_argus_s=None, found=found.said)
+
+    failed = _argus_s_failed_run(descriptor, operations, argus_account)
+
+    if failed is not None:
+        return ChangeFound(
+            still_argus_s=False,
+            found=f"the rollback's run failed: the platform's last sync of [{application}] "
+                  f"to revision [{descriptor.rolled_back_to_revision}], asked by Argus, "
+                  f"ended [{failed.phase.name.lower()}], and no deployment of it was made"
+        )
+
+    if isinstance(found, str):
+        return ChangeFound(still_argus_s=False, found=found)
+
+    return ChangeFound(
+        still_argus_s=False,
+        found=f"[{application}] is already back on revision "
+              f"[{descriptor.was_on_revision}], where Argus found it"
+    )
+
+
+def _what_became_of(descriptor: DeploymentRollbackUndo,
+                    operations: SyncOperations,
+                    platform: DeploymentPlatformWrites,
+                    argus_account: str) -> RollbackStanding | str | _ArgusSAccountElsewhere:
+    """`what_became_of_the_rollback`, over the syncs `operations` already read -
+    with a newest entry by Argus's account at another revision kept apart from
+    somebody's change, for `still_argus_s` to say nobody can answer it."""
+    application = descriptor.application
+    rolled_back_to = descriptor.rolled_back_to_revision
     requested, run = operations.requested, operations.last_run
 
-    if requested is not None:
-        if (requested.revision, requested.initiated_by) == (descriptor.was_on_revision,
-                                                            argus_account):
-            return _Standing.ALREADY_BACK
+    # A sync of Argus's being terminated or terminated - as the write reads it.
+    # Being terminated, the run comes before the request, which the platform
+    # keeps for it. Ended, the platform has cleared its request, so a request
+    # standing beside it was asked after it, and says what is happening now.
+    if (argus_account and run is not None
+            and (run.phase is SyncPhase.TERMINATING
+                 or (run.phase is SyncPhase.TERMINATED and requested is None))):
+        if (run.revision, run.initiated_by) == (rolled_back_to, argus_account):
+            return (
+                f"the sync of [{application}] to revision [{rolled_back_to}] that Argus's "
+                f"rollback asked for was {_stopped(run.phase)}, {_STOPPED_BY}"
+            )
 
-        # The platform's own sync, or Argus's own forward rollback not yet
-        # finished: nobody else's change, and nothing to put back beside.
+        if (run.revision, run.initiated_by) == (descriptor.was_on_revision, argus_account):
+            return (
+                f"the sync of [{application}] back to revision "
+                f"[{descriptor.was_on_revision}] that Argus's put-back asked for was "
+                f"{_stopped(run.phase)}, {_STOPPED_BY}"
+            )
+
+    if requested is not None and (requested.revision, requested.initiated_by) == (
+            descriptor.was_on_revision, argus_account):
+        return RollbackStanding.ALREADY_BACK
+
+    if requested is not None:
+        if argus_account and (requested.revision, requested.initiated_by) == (
+                rolled_back_to, argus_account):
+            return RollbackStanding.UNDER_WAY
+
+        # The platform's own sync, or one of Argus's to neither revision this
+        # rollback names: nobody else's change, and nothing to put back beside.
         if requested.initiated_by in (None, argus_account):
-            return _Standing.MID_SYNC
+            return RollbackStanding.MID_SYNC
 
         return (
             f"a sync of [{application}] to revision [{requested.revision}], asked by "
             f"[{requested.initiated_by}], is still being run"
         )
 
-    if run is not None and run.phase is SyncPhase.RUNNING and (
-            run.revision, run.initiated_by) == (descriptor.was_on_revision, argus_account):
-        return _Standing.ALREADY_BACK
+    if run is not None and run.phase is SyncPhase.RUNNING and argus_account:
+        if (run.revision, run.initiated_by) == (descriptor.was_on_revision, argus_account):
+            return RollbackStanding.ALREADY_BACK
+
+        if (run.revision, run.initiated_by) == (rolled_back_to, argus_account):
+            return RollbackStanding.UNDER_WAY
 
     history = platform.deployments_of(application)
 
@@ -667,12 +921,21 @@ def _what_became_of_the_rollback(descriptor: DeploymentRollbackUndo,
 
     newest = history[-1]
 
-    if newest.revision == rolled_back_to and newest.initiated_by == argus_account:
-        return _by_its_images(application, rolled_back_to, _Standing.STILL_ARGUS_S, platform)
+    if bool(argus_account) and rolled_back_to is not None and (
+            newest.revision, newest.initiated_by) == (rolled_back_to, argus_account):
+        return _by_its_images(application, rolled_back_to, RollbackStanding.STILL_ARGUS_S,
+                              platform)
 
     if newest.revision == descriptor.was_on_revision:
         return _by_its_images(application, descriptor.was_on_revision,
-                              _Standing.ALREADY_BACK, platform)
+                              RollbackStanding.ALREADY_BACK, platform)
+
+    if argus_account and newest.initiated_by == argus_account:
+        return _ArgusSAccountElsewhere(
+            said=f"the newest deployment of [{application}] is by "
+                 f"{_ARGUS_S_ACCOUNT_ELSEWHERE}: revision [{newest.revision}], where the "
+                 f"rollback went to [{rolled_back_to}]"
+        )
 
     return (
         f"the newest deployment of [{application}] is of revision "
@@ -681,10 +944,46 @@ def _what_became_of_the_rollback(descriptor: DeploymentRollbackUndo,
     )
 
 
+@dataclass(frozen=True)
+class _ArgusSAccountElsewhere:
+    """A newest entry by Argus's own account, at a revision this rollback did
+    not go to: not this rollback, and not somebody else's change either -
+    `said`, what was found."""
+
+    said: str
+
+
+def _in_words(found: str | _ArgusSAccountElsewhere) -> str:
+    """What was found, said."""
+    return found.said if isinstance(found, _ArgusSAccountElsewhere) else found
+
+
+def _stopped(phase: SyncPhase) -> str:
+    """How far somebody's stop of a run has got, as a sentence says it."""
+    return "being terminated" if phase is SyncPhase.TERMINATING else "terminated"
+
+
+def _argus_s_failed_run(descriptor: DeploymentRollbackUndo,
+                        operations: SyncOperations,
+                        argus_account: str) -> SyncRun | None:
+    """The platform's last run, where it is Argus's sync to the revision the
+    rollback went to and it failed or errored - a rollback that never landed,
+    whatever the history shows instead."""
+    run = operations.last_run
+
+    if run is None or run.phase not in (SyncPhase.FAILED, SyncPhase.ERROR):
+        return None
+
+    if (run.revision, run.initiated_by) != (descriptor.rolled_back_to_revision, argus_account):
+        return None
+
+    return run
+
+
 def _by_its_images(application: str,
                    revision: str,
-                   standing: _Standing,
-                   platform: DeploymentPlatformWrites) -> _Standing | str:
+                   standing: RollbackStanding,
+                   platform: DeploymentPlatformWrites) -> RollbackStanding | str:
     """`standing`, where the Deployment runs the images `revision` renders - or,
     where it runs others, what it runs, said: something other than a deployment
     set them, and left no entry in the history doing it."""

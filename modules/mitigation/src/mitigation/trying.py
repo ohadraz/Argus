@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Any, NamedTuple, Protocol, assert_never
@@ -46,7 +47,9 @@ from core.mcp_transport import (
 from core.models import (
     ActionType,
     AlertRuleStanding,
+    Made,
     MetricBucket,
+    NotMade,
     Planned,
     UndoDescriptor,
     changes_something_persistent,
@@ -81,8 +84,9 @@ from mitigation.tools import (
     nothing_to_wait_for,
 )
 
-__all__ = ["ChangeMade", "PutBackOwed", "UndoChange", "plan_action", "settle_the_refutation",
-           "stopped_before_it_was_taken", "take_action", "watch_what_was_performed"]
+__all__ = ["ChangeMade", "NobodyCanSay", "PutBackOwed", "UndoChange", "plan_action",
+           "settle_the_refutation", "stopped_before_it_was_taken", "take_action",
+           "watch_what_was_performed", "whether_it_was_made"]
 
 # Told that the action's change was made, with what the tier said would put it
 # back - `None` for a change that leaves nothing to restore. Called once, the
@@ -482,6 +486,78 @@ def plan_action(action: Action, *, writes: PerformingWrites) -> Planned[Any] | O
     except Exception as error:
         return _not_performed(error, kind_of(action).intent(action), action.action_type,
                               could_have_written=False)
+
+
+@dataclass(frozen=True)
+class NobodyCanSay:
+    """What a read of a claim's change answers where nothing could establish
+    whether it was made: `because`, the tier's own words for why, and
+    `left_behind`, what the refusal carried of the claim's all the same - a
+    suspension a refusal found standing - or `None` where it carried nothing.
+
+    Not "nothing landed", which would have the walk act a second time on a
+    change the dead worker may have made; and not an `Outcome`, since this walk
+    made no attempt for one to be the outcome of. What it carried is kept on
+    the claim, so whatever puts the incident's changes back reaches it.
+    """
+
+    because: str
+    left_behind: UndoDescriptor | None = None
+
+
+def whether_it_was_made(action: Action,
+                        planned: Planned[Any],
+                        *,
+                        writes: PerformingWrites,
+                        change_made: ChangeMade = _nobody_told,
+                        undoing_kinds: UndoingKindOf = kind_undoing
+                        ) -> Made[Any] | NotMade[Any] | Outcome | NobodyCanSay:
+    """Whether the claim's change on `planned` was made, for a walk resumed
+    after the worker that claimed it died - the first question it asks of a
+    claimed row, before anything else, so a change found made is never
+    recorded as one not taken.
+
+    Made, with when, and not made, with what of the claim's is out there all
+    the same, are the tier's answers, and are answered as they came: the walk
+    records one as made and carries on, and takes the action on the other as a
+    live walk would. Neither is told to `change_made` - a made answer is the
+    walk's to record from the answer itself, and told here too it would be
+    recorded twice.
+
+    Somebody's change since the plan is the write's own refusal, since the read
+    is the write's rule without the write, and is answered as `take_action`
+    answers it - the same outcome, and the change told as made where this
+    claim's own change had landed. Anything else the read raised is nobody can
+    say, in the tier's own words, carrying what the refusal said it left - a
+    suspension of the claim's a refusal found standing - and whether that is
+    the whole of it is not read: a read that could not tell whether the change
+    was made has not said it was not. A lost run raises. Writes nothing.
+    """
+    try:
+        return undoing_kinds(planned.descriptor).whether_it_was_made(action, planned, writes)
+    except ChangedSince as changed:
+        if changed.performed:
+            change_made(changed.undo_descriptor)
+
+        return _changed_since(changed, kind_of(action).intent(action))
+    except Exception as error:
+        # Every way the read can fail to answer means the same thing to the
+        # walk: nobody can say. Narrowing this to the transport's own exception
+        # would let a change in the client's vocabulary turn "could not ask" into
+        # a crash inside a resumed walk.
+        if was_lost(error):
+            raise
+
+        logger.warning("whether a claim's change was made could not be read", exc_info=error,
+                       extra={"action_type": action.action_type})
+
+        return NobodyCanSay(
+            because=(
+                _without_the_platform_marker(error) if isinstance(error, PlatformUnreachable)
+                else _in_its_own_words(error)
+            ),
+            left_behind=error.undo_descriptor if isinstance(error, McpToolError) else None
+        )
 
 
 def stopped_before_it_was_taken() -> Outcome:

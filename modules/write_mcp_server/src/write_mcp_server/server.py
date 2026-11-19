@@ -31,10 +31,13 @@ from core.models import (
     AutoscalingRestored,
     CacheEntriesDiscarded,
     CapacityRestored,
+    ChangeFound,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     FlagUndo,
+    Made,
+    NotMade,
     OpenedPullRequest,
     Planned,
     ReplicaUndo,
@@ -99,8 +102,16 @@ def build_server(endpoint: WriteMcpEndpoint,
     Every tool that changes something is registered as a change, and made only
     for the claim that holds the run it is for - asked of `hold_for_a_change`
     (`fencing`). The reads are not: a stale walk reading the provider's
-    history, asking whose a change in it was, or planning a change, gets
-    nothing wrong.
+    history, asking whose a change in it was, planning a change, or asking what
+    became of one, gets nothing wrong.
+
+    A walk resumed after its worker died asks two reads per kind of change
+    that leaves something to put back: whether a claim's change was made -
+    each kind's write rule on the claim's plan, with the write left out, so it
+    refuses where the write would - and whether a performed change is still as
+    Argus left it. Each takes only what the row recorded; the account goes to
+    the rollback's, and the claim the call's `_meta` names to every one whose
+    compare reads a claim's mark, read off `Context` as a marked change's is.
 
     Every change that leaves something to put back is planned first, by a read
     of its own: the plan works out the change from the estate as it stands and
@@ -134,7 +145,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         "argus-write-mcp",
         hold_for_a_change=hold_for_a_change,
         host=endpoint.write_mcp_host,
-        port=endpoint.write_mcp_port,
+        port=endpoint.write_mcp_port
     )
 
     @mcp.tool()
@@ -512,20 +523,124 @@ def build_server(endpoint: WriteMcpEndpoint,
         return flags.changes_since(parse_iso(since))
 
     @mcp.tool()
-    def was_flag_changed_by_argus_since(flag: str, since: str) -> bool | None:
-        """Answers whether Argus's own change to `flag` was recorded at or after
-        `since`, or nothing where nobody can say.
+    def whether_flag_was_made(planned: Planned[FlagUndo]) -> Made[FlagUndo] | NotMade[FlagUndo]:
+        """Answers whether the flag change a claim planned was made: made, with
+        when the provider recorded it; not made, leaving nothing behind, where
+        nothing landed; refused as
+        `set_feature_flag` refuses it where it would.
 
-        The question a walk asks when it is resumed after its worker died with
-        an action claimed: only the provider's history knows whether the change
-        it was making landed, and the history is served to this tier's
-        credential alone.
+        The first question a walk resumed after its worker died asks of a
+        claim. A read, asked holding no run. The behavior lives in
+        `flag_state.whether_it_was_made`; this is registration only."""
+        return flag_state.whether_it_was_made(planned, flags)
 
-        No answer is an answer of its own, and never "no": the history could not
-        be read, or the provider cannot tell Argus's changes from anybody's. The
-        behavior lives behind the flag provider's port; this is registration
+    @mcp.tool()
+    def flag_still_argus_s(planned: Planned[FlagUndo], descriptor: FlagUndo) -> ChangeFound:
+        """Answers whether a flag change Argus made is still as Argus left it,
+        from the provider's history since the plan it was made from - both as
+        the claim stored them.
+
+        What a walk resumed after its worker died asks before it watches a
+        change an earlier worker made. A read, asked holding no run. The
+        behavior lives in `flag_state.still_argus_s`; this is registration
         only."""
-        return flags.argus_changed_since(flag, parse_iso(since))
+        return flag_state.still_argus_s(planned, descriptor, flags)
+
+    @mcp.tool()
+    def whether_rollback_was_made(planned: Planned[DeploymentRollbackUndo],
+                                  ctx: Context[Any, Any, Any]
+                                  ) -> (Made[DeploymentRollbackUndo]
+                                        | NotMade[DeploymentRollbackUndo]):
+        """Answers whether the rollback a claim planned was made: made, with
+        when the platform says it was; not made where nothing landed, carrying
+        the plan where the claim's suspension of the sync stands; refused as
+        `roll_back_deployment` refuses it where it would - its compare reads
+        the sync switch under the claim the call names.
+
+        A read, asked holding no run. The behavior lives in
+        `rolling_back.whether_it_was_made`; this is registration only."""
+        return rolling_back.whether_it_was_made(planned, platform, _the_action_of(ctx),
+                                                argus_account)
+
+    @mcp.tool()
+    def rollback_still_argus_s(descriptor: DeploymentRollbackUndo) -> ChangeFound:
+        """Answers whether a rollback Argus made is still as Argus left it - the
+        restore's own check, asked on its own, against the account Argus signs
+        in as.
+
+        A read, asked holding no run. The behavior lives in
+        `rolling_back.still_argus_s`; this is registration only."""
+        return rolling_back.still_argus_s(descriptor, platform, argus_account)
+
+    @mcp.tool()
+    def whether_scale_out_was_made(planned: Planned[ReplicaUndo],
+                                   ctx: Context[Any, Any, Any]
+                                   ) -> Made[ReplicaUndo] | NotMade[ReplicaUndo]:
+        """Answers whether the scale-out a claim planned was made under the
+        claim the call names: made, with when its mark says; not made where
+        nothing landed, carrying the plan where the claim's suspension of the
+        sync stands; refused as `scale_out` refuses it where it would.
+
+        A read, asked holding no run. The behavior lives in
+        `scaling.whether_it_was_made`; this is registration only."""
+        return scaling.whether_it_was_made(planned, platform, _the_action_of(ctx))
+
+    @mcp.tool()
+    def scale_out_still_argus_s(descriptor: ReplicaUndo,
+                                ctx: Context[Any, Any, Any]) -> ChangeFound:
+        """Answers whether a scale-out Argus made is still as Argus left it,
+        under the claim the call names.
+
+        A read, asked holding no run. The behavior lives in
+        `scaling.still_argus_s`; this is registration only."""
+        return scaling.still_argus_s(descriptor, platform, _the_action_of(ctx))
+
+    @mcp.tool()
+    def whether_autoscaler_pin_was_made(planned: Planned[AutoscalerUndo],
+                                        ctx: Context[Any, Any, Any]
+                                        ) -> Made[AutoscalerUndo] | NotMade[AutoscalerUndo]:
+        """Answers whether the autoscaler pin a claim planned was made under the
+        claim the call names: made, with when its mark says; not made where
+        nothing landed, carrying the plan where the claim's suspension of the
+        sync stands; refused as `pin_autoscaler` refuses it where it would.
+
+        A read, asked holding no run. The behavior lives in
+        `pinning.whether_it_was_made`; this is registration only."""
+        return pinning.whether_it_was_made(planned, platform, _the_action_of(ctx))
+
+    @mcp.tool()
+    def autoscaler_pin_still_argus_s(descriptor: AutoscalerUndo,
+                                     ctx: Context[Any, Any, Any]) -> ChangeFound:
+        """Answers whether an autoscaler pin Argus made is still as Argus left
+        it, under the claim the call names.
+
+        A read, asked holding no run. The behavior lives in
+        `pinning.still_argus_s`; this is registration only."""
+        return pinning.still_argus_s(descriptor, platform, _the_action_of(ctx))
+
+    @mcp.tool()
+    def whether_accelerator_pin_was_made(planned: Planned[AcceleratorPinUndo],
+                                         ctx: Context[Any, Any, Any]
+                                         ) -> (Made[AcceleratorPinUndo]
+                                               | NotMade[AcceleratorPinUndo]):
+        """Answers whether the pin to a card a claim planned was made under the
+        claim the call names: made, with when its mark says; not made where
+        nothing landed, carrying the plan where the claim's suspension of the
+        sync stands; refused as `pin_to_accelerator` refuses it where it would.
+
+        A read, asked holding no run. The behavior lives in
+        `accelerators.whether_it_was_made`; this is registration only."""
+        return accelerators.whether_it_was_made(planned, platform, _the_action_of(ctx))
+
+    @mcp.tool()
+    def accelerator_pin_still_argus_s(descriptor: AcceleratorPinUndo,
+                                      ctx: Context[Any, Any, Any]) -> ChangeFound:
+        """Answers whether a pin to a card Argus made is still as Argus left
+        it, under the claim the call names.
+
+        A read, asked holding no run. The behavior lives in
+        `accelerators.still_argus_s`; this is registration only."""
+        return accelerators.still_argus_s(descriptor, platform, _the_action_of(ctx))
 
     @mcp.tool()
     def was_flag_changed_by_others_since(flag: str, since: str) -> bool | None:
@@ -598,9 +713,21 @@ def build_server(endpoint: WriteMcpEndpoint,
 def _the_mark_of(ctx: Context[Any, Any, Any]) -> Mark:
     """The mark the call asking for a tool names, as `marking` reads it off the
     call's `_meta`."""
+    return marking.the_mark_in(_the_meta_of(ctx))
+
+
+def _the_action_of(ctx: Context[Any, Any, Any]) -> str | None:
+    """The claim the call asking for a read names, as `marking` reads it off the
+    call's `_meta` - `None` where it names none, which the read answers as a
+    question nobody can answer rather than refusing to be asked."""
+    return marking.the_action_in(_the_meta_of(ctx))
+
+
+def _the_meta_of(ctx: Context[Any, Any, Any]) -> dict[str, Any] | None:
+    """The call's `_meta`, as a mapping, or `None` where it carried none."""
     meta = ctx.request_context.meta
 
-    return marking.the_mark_in(meta.model_dump() if meta is not None else None)
+    return meta.model_dump() if meta is not None else None
 
 
 def main(holds: OpensHolds = holds_in_the_database) -> None:

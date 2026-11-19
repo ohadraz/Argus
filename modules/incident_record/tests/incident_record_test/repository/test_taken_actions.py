@@ -1904,6 +1904,88 @@ def test_only_a_change_made_and_not_yet_completed_comes_to_owe_its_put_back(
             )
 
 
+# A resumed walk's own plan, read a minute after the one a claim may carry.
+THIS_WALK_S_PLAN = Planned(descriptor=SOME_ROLLBACK_PLAN,
+                           since=SOME_MOMENT_ITS_STATE_WAS_READ + timedelta(minutes=1))
+
+
+def _a_claim_with_no_plan(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    """A rollback claimed with no plan - its plan was refused - and nothing
+    said since."""
+    taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
+                        action_type="roll-back-deployment", subject="io-shop",
+                        at=DONT_CARE_INSTANT, planned=None)
+
+
+def _a_claim_with_no_plan_nobody_answered(conn: psycopg.Connection,
+                                          incident_id: str,
+                                          hypothesis_id: str) -> None:
+    _a_claim_with_no_plan(conn, incident_id, hypothesis_id)
+    taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
+                          to=ActionProgress.UNKNOWN, undo_descriptor=None)
+
+
+@pytest.mark.integration
+def test_a_claim_written_with_no_plan_is_given_the_plan_a_resumed_walk_takes_it_on() -> None:
+    # Written before the write, so the plan the write compares with lives on
+    # the claim, as a walk that planned first writes it with the claim.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_claim_with_no_plan(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.plan_the_claim(conn, incident_id,
+                                                     hypothesis_id=hypothesis_id,
+                                                     planned=THIS_WALK_S_PLAN)
+            ) \
+            .then(all_of(
+                _the_claim_read_back_planned(conn, incident_id, hypothesis_id, THIS_WALK_S_PLAN),
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.CLAIMED])
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("got_as_far_as", "planned", "stays"), [
+    pytest.param(_a_claim, SOME_PLANNED_ROLLBACK, ActionProgress.CLAIMED,
+                 id="a-claim-carrying-a-plan"),
+    pytest.param(_a_claim_with_no_plan_nobody_answered, None, ActionProgress.UNKNOWN,
+                 id="a-claim-moved-on-with-no-plan")
+])
+def test_only_a_claim_still_carrying_no_plan_is_given_one(
+        got_as_far_as: Callable[[psycopg.Connection, str, str], None],
+        planned: Planned[Any] | None,
+        stays: ActionProgress) -> None:
+    # A plan already on a claim is the one its write compares with, and a row
+    # past its claim says more than a plan: neither is written over.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: got_as_far_as(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.plan_the_claim(conn, incident_id,
+                                                     hypothesis_id=hypothesis_id,
+                                                     planned=THIS_WALK_S_PLAN)
+            ) \
+            .then(all_of(
+                _the_claim_read_back_planned(conn, incident_id, hypothesis_id, planned),
+                _the_progress_read_back_is(conn, incident_id, [stays])
+            ))
+
+
 @pytest.mark.integration
 def test_an_action_owing_its_put_back_is_not_moved_back_by_an_advance() -> None:
     # Only a claim advances. A resumed walk's answer about a claim is never an

@@ -26,8 +26,10 @@ from mitigation.tools import (
     AcceleratorPinner,
     AcceleratorPinPlanner,
     AcceleratorPinRestorer,
+    AcceleratorPinStillArgusS,
     AutoscalerPinner,
     AutoscalerPinPlanner,
+    AutoscalerPinStillArgusS,
     AutoscalingRestorer,
     CacheEntryDiscarder,
     CapacityRestorer,
@@ -37,13 +39,21 @@ from mitigation.tools import (
     DeploymentScaler,
     FlagPlanner,
     FlagSetter,
+    FlagStillArgusS,
     MetricsFetcher,
     PerformingWrites,
     PlannedFlagSetter,
     PuttingBack,
     RollbackPlanner,
+    RollbackStillArgusS,
     ScaleOutPlanner,
+    ScaleOutStillArgusS,
     ServiceRestarter,
+    WhetherAFlagWasMade,
+    WhetherAnAcceleratorPinWasMade,
+    WhetherAnAutoscalerPinWasMade,
+    WhetherARollbackWasMade,
+    WhetherAScaleOutWasMade,
 )
 from mitigation.trying import UndoChange
 
@@ -532,7 +542,17 @@ def the_writes(set_state: PlannedFlagSetter | None = None,
                plan_rollback: RollbackPlanner | None = None,
                plan_scale_out: ScaleOutPlanner | None = None,
                plan_autoscaler_pin: AutoscalerPinPlanner | None = None,
-               plan_accelerator_pin: AcceleratorPinPlanner | None = None
+               plan_accelerator_pin: AcceleratorPinPlanner | None = None,
+               flag_still_argus_s: FlagStillArgusS | None = None,
+               rollback_still_argus_s: RollbackStillArgusS | None = None,
+               scale_out_still_argus_s: ScaleOutStillArgusS | None = None,
+               autoscaler_pin_still_argus_s: AutoscalerPinStillArgusS | None = None,
+               accelerator_pin_still_argus_s: AcceleratorPinStillArgusS | None = None,
+               whether_flag_was_made: WhetherAFlagWasMade | None = None,
+               whether_rollback_was_made: WhetherARollbackWasMade | None = None,
+               whether_scale_out_was_made: WhetherAScaleOutWasMade | None = None,
+               whether_autoscaler_pin_was_made: WhetherAnAutoscalerPinWasMade | None = None,
+               whether_accelerator_pin_was_made: WhetherAnAcceleratorPinWasMade | None = None
                ) -> PerformingWrites:
     """The writes that perform a mitigation, and the plans each undoable one is
     written from, with stand-ins for the unnamed ones.
@@ -546,7 +566,10 @@ def the_writes(set_state: PlannedFlagSetter | None = None,
 
     The planners are here rather than in a bundle of their own because a plan is
     asked of the tier that writes from it: it is what that write compares the
-    estate with, read through the same port the compare reads through.
+    estate with, read through the same port the compare reads through. The
+    reads of whether a claim's change was made, and of whether a change made is
+    still Argus's, are here for the same reason: each is its write's own "made"
+    rule, asked without the write.
     """
     return PerformingWrites(
         set_state=set_state if set_state is not None else create_autospec(
@@ -581,7 +604,33 @@ def the_writes(set_state: PlannedFlagSetter | None = None,
         plan_autoscaler_pin=plan_autoscaler_pin if plan_autoscaler_pin is not None
         else create_autospec(AutoscalerPinPlanner, instance=True),
         plan_accelerator_pin=plan_accelerator_pin if plan_accelerator_pin is not None
-        else create_autospec(AcceleratorPinPlanner, instance=True)
+        else create_autospec(AcceleratorPinPlanner, instance=True),
+        flag_still_argus_s=flag_still_argus_s if flag_still_argus_s is not None
+        else create_autospec(FlagStillArgusS, instance=True),
+        rollback_still_argus_s=rollback_still_argus_s if rollback_still_argus_s is not None
+        else create_autospec(RollbackStillArgusS, instance=True),
+        scale_out_still_argus_s=scale_out_still_argus_s if scale_out_still_argus_s is not None
+        else create_autospec(ScaleOutStillArgusS, instance=True),
+        autoscaler_pin_still_argus_s=autoscaler_pin_still_argus_s
+        if autoscaler_pin_still_argus_s is not None
+        else create_autospec(AutoscalerPinStillArgusS, instance=True),
+        accelerator_pin_still_argus_s=accelerator_pin_still_argus_s
+        if accelerator_pin_still_argus_s is not None
+        else create_autospec(AcceleratorPinStillArgusS, instance=True),
+        whether_flag_was_made=whether_flag_was_made if whether_flag_was_made is not None
+        else create_autospec(WhetherAFlagWasMade, instance=True),
+        whether_rollback_was_made=whether_rollback_was_made
+        if whether_rollback_was_made is not None
+        else create_autospec(WhetherARollbackWasMade, instance=True),
+        whether_scale_out_was_made=whether_scale_out_was_made
+        if whether_scale_out_was_made is not None
+        else create_autospec(WhetherAScaleOutWasMade, instance=True),
+        whether_autoscaler_pin_was_made=whether_autoscaler_pin_was_made
+        if whether_autoscaler_pin_was_made is not None
+        else create_autospec(WhetherAnAutoscalerPinWasMade, instance=True),
+        whether_accelerator_pin_was_made=whether_accelerator_pin_was_made
+        if whether_accelerator_pin_was_made is not None
+        else create_autospec(WhetherAnAcceleratorPinWasMade, instance=True)
     )
 
 

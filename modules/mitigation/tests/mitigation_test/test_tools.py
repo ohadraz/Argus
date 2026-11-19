@@ -1,8 +1,9 @@
-"""Asking the flag provider whether a half-finished action actually landed.
+"""What Mitigation asks of the tiers, and over which of the two it asks it.
 
-A worker that died between taking an action and recording what came of it
-leaves a claim with no outcome. Only the provider knows whether the change was
-made, and this is the one place Argus asks it that question about itself.
+The flag provider's history, whose a flag change was, the deploy history, the
+service's metrics and rules, the writes and the reads beside them: each is bound
+over one connection, and which connection is the whole of what a binding can get
+wrong without a type error.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import NamedTuple, Protocol
+from typing import Any, NamedTuple
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
@@ -19,12 +20,14 @@ from core import to_iso
 from core.mcp_transport import ActionExhausted, McpClient, an_exhausted_action
 from core.models import (
     AcceleratorPinUndo,
+    AutoscalerUndo,
     ChangeEvent,
     DeploymentRollbackUndo,
     FlagChange,
     FlagHistory,
     FlagUndo,
     Planned,
+    ReplicaUndo,
 )
 from mitigation.tools import (
     DeploymentsBetween,
@@ -32,7 +35,6 @@ from mitigation.tools import (
     MitigationSettings,
     PerformingWrites,
     accelerator_pin_restorer_over,
-    argus_changed_flag_since,
     deployment_restorer_over,
     deployment_roller_over,
     deployments_over,
@@ -47,6 +49,7 @@ from mitigation.tools import (
     rules_read_over,
     somebody_else_changed_flag_since,
 )
+from pydantic import BaseModel
 
 from mitigation_test.framework.builders import (
     a_deployment,
@@ -65,7 +68,6 @@ ROLLOUT_PROGRESS_TOOL = "get_rollout_progress"
 METRICS_TOOL = "get_metrics_summary"
 ALERT_RULE_TOOL = "get_alert_rule"
 FLAG_CHANGES_TOOL = "get_recent_flag_changes"
-ARGUS_CHANGED_FLAG_TOOL = "was_flag_changed_by_argus_since"
 OTHERS_CHANGED_FLAG_TOOL = "was_flag_changed_by_others_since"
 SET_FLAG_TOOL = "set_feature_flag"
 ROLL_BACK_TOOL = "roll_back_deployment"
@@ -77,6 +79,16 @@ PLAN_ROLLBACK_TOOL = "plan_rollback"
 PLAN_SCALE_OUT_TOOL = "plan_scale_out"
 PLAN_AUTOSCALER_PIN_TOOL = "plan_autoscaler_pin"
 PLAN_ACCELERATOR_PIN_TOOL = "plan_accelerator_pin"
+FLAG_STILL_ARGUS_S_TOOL = "flag_still_argus_s"
+ROLLBACK_STILL_ARGUS_S_TOOL = "rollback_still_argus_s"
+SCALE_OUT_STILL_ARGUS_S_TOOL = "scale_out_still_argus_s"
+AUTOSCALER_PIN_STILL_ARGUS_S_TOOL = "autoscaler_pin_still_argus_s"
+ACCELERATOR_PIN_STILL_ARGUS_S_TOOL = "accelerator_pin_still_argus_s"
+WHETHER_FLAG_WAS_MADE_TOOL = "whether_flag_was_made"
+WHETHER_ROLLBACK_WAS_MADE_TOOL = "whether_rollback_was_made"
+WHETHER_SCALE_OUT_WAS_MADE_TOOL = "whether_scale_out_was_made"
+WHETHER_AUTOSCALER_PIN_WAS_MADE_TOOL = "whether_autoscaler_pin_was_made"
+WHETHER_ACCELERATOR_PIN_WAS_MADE_TOOL = "whether_accelerator_pin_was_made"
 
 CHANGE_EVENTS_TOOL = "get_change_events"
 
@@ -105,46 +117,32 @@ THE_STATE_IT_IS_ALREADY_BACK_IN = False
 A_FLAG_PLAN = Planned(descriptor=A_FLAG_CHANGE, since=SOME_MOMENT_THE_PLAN_WAS_READ)
 
 
-class _AboutAFlag(Protocol):
-    """Either question asked about one flag's history over the write tier."""
-
-    def __call__(self, flag: str, since: datetime, *, client: McpClient) -> bool | None: ...
-
-
 @pytest.mark.integration
-@pytest.mark.parametrize(("ask", "tool"), [
-    (argus_changed_flag_since, ARGUS_CHANGED_FLAG_TOOL),
-    (somebody_else_changed_flag_since, OTHERS_CHANGED_FLAG_TOOL)
-], ids=["whether argus changed it", "whether anybody else did"])
-def test_whose_change_a_flag_was_is_asked_over_the_write_tier(
-    ask: _AboutAFlag, tool: str
-) -> None:
-    # The provider serves its event log to admin credentials alone, so the two
-    # questions about it are the write tier's. Bound to the read tier they would
-    # not error; they would be refused as tools that do not exist, at the moment
-    # a resumed walk or an undo needed the answer.
+def test_whether_anybody_else_changed_a_flag_is_asked_over_the_write_tier() -> None:
+    # The provider serves its event log to admin credentials alone, so the
+    # question about it is the write tier's. Bound to the read tier it would not
+    # error; it would be refused as a tool that does not exist, at the moment an
+    # undo needed the answer.
     Scenario() \
         .given(
             read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_answers_with(None)
         ) \
         .when(
-            _asking(read, write, lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=write))
+            _asking(read, write, lambda: somebody_else_changed_flag_since(
+                SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=write
+            ))
         ) \
         .then(all_of(
             _the_read_tier_was_asked_for(),
-            _the_write_tier_was_asked_for(tool)
+            _the_write_tier_was_asked_for(OTHERS_CHANGED_FLAG_TOOL)
         ))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("ask", [argus_changed_flag_since, somebody_else_changed_flag_since],
-                         ids=["whether argus changed it", "whether anybody else did"])
 @pytest.mark.parametrize("answer", [True, False, None],
                          ids=["yes", "no", "nobody can say"])
-def test_what_the_write_tier_answers_about_a_flag_is_the_answer(
-    ask: _AboutAFlag, answer: bool | None
-) -> None:
+def test_what_the_write_tier_answers_about_a_flag_is_the_answer(answer: bool | None) -> None:
     # The provider's adapter decides each, from who the provider says made each
     # change; this side carries the answer and adds nothing - least of all a
     # `False` where the tier said nobody can say.
@@ -153,7 +151,8 @@ def test_what_the_write_tier_answers_about_a_flag_is_the_answer(
             write := _a_session_that_answers_with(answer)
         ) \
         .when(
-            lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=write)
+            lambda: somebody_else_changed_flag_since(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED,
+                                                     client=write)
         ) \
         .then(
             _it_answers(answer)
@@ -161,18 +160,16 @@ def test_what_the_write_tier_answers_about_a_flag_is_the_answer(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("ask", [argus_changed_flag_since, somebody_else_changed_flag_since],
-                         ids=["whether argus changed it", "whether anybody else did"])
-def test_a_write_tier_that_cannot_be_reached_answers_nothing(ask: _AboutAFlag) -> None:
-    # The case that must not read as "no change was made": a resumed walk would
-    # then act a second time on an action that may already have been taken, and
-    # an undo would overwrite whatever somebody did since.
+def test_a_write_tier_that_cannot_be_reached_answers_nothing() -> None:
+    # The case that must not read as "nobody changed it": an undo would then
+    # overwrite whatever somebody did since.
     Scenario() \
         .given(
             the_write_tier_is_down := _a_session_that_fails()
         ) \
         .when(
-            lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=the_write_tier_is_down)
+            lambda: somebody_else_changed_flag_since(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED,
+                                                     client=the_write_tier_is_down)
         ) \
         .then(
             _it_answers(None)
@@ -1082,10 +1079,8 @@ def _it_returned_the_deployments(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("ask", [argus_changed_flag_since, somebody_else_changed_flag_since],
-                         ids=["whether argus changed it", "whether anybody else did"])
 def test_a_write_tier_that_cannot_say_whose_change_a_flag_was_is_logged(
-    ask: _AboutAFlag, caplog: pytest.LogCaptureFixture
+    caplog: pytest.LogCaptureFixture
 ) -> None:
     # Answered as nobody-can-say, which is right, and which loses the reason -
     # so the reason is logged here, where the exception still is.
@@ -1094,10 +1089,142 @@ def test_a_write_tier_that_cannot_say_whose_change_a_flag_was_is_logged(
             the_write_tier_is_down := _a_session_that_fails()
         ) \
         .when(
-            lambda: ask(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=the_write_tier_is_down)
+            lambda: somebody_else_changed_flag_since(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED,
+                                                     client=the_write_tier_is_down)
         ) \
         .then(
             one_record_was_logged(caplog, "mitigation.tools", logging.WARNING,
                                   "flag history could not be read",
                                   values={"flag": SOME_FLAG}, failure=ConnectionError)
         )
+
+
+SOME_REVISION_ROLLED_BACK_TO = "9a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+SOME_ENTRY_ROLLED_BACK_TO = 1
+SOME_COUNT_IT_WAS_RUNNING = 3
+SOME_COUNT_ASKED_FOR = SOME_COUNT_IT_WAS_RUNNING * 2
+SOME_FLOOR_IT_HAD = 2
+SOME_FLOOR_ASKED_FOR = 8
+
+# One change of each undoable kind, as a row records it once it was made.
+A_FLAG_ARGUS_SET = FlagUndo(flag=SOME_FLAG, was_enabled=False,
+                            written_at=SOME_MOMENT_THE_PLAN_WAS_READ)
+A_ROLLBACK_ARGUS_MADE = A_ROLLBACK_TO_PUT_BACK.model_copy(update={
+    "rolled_back_to_revision": SOME_REVISION_ROLLED_BACK_TO,
+    "rolled_back_to_history_id": SOME_ENTRY_ROLLED_BACK_TO
+})
+A_SCALE_OUT_ARGUS_MADE = ReplicaUndo(application=SOME_APPLICATION,
+                                     was_replicas=SOME_COUNT_IT_WAS_RUNNING,
+                                     replicas_asked_for=SOME_COUNT_ASKED_FOR,
+                                     was_syncing_itself=True)
+A_PIN_ARGUS_MADE = AutoscalerUndo(application=SOME_APPLICATION,
+                                  was_min_replicas=SOME_FLOOR_IT_HAD,
+                                  min_replicas_asked_for=SOME_FLOOR_ASKED_FOR,
+                                  was_syncing_itself=True)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("ask", "handed", "tool"), [
+    pytest.param(lambda writes: writes.flag_still_argus_s(A_FLAG_PLAN, A_FLAG_ARGUS_SET),
+                 {"planned": A_FLAG_PLAN, "descriptor": A_FLAG_ARGUS_SET},
+                 FLAG_STILL_ARGUS_S_TOOL, id="flag"),
+    pytest.param(lambda writes: writes.rollback_still_argus_s(A_ROLLBACK_ARGUS_MADE),
+                 {"descriptor": A_ROLLBACK_ARGUS_MADE}, ROLLBACK_STILL_ARGUS_S_TOOL,
+                 id="rollback"),
+    pytest.param(lambda writes: writes.scale_out_still_argus_s(A_SCALE_OUT_ARGUS_MADE),
+                 {"descriptor": A_SCALE_OUT_ARGUS_MADE}, SCALE_OUT_STILL_ARGUS_S_TOOL,
+                 id="scale-out"),
+    pytest.param(lambda writes: writes.autoscaler_pin_still_argus_s(A_PIN_ARGUS_MADE),
+                 {"descriptor": A_PIN_ARGUS_MADE}, AUTOSCALER_PIN_STILL_ARGUS_S_TOOL,
+                 id="autoscaler-pin"),
+    pytest.param(lambda writes: writes.accelerator_pin_still_argus_s(A_PIN_TO_PUT_BACK),
+                 {"descriptor": A_PIN_TO_PUT_BACK}, ACCELERATOR_PIN_STILL_ARGUS_S_TOOL,
+                 id="card-pin")
+])
+def test_whether_each_change_is_still_argus_s_is_asked_of_the_write_tier(
+    ask: Callable[[PerformingWrites], object], handed: dict[str, BaseModel], tool: str
+) -> None:
+    # A read, and the write tier's, beside the plans: it is the write's own
+    # "made" rule asked without the write, read through the port the write
+    # compares through - and a flag's history needs the admin credential only
+    # that tier holds. Asked of the bundle a walk performs through, so a check
+    # bound to the read client, or left out of the bundle, fails here rather
+    # than at the moment a resumed walk is deciding whether to watch a change
+    # it did not make. A flag's is handed the claim's plan beside the change,
+    # since its history is read from the plan's own read, as the write reads it.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: ask(performing_writes_over(write)))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(tool),
+            _the_write_tier_was_handed(write, handed)
+        ))
+
+
+def _the_write_tier_was_handed(write: Mock, handed: dict[str, BaseModel]) -> Assertion[_Asked]:
+    """The one question the write tier was asked named each of `handed` under
+    its keyword - the change as the row records it, or the plan the claim
+    carries, or both - in the JSON form a tool's arguments travel in."""
+    def assertion(dont_care_asked: _Asked) -> bool:
+        expected = {keyword: value.model_dump(mode="json") for keyword, value in handed.items()}
+        asked = [{keyword: question.kwargs.get(keyword) for keyword in handed}
+                 for question in write.call.call_args_list]
+
+        if asked != [expected]:
+            raise AssertionError(
+                f"Expected the write tier to be handed {expected} once, got {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+# The plans a claim carries for the two kinds the plans above leave out.
+A_SCALE_OUT_PLAN = Planned(descriptor=A_SCALE_OUT_ARGUS_MADE, since=SOME_MOMENT_THE_PLAN_WAS_READ)
+AN_AUTOSCALER_PIN_PLAN = Planned(descriptor=A_PIN_ARGUS_MADE,
+                                 since=SOME_MOMENT_THE_PLAN_WAS_READ)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("ask", "planned", "tool"), [
+    pytest.param(lambda writes: writes.whether_flag_was_made(A_FLAG_PLAN), A_FLAG_PLAN,
+                 WHETHER_FLAG_WAS_MADE_TOOL, id="flag"),
+    pytest.param(lambda writes: writes.whether_rollback_was_made(A_ROLLBACK_PLAN),
+                 A_ROLLBACK_PLAN, WHETHER_ROLLBACK_WAS_MADE_TOOL, id="rollback"),
+    pytest.param(lambda writes: writes.whether_scale_out_was_made(A_SCALE_OUT_PLAN),
+                 A_SCALE_OUT_PLAN, WHETHER_SCALE_OUT_WAS_MADE_TOOL, id="scale-out"),
+    pytest.param(lambda writes: writes.whether_autoscaler_pin_was_made(AN_AUTOSCALER_PIN_PLAN),
+                 AN_AUTOSCALER_PIN_PLAN, WHETHER_AUTOSCALER_PIN_WAS_MADE_TOOL,
+                 id="autoscaler-pin"),
+    pytest.param(lambda writes: writes.whether_accelerator_pin_was_made(A_PIN_PLAN),
+                 A_PIN_PLAN, WHETHER_ACCELERATOR_PIN_WAS_MADE_TOOL, id="card-pin")
+])
+def test_whether_each_claim_s_change_was_made_is_asked_of_the_write_tier(
+    ask: Callable[[PerformingWrites], object], planned: Planned[Any], tool: str
+) -> None:
+    # The write's own rule on the claim's plan, asked without the write: a read,
+    # and the write tier's for the plans' reason - what it compares is what the
+    # write compares, through the same port. Asked of the bundle a walk performs
+    # through, with the plan the claim carries, so a read bound to the read
+    # client, left out of the bundle, or handed anything but the plan fails here
+    # rather than at the moment a resumed walk is deciding whether to act again.
+    Scenario() \
+        .given(
+            read := _a_session_that_remembers_what_it_was_asked(),
+            write := _a_session_that_remembers_what_it_was_asked()
+        ) \
+        .when(
+            _asking(read, write, lambda: ask(performing_writes_over(write)))
+        ) \
+        .then(all_of(
+            _the_read_tier_was_asked_for(),
+            _the_write_tier_was_asked_for(tool),
+            _the_write_tier_was_handed(write, {"planned": planned})
+        ))

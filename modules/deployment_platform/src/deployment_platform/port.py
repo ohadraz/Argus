@@ -77,13 +77,22 @@ class AutoscalerBounds:
 
 
 class SyncPhase(Enum):
-    """Where a sync the platform ran stands."""
+    """Where a sync the platform ran stands.
+
+    `TERMINATING` while it is being stopped, and `TERMINATED` once it has ended
+    stopped - told apart from `FAILED` and `ERROR`, a run that failed of
+    itself, because a stopped run was stopped by somebody, or by the platform
+    itself where it stops runs on its own (a sync timeout), and the two may end
+    in the same words. Who stopped it is not said here. How a platform says a
+    run ended stopped is its adapter's to read.
+    """
 
     RUNNING = auto()
     SUCCEEDED = auto()
     FAILED = auto()
     ERROR = auto()
     TERMINATING = auto()
+    TERMINATED = auto()
 
 
 @dataclass(frozen=True)
@@ -137,6 +146,21 @@ class Mark:
     written_at: datetime
 
 
+@dataclass(frozen=True)
+class MarkFound:
+    """A `Mark` as it is read back off an object: the action it names, and the
+    moment it says it was written - `None` where it says none, or says one that
+    does not read as a time.
+
+    Its own type rather than a `Mark`, because a mark written always knows when
+    and one read back may not: whose the change is does not wait on when, and a
+    moment nobody can read is said to be unknown rather than made up.
+    """
+
+    action_id: str
+    written_at: datetime | None
+
+
 class DeploymentPlatformReads(Protocol):
     """What reading the platform can ask, and nothing that changes it.
 
@@ -179,10 +203,10 @@ class DeploymentPlatformWrites(DeploymentPlatformReads, Protocol):
         """
         ...
 
-    def mark_on(self, application: str, kind: MarkedObject, /) -> str | None:
-        """The action whose mark the application's object `kind` names carries,
-        by its row id - or `None` where it carries none, or where the
-        application has no such object."""
+    def mark_on(self, application: str, kind: MarkedObject, /) -> MarkFound | None:
+        """The mark the application's object `kind` carries - the action it
+        names, by its row id, and when it says it was written - or `None` where
+        it carries none, or where the application has no such object."""
         ...
 
     def sync_operations_of(self, application: str, /) -> SyncOperations:

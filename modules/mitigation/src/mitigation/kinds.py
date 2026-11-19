@@ -27,9 +27,12 @@ from core import was_lost
 from core.models import (
     AcceleratorPinUndo,
     AutoscalerUndo,
+    ChangeFound,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     FlagUndo,
+    Made,
+    NotMade,
     PinAutoscaler,
     PinToAccelerator,
     Planned,
@@ -68,6 +71,8 @@ __all__ = [
     "kind_of",
     "kind_planning",
     "kind_undoing",
+    "performed_as_recorded",
+    "still_argus_s",
     "undo_change"
 ]
 
@@ -175,6 +180,34 @@ class UndoableKind[U](Protocol):
         """
         ...
 
+    def whether_it_was_made(self, action: Any, planned: Planned[U], writes: PerformingWrites, /
+                            ) -> Made[U] | NotMade[U]:
+        """Asks the write tier whether the claim's change on `planned` was made -
+        the write's own rule on the plan, with the write left out - for a walk
+        resumed after the worker that claimed it died.
+
+        What the tier answers is the answer: made, with when, or not made, with
+        what of the claim's is out there all the same. Its refusals - somebody's
+        change since, an estate nobody can read - are raised as it raised them,
+        for whoever asked to read by their type. Writes nothing.
+        """
+        ...
+
+    def still_argus_s(self,
+                      planned: Planned[U] | None,
+                      descriptor: U,
+                      writes: PerformingWrites, /) -> ChangeFound:
+        """Asks the write tier whether the change `descriptor` records, made from
+        `planned`, is still as Argus left it - the write's own "made" rule, read
+        and not acted on, for a walk resumed after the worker that made it died.
+
+        Both the plan and the change, because a flag's history is read from the
+        plan's own read; every other kind asks of the change alone, and so asks
+        whether or not the claim kept a plan. What the tier answers is the
+        answer, and nothing is written.
+        """
+        ...
+
     def undo(self, descriptor: U, putting_back: PuttingBack, /) -> UndoAttempt:
         """Puts one change of this kind back, where it is still Argus's to put
         back, and says what became of it."""
@@ -220,6 +253,27 @@ class RevertFeatureFlagKind:
 
     def said(self, action: RevertFeatureFlag, descriptor: FlagUndo, /) -> str:
         return f"set flag [{action.flag}] {state_name(action.enabled)}"
+
+    def whether_it_was_made(self,
+                            action: RevertFeatureFlag,
+                            planned: Planned[FlagUndo],
+                            writes: PerformingWrites, /) -> Made[FlagUndo] | NotMade[FlagUndo]:
+        return writes.whether_flag_was_made(planned)
+
+    def still_argus_s(self,
+                      planned: Planned[FlagUndo] | None,
+                      descriptor: FlagUndo,
+                      writes: PerformingWrites, /) -> ChangeFound:
+        # A flag's history is read from the plan's own read, so a claim that
+        # kept no plan leaves nothing to read it from.
+        if planned is None:
+            return ChangeFound(
+                still_argus_s=None,
+                found=f"the claim on flag [{descriptor.flag}] keeps no plan to read its "
+                      f"history from"
+            )
+
+        return writes.flag_still_argus_s(planned, descriptor)
 
     def intent(self, action: RevertFeatureFlag, /) -> str:
         return f"set flag [{action.flag}] {state_name(action.enabled)}"
@@ -353,6 +407,19 @@ class RollBackDeploymentKind:
         # "the one before", by construction.
         return (f"rolled [{action.application}] back off revision "
                 f"[{descriptor.was_on_revision}]")
+
+    def whether_it_was_made(self,
+                            action: RollBackDeployment,
+                            planned: Planned[DeploymentRollbackUndo],
+                            writes: PerformingWrites, /
+                            ) -> Made[DeploymentRollbackUndo] | NotMade[DeploymentRollbackUndo]:
+        return writes.whether_rollback_was_made(planned)
+
+    def still_argus_s(self,
+                      planned: Planned[DeploymentRollbackUndo] | None,
+                      descriptor: DeploymentRollbackUndo,
+                      writes: PerformingWrites, /) -> ChangeFound:
+        return writes.rollback_still_argus_s(descriptor)
 
     def intent(self, action: RollBackDeployment, /) -> str:
         return f"roll [{action.application}] back to its previous revision"
@@ -501,6 +568,19 @@ class ScaleOutKind:
         # longer running when Argus changed it.
         return (f"scaled [{action.application}] out from "
                 f"[{descriptor.was_replicas}] {_replicas(descriptor.was_replicas)}")
+
+    def whether_it_was_made(self,
+                            action: ScaleOut,
+                            planned: Planned[ReplicaUndo],
+                            writes: PerformingWrites, /
+                            ) -> Made[ReplicaUndo] | NotMade[ReplicaUndo]:
+        return writes.whether_scale_out_was_made(planned)
+
+    def still_argus_s(self,
+                      planned: Planned[ReplicaUndo] | None,
+                      descriptor: ReplicaUndo,
+                      writes: PerformingWrites, /) -> ChangeFound:
+        return writes.scale_out_still_argus_s(descriptor)
 
     def intent(self, action: ScaleOut, /) -> str:
         return f"scale [{action.application}] out"
@@ -660,6 +740,19 @@ class PinAutoscalerKind:
         return (f"raised [{action.application}]'s autoscaler floor from "
                 f"[{descriptor.was_min_replicas}] {_replicas(descriptor.was_min_replicas)} "
                 f"to [{descriptor.min_replicas_asked_for}]")
+
+    def whether_it_was_made(self,
+                            action: PinAutoscaler,
+                            planned: Planned[AutoscalerUndo],
+                            writes: PerformingWrites, /
+                            ) -> Made[AutoscalerUndo] | NotMade[AutoscalerUndo]:
+        return writes.whether_autoscaler_pin_was_made(planned)
+
+    def still_argus_s(self,
+                      planned: Planned[AutoscalerUndo] | None,
+                      descriptor: AutoscalerUndo,
+                      writes: PerformingWrites, /) -> ChangeFound:
+        return writes.autoscaler_pin_still_argus_s(descriptor)
 
     def intent(self, action: PinAutoscaler, /) -> str:
         return f"stop [{action.application}]'s autoscaler scaling it down"
@@ -821,6 +914,19 @@ class PinToAcceleratorKind:
         return (f"held [{action.application}]'s pods to [{action.accelerator}], "
                 f"where they had been held to "
                 f"{_the_card_in_words(descriptor.was_pinned_to)}")
+
+    def whether_it_was_made(self,
+                            action: PinToAccelerator,
+                            planned: Planned[AcceleratorPinUndo],
+                            writes: PerformingWrites, /
+                            ) -> Made[AcceleratorPinUndo] | NotMade[AcceleratorPinUndo]:
+        return writes.whether_accelerator_pin_was_made(planned)
+
+    def still_argus_s(self,
+                      planned: Planned[AcceleratorPinUndo] | None,
+                      descriptor: AcceleratorPinUndo,
+                      writes: PerformingWrites, /) -> ChangeFound:
+        return writes.accelerator_pin_still_argus_s(descriptor)
 
     def intent(self, action: PinToAccelerator, /) -> str:
         return f"hold [{action.application}]'s pods to [{action.accelerator}]"
@@ -1024,6 +1130,40 @@ def undo_change(undo_descriptor: UndoDescriptor, putting_back: PuttingBack) -> U
     performs an action.
     """
     return kind_undoing(undo_descriptor).undo(undo_descriptor, putting_back)
+
+
+def still_argus_s(planned: Planned[Any] | None,
+                  descriptor: UndoDescriptor,
+                  *,
+                  writes: PerformingWrites,
+                  undoing_kinds: UndoingKindOf = kind_undoing) -> ChangeFound:
+    """Whether the change `descriptor` records, made from `planned`, is still as
+    Argus left it - asked of the write tier by the kind that made it.
+
+    What a walk resumed after the worker that made the change died asks before
+    it watches it. The resumed walk holds the claim's plan and the row's way
+    back, and nothing saying which kind made the change but the way back
+    itself - so the change finds its kind, as it does to be put back. A claim
+    that kept no plan is still asked of by every kind that reads the change
+    alone; only a flag's read needs the plan. Writes nothing.
+    """
+    return undoing_kinds(descriptor).still_argus_s(planned, descriptor, writes)
+
+
+def performed_as_recorded(action: Action,
+                          descriptor: UndoDescriptor,
+                          *,
+                          undoing_kinds: UndoingKindOf = kind_undoing) -> Performed:
+    """The change `descriptor` records, as the write that made it said it: the
+    kind's words for it and the way back.
+
+    What a walk resumed after the worker that made the change died holds of it
+    is the action and the row's way back, and a change watched or put back by a
+    walk that did not make it is said as the walk that made it said it - so the
+    words are the kind's that made the change, found by the change.
+    """
+    return Performed(said=undoing_kinds(descriptor).said(action, descriptor),
+                     undo_descriptor=descriptor)
 
 
 def arrival_of(action: Action, *, rollouts: RolloutReader) -> HasArrived:

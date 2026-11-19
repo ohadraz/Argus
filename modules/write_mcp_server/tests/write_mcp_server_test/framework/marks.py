@@ -8,16 +8,18 @@ marked - the server's own, and the assembled one's.
 
 The same four read a mark back: a write compares the claim an object is marked
 with against its own before it writes, so each suite names this claim, another
-one, and the objects a mark is read off.
+one, and the objects a mark is read off. A mark read back is what the port
+finds on the object - the claim, and the moment the mark says it was written,
+where it says one.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, overload
 
 from argus_testkit import Assertion
-from deployment_platform import Mark
+from deployment_platform import Mark, MarkFound
 
 # The claim a write in these suites is made for, as a marked object names it -
 # the action row `a_mark()` marks every write with. Which object a mark is read
@@ -26,12 +28,41 @@ THIS_CLAIM = "6f1c1d2e-0000-4000-8000-0000000000a1"
 # Another action's claim - not this one - whose mark an object may carry from an
 # earlier change of Argus's.
 ANOTHER_CLAIM = "6f1c1d2e-0000-4000-8000-0000000000b2"
+# When `a_mark()` says its write was made, by the tier's own clock - and so what
+# an object it marked says when its mark is read back.
+THE_MOMENT_A_MARK_SAYS = datetime(2026, 11, 18, 13, 5, tzinfo=UTC)
 
 
 def a_mark() -> Mark:
     """A mark for one action row - `THIS_CLAIM` - written at one moment."""
-    return Mark(action_id=THIS_CLAIM,
-                written_at=datetime(2026, 11, 18, 13, 5, tzinfo=UTC))
+    return Mark(action_id=THIS_CLAIM, written_at=THE_MOMENT_A_MARK_SAYS)
+
+
+@overload
+def a_mark_found(claim: str,
+                 written_at: datetime | None = THE_MOMENT_A_MARK_SAYS) -> MarkFound: ...
+
+
+@overload
+def a_mark_found(claim: None,
+                 written_at: datetime | None = THE_MOMENT_A_MARK_SAYS) -> None: ...
+
+
+@overload
+def a_mark_found(claim: str | None,
+                 written_at: datetime | None = THE_MOMENT_A_MARK_SAYS) -> MarkFound | None: ...
+
+
+def a_mark_found(claim: str | None,
+                 written_at: datetime | None = THE_MOMENT_A_MARK_SAYS) -> MarkFound | None:
+    """What an object `claim` marked carries when its mark is read back: the
+    claim, and `written_at` - `THE_MOMENT_A_MARK_SAYS` unless a case names
+    another, `None` for a mark whose moment is absent or unreadable. `None` for
+    an object no claim marked."""
+    if claim is None:
+        return None
+
+    return MarkFound(action_id=claim, written_at=written_at)
 
 
 def every_write_carried(platform: Any, write: str, mark: Mark) -> Assertion[object]:

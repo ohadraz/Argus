@@ -320,26 +320,6 @@ class Unleash:
 
         return [self._as_flag_change(event) for event in sorted(toggles, key=_recorded_order)]
 
-    def argus_changed_since(self, flag: str, since: datetime, /) -> bool | None:
-        """Whether Argus's own change to `flag` was recorded at or after `since`.
-
-        The question a walk asks when it is resumed after its worker died with an
-        action claimed: only the provider knows whether the change it was making
-        landed. A human moving the same flag is not evidence Argus's change
-        landed.
-
-        `None` where nobody can say: no actor is configured, so the provider
-        cannot tell Argus's changes from anybody's, or the history could not be
-        read. A caller must not read that as "no change was made" - the
-        difference is the one between acting again and escalating.
-        """
-        changes = self._changes_to_attribute(flag, since)
-
-        if changes is None:
-            return None
-
-        return any(change.made_by_argus is True for change in changes)
-
     def others_changed_since(self, flag: str, since: datetime, /) -> bool | None:
         """Whether anybody but Argus changed `flag` at or after `since`.
 
@@ -349,8 +329,10 @@ class Unleash:
         a flag left as found can be put back by hand, and an overwritten decision
         cannot.
 
-        `None` where nobody can say, for the reasons the question above has: the
-        difference between putting a change back and overwriting a person.
+        `None` where nobody can say: no actor is configured, so the provider
+        cannot tell Argus's changes from anybody's, or the history could not be
+        read - the difference between putting a change back and overwriting a
+        person.
         """
         changes = self._changes_to_attribute(flag, since)
 
@@ -364,7 +346,7 @@ class Unleash:
         any of them was.
 
         Not raised where the history could not be read: "could not ask" is an
-        answer both questions' callers have a move for. The reason is logged
+        answer the question's callers have a move for. The reason is logged
         here, where the failure still is, since the answer loses it.
         """
         if not self._settings.actor:

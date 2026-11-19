@@ -16,6 +16,7 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -54,7 +55,6 @@ from investigation_agent.budget import InvestigationSettings
 from mitigation import (
     MitigationSettings,
     an_undo_over,
-    argus_changed_flag_since,
     arrival_of,
     deployments_over,
     fetch_recent_deployments,
@@ -66,7 +66,11 @@ from mitigation import (
     recent_metrics_over,
     rollout_progress_over,
     rules_read_over,
+    settle_the_refutation,
+    still_argus_s,
     take_action,
+    watch_what_was_performed,
+    whether_it_was_made,
 )
 from oncall_source import OnCallSettings
 from oncall_source.pagerduty_adapter import pagerduty_from
@@ -81,7 +85,6 @@ from orchestrator.walk.ports import (
     ActionsTaken,
     Admitted,
     AdvanceAction,
-    ChangeLanded,
     CompleteAction,
     FetchDependencies,
     FetchDeployments,
@@ -99,6 +102,7 @@ from orchestrator.walk.ports import (
     RecordSynopsis,
     RecordWeighing,
     RememberIncident,
+    Resuming,
     TakeAction,
     TransitionIncident,
     WhatArgusDidIn,
@@ -144,7 +148,9 @@ class Collaborators:
     advance_action: AdvanceAction
     # A refuted change recorded as owed back on its claim, before the put-back.
     owe_a_put_back: OweAPutBack
-    change_landed: ChangeLanded
+    # What a walk resumed inside the mitigation node reads of the estate and
+    # carries on with, picking an earlier worker's attempt up where it stopped.
+    resuming: Resuming
     # Which action the changes made inside it are for, so the write tier marks
     # each with it. The process's own `Holding`, which the write client reads.
     acting_for: ActingFor
@@ -301,6 +307,10 @@ def against(connections: Connections,
     # from, over the one connection to the write tier - bound once, because the
     # plan and the write it is handed back to are one collaboration.
     writes = performing_writes_over(write)
+    # What puts a change back, bound once for the live walk's taking and a
+    # resumed walk's watch and put-back alike: two copies of it is how one came
+    # to be missing a collaborator the other had.
+    undo = an_undo_over(write)
     # Built once rather than per postmortem: which provider answers which
     # question is a fact about the deployment, and the only thing that differs
     # between two incidents is which incident is being written up.
@@ -390,7 +400,7 @@ def against(connections: Connections,
             # The agent's own binding rather than one assembled here, because
             # the worker wants the same one for a withdrawal - and two copies
             # of it is how one came to be missing a collaborator the other had.
-            undo=an_undo_over(write)
+            undo=undo
         ),
         # Over the same writes the action is then taken through, because a plan
         # is asked of the tier that writes from it: it is what that write
@@ -401,7 +411,28 @@ def against(connections: Connections,
         already_taken=records.claimed_action,
         advance_action=records.advance_action,
         owe_a_put_back=records.owe_a_put_back,
-        change_landed=partial(argus_changed_flag_since, client=write),
+        resuming=Resuming(
+            # The write's own rule on the claim's plan, and whether a change
+            # made still stands, both read over the writes the action is taken
+            # through - the tier that compares is the tier that is asked.
+            whether_it_was_made=partial(whether_it_was_made, writes=writes),
+            still_argus_s=partial(still_argus_s, writes=writes),
+            # The wait and the put-back from where an earlier worker stopped,
+            # bound to what the live walk's own taking is bound to.
+            watch=partial(
+                watch_what_was_performed,
+                settings=mitigation,
+                thresholds=thresholds,
+                fetch_metrics=recent_metrics_over(read),
+                arrivals=partial(arrival_of, rollouts=rollout_progress_over(read)),
+                read_rule=rules_read_over(read),
+                undo=undo
+            ),
+            settle=partial(settle_the_refutation, undo=undo),
+            announced=records.action_announced,
+            plan_the_claim=records.plan_the_claim,
+            metrics_window=timedelta(minutes=settings.metrics_window_minutes)
+        ),
         acting_for=holding.acting_for,
         # Both tiers, because proposing a fix is the one act that spans them:
         # the repository is read from the process that cannot write, and the

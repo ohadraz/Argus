@@ -53,13 +53,27 @@ from core import to_iso
 from core.mcp_transport import CHANGED_SINCE_MARKER, EXHAUSTED_ACTION_MARKER
 from core.models import FlagChange, FlagState, FlagUndo, Planned
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites, FlagWriteFailed
-from write_mcp_server.flag_state import FlagNotSet, plan_flag, set_flag
+from write_mcp_server.flag_state import (
+    FlagNotSet,
+    plan_flag,
+    set_flag,
+    still_argus_s,
+    whether_it_was_made,
+)
 
 from write_mcp_server_test.framework.refusals import (
     it_left_behind,
     it_was_refused_as,
     its_change_is_said_performed,
     what_it_left_is_known,
+)
+from write_mcp_server_test.framework.resuming import (
+    it_is_still_argus_s,
+    it_refused_as_the_write_does,
+    it_was_changed_since,
+    it_was_made,
+    nobody_can_say,
+    nothing_landed,
 )
 
 SOME_FLAG = "monthly-spend-feature"
@@ -666,3 +680,247 @@ def _the_provider_was_asked_to_set(flags: Mock, flag: str, enabled: bool) -> boo
         )
 
     return True
+
+
+# The plan the claim carries: the flag found on, read at the provider's time.
+# Whether its flip was made, and whether that flip is still Argus's, are both
+# asked of the provider's history from this read - the write's own.
+THE_CLAIM_S_PLAN = _a_plan(SOME_FLAG, was_enabled=True, since=SOME_READ_AT)
+# The state the claim's write asks for: away from the one the plan found.
+THE_STATE_ASKED_FOR = not THE_CLAIM_S_PLAN.descriptor.was_enabled
+# The flip Argus made, as the row recorded it: what puts it back, dated by the
+# provider's own time for Argus's change.
+ARGUS_S_FLIP = THE_CLAIM_S_PLAN.descriptor.model_copy(
+    update={"written_at": SOME_ARGUS_CHANGE_AT}
+)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "history",
+    [
+        [_a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT)],
+        [_a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT),
+         _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_LATER_ARGUS_CHANGE_AT)],
+        [_a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT),
+         _a_change(SOME_OTHER_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)]
+    ],
+    ids=["argus-s-own-flip", "argus-s-alone", "another-flag-changed-too"]
+)
+def test_a_flag_only_argus_changed_since_the_plan_is_still_argus_s(
+        history: list[FlagChange]) -> None:
+    # The write's own rule, read and not acted on, over its own one read of the
+    # history from the plan's read: Argus's own changes are its own, and another
+    # flag's are nobody's concern here.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is(history)) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(all_of(
+            it_is_still_argus_s(),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "history",
+    [
+        NOTHING_CHANGED,
+        [_a_change(SOME_OTHER_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT)]
+    ],
+    ids=["nothing-since", "only-another-flag-changed"]
+)
+def test_a_flag_with_no_change_since_the_plan_contradicts_the_row_and_is_nobody_s_to_say(
+        history: list[FlagChange]) -> None:
+    # The row says Argus's flip was made, and the provider records no change to
+    # the flag since the plan - not even Argus's own. One of the two is wrong,
+    # and which cannot be said: not "still Argus's", which would watch a change
+    # the provider has no record of.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is(history)) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(all_of(
+            nobody_can_say(),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "history",
+    [
+        [_a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)],
+        [_a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT),
+         _a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)]
+    ],
+    ids=["alone", "after-argus"]
+)
+def test_a_flag_somebody_else_changed_since_the_plan_is_a_change_since(
+        history: list[FlagChange]) -> None:
+    # Somebody's decision, made since the plan: what the service does now is no
+    # longer Argus's change to answer for. What was found names the flag.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is(history)) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(all_of(
+            it_was_changed_since(f"[{SOME_FLAG}]"),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+def test_a_flag_whose_change_since_nobody_could_attribute_is_nobody_s_to_say() -> None:
+    # It may be Argus's own, or somebody's decision: not said to be either.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is([
+            _a_change(SOME_FLAG, by=BY_NOBODY_ANYONE_CAN_NAME, at=SOME_OTHER_CHANGE_AT)
+        ])) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(all_of(
+            nobody_can_say(),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+def test_a_flag_whose_history_could_not_be_read_is_nobody_s_to_say() -> None:
+    # Not "still Argus's": a history never read found nobody, which is not the
+    # same as nobody being there.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_fails(
+            FlagProviderUnavailable(SOME_PROVIDER_WORDS)
+        )) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(all_of(
+            nobody_can_say(),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+def test_a_flip_recorded_a_moment_before_the_time_its_answer_carried_is_still_argus_s(
+) -> None:
+    # The provider records the toggle before it answers the write, and the
+    # answer is dated to the whole second: Argus's own event can sit a fraction
+    # before the flip's recorded time. Read from the plan's own moment, as the
+    # write reads it, it is found - and read from the flip's time, it would not
+    # be, and the flip would contradict its own row.
+    the_answer_s_whole_second = SOME_ARGUS_CHANGE_AT
+    argus_s_event = the_answer_s_whole_second - timedelta(milliseconds=400)
+
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is([
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=argus_s_event)
+        ])) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(it_is_still_argus_s())
+
+
+@pytest.mark.unit
+def test_whether_a_flag_is_still_argus_s_is_read_once_from_the_plans_read() -> None:
+    # From the provider's own time for the plan's read - the write's own read,
+    # on the history's own clock - and once, so the answer is drawn from one
+    # reading of it.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is(NOTHING_CHANGED)) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(_the_history_was_read_once_before_the_write(flags, SOME_READ_AT))
+
+
+@pytest.mark.unit
+def test_a_flip_argus_alone_made_since_the_plan_is_found_made_and_dated_by_the_first() -> None:
+    # The first of Argus's changes is the one that moved the flag off the plan,
+    # and what a put-back later asks the history from - so it dates the flip,
+    # and the walk's record of when it was made.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is([
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT),
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_LATER_ARGUS_CHANGE_AT)
+        ])) \
+        .when(lambda: whether_it_was_made(THE_CLAIM_S_PLAN, flags)) \
+        .then(all_of(
+            it_was_made(
+                THE_CLAIM_S_PLAN.descriptor.model_copy(update={"written_at": SOME_ARGUS_CHANGE_AT}),
+                made_at=SOME_ARGUS_CHANGE_AT
+            ),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "history",
+    [
+        NOTHING_CHANGED,
+        [_a_change(SOME_OTHER_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)]
+    ],
+    ids=["nothing-since", "only-another-flag-changed"]
+)
+def test_a_flag_nobody_changed_since_the_plan_has_nothing_landed(
+        history: list[FlagChange]) -> None:
+    # The claim was written and the flip never reached the provider: the walk
+    # makes it, as the live walk would - and nothing is written by asking.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is(history)) \
+        .when(lambda: whether_it_was_made(THE_CLAIM_S_PLAN, flags)) \
+        .then(all_of(
+            nothing_landed(),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "history",
+    [
+        [_a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)],
+        [_a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT),
+         _a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)],
+        [_a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_EARLIER_OTHER_CHANGE_AT),
+         _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT)],
+        [_a_change(SOME_FLAG, by=BY_NOBODY_ANYONE_CAN_NAME, at=SOME_OTHER_CHANGE_AT)]
+    ],
+    ids=["somebody-else-alone", "somebody-else-after-argus", "somebody-else-before-argus",
+         "nobody-can-say-whose"]
+)
+def test_a_flag_changed_since_the_plan_by_anybody_else_is_refused_as_the_write_refuses_it(
+        history: list[FlagChange]) -> None:
+    # The same history, the same answer: changed since - saying whether Argus's
+    # flip landed among it, and leaving behind what the write would - or, where
+    # nobody can say whose a change was, refused as nothing the write could
+    # establish.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is(history)) \
+        .when(attempting(lambda: whether_it_was_made(THE_CLAIM_S_PLAN, flags))) \
+        .then(all_of(
+            it_was_refused_as(FlagNotSet),
+            it_refused_as_the_write_does(
+                lambda: set_flag(THE_CLAIM_S_PLAN, THE_STATE_ASKED_FOR, flags)
+            ),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+def test_a_flag_whose_history_could_not_be_read_is_refused_as_the_write_refuses_it() -> None:
+    Scenario() \
+        .given(flags := _a_provider_whose_history_fails(
+            FlagProviderUnavailable(SOME_PROVIDER_WORDS)
+        )) \
+        .when(attempting(lambda: whether_it_was_made(THE_CLAIM_S_PLAN, flags))) \
+        .then(all_of(
+            it_was_refused_as(FlagNotSet),
+            it_refused_as_the_write_does(
+                lambda: set_flag(THE_CLAIM_S_PLAN, THE_STATE_ASKED_FOR, flags)
+            ),
+            _nothing_was_written(flags)
+        ))
+
+
+@pytest.mark.unit
+def test_whether_a_flip_was_made_is_read_once_from_the_plans_read() -> None:
+    # The write's own read: from the provider's time for the plan's read, once.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is(NOTHING_CHANGED)) \
+        .when(lambda: whether_it_was_made(THE_CLAIM_S_PLAN, flags)) \
+        .then(_the_history_was_read_once_before_the_write(flags, SOME_READ_AT))

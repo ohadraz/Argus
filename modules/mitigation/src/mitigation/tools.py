@@ -21,12 +21,15 @@ from core.models import (
     CacheEntriesDiscarded,
     CapacityRestored,
     ChangeEvent,
+    ChangeFound,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     FlagHistory,
     FlagUndo,
+    Made,
     MetricBucket,
+    NotMade,
     Planned,
     ReplicaUndo,
     RestartedService,
@@ -40,7 +43,10 @@ from read_mcp_client import (
     get_rollout_progress,
 )
 from write_mcp_client import (
+    accelerator_pin_still_argus_s,
+    autoscaler_pin_still_argus_s,
     discard_cache_entries,
+    flag_still_argus_s,
     get_recent_flag_changes,
     pin_autoscaler,
     pin_to_accelerator,
@@ -55,10 +61,16 @@ from write_mcp_client import (
     restore_deployment,
     restore_replica_count,
     roll_back_deployment,
+    rollback_still_argus_s,
     scale_out,
+    scale_out_still_argus_s,
     set_feature_flag,
-    was_flag_changed_by_argus_since,
     was_flag_changed_by_others_since,
+    whether_accelerator_pin_was_made,
+    whether_autoscaler_pin_was_made,
+    whether_flag_was_made,
+    whether_rollback_was_made,
+    whether_scale_out_was_made,
 )
 
 from mitigation.attribution import changes_not_made_by
@@ -429,6 +441,87 @@ class DeploymentRestorer(Protocol):
                  descriptor: DeploymentRollbackUndo, /) -> DeploymentRestored: ...
 
 
+class FlagStillArgusS(Protocol):
+    """Whether a flag change Argus made is still as Argus left it - the write's
+    own rule, read and not acted on, over the provider's history since the
+    claim's plan.
+
+    Handed the plan beside the change, because the history is read from the
+    plan's own read, as the write reads it. A read: it changes nothing.
+    """
+
+    def __call__(self, planned: Planned[FlagUndo], descriptor: FlagUndo, /) -> ChangeFound: ...
+
+
+class RollbackStillArgusS(Protocol):
+    """Whether a rollback Argus made is still as Argus left it - the restore's
+    own check, asked on its own. A read."""
+
+    def __call__(self, descriptor: DeploymentRollbackUndo, /) -> ChangeFound: ...
+
+
+class ScaleOutStillArgusS(Protocol):
+    """Whether a scale-out Argus made is still as Argus left it, under the claim
+    the call is made for. A read."""
+
+    def __call__(self, descriptor: ReplicaUndo, /) -> ChangeFound: ...
+
+
+class AutoscalerPinStillArgusS(Protocol):
+    """Whether an autoscaler pin Argus made is still as Argus left it, under the
+    claim the call is made for. A read."""
+
+    def __call__(self, descriptor: AutoscalerUndo, /) -> ChangeFound: ...
+
+
+class AcceleratorPinStillArgusS(Protocol):
+    """Whether a pin to a card Argus made is still as Argus left it, under the
+    claim the call is made for. A read."""
+
+    def __call__(self, descriptor: AcceleratorPinUndo, /) -> ChangeFound: ...
+
+
+class WhetherAFlagWasMade(Protocol):
+    """Whether the flag change a claim planned was made - the write's own rule
+    on the claim's plan, with the write left out: made, or not made, carrying
+    what of the claim's is out there all the same. Refuses where the write
+    would. A read."""
+
+    def __call__(self, planned: Planned[FlagUndo], /) -> Made[FlagUndo] | NotMade[FlagUndo]: ...
+
+
+class WhetherARollbackWasMade(Protocol):
+    """Whether the rollback a claim planned was made, as `WhetherAFlagWasMade`
+    asks it of a flag."""
+
+    def __call__(self, planned: Planned[DeploymentRollbackUndo], /
+                 ) -> Made[DeploymentRollbackUndo] | NotMade[DeploymentRollbackUndo]: ...
+
+
+class WhetherAScaleOutWasMade(Protocol):
+    """Whether the scale-out a claim planned was made, as `WhetherAFlagWasMade`
+    asks it of a flag."""
+
+    def __call__(self, planned: Planned[ReplicaUndo], /
+                 ) -> Made[ReplicaUndo] | NotMade[ReplicaUndo]: ...
+
+
+class WhetherAnAutoscalerPinWasMade(Protocol):
+    """Whether the autoscaler pin a claim planned was made, as
+    `WhetherAFlagWasMade` asks it of a flag."""
+
+    def __call__(self, planned: Planned[AutoscalerUndo], /
+                 ) -> Made[AutoscalerUndo] | NotMade[AutoscalerUndo]: ...
+
+
+class WhetherAnAcceleratorPinWasMade(Protocol):
+    """Whether the pin to a card a claim planned was made, as
+    `WhetherAFlagWasMade` asks it of a flag."""
+
+    def __call__(self, planned: Planned[AcceleratorPinUndo], /
+                 ) -> Made[AcceleratorPinUndo] | NotMade[AcceleratorPinUndo]: ...
+
+
 @dataclass(frozen=True)
 class PerformingWrites:
     """The writes that perform a mitigation - one per kind of action there is.
@@ -448,7 +541,10 @@ class PerformingWrites:
     The planners are here, though each is a read, because a plan is asked of the
     tier that writes from it: it is what that write compares the estate with,
     read through the same port the compare reads through - and a flag's plan
-    needs the admin credential only the write tier holds.
+    needs the admin credential only the write tier holds. The reads of whether
+    a claim's change was made, and of whether a change made is still Argus's,
+    are here for the same reason: each is its write's own "made" rule, asked
+    without the write.
     """
 
     set_state: PlannedFlagSetter
@@ -463,6 +559,16 @@ class PerformingWrites:
     plan_scale_out: ScaleOutPlanner
     plan_autoscaler_pin: AutoscalerPinPlanner
     plan_accelerator_pin: AcceleratorPinPlanner
+    flag_still_argus_s: FlagStillArgusS
+    rollback_still_argus_s: RollbackStillArgusS
+    scale_out_still_argus_s: ScaleOutStillArgusS
+    autoscaler_pin_still_argus_s: AutoscalerPinStillArgusS
+    accelerator_pin_still_argus_s: AcceleratorPinStillArgusS
+    whether_flag_was_made: WhetherAFlagWasMade
+    whether_rollback_was_made: WhetherARollbackWasMade
+    whether_scale_out_was_made: WhetherAScaleOutWasMade
+    whether_autoscaler_pin_was_made: WhetherAnAutoscalerPinWasMade
+    whether_accelerator_pin_was_made: WhetherAnAcceleratorPinWasMade
 
 
 @dataclass(frozen=True)
@@ -643,7 +749,18 @@ def performing_writes_over(client: McpClient) -> PerformingWrites:
         plan_rollback=partial(plan_a_rollback, client=client),
         plan_scale_out=partial(plan_a_scale_out, client=client),
         plan_autoscaler_pin=partial(plan_an_autoscaler_pin, client=client),
-        plan_accelerator_pin=partial(plan_a_pin_to_a_card, client=client)
+        plan_accelerator_pin=partial(plan_a_pin_to_a_card, client=client),
+        flag_still_argus_s=partial(flag_still_argus_s, client=client),
+        rollback_still_argus_s=partial(rollback_still_argus_s, client=client),
+        scale_out_still_argus_s=partial(scale_out_still_argus_s, client=client),
+        autoscaler_pin_still_argus_s=partial(autoscaler_pin_still_argus_s, client=client),
+        accelerator_pin_still_argus_s=partial(accelerator_pin_still_argus_s, client=client),
+        whether_flag_was_made=partial(whether_flag_was_made, client=client),
+        whether_rollback_was_made=partial(whether_rollback_was_made, client=client),
+        whether_scale_out_was_made=partial(whether_scale_out_was_made, client=client),
+        whether_autoscaler_pin_was_made=partial(whether_autoscaler_pin_was_made, client=client),
+        whether_accelerator_pin_was_made=partial(whether_accelerator_pin_was_made,
+                                                 client=client)
     )
 
 
@@ -818,39 +935,6 @@ def fetch_recent_deployments(
             window_end=to_iso(window_ends_at)
         )
     )
-
-
-def argus_changed_flag_since(flag: str,
-                             since: datetime,
-                             *,
-                             client: McpClient) -> bool | None:
-    """Whether Argus's own change to `flag` reached the provider after `since`.
-
-    The question a walk asks when it is resumed inside the mitigation node and
-    finds an action claimed with nothing recorded against it: the worker that
-    claimed it died, and only the provider knows whether the change it was
-    making landed. The provider's event log is where that is written down, and
-    the write tier asks it - the log is served to that tier's credential alone,
-    and the provider's adapter there is what tells Argus's changes from a
-    human's.
-
-    `None` means nobody could say - the write tier could not be reached, the
-    provider's history could not be read, or it attributes nothing to Argus
-    because operator and Argus share a credential. A caller must not read that
-    as "no change was made": the difference between an unmade change and an
-    unanswerable question is the difference between acting again and
-    escalating.
-    """
-    try:
-        return was_flag_changed_by_argus_since(flag, since, client=client)
-    except Exception:
-        # Every way the tier can fail to answer arrives here, and they all mean
-        # the same thing to the caller: nobody can say. Narrowing this to the
-        # transport's own exception would let a change in the client's
-        # vocabulary turn "could not ask" into a crash inside a resumed walk.
-        logger.warning("flag history could not be read", exc_info=True, extra={"flag": flag})
-
-        return None
 
 
 def somebody_else_changed_flag_since(flag: str,

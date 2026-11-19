@@ -44,7 +44,7 @@ from mitigation.admitting import (
     is_within_reach,
 )
 from mitigation.binding import an_undo_over
-from mitigation.kinds import arrival_of
+from mitigation.kinds import Performed, arrival_of, performed_as_recorded, still_argus_s
 from mitigation.strategies import (
     MitigationStrategy,
     PinToAcceleratorStrategy,
@@ -62,7 +62,6 @@ from mitigation.tools import (
     MitigationSettings,
     PerformingWrites,
     ServiceRestarter,
-    argus_changed_flag_since,
     deployment_restorer_over,
     deployment_roller_over,
     deployments_over,
@@ -77,6 +76,7 @@ from mitigation.tools import (
 )
 from mitigation.trying import (
     ChangeMade,
+    NobodyCanSay,
     PutBackOwed,
     UndoChange,
     plan_action,
@@ -84,6 +84,7 @@ from mitigation.trying import (
     stopped_before_it_was_taken,
     take_action,
     watch_what_was_performed,
+    whether_it_was_made,
 )
 
 __all__ = [
@@ -96,7 +97,9 @@ __all__ = [
     "FlagChangesSince",
     "MitigationSettings",
     "MitigationStrategy",
+    "NobodyCanSay",
     "Outcome",
+    "Performed",
     "PerformingWrites",
     "PinToAcceleratorStrategy",
     "PutBackOwed",
@@ -113,7 +116,6 @@ __all__ = [
     "Undone",
     "Verdict",
     "an_undo_over",
-    "argus_changed_flag_since",
     "arrival_of",
     "deployment_restorer_over",
     "deployment_roller_over",
@@ -124,6 +126,7 @@ __all__ = [
     "flag_setter_over",
     "is_a_generic_mitigation",
     "is_within_reach",
+    "performed_as_recorded",
     "performing_writes_over",
     "plan_action",
     "recent_metrics_over",
@@ -131,9 +134,11 @@ __all__ = [
     "rules_read_over",
     "propose_action",
     "settle_the_refutation",
+    "still_argus_s",
     "stopped_before_it_was_taken",
     "take_action",
     "watch_what_was_performed",
+    "whether_it_was_made",
     "why_no_mitigation_answers",
     "why_nothing_was_proposed"
 ]

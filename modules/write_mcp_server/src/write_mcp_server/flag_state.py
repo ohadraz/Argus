@@ -31,7 +31,7 @@ from core.mcp_transport import (
     a_refusal_saying_what_it_left,
     an_exhausted_action,
 )
-from core.models import FlagUndo, Planned
+from core.models import ChangeFound, FlagUndo, Made, NotMade, Planned
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites, FlagWriteFailed
 
 logger = logging.getLogger(__name__)
@@ -122,6 +122,122 @@ def set_flag(planned: Planned[FlagUndo], enabled: bool, flags: FlagProviderWrite
             f"{_state_name(enabled)} would change nothing"
         ))
 
+    made = _made_since_the_plan(planned, flags)
+
+    if made is not None:
+        logger.info("flag already set", extra={"flag": flag, "enabled": enabled})
+
+        return made
+
+    try:
+        undo = flags.set(flag, enabled)
+    except FlagWriteFailed as failure:
+        said = str(failure)
+
+        raise FlagNotSet(
+            a_refusal_saying_what_it_left(said, failure.left_behind)
+            if failure.known_not_applied or failure.left_behind is not None else said
+        ) from failure
+
+    logger.info("flag set", extra={"flag": flag, "enabled": enabled})
+
+    return undo
+
+
+def whether_it_was_made(planned: Planned[FlagUndo],
+                        flags: FlagProviderWrites) -> Made[FlagUndo] | NotMade[FlagUndo]:
+    """Whether the flip `planned` describes was made - the write's own rule on
+    the plan, over the same one read of the provider's history since it, with
+    the write left out, for a walk resumed after the worker that claimed it
+    died.
+
+    Argus's changes alone are the flip made: answered with what the write would
+    answer, dated by the first of them - the one that moved the flag off the
+    plan. No change to the flag is nothing landed, for the walk to make as the
+    live walk would - leaving nothing behind, since a flag has no suspension
+    before its write. Anything else is refused exactly as the write refuses it
+    on the same history, since the two are one compare. Writes nothing.
+    """
+    made = _made_since_the_plan(planned, flags)
+
+    if made is None:
+        return NotMade[FlagUndo]()
+
+    return Made[FlagUndo](descriptor=made, made_at=made.written_at)
+
+
+def still_argus_s(planned: Planned[FlagUndo],
+                  descriptor: FlagUndo,
+                  flags: FlagProviderWrites) -> ChangeFound:
+    """Whether the flip `descriptor` records, made from `planned`, is still as
+    Argus left it - the write's own rule, read and not acted on, over one read
+    of the provider's history since the plan's read, for a walk resumed after
+    the worker that made it died.
+
+    From the plan's `since`, as `set_flag` reads it, and not from the moment
+    the descriptor says the change was written: the provider records the
+    toggle before it answers, and the answer's date is whole seconds, so
+    Argus's own change can fall before it.
+
+    Only Argus's changes to the flag there, and it is still Argus's. Anybody
+    else's is a decision made since, saying so. No change to the flag at all
+    contradicts the row, which says Argus's flip landed - and so is a question
+    nobody can answer, as are a change nobody can attribute and a history that
+    could not be read. Writes nothing.
+    """
+    flag = descriptor.flag
+
+    try:
+        history = flags.changes_since(planned.since)
+    except FlagProviderUnavailable as failure:
+        logger.warning("still-argus-s check failed", exc_info=True, extra={"flag": flag})
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"could not read what changed to flag [{flag}] since it was planned: "
+                  f"{failure}"
+        )
+
+    changes = [change for change in history if change.flag == flag]
+
+    if any(change.made_by_argus is False for change in changes):
+        return ChangeFound(
+            still_argus_s=False,
+            found=f"flag [{flag}] was changed by somebody else since it was planned"
+        )
+
+    if any(change.made_by_argus is None for change in changes):
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"flag [{flag}] was changed since it was planned, and nobody can say "
+                  f"by whom"
+        )
+
+    if not changes:
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"the provider records no change to flag [{flag}] since it was planned, "
+                  f"which contradicts the record that Argus's was made"
+        )
+
+    return ChangeFound(still_argus_s=True)
+
+
+def _made_since_the_plan(planned: Planned[FlagUndo],
+                         flags: FlagProviderWrites) -> FlagUndo | None:
+    """What the provider's history since the plan's read says of the flip
+    `planned` describes, raising as the write raises - the one compare the write
+    and the claimed read share.
+
+    Read once, and only the flag's own changes in it have a say: none is the
+    flag as planned, answered `None`; Argus's alone are the flip already made,
+    answered with the plan's undo dated by the first of them; anybody else's is
+    changed since, refused - leaving the plan's undo behind, dated by the plan's
+    read, where Argus's own change landed among them; one nobody can attribute
+    is refused as a question nobody could answer. A history that could not be
+    read left nothing.
+    """
+    flag = planned.descriptor.flag
+
     try:
         history = flags.changes_since(planned.since)
     except FlagProviderUnavailable as failure:
@@ -144,24 +260,10 @@ def set_flag(planned: Planned[FlagUndo], enabled: bool, flags: FlagProviderWrite
             f"flag [{flag}] was changed since it was planned, and nobody can say by whom"
         ))
 
-    if first_of_argus is not None:
-        logger.info("flag already set", extra={"flag": flag, "enabled": enabled})
+    if first_of_argus is None:
+        return None
 
-        return _dated(planned, parse_iso(first_of_argus.occurred_at))
-
-    try:
-        undo = flags.set(flag, enabled)
-    except FlagWriteFailed as failure:
-        said = str(failure)
-
-        raise FlagNotSet(
-            a_refusal_saying_what_it_left(said, failure.left_behind)
-            if failure.known_not_applied or failure.left_behind is not None else said
-        ) from failure
-
-    logger.info("flag set", extra={"flag": flag, "enabled": enabled})
-
-    return undo
+    return _dated(planned, parse_iso(first_of_argus.occurred_at))
 
 
 def _dated(planned: Planned[FlagUndo], written_at: datetime) -> FlagUndo:

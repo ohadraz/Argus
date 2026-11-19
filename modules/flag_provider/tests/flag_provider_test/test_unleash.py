@@ -961,8 +961,9 @@ def test_changes_before_the_window_are_not_reported() -> None:
 
 @pytest.mark.unit
 def test_a_change_at_the_very_moment_asked_from_is_reported() -> None:
-    # At or after: a resumed walk asks from the moment it claimed an action, and
-    # a change it made that same instant is the one it is asking about.
+    # At or after: the history is asked from a plan's own read and from the
+    # moment a put-back's change was written, and a change recorded that same
+    # instant - Argus's own, or somebody's - is one the question is about.
     provider = _Provider().answering(GET, THE_EVENTS, _recording(
         _an_enabling_of(SOME_FLAG, at=SINCE)
     ))
@@ -1158,35 +1159,6 @@ def test_no_change_is_said_to_be_argus_own_or_not_where_no_actor_is_configured()
 @pytest.mark.parametrize(
     ("recorded", "expected"),
     [
-        ([_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_ARGUS_ACTOR)], True),
-        ([_an_enabling_of(SOME_OTHER_FLAG, at=INSIDE_THE_WINDOW,
-                          created_by=SOME_ARGUS_ACTOR)], False),
-        ([_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_HUMAN)], False),
-        ([_an_enabling_of(SOME_FLAG, at=BEFORE_THE_WINDOW, created_by=SOME_ARGUS_ACTOR)],
-         False),
-        ([], False)
-    ],
-    ids=["argus changed it", "argus changed another flag", "somebody else changed it",
-         "argus changed it before the moment asked", "nothing changed"]
-)
-def test_whether_argus_changed_a_flag_since_a_moment(recorded: list[dict[str, Any]],
-                                                     expected: bool) -> None:
-    # The question a walk asks when it is resumed after its worker died with an
-    # action claimed: did the change it was making land? Only the provider knows.
-    # A human moving the same flag is not evidence Argus's change landed, and a
-    # change before the claim belongs to whoever caused the incident.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(*recorded))
-
-    Scenario() \
-        .given(unleash := _unleash_over(provider)) \
-        .when(lambda: unleash.argus_changed_since(SOME_FLAG, SINCE)) \
-        .then(_it_answered(expected))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("recorded", "expected"),
-    [
         ([_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_HUMAN)], True),
         ([_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=None)], True),
         ([_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_ARGUS_ACTOR)],
@@ -1215,49 +1187,43 @@ def test_whether_anybody_else_changed_a_flag_since_a_moment(recorded: list[dict[
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("question", ["argus_changed_since", "others_changed_since"])
 @pytest.mark.parametrize(
     "recorded",
     [[], [_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_HUMAN)]],
     ids=["nothing changed", "somebody changed it"]
 )
-def test_neither_question_is_answered_where_no_actor_is_configured(
-    question: str, recorded: list[dict[str, Any]]
+def test_whether_anybody_else_changed_a_flag_is_not_answered_where_no_actor_is_configured(
+    recorded: list[dict[str, Any]]
 ) -> None:
-    # Nobody can say, and that includes a log with nothing in it. Told `False`,
-    # a resumed walk would act again on something that may already have been
-    # done; told either answer, an undo would act on a guess about whose write
-    # it was looking at.
+    # Nobody can say, and that includes a log with nothing in it. Told either
+    # answer, an undo would act on a guess about whose write it was looking at.
     provider = _Provider().answering(GET, THE_EVENTS, _recording(*recorded))
 
     Scenario() \
         .given(unleash := _unleash_over(provider, actor=NO_ACTOR)) \
-        .when(lambda: getattr(unleash, question)(SOME_FLAG, SINCE)) \
+        .when(lambda: unleash.others_changed_since(SOME_FLAG, SINCE)) \
         .then(_it_answered(None))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("question", ["argus_changed_since", "others_changed_since"])
-def test_neither_question_is_answered_where_the_history_could_not_be_read(
-    question: str
+def test_whether_anybody_else_changed_a_flag_is_not_answered_where_the_history_could_not_be_read(
 ) -> None:
-    # Not raised: "could not ask" is an answer both callers have a move for,
-    # and not `False`, which is the difference between acting again and
-    # escalating - or between putting a change back and overwriting a person.
+    # Not raised: "could not ask" is an answer the undo has a move for, and not
+    # `False`, which is the difference between putting a change back and
+    # overwriting a person.
     provider = _Provider().answering(
         GET, THE_EVENTS, _failing_with(httpx2.ConnectError(REFUSED))
     )
 
     Scenario() \
         .given(unleash := _unleash_over(provider)) \
-        .when(lambda: getattr(unleash, question)(SOME_FLAG, SINCE)) \
+        .when(lambda: unleash.others_changed_since(SOME_FLAG, SINCE)) \
         .then(_it_answered(None))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("question", ["argus_changed_since", "others_changed_since"])
-def test_a_history_that_could_not_be_read_for_a_question_is_logged(
-    question: str, caplog: pytest.LogCaptureFixture
+def test_a_history_that_could_not_be_read_for_whether_anybody_else_changed_a_flag_is_logged(
+    caplog: pytest.LogCaptureFixture
 ) -> None:
     # Answered as nobody-can-say, which is right, and which loses the reason -
     # so the reason is logged here, where the failure still is.
@@ -1267,7 +1233,7 @@ def test_a_history_that_could_not_be_read_for_a_question_is_logged(
 
     Scenario() \
         .given(unleash := _unleash_over(provider)) \
-        .when(lambda: getattr(unleash, question)(SOME_FLAG, SINCE)) \
+        .when(lambda: unleash.others_changed_since(SOME_FLAG, SINCE)) \
         .then(one_record_was_logged(caplog, "flag_provider.unleash", logging.WARNING,
                                     "flag history could not be read",
                                     values={"flag": SOME_FLAG},

@@ -50,6 +50,7 @@ from core import RunLost
 from core.mcp_transport import (
     ActionExhausted,
     ChangedSince,
+    McpToolError,
     a_change_made_since,
     an_exhausted_action,
 )
@@ -60,10 +61,13 @@ from core.models import (
     AutoscalerUndo,
     AutoscalingRestored,
     CapacityRestored,
+    ChangeFound,
     DeploymentRestored,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     FlagUndo,
+    Made,
+    NotMade,
     PinAutoscaler,
     PinToAccelerator,
     Planned,
@@ -89,15 +93,19 @@ from mitigation.kinds import (
     arrival_of,
     kind_of,
     kind_undoing,
+    performed_as_recorded,
+    still_argus_s,
     undo_change,
 )
 from mitigation.tools import (
     AcceleratorPinner,
     AcceleratorPinPlanner,
     AcceleratorPinRestorer,
+    AcceleratorPinStillArgusS,
     Arrival,
     AutoscalerPinner,
     AutoscalerPinPlanner,
+    AutoscalerPinStillArgusS,
     AutoscalingRestorer,
     CacheEntryDiscarder,
     CapacityRestorer,
@@ -106,13 +114,21 @@ from mitigation.tools import (
     DeploymentScaler,
     FlagPlanner,
     FlagSetter,
+    FlagStillArgusS,
     PerformingWrites,
     PlannedFlagSetter,
     PuttingBack,
     RollbackPlanner,
+    RollbackStillArgusS,
     RolloutReader,
     ScaleOutPlanner,
+    ScaleOutStillArgusS,
     ServiceRestarter,
+    WhetherAFlagWasMade,
+    WhetherAnAcceleratorPinWasMade,
+    WhetherAnAutoscalerPinWasMade,
+    WhetherARollbackWasMade,
+    WhetherAScaleOutWasMade,
 )
 
 from mitigation_test.framework.builders import (
@@ -2621,10 +2637,11 @@ def _it_is_the_plan(expected: Planned[Any]) -> Assertion[Planned[Any]]:
     return assertion
 
 
-def _nothing_was_written_through(writes: PerformingWrites) -> Assertion[Planned[Any]]:
-    """None of the writes in the bundle asked - every one a spy, so a plan that
-    wrote anything at all, of any kind, is caught here."""
-    def assertion(dont_care_plan: Planned[Any]) -> bool:
+def _nothing_was_written_through(writes: PerformingWrites) -> Assertion[object]:
+    """None of the writes in the bundle asked - every one a spy, so a plan, or a
+    question whether a change is still Argus's, that wrote anything at all, of
+    any kind, is caught here."""
+    def assertion(dont_care_answer: object) -> bool:
         every_write: dict[str, object] = {
             "set_state": writes.set_state,
             "restart": writes.restart,
@@ -3016,3 +3033,380 @@ def _a_write_answering(spec: type, change_made: UndoDescriptor) -> MagicMock:
     write.return_value = change_made
 
     return write
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "a_plan", "write", "spec"),
+                         EVERY_KIND_OF_PLANNED_WRITE)
+def test_a_change_as_recorded_is_the_change_its_write_performed(
+    kind: UndoableKind[Any], an_action: Callable[[], Action],
+    a_plan: Callable[[], Planned[Any]], write: str, spec: type
+) -> None:
+    # What a resumed walk holds of a change it did not make is the action and
+    # the row's way back. Rebuilt from those, it is what the write produced -
+    # the same words and the same way back - so a change watched or put back by
+    # a walk that did not make it is said as the walk that made it said it.
+    the_action = an_action()
+    some_change_made = a_plan().descriptor
+    as_its_write_performed_it = kind.perform(
+        the_action, a_plan(), the_writes(**{write: _a_write_answering(spec, some_change_made)})
+    )
+
+    Scenario() \
+        .given(
+            the_action
+        ) \
+        .when(
+            lambda: performed_as_recorded(the_action, some_change_made)
+        ) \
+        .then(
+            the_answer_was(as_its_write_performed_it)
+        )
+
+
+@pytest.mark.unit
+def test_a_change_as_recorded_is_said_by_the_kind_that_made_it() -> None:
+    # Whose words are the kind's that made the change, found by the change -
+    # the way a change is put back by the kind that made it.
+    some_change_made = an_undo_descriptor_for(SOME_FLAG)
+    some_words_for_it = "set the kuki flag the buki way"
+
+    Scenario() \
+        .given(
+            a_kind := _a_kind_saying(some_words_for_it)
+        ) \
+        .when(
+            lambda: performed_as_recorded(an_action_setting(SOME_FLAG, enabled=True),
+                                          some_change_made,
+                                          undoing_kinds=lambda dont_care_descriptor: a_kind)
+        ) \
+        .then(
+            the_answer_was(Performed(said=some_words_for_it, undo_descriptor=some_change_made))
+        )
+
+
+def _a_kind_saying(words: str) -> MagicMock:
+    """A kind of change whose words for any change are `words`."""
+    kind: MagicMock = create_autospec(UndoableKind, instance=True)
+    kind.said.return_value = words
+
+    return kind
+
+
+# Every kind of change, with the kind that made it, the plan the claim carried
+# for it, the part of the write tier that reads whether the change is still as
+# Argus left it, what that part is, and what it is asked of the plan the call
+# hands it - `None` where a claim kept none - and the change: the change as the
+# row records it, and for a flag the plan beside it, since a flag's history is
+# read from the plan's own read, as the write reads it. A flag with no plan is
+# asked nothing (`None`); every other kind asks of the change alone all the same.
+EVERY_KIND_OF_CHECK = [
+    pytest.param(RevertFeatureFlagKind(),
+                 lambda: a_plan_of(a_planned_flag_change_for(SOME_FLAG, was_enabled=False)),
+                 "flag_still_argus_s", FlagStillArgusS,
+                 lambda planned, change: None if planned is None else (planned, change),
+                 id="flag"),
+    pytest.param(RollBackDeploymentKind(),
+                 lambda: a_plan_of(a_rollback_descriptor_for(SOME_APPLICATION)),
+                 "rollback_still_argus_s", RollbackStillArgusS,
+                 lambda dont_care_planned, change: (change,), id="rollback"),
+    pytest.param(ScaleOutKind(), lambda: a_plan_of(a_resize_descriptor_for(SOME_APPLICATION)),
+                 "scale_out_still_argus_s", ScaleOutStillArgusS,
+                 lambda dont_care_planned, change: (change,), id="scale-out"),
+    pytest.param(PinAutoscalerKind(), lambda: a_plan_of(a_pin_descriptor_for(SOME_APPLICATION)),
+                 "autoscaler_pin_still_argus_s", AutoscalerPinStillArgusS,
+                 lambda dont_care_planned, change: (change,), id="autoscaler-pin"),
+    pytest.param(PinToAcceleratorKind(),
+                 lambda: a_plan_of(a_card_pin_descriptor_for(SOME_APPLICATION)),
+                 "accelerator_pin_still_argus_s", AcceleratorPinStillArgusS,
+                 lambda dont_care_planned, change: (change,), id="card-pin")
+]
+# What a kind's read is asked of the plan a call hands it and the change -
+# `None` where it asks the tier nothing.
+type WhatTheReadIsAsked = Callable[[Planned[Any] | None, Any], tuple[object, ...] | None]
+
+# What the write tier found of a change, in its own words: somebody's change
+# since, and why nobody can say.
+SOMEBODY_S_CHANGE_FOUND = "somebody set it to something else since"
+WHY_NOBODY_CAN_SAY = "the platform did not answer"
+
+# What the write tier can answer about a change Argus made, in its own words
+# where it has any: still as Argus left it, changed since, or nobody can say.
+EVERY_ANSWER_ABOUT_A_CHANGE = [
+    pytest.param(lambda: ChangeFound(still_argus_s=True), id="still-argus-s"),
+    pytest.param(lambda: ChangeFound(still_argus_s=False, found=SOMEBODY_S_CHANGE_FOUND),
+                 id="changed-since"),
+    pytest.param(lambda: ChangeFound(still_argus_s=None, found=WHY_NOBODY_CAN_SAY),
+                 id="nobody-can-say")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("an_answer", EVERY_ANSWER_ABOUT_A_CHANGE)
+@pytest.mark.parametrize(("kind", "a_plan", "check", "spec", "asked"), EVERY_KIND_OF_CHECK)
+def test_each_kind_asks_the_write_tier_whether_its_change_is_still_argus_s(
+    kind: UndoableKind[Any], a_plan: Callable[[], Planned[Any]], check: str, spec: type,
+    asked: WhatTheReadIsAsked, an_answer: Callable[[], ChangeFound]
+) -> None:
+    # The write's own "made" rule, asked without the write: through the tier the
+    # write compares through, with what that kind's read takes. What the tier
+    # answers is the answer - nothing here reads the estate, and nothing turns
+    # "nobody can say" into either of the others.
+    the_plan = a_plan()
+    the_answer = an_answer()
+
+    Scenario() \
+        .given(
+            asking := _a_collaborator_answering(spec, the_answer)
+        ) \
+        .when(
+            lambda: kind.still_argus_s(the_plan, the_plan.descriptor,
+                                       the_writes(**{check: asking}))
+        ) \
+        .then(all_of(
+            _asked_as_its_read_needs(asking, asked(the_plan, the_plan.descriptor)),
+            the_answer_was(the_answer)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_plan", "check", "spec", "asked"), EVERY_KIND_OF_CHECK)
+def test_each_kind_asked_of_a_change_whose_claim_kept_no_plan_asks_what_its_read_needs(
+    kind: UndoableKind[Any], a_plan: Callable[[], Planned[Any]], check: str, spec: type,
+    asked: WhatTheReadIsAsked
+) -> None:
+    # Every kind but a flag reads the change alone, and asks the tier all the
+    # same. A flag's history is read from the plan's own read, so with none
+    # nobody can say, saying why - and the tier is asked nothing.
+    no_plan = None
+    the_change = a_plan().descriptor
+
+    Scenario() \
+        .given(
+            asking := _a_collaborator_answering(spec, ChangeFound(still_argus_s=True))
+        ) \
+        .when(
+            lambda: kind.still_argus_s(no_plan, the_change, the_writes(**{check: asking}))
+        ) \
+        .then(
+            _asked_as_its_read_needs(asking, asked(no_plan, the_change))
+        )
+
+
+def _asked_as_its_read_needs(asking: MagicMock,
+                             expected: tuple[object, ...] | None) -> Assertion[ChangeFound]:
+    """The tier asked once with `expected` - or, where `expected` is `None`,
+    asked nothing and nobody able to say, saying why."""
+    def assertion(found: ChangeFound) -> bool:
+        if expected is not None:
+            return _the_check_was_asked(asking, *expected)(found)
+
+        if asking.called or found.still_argus_s is not None or not found.found:
+            raise AssertionError(
+                f"Expected the tier asked nothing and nobody able to say, saying why, got "
+                f"[{found.still_argus_s}] finding [{found.found}], the tier asked "
+                f"{asking.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_plan", "check", "spec", "dont_care_asked"),
+                         EVERY_KIND_OF_CHECK)
+def test_asking_whether_a_change_is_still_argus_s_writes_nothing(
+    kind: UndoableKind[Any], a_plan: Callable[[], Planned[Any]], check: str, spec: type,
+    dont_care_asked: WhatTheReadIsAsked
+) -> None:
+    # A resumed walk asks it before it watches a change it did not make, and a
+    # question that wrote would be a second change made on a guess.
+    the_plan = a_plan()
+
+    Scenario() \
+        .given(
+            writes := the_writes(**{check: _a_collaborator_answering(
+                spec, ChangeFound(still_argus_s=True)
+            )})
+        ) \
+        .when(
+            lambda: kind.still_argus_s(the_plan, the_plan.descriptor, writes)
+        ) \
+        .then(
+            _nothing_was_written_through(writes)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("dont_care_kind", "a_plan", "check", "spec", "asked"),
+                         EVERY_KIND_OF_CHECK)
+def test_whether_a_change_is_still_argus_s_is_asked_by_the_kind_that_made_it(
+    dont_care_kind: UndoableKind[Any], a_plan: Callable[[], Planned[Any]], check: str,
+    spec: type, asked: WhatTheReadIsAsked
+) -> None:
+    # A resumed walk holds the claim's plan and the row's way back, and nothing
+    # saying which kind made the change but the way back itself - so the change
+    # finds its kind, as it does to be put back. Every other check in the bundle
+    # is a spy nobody wired: a change asked of the wrong kind's read fails on
+    # the call.
+    the_plan = a_plan()
+    the_answer = ChangeFound(still_argus_s=True)
+
+    Scenario() \
+        .given(
+            asking := _a_collaborator_answering(spec, the_answer)
+        ) \
+        .when(
+            lambda: still_argus_s(the_plan, the_plan.descriptor,
+                                  writes=the_writes(**{check: asking}))
+        ) \
+        .then(all_of(
+            _asked_as_its_read_needs(asking, asked(the_plan, the_plan.descriptor)),
+            the_answer_was(the_answer)
+        ))
+
+
+def _the_check_was_asked(check: MagicMock, *about: object) -> Assertion[object]:
+    """Asked once, about `about` - the change as the row records it, the plan
+    the claim carries, or both. `call_args_list` compared directly, for the
+    reason `_the_write_was_asked` gives."""
+    def assertion(dont_care_answer: object) -> bool:
+        if check.call_args_list != [call(*about)]:
+            raise AssertionError(
+                f"Expected the write tier asked once about {list(about)}, got "
+                f"{check.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+# Every kind of action that is planned, with a plan of it, the part of the write
+# tier that reads whether a claim's change on that plan was made, and what that
+# part is.
+EVERY_KIND_OF_MADE_READ = [
+    pytest.param(RevertFeatureFlagKind(), lambda: an_action_setting(SOME_FLAG, enabled=True),
+                 lambda: a_plan_of(a_planned_flag_change_for(SOME_FLAG, was_enabled=False)),
+                 "whether_flag_was_made", WhetherAFlagWasMade, id="flag"),
+    pytest.param(RollBackDeploymentKind(), lambda: RollBackDeployment(application=SOME_APPLICATION),
+                 lambda: a_plan_of(a_rollback_descriptor_for(SOME_APPLICATION)),
+                 "whether_rollback_was_made", WhetherARollbackWasMade, id="rollback"),
+    pytest.param(ScaleOutKind(), lambda: ScaleOut(application=SOME_APPLICATION),
+                 lambda: a_plan_of(a_resize_descriptor_for(SOME_APPLICATION)),
+                 "whether_scale_out_was_made", WhetherAScaleOutWasMade, id="scale-out"),
+    pytest.param(PinAutoscalerKind(), lambda: PinAutoscaler(application=SOME_APPLICATION),
+                 lambda: a_plan_of(a_pin_descriptor_for(SOME_APPLICATION)),
+                 "whether_autoscaler_pin_was_made", WhetherAnAutoscalerPinWasMade,
+                 id="autoscaler-pin"),
+    pytest.param(PinToAcceleratorKind(), lambda: a_pin_to(THE_CARD_IT_WAS_HELD_TO),
+                 lambda: a_plan_of(a_card_pin_descriptor_for(SOME_APPLICATION)),
+                 "whether_accelerator_pin_was_made", WhetherAnAcceleratorPinWasMade,
+                 id="card-pin")
+]
+
+# What the write tier can answer about a claim's change on its plan, built from
+# the plan: made - the plan's change, and when - or not made, carrying nothing,
+# or carrying the plan where the suspension before the change landed alone.
+EVERY_ANSWER_ABOUT_A_CLAIM = [
+    pytest.param(lambda planned: Made(descriptor=planned.descriptor,
+                                      made_at=THE_WRITE_LANDED_AT), id="made"),
+    pytest.param(lambda dont_care_planned: NotMade(left_behind=None), id="nothing-landed"),
+    pytest.param(lambda planned: NotMade(left_behind=planned.descriptor),
+                 id="its-suspension-alone-landed")
+]
+
+# What a read refused for, in the tier's own words: somebody's change since the
+# plan, and an answer it could not read.
+SOMEBODY_CHANGED_IT_SINCE_THE_PLAN = "somebody changed it since the plan"
+AN_ANSWER_NOBODY_COULD_READ = "the platform's answer could not be read"
+
+# The two refusals a read can raise, as the transport raises them: somebody's
+# change since the plan, and a refusal that says nothing of what is there.
+EVERY_REFUSAL_OF_A_READ = [
+    pytest.param(lambda: ChangedSince(
+        a_change_made_since(SOMEBODY_CHANGED_IT_SINCE_THE_PLAN, None), None
+    ), ChangedSince, id="changed-since"),
+    pytest.param(lambda: McpToolError(AN_ANSWER_NOBODY_COULD_READ),
+                 McpToolError, id="nobody-can-say")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("an_answer", EVERY_ANSWER_ABOUT_A_CLAIM)
+@pytest.mark.parametrize(("kind", "an_action", "a_plan", "read", "spec"),
+                         EVERY_KIND_OF_MADE_READ)
+def test_each_kind_asks_the_write_tier_whether_the_claim_s_change_was_made(
+    kind: UndoableKind[Any], an_action: Callable[[], Action],
+    a_plan: Callable[[], Planned[Any]], read: str, spec: type,
+    an_answer: Callable[[Planned[Any]], Made[Any] | NotMade[Any]]
+) -> None:
+    # A resumed walk asks before anything else, on the plan the claim carries:
+    # through the tier the write compares through, the write's own rule without
+    # the write. What the tier answers is the answer - made, with when, or not
+    # made, with what it left - and nothing here works either out again.
+    the_plan = a_plan()
+    the_answer = an_answer(the_plan)
+
+    Scenario() \
+        .given(
+            asking := _a_collaborator_answering(spec, the_answer)
+        ) \
+        .when(
+            lambda: kind.whether_it_was_made(an_action(), the_plan,
+                                             the_writes(**{read: asking}))
+        ) \
+        .then(all_of(
+            _the_check_was_asked(asking, the_plan),
+            the_answer_was(the_answer)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "an_action", "a_plan", "read", "spec"),
+                         EVERY_KIND_OF_MADE_READ)
+def test_asking_whether_the_claim_s_change_was_made_writes_nothing(
+    kind: UndoableKind[Any], an_action: Callable[[], Action],
+    a_plan: Callable[[], Planned[Any]], read: str, spec: type
+) -> None:
+    # Asked before the walk decides whether to act again: a question that wrote
+    # would be the second write the read exists to rule out.
+    Scenario() \
+        .given(
+            writes := the_writes(**{read: _a_collaborator_answering(
+                spec, NotMade(left_behind=None)
+            )})
+        ) \
+        .when(
+            lambda: kind.whether_it_was_made(an_action(), a_plan(), writes)
+        ) \
+        .then(
+            _nothing_was_written_through(writes)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("a_refusal", "raised"), EVERY_REFUSAL_OF_A_READ)
+@pytest.mark.parametrize(("kind", "an_action", "a_plan", "read", "spec"),
+                         EVERY_KIND_OF_MADE_READ)
+def test_a_read_refused_reaches_whoever_asked_whether_it_was_made_as_the_tier_raised_it(
+    kind: UndoableKind[Any], an_action: Callable[[], Action],
+    a_plan: Callable[[], Planned[Any]], read: str, spec: type,
+    a_refusal: Callable[[], McpToolError], raised: type[McpToolError]
+) -> None:
+    # Somebody's change since the plan, or an estate nobody can read: which it
+    # was decides whether the walk escalates carrying what landed or says nobody
+    # can say - from the exception's own type. A kind that caught it, or wrapped
+    # it, would turn the one into the other.
+    Scenario() \
+        .given(
+            refusing := _a_collaborator_raising(spec, a_refusal())
+        ) \
+        .when(attempting(
+            lambda: kind.whether_it_was_made(an_action(), a_plan(),
+                                             the_writes(**{read: refusing}))
+        )) \
+        .then(
+            an_error_was_raised(raised)
+        )

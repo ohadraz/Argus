@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from core.budget import StillWanted
@@ -21,6 +22,7 @@ from core.models import (
     Alert,
     Attempt,
     ChangeEvent,
+    ChangeFound,
     EstablishedOnset,
     ExecutiveSynopsisDocument,
     Findings,
@@ -28,6 +30,8 @@ from core.models import (
     Hypothesis,
     IncidentStatus,
     Leads,
+    Made,
+    NotMade,
     Planned,
     PostmortemDocument,
     ProposedFix,
@@ -47,7 +51,15 @@ from core.models import (
 from core.replay import Recorder
 from core.replay import nobody as records_nothing
 from incident_memory.records import RememberedIncident
-from mitigation import Action, ChangeMade, Outcome, PutBackOwed, Verdict
+from mitigation import (
+    Action,
+    ChangeMade,
+    NobodyCanSay,
+    Outcome,
+    Performed,
+    PutBackOwed,
+    Verdict,
+)
 from pydantic import BaseModel
 
 
@@ -351,20 +363,114 @@ class Admitted(Protocol):
     def __call__(self, action: Action, /) -> bool: ...
 
 
-class ChangeLanded(Protocol):
-    """Whether Argus's own change to a flag reached the provider after a moment.
+class WhetherItWasMade(Protocol):
+    """Whether a claim's change on its plan was made, for a walk resumed after
+    the worker that claimed it died - the write's own rule, with the write left
+    out (`mitigation.whether_it_was_made`).
 
-    `None` where the provider could not say - unreachable, or attributing
-    nothing to Argus because operator and agent share a credential. It is not
-    "no change was made": one of those answers means act, and the other means
-    say so and stop.
+    Made, with when; not made, with what of the claim's is out there all the
+    same; somebody's change since, answered as the outcome the live write's
+    refusal comes to; or nobody can say. A change the refusal says landed is
+    told to `change_made`, as the live write tells it.
     """
 
-    # Positional-only: the flag and the moment are the whole question, and
-    # nothing names them at the call. A protocol that fixed their names would
-    # oblige every stand-in to repeat them - which is a real constraint on one
-    # that ignores what it is handed, where `dont_care_flag` is the honest name.
-    def __call__(self, flag: str, since: datetime, /) -> bool | None: ...
+    def __call__(self,
+                 action: Action,
+                 planned: Planned[Any],
+                 /,
+                 *,
+                 change_made: ChangeMade = ...
+                 ) -> Made[Any] | NotMade[Any] | Outcome | NobodyCanSay: ...
+
+
+class StillArgusS(Protocol):
+    """Whether a change Argus made, from the plan its claim carries, is still as
+    Argus left it - asked by a walk resumed after the worker that made it died,
+    before it watches it. A read.
+
+    The plan is `None` for a claim that kept none. Every kind but a flag asks
+    of the change alone, and so asks all the same; a flag's history is read
+    from the plan's own read, so a flag with no plan is a question nobody can
+    answer.
+    """
+
+    def __call__(self,
+                 planned: Planned[Any] | None,
+                 descriptor: UndoDescriptor,
+                 /) -> ChangeFound: ...
+
+
+class WatchWhatWasPerformed(Protocol):
+    """Watches a change already made, judges it, and puts it back where the
+    watch refutes it (`mitigation.watch_what_was_performed`) - `TakeAction` from
+    the moment its write landed, for a change an earlier worker made.
+
+    Keyword-only after the change, for `TakeAction`'s reasons.
+    """
+
+    def __call__(self,
+                 action: Action,
+                 performed: Performed,
+                 /,
+                 *,
+                 still_wanted: StillWanted = ...,
+                 incident_id: str | None = None,
+                 publisher: Publisher = nobody,
+                 onset: datetime | None = None,
+                 incident_began: str | None = None,
+                 rule: str | None = None,
+                 put_back_owed: PutBackOwed = ...) -> Outcome: ...
+
+
+class SettleTheRefutation(Protocol):
+    """Puts back a change the watch refuted, and says what came of it
+    (`mitigation.settle_the_refutation`) - for a change an earlier worker's
+    watch refuted and owed back."""
+
+    def __call__(self,
+                 action_type: ActionType,
+                 performed: Performed,
+                 because: str,
+                 /,
+                 *,
+                 still_wanted: StillWanted = ...) -> Outcome: ...
+
+
+class PlanTheClaim(Protocol):
+    """Writes onto a claim written with no plan the plan a resumed walk takes its
+    action on, before the write - the plan lives on the claim, and the write
+    compares with it. Only onto a claim still carrying none."""
+
+    def __call__(self, incident_id: str, hypothesis_id: str, planned: Planned[Any]) -> None: ...
+
+
+class ActionAnnounced(Protocol):
+    """Whether the account already holds the line saying an action was taken
+    for this candidate of this incident - the claim's own key."""
+
+    def __call__(self, incident_id: str, hypothesis_id: str, /) -> bool: ...
+
+
+@dataclass(frozen=True)
+class Resuming:
+    """What a walk resumed inside the mitigation node reads of the estate and
+    carries on with, in one value: whether a claim's change was made, whether
+    a change made is still Argus's, the watch and the put-back from where an
+    earlier worker stopped, whether its line is already on file, and the plan
+    a claim written with none is taken on.
+
+    `metrics_window` is how far back the metrics are kept: a change is watched
+    against the service as it was before the incident, and an incident that
+    began further back than that has no such minutes left to be judged by.
+    """
+
+    whether_it_was_made: WhetherItWasMade
+    still_argus_s: StillArgusS
+    watch: WatchWhatWasPerformed
+    settle: SettleTheRefutation
+    announced: ActionAnnounced
+    plan_the_claim: PlanTheClaim
+    metrics_window: timedelta
 
 
 class ClaimedAction(BaseModel):
@@ -404,6 +510,12 @@ class ClaimedAction(BaseModel):
     under it acts on - the same action, so the same plan: the write compares
     the estate with what the claim recorded. `None` for a claim that planned
     nothing.
+
+    `undo_descriptor`, `performed_at` and `put_back_because` are what the row
+    says of a change it was told was made - what puts it back, and when it was
+    made - and, where it got that far, why it is owed back. A resumed walk
+    watches or puts back the change from them, and `None` where the row says
+    nothing of one.
     """
 
     action_id: str
@@ -411,6 +523,9 @@ class ClaimedAction(BaseModel):
     claimed_at: datetime
     progress: ActionProgress = ActionProgress.CLAIMED
     planned: Planned[UndoDescriptor] | None = None
+    undo_descriptor: UndoDescriptor | None = None
+    performed_at: datetime | None = None
+    put_back_because: str | None = None
 
 
 class ActionAlreadyTaken(Protocol):

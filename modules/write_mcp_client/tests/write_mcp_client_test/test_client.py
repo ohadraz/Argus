@@ -14,10 +14,13 @@ from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
     AutoscalerUndo,
+    ChangeFound,
     DeploymentRestored,
     DeploymentRollbackUndo,
     FlagChange,
     FlagUndo,
+    Made,
+    NotMade,
     Planned,
     ReplicaUndo,
     RestartedService,
@@ -25,6 +28,9 @@ from core.models import (
 )
 from deployment_platform.argocd import AUTOMATED, ENABLED
 from write_mcp_client import (
+    accelerator_pin_still_argus_s,
+    autoscaler_pin_still_argus_s,
+    flag_still_argus_s,
     get_recent_flag_changes,
     pin_autoscaler,
     pin_to_accelerator,
@@ -37,10 +43,16 @@ from write_mcp_client import (
     restore_accelerator_pin,
     restore_deployment,
     roll_back_deployment,
+    rollback_still_argus_s,
     scale_out,
+    scale_out_still_argus_s,
     set_feature_flag,
-    was_flag_changed_by_argus_since,
     was_flag_changed_by_others_since,
+    whether_accelerator_pin_was_made,
+    whether_autoscaler_pin_was_made,
+    whether_flag_was_made,
+    whether_rollback_was_made,
+    whether_scale_out_was_made,
     write_mcp,
 )
 
@@ -55,6 +67,7 @@ from write_mcp_client_test.fake_deployment_platform import (
     THE_REVISION_BEFORE_IT,
     THE_REVISION_RUNNING_NOW,
     FakeDeploymentPlatformHandler,
+    a_gitops_sync_policy,
     a_running_platform,
 )
 from write_mcp_client_test.fake_feature_flag_provider import (
@@ -270,35 +283,12 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
 
 
 @pytest.mark.integration
-def test_asking_whether_argus_changed_a_flag_reaches_the_provider_through_the_real_write_server(
-    running_write_mcp: type[FakeUnleashHandler]
-) -> None:
-    # The whole path of the question a resumed walk asks: the typed client, a
-    # real MCP round trip, the tool, the provider's own log and the name the
-    # server was told Argus writes under. Asked holding no run, as a read is.
-    Scenario() \
-        .given(
-            calling(the_provider_recorded(
-                running_write_mcp,
-                [a_disabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, by=THE_ARGUS_ACTOR)]
-            ))
-        ) \
-        .when(
-            _asking_the_server_as(None, lambda client: was_flag_changed_by_argus_since(
-                SOME_FLAG, parse_iso(SINCE), client=client
-            ))
-        ) \
-        .then(
-            _the_answer_is(True)
-        )
-
-
-@pytest.mark.integration
 def test_asking_whether_others_changed_a_flag_reaches_the_provider_through_the_real_write_server(
     running_write_mcp: type[FakeUnleashHandler]
 ) -> None:
-    # The question an undo asks before it writes, over the same path - and
-    # answered from the same row the other question would call somebody else's.
+    # The question an undo asks before it writes: the typed client, a real MCP
+    # round trip, the tool, the provider's own log and the name the server was
+    # told Argus writes under. Asked holding no run, as a read is.
     Scenario() \
         .given(
             calling(the_provider_recorded(
@@ -769,9 +759,7 @@ def _planned_and_then_deployed_over_after_a_suspension(
     somebody else's recorded after the plan; then the rollback asked again from
     the plan."""
     planned = plan_rollback(SOME_APPLICATION, client=client)
-    handler.sync_policy = {AUTOMATED: {"selfHeal": True, ENABLED: False}}
-    handler.syncs_itself = False
-    handler.application_annotations = {THE_ACTION_ANNOTATION: SOME_ACTION_ID}
+    _the_sync_suspended_under(handler, SOME_ACTION_ID)()
     handler.history = handler.history + [{
         "id": handler.history[-1]["id"] + 1,
         "revision": A_REVISION_SOMEBODY_DEPLOYED,
@@ -780,6 +768,19 @@ def _planned_and_then_deployed_over_after_a_suspension(
     }]
 
     return roll_back_deployment(planned, client=client)
+
+
+def _the_sync_suspended_under(handler: type[FakeDeploymentPlatformHandler],
+                              action_id: str) -> Callable[[], None]:
+    """The application's automated sync switched off, the rest of the policy
+    as declared, under the mark of the action `action_id` names - as a write
+    whose worker died after its suspension leaves it."""
+    def step() -> None:
+        handler.sync_policy = {AUTOMATED: {**a_gitops_sync_policy()[AUTOMATED], ENABLED: False}}
+        handler.syncs_itself = False
+        handler.application_annotations = {THE_ACTION_ANNOTATION: action_id}
+
+    return step
 
 
 def _an_autoscaler_staged_on(handler: type[FakeDeploymentPlatformHandler],
@@ -1378,6 +1379,713 @@ def _the_platform_was_not_rolled_back_again(
             raise AssertionError(
                 f"Expected only Argus's rollback to entry [{THE_HISTORY_BEFORE_IT}], "
                 f"and the platform was asked for {handler.rolled_back_to}."
+            )
+
+        return True
+
+    return assertion
+
+
+# When the provider recorded a change Argus made from a plan: after the plan's
+# read, as a real change lands. And when somebody changed the flag after that.
+WHEN_ARGUS_S_CHANGE_WAS_RECORDED = AFTER_THE_PROVIDER_S_PLAN
+WHEN_SOMEBODY_CHANGED_IT_AFTER = WHEN_ARGUS_S_CHANGE_WAS_RECORDED + timedelta(minutes=1)
+
+
+@pytest.mark.integration
+def test_a_flag_still_as_argus_left_it_is_said_so_through_the_real_write_server(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # The whole path of the question a resumed walk asks before it watches a
+    # flag it did not set: the typed client, a real MCP round trip, the tool,
+    # the provider's own log from the plan's read and the name the server was
+    # told Argus writes under. A read - the flag is where it was.
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _a_flag_switched_off_by_argus(
+                running_write_mcp, WHEN_ARGUS_S_CHANGE_WAS_RECORDED, client
+            ))()
+        ) \
+        .when(
+            _asking_the_server(lambda client: flag_still_argus_s(
+                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED),
+                client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=True),
+            the_provider_now_reports_enabled(running_write_mcp, [])
+        ))
+
+
+@pytest.mark.integration
+def test_a_flag_somebody_changed_since_argus_set_it_is_said_so_through_the_real_write_server(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # Changed since crosses the wire as itself, with what was found - not as
+    # nobody-can-say, and not as a refusal: it is an answer, and the walk
+    # escalates on it rather than watch somebody's flag as Argus's.
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _a_flag_switched_off_by_argus(
+                running_write_mcp, WHEN_ARGUS_S_CHANGE_WAS_RECORDED, client
+            ))(),
+            calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG)),
+            calling(the_provider_recorded(running_write_mcp, [
+                a_disabling_of(SOME_FLAG, at=to_iso(WHEN_ARGUS_S_CHANGE_WAS_RECORDED),
+                               by=THE_ARGUS_ACTOR),
+                an_enabling_of(SOME_FLAG, at=to_iso(WHEN_SOMEBODY_CHANGED_IT_AFTER),
+                               by=SOME_HUMAN)
+            ]))
+        ) \
+        .when(
+            _asking_the_server(lambda client: flag_still_argus_s(
+                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED),
+                client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=False),
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
+        ))
+
+
+@pytest.mark.integration
+def test_a_flag_whose_history_shows_no_change_since_its_plan_is_said_to_be_nobody_s_to_say(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # The row says Argus changed the flag, and the provider's history since the
+    # plan holds no change at all: the two contradict each other, and the
+    # answer crosses the wire as nobody-can-say rather than either of the others.
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _a_flag_planned_off(
+                running_write_mcp, client
+            ))()
+        ) \
+        .when(
+            _asking_the_server(lambda client: flag_still_argus_s(
+                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED),
+                client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=None),
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
+        ))
+
+
+@pytest.mark.integration
+def test_a_rollback_still_argus_s_is_said_so_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # Driven from a real rollback, for the restore's reason: a descriptor a test
+    # invented is one nothing proves the tier would produce. The history and
+    # the images read through the adapter, against the account the server was
+    # told Argus signs in as - the restore's own check, asked on its own.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_rollback_made := _asking_the_server(_rolling_back)(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: rollback_still_argus_s(
+                the_rollback_made, client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=True),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_a_rollback_somebody_deployed_over_is_said_so_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # A person deployed after Argus's rollback: the answer says what was found,
+    # in the words the restore leaves a rollback standing with.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_rollback_made := _asking_the_server(
+                lambda client: _rolled_back_and_then_deployed_over(handler, client)
+            )(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: rollback_still_argus_s(
+                the_rollback_made, client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=False, mentioning=A_REVISION_SOMEBODY_DEPLOYED),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_a_scale_out_still_argus_s_is_said_so_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # Asked acting for the action that made it, as a resumed walk asks it: the
+    # count is the one asked for, and the Deployment carries this action's mark,
+    # which travels to the tier in the call's `_meta` as a write's does.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_scale_out_made := _asking_the_server(lambda client: scale_out(
+                plan_scale_out(SOME_APPLICATION, client=client), client=client
+            ))(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: scale_out_still_argus_s(
+                the_scale_out_made, client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=True),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_an_autoscaler_pin_still_argus_s_is_said_so_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The autoscaler is staged inside the step that pins it: a `calling` step
+    # runs after every value in `given` is built, and the pin is one of them.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_pin_made := _asking_the_server(
+                lambda client: _an_autoscaler_pinned_on(handler, client)
+            )(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: autoscaler_pin_still_argus_s(
+                the_pin_made, client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=True),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_a_pin_to_a_card_still_argus_s_is_said_so_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_pin_made := _asking_the_server(lambda client: _pinning_to(SOME_CARD, client))(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: accelerator_pin_still_argus_s(
+                the_pin_made, client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_found(still_argus_s=True),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+def _an_autoscaler_pinned_on(handler: type[FakeDeploymentPlatformHandler],
+                             client: McpClient) -> AutoscalerUndo:
+    """An autoscaler staged beside the Deployment, then pinned from its plan, as
+    the walk makes a change: two calls over one session."""
+    _an_autoscaler_staged_on(handler, True)()
+
+    return pin_autoscaler(plan_autoscaler_pin(SOME_APPLICATION, client=client), client=client)
+
+
+def _it_was_found(still_argus_s: bool | None,
+                  mentioning: str | None = None) -> Assertion[ChangeFound]:
+    """The answer crossed the wire as itself - `is` rather than `==`, since
+    `None` and `False` are the whole distinction - saying what was found, where
+    a case names something it must mention."""
+    def assertion(found: ChangeFound) -> bool:
+        if found.still_argus_s is not still_argus_s:
+            raise AssertionError(
+                f"Expected the change found still Argus's [{still_argus_s}], got {found!r}."
+            )
+
+        if mentioning is not None and (found.found is None or mentioning not in found.found):
+            raise AssertionError(
+                f"Expected what was found to name [{mentioning}], got [{found.found}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_written_to(handler: type[FakeDeploymentPlatformHandler]) -> dict[str, list[Any]]:
+    """Every write the platform has been asked for so far, by route."""
+    return {
+        "sync patches": list(handler.sync_patches_received),
+        "resource patches": list(handler.resource_patches_received),
+        "rollbacks": list(handler.rolled_back_to),
+        "actions": list(handler.actions_run)
+    }
+
+
+def _nothing_more_was_written_to(handler: type[FakeDeploymentPlatformHandler],
+                                 written_by_then: dict[str, list[Any]]) -> Assertion[object]:
+    """The platform was asked for no write beyond `written_by_then`: the check
+    read, and changed nothing."""
+    def assertion(dont_care_result: object) -> bool:
+        written_now = _what_was_written_to(handler)
+
+        if written_now != written_by_then:
+            raise AssertionError(
+                f"Expected nothing more written to the platform than {written_by_then}, "
+                f"got {written_now}."
+            )
+
+        return True
+
+    return assertion
+
+
+# The flag change a claim plans: the flag found on, to be switched off.
+THE_FLAG_CHANGE_PLANNED = FlagUndo(flag=SOME_FLAG, was_enabled=True)
+
+
+@pytest.mark.integration
+def test_a_flag_change_argus_made_from_its_plan_is_found_made_through_the_real_write_server(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # The whole path of the first question a resumed walk asks of a claim: the
+    # change made through the real server from its plan, the provider recording
+    # it under the name Argus writes as, then the read on the same plan. Made,
+    # with the plan's change and when the provider recorded it - the moment the
+    # walk dates the change by - and the flag left as the change left it.
+    the_change_recorded_at = AFTER_THE_PROVIDER_S_PLAN
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _a_flag_switched_off_by_argus(
+                running_write_mcp, the_change_recorded_at, client
+            ))()
+        ) \
+        .when(
+            _asking_the_server(lambda client: whether_flag_was_made(the_plan, client=client))
+        ) \
+        .then(all_of(
+            _it_was_made_as(THE_FLAG_CHANGE_PLANNED),
+            _it_was_made_at(the_change_recorded_at),
+            the_provider_now_reports_enabled(running_write_mcp, [])
+        ))
+
+
+@pytest.mark.integration
+def test_a_flag_change_nothing_landed_of_is_found_not_made_through_the_real_write_server(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # Planned and never written: nothing in the history since the plan, so
+    # nothing landed - not made across the wire, not a refusal, carrying nothing,
+    # since a flag has no suspension before it - and the flag where the plan
+    # found it.
+    nothing_left = None
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _a_flag_planned_off(
+                running_write_mcp, client
+            ))()
+        ) \
+        .when(
+            _asking_the_server(lambda client: whether_flag_was_made(the_plan, client=client))
+        ) \
+        .then(all_of(
+            _nothing_landed(left_behind=nothing_left),
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
+        ))
+
+
+@pytest.mark.integration
+def test_a_flag_somebody_changed_since_its_plan_arrives_as_changed_since_through_the_read(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # Somebody switched it off and back on after the plan read it: the read
+    # refuses as the write refuses, with the write's own type, saying it left
+    # nothing - and the flag is as they left it.
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _a_flag_planned_off(
+                running_write_mcp, client
+            ))(),
+            calling(the_provider_recorded(running_write_mcp, [
+                a_disabling_of(SOME_FLAG, at=to_iso(AFTER_THE_PROVIDER_S_PLAN), by=SOME_HUMAN),
+                an_enabling_of(SOME_FLAG, at=to_iso(AFTER_THE_PROVIDER_S_PLAN), by=SOME_HUMAN)
+            ]))
+        ) \
+        .when(attempting(
+            _asking_the_server(lambda client: whether_flag_was_made(the_plan, client=client))
+        )) \
+        .then(all_of(
+            an_error_was_raised(ChangedSince),
+            _it_left_behind(None),
+            the_provider_now_reports_enabled(running_write_mcp, [SOME_FLAG])
+        ))
+
+
+@pytest.mark.integration
+def test_a_rollback_argus_made_from_its_plan_is_found_made_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # Made, when the platform's history has this rollback's entry by the account
+    # Argus signs in as - dated by that entry, which the platform stamps with its
+    # own clock - and nothing more written by asking.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(_planned_and_rolled_back)(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: whether_rollback_was_made(the_plan, client=client))
+        ) \
+        .then(all_of(
+            _it_was_made_as(THE_ROLLBACK_PLANNED),
+            _it_was_made_at(THE_PLATFORM_S_TIME),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_a_scale_out_argus_made_from_its_plan_is_found_made_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # Asked acting for the action that made it, as a resumed walk asks it: the
+    # count the plan asked for under this action's mark, which travels to the
+    # tier in the call's `_meta`. Dated by the mark - when the write tier wrote
+    # it, on the tier's own clock, which nothing here holds - so said only to be
+    # dated.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _planned_and_made(
+                plan_scale_out(SOME_APPLICATION, client=client),
+                lambda planned: scale_out(planned, client=client)
+            ))(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: whether_scale_out_was_made(the_plan, client=client))
+        ) \
+        .then(all_of(
+            _it_was_made_as(THE_SCALE_OUT_PLANNED),
+            _it_was_dated(),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_an_autoscaler_pin_argus_made_from_its_plan_is_found_made_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _planned_and_made(
+                _an_autoscaler_planned_on(handler, client),
+                lambda planned: pin_autoscaler(planned, client=client)
+            ))(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: whether_autoscaler_pin_was_made(
+                the_plan, client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_made_as(THE_AUTOSCALER_PIN_PLANNED),
+            _it_was_dated(),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_a_pin_to_a_card_argus_made_from_its_plan_is_found_made_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server(lambda client: _planned_and_made(
+                plan_accelerator_pin(SOME_APPLICATION, SOME_CARD, client=client),
+                lambda planned: pin_to_accelerator(planned, client=client)
+            ))(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: whether_accelerator_pin_was_made(
+                the_plan, client=client
+            ))
+        ) \
+        .then(all_of(
+            _it_was_made_as(THE_ACCELERATOR_PIN_PLANNED),
+            _it_was_dated(),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+# Every platform kind's plan, made through the server holding no run, and the
+# read of whether a claim's change on that plan was made.
+EVERY_PLATFORM_KIND_PLANNED_AND_ASKED_AFTER = [
+    pytest.param(lambda handler, client: plan_rollback(SOME_APPLICATION, client=client),
+                 lambda planned, client: whether_rollback_was_made(planned, client=client),
+                 id="rollback"),
+    pytest.param(lambda handler, client: plan_scale_out(SOME_APPLICATION, client=client),
+                 lambda planned, client: whether_scale_out_was_made(planned, client=client),
+                 id="scale-out"),
+    pytest.param(lambda handler, client: _an_autoscaler_planned_on(handler, client),
+                 lambda planned, client: whether_autoscaler_pin_was_made(planned, client=client),
+                 id="autoscaler-pin"),
+    pytest.param(lambda handler, client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD,
+                                                              client=client),
+                 lambda planned, client: whether_accelerator_pin_was_made(planned,
+                                                                         client=client),
+                 id="accelerator-pin")
+]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("plan", "ask"), EVERY_PLATFORM_KIND_PLANNED_AND_ASKED_AFTER)
+def test_a_platform_change_planned_and_never_made_is_found_not_made_through_the_real_write_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
+    plan: Callable[[type[FakeDeploymentPlatformHandler], McpClient], Planned[Any]],
+    ask: Callable[[Planned[Any], McpClient], Made[Any] | NotMade[Any]]
+) -> None:
+    # The claim was written and its worker died before the write: the platform
+    # stands as the plan found it, under no mark of this action's, so nothing
+    # landed and nothing of the claim's is out there - not made across the wire,
+    # not a refusal - and asking wrote nothing.
+    no_suspension = None
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server_as(None, lambda client: plan(handler, client))(),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: ask(the_plan, client))
+        ) \
+        .then(all_of(
+            _nothing_landed(left_behind=no_suspension),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("plan", "ask"), EVERY_PLATFORM_KIND_PLANNED_AND_ASKED_AFTER)
+def test_a_platform_change_whose_suspension_alone_landed_is_found_not_made_carrying_its_plan(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
+    plan: Callable[[type[FakeDeploymentPlatformHandler], McpClient], Planned[Any]],
+    ask: Callable[[Planned[Any], McpClient], Made[Any] | NotMade[Any]]
+) -> None:
+    # The worker died between the suspension and the change: the sync is off
+    # under this action's mark, and the change itself never landed. Not made -
+    # carrying the plan back across the wire, which is what puts the suspension
+    # back - and asking wrote nothing.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server_as(None, lambda client: plan(handler, client))(),
+            calling(_the_sync_suspended_under(handler, SOME_ACTION_ID)),
+            written_by_then := _what_was_written_to(handler)
+        ) \
+        .when(
+            _asking_the_server(lambda client: ask(the_plan, client))
+        ) \
+        .then(all_of(
+            _nothing_landed(left_behind=the_plan.descriptor),
+            _nothing_more_was_written_to(handler, written_by_then)
+        ))
+
+
+@pytest.mark.integration
+def test_a_scale_out_whose_mark_names_no_moment_is_found_made_undated_through_the_real_server(
+    running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
+) -> None:
+    # The count asked for under this action's mark, and the sync off under it
+    # too - but the mark carries no moment. Made, and undated across the wire:
+    # `None` is unknown, never a time.
+    handler = running_write_mcp_over_a_platform
+
+    Scenario() \
+        .given(
+            the_plan := _asking_the_server_as(None, lambda client: plan_scale_out(
+                SOME_APPLICATION, client=client
+            ))(),
+            calling(_the_sync_suspended_under(handler, SOME_ACTION_ID)),
+            calling(_the_count_set_under_a_mark_with_no_moment(
+                handler, the_plan.descriptor.replicas_asked_for, SOME_ACTION_ID
+            ))
+        ) \
+        .when(
+            _asking_the_server(lambda client: whether_scale_out_was_made(the_plan, client=client))
+        ) \
+        .then(all_of(
+            _it_was_made_as(THE_SCALE_OUT_PLANNED),
+            _it_was_made_undated()
+        ))
+
+
+def _the_count_set_under_a_mark_with_no_moment(handler: type[FakeDeploymentPlatformHandler],
+                                               replicas: int | None,
+                                               action_id: str) -> Callable[[], None]:
+    """The Deployment running `replicas`, marked as made for `action_id` with no
+    moment beside the mark."""
+    def step() -> None:
+        assert replicas is not None
+        handler.replicas = replicas
+        handler.deployment_annotations = {THE_ACTION_ANNOTATION: action_id}
+
+    return step
+
+
+def _as_recorded_at(planned: Planned[FlagUndo], written_at: datetime) -> FlagUndo:
+    """The plan's change as the row records it once made: dated by when the
+    provider recorded the write."""
+    return planned.descriptor.model_copy(update={"written_at": written_at})
+
+
+def _a_flag_planned_off(handler: type[FakeUnleashHandler],
+                        client: McpClient) -> Planned[FlagUndo]:
+    """`SOME_FLAG` on, as the provider holds it, and its switching off planned -
+    nothing written."""
+    the_provider_has_enabled(handler, SOME_FLAG)()
+
+    return plan_flag(SOME_FLAG, False, client=client)
+
+
+def _a_flag_switched_off_by_argus(handler: type[FakeUnleashHandler],
+                                  recorded_at: datetime,
+                                  client: McpClient) -> Planned[FlagUndo]:
+    """`SOME_FLAG` planned off and switched off from its plan through the server,
+    and the provider recording the change under the name Argus writes as at
+    `recorded_at` - which the stand-in leaves a case to stage. The plan, as the
+    claim carries it."""
+    planned = _a_flag_planned_off(handler, client)
+    set_feature_flag(planned, False, client=client)
+    the_provider_recorded(handler, [
+        a_disabling_of(SOME_FLAG, at=to_iso(recorded_at), by=THE_ARGUS_ACTOR)
+    ])()
+
+    return planned
+
+
+def _planned_and_rolled_back(client: McpClient) -> Planned[DeploymentRollbackUndo]:
+    """`SOME_APPLICATION`'s rollback planned and made from its plan; the plan,
+    as the claim carries it."""
+    return _planned_and_made(plan_rollback(SOME_APPLICATION, client=client),
+                             lambda planned: roll_back_deployment(planned, client=client))
+
+
+def _planned_and_made[D](planned: Planned[D],
+                         make: Callable[[Planned[D]], object]) -> Planned[D]:
+    """`planned`, once its change was made from it: the plan, as the claim
+    carries it."""
+    make(planned)
+
+    return planned
+
+
+def _an_autoscaler_planned_on(handler: type[FakeDeploymentPlatformHandler],
+                              client: McpClient) -> Planned[AutoscalerUndo]:
+    """An autoscaler staged beside the Deployment, and its pin planned."""
+    _an_autoscaler_staged_on(handler, True)()
+
+    return plan_autoscaler_pin(SOME_APPLICATION, client=client)
+
+
+def _it_was_made_as(planned: UndoDescriptor) -> Assertion[Made[Any] | NotMade[Any]]:
+    """Made, and the change made is the plan's - every field of it but the
+    moment it was written, which the tier stamps."""
+    def assertion(found: Made[Any] | NotMade[Any]) -> bool:
+        if not isinstance(found, Made):
+            raise AssertionError(
+                f"Expected the change found made as {planned!r}, got [{found!r}]."
+            )
+
+        if _without_its_moment(found.descriptor) != _without_its_moment(planned):
+            raise AssertionError(
+                f"Expected the change found made as {planned!r}, got {found.descriptor!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_made_at(moment: datetime) -> Assertion[Made[Any] | NotMade[Any]]:
+    def assertion(found: Made[Any] | NotMade[Any]) -> bool:
+        made_at = found.made_at if isinstance(found, Made) else None
+
+        if made_at != moment:
+            raise AssertionError(f"Expected the change found made at [{moment}], got [{made_at}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_dated() -> Assertion[Made[Any] | NotMade[Any]]:
+    def assertion(found: Made[Any] | NotMade[Any]) -> bool:
+        if not isinstance(found, Made) or found.made_at is None:
+            raise AssertionError(f"Expected the change found made and dated, got [{found!r}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_made_undated() -> Assertion[Made[Any] | NotMade[Any]]:
+    def assertion(found: Made[Any] | NotMade[Any]) -> bool:
+        if not isinstance(found, Made) or found.made_at is not None:
+            raise AssertionError(
+                f"Expected the change found made with no moment, got [{found!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_landed(left_behind: UndoDescriptor | None) -> Assertion[Made[Any] | NotMade[Any]]:
+    """Not made, arriving as such across the wire - carrying `left_behind`, what
+    of the claim's is out there all the same, or `None` where nothing is."""
+    def assertion(found: Made[Any] | NotMade[Any]) -> bool:
+        if not isinstance(found, NotMade):
+            raise AssertionError(
+                f"Expected nothing landed, leaving {left_behind!r} behind, got [{found!r}]."
+            )
+
+        if found.left_behind != left_behind:
+            raise AssertionError(
+                f"Expected nothing landed, leaving {left_behind!r} behind, and it left "
+                f"{found.left_behind!r}."
             )
 
         return True

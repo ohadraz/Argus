@@ -7,8 +7,11 @@ holds and the tools it has (spec §12.1, §13).
 """
 
 from write_mcp_client.client import (
+    accelerator_pin_still_argus_s,
+    autoscaler_pin_still_argus_s,
     commit_to_new_branch,
     discard_cache_entries,
+    flag_still_argus_s,
     get_recent_flag_changes,
     open_pull_request,
     pin_autoscaler,
@@ -24,15 +27,24 @@ from write_mcp_client.client import (
     restore_deployment,
     restore_replica_count,
     roll_back_deployment,
+    rollback_still_argus_s,
     scale_out,
+    scale_out_still_argus_s,
     set_feature_flag,
-    was_flag_changed_by_argus_since,
     was_flag_changed_by_others_since,
+    whether_accelerator_pin_was_made,
+    whether_autoscaler_pin_was_made,
+    whether_flag_was_made,
+    whether_rollback_was_made,
+    whether_scale_out_was_made,
     write_mcp,
 )
 
 __all__ = [
+    "accelerator_pin_still_argus_s",
+    "autoscaler_pin_still_argus_s",
     "commit_to_new_branch",
+    "flag_still_argus_s",
     "get_recent_flag_changes",
     "open_pull_request",
     "discard_cache_entries",
@@ -49,9 +61,15 @@ __all__ = [
     "restore_deployment",
     "restore_replica_count",
     "roll_back_deployment",
+    "rollback_still_argus_s",
     "scale_out",
+    "scale_out_still_argus_s",
     "set_feature_flag",
-    "was_flag_changed_by_argus_since",
     "was_flag_changed_by_others_since",
+    "whether_accelerator_pin_was_made",
+    "whether_autoscaler_pin_was_made",
+    "whether_flag_was_made",
+    "whether_rollback_was_made",
+    "whether_scale_out_was_made",
     "write_mcp"
 ]

@@ -21,6 +21,7 @@ from typing import Any
 
 from core import Connections, unit_of_work
 from core.events import (
+    ActionTaken,
     ExecutiveSynopsisWithheld,
     ExecutiveSynopsisWritten,
     IncidentEvent,
@@ -49,6 +50,7 @@ from incident_memory.records import RememberedIncident
 from incident_record import PublisherFor, publish_beside
 from incident_record.repository import (
     conversation,
+    events,
     hypotheses,
     incidents,
     postmortems,
@@ -211,6 +213,25 @@ class Records:
                 performed_at=performed_at
             )
 
+    def plan_the_claim(self,
+                       incident_id: str,
+                       hypothesis_id: str,
+                       planned: Planned[Any]) -> None:
+        """Writes the plan a resumed walk takes its action on onto a claim
+        written with none, and says nothing about it.
+
+        Committed on its own, before the write, so the plan the write compares
+        with lives on the claim - the next walk to find it asks after the
+        change on it. Nothing said, as `advance_action` says nothing.
+        """
+        with unit_of_work(self._connections) as conn:
+            taken_actions.plan_the_claim(
+                conn,
+                incident_id,
+                hypothesis_id=hypothesis_id,
+                planned=planned
+            )
+
     def owe_a_put_back(self, incident_id: str, hypothesis_id: str, because: str) -> None:
         """Records a refuted change as owed back, with what the wait found, and
         says nothing about it.
@@ -256,8 +277,27 @@ class Records:
             outcome=taken_action.outcome,
             claimed_at=taken_action.taken_at,
             progress=taken_action.progress,
-            planned=taken_action.planned
+            planned=taken_action.planned,
+            undo_descriptor=taken_action.undo_descriptor,
+            performed_at=taken_action.performed_at,
+            put_back_because=taken_action.put_back_because
         )
+
+    def action_announced(self, incident_id: str, hypothesis_id: str, /) -> bool:
+        """Whether the account already holds the line saying an action was taken
+        for this candidate of this incident.
+
+        A resumed walk announces a change only where none is on file for its
+        claim: the dead worker announced it whether or not its own advance
+        landed, and two lines would read as Argus acting twice. Keyed as the
+        claim is - one candidate's on one incident - so a line of another
+        candidate's, or of another incident's, is no line of this claim's.
+        """
+        with self._connections() as conn:
+            told = events.get_by_incident(conn, incident_id)
+
+        return any(isinstance(event, ActionTaken) and event.hypothesis_id == hypothesis_id
+                   for event in told)
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /) -> None:
         """Stores the write-up, and says that there is one, in one write.

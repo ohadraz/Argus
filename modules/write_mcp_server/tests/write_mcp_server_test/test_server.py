@@ -15,10 +15,17 @@ nothing they could work out again: the plan is what the claim recorded, and a
 write that re-derived it would compare the estate with something nobody wrote
 down.
 
-And the provider's history, and the two questions asked of it about one flag,
+And the provider's history, and the one question asked of it about one flag,
 which are registration and nothing else - so what is asserted is that each is
 answered by the port it was handed, from the moment it was asked about, and
 that "nobody can say" crosses the wire as itself.
+
+And the checks a resumed walk asks before it watches a change an earlier
+worker made: whether each kind's change is still as Argus left it. Reads, so a
+walk asks them holding no run; each is handed the change the row recorded and
+nothing it could work out again, and the three whose change carries a claim's
+mark are handed the claim the call's `_meta` names - the claim is the whole of
+whose a mark is, and a call naming none has no claim to compare with.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from core.mcp_transport import ACTION_META_KEY, CHANGED_SINCE_MARKER, FENCE_META
 from core.models import (
     AcceleratorPinUndo,
     AutoscalerUndo,
+    ChangeFound,
     DeploymentRollbackUndo,
     FlagChange,
     FlagState,
@@ -61,7 +69,12 @@ from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
 from write_mcp_server.server import build_server
 
-from write_mcp_server_test.framework.marks import marked_are
+from write_mcp_server_test.framework.marks import (
+    ANOTHER_CLAIM,
+    THE_MOMENT_A_MARK_SAYS,
+    a_mark_found,
+    marked_are,
+)
 from write_mcp_server_test.framework.settings import some_repository_settings
 
 # Every tool that changes something outside the tier: the seven mitigations,
@@ -86,7 +99,6 @@ EVERY_MARKED = {
 }
 
 THE_HISTORY = "get_recent_flag_changes"
-WHETHER_ARGUS_CHANGED_IT = "was_flag_changed_by_argus_since"
 WHETHER_ANYBODY_ELSE_CHANGED_IT = "was_flag_changed_by_others_since"
 PLAN_ROLLBACK = "plan_rollback"
 PLAN_SCALE_OUT = "plan_scale_out"
@@ -96,9 +108,28 @@ PLAN_FLAG = "plan_flag"
 # One plan for every write that leaves something to put back.
 EVERY_PLAN = {PLAN_ROLLBACK, PLAN_SCALE_OUT, PLAN_AUTOSCALER_PIN, PLAN_ACCELERATOR_PIN,
               PLAN_FLAG}
+# One check for every write that leaves something to put back: whether its
+# change is still as Argus left it.
+FLAG_STILL_ARGUS_S = "flag_still_argus_s"
+ROLLBACK_STILL_ARGUS_S = "rollback_still_argus_s"
+SCALE_OUT_STILL_ARGUS_S = "scale_out_still_argus_s"
+AUTOSCALER_PIN_STILL_ARGUS_S = "autoscaler_pin_still_argus_s"
+ACCELERATOR_PIN_STILL_ARGUS_S = "accelerator_pin_still_argus_s"
+EVERY_STILL_ARGUS_S = {FLAG_STILL_ARGUS_S, ROLLBACK_STILL_ARGUS_S, SCALE_OUT_STILL_ARGUS_S,
+                       AUTOSCALER_PIN_STILL_ARGUS_S, ACCELERATOR_PIN_STILL_ARGUS_S}
+# And one read for each of the same five: whether a claim's change was made.
+WHETHER_FLAG_WAS_MADE = "whether_flag_was_made"
+WHETHER_ROLLBACK_WAS_MADE = "whether_rollback_was_made"
+WHETHER_SCALE_OUT_WAS_MADE = "whether_scale_out_was_made"
+WHETHER_AUTOSCALER_PIN_WAS_MADE = "whether_autoscaler_pin_was_made"
+WHETHER_ACCELERATOR_PIN_WAS_MADE = "whether_accelerator_pin_was_made"
+EVERY_WHETHER_IT_WAS_MADE = {WHETHER_FLAG_WAS_MADE, WHETHER_ROLLBACK_WAS_MADE,
+                             WHETHER_SCALE_OUT_WAS_MADE, WHETHER_AUTOSCALER_PIN_WAS_MADE,
+                             WHETHER_ACCELERATOR_PIN_WAS_MADE}
+
 # The reads, which a stale walk gets nothing wrong by asking.
-EVERY_READ = {THE_HISTORY, WHETHER_ARGUS_CHANGED_IT, WHETHER_ANYBODY_ELSE_CHANGED_IT,
-              *EVERY_PLAN}
+EVERY_READ = {THE_HISTORY, WHETHER_ANYBODY_ELSE_CHANGED_IT, *EVERY_PLAN,
+              *EVERY_STILL_ARGUS_S, *EVERY_WHETHER_IT_WAS_MADE}
 
 # What each plan is asked with - only what the caller holds and the tier cannot
 # work out - and what its write is then asked with: the plan back, whole, and
@@ -123,12 +154,33 @@ EVERY_PLATFORM_WRITE = ["suspend_sync", "resume_sync", "roll_back", "scale", "re
 
 SOME_FLAG = "monthly-spend-feature"
 SOME_MOMENT = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
+# Who the provider says made a change to a flag: somebody, and Argus.
+SOME_FLAG_ACTOR = "admin"
+SOME_ARGUS_FLAG_ACTOR = "argus"
 SOME_CHANGE = FlagChange(
     flag=SOME_FLAG,
     enabled=False,
     occurred_at=to_iso(SOME_MOMENT),
-    actor="admin",
+    actor=SOME_FLAG_ACTOR,
     made_by_argus=False
+)
+# What the provider says when it cannot give its history: whatever it says, the
+# read answers an error.
+DONT_CARE_PROVIDER_WORDS = "the provider did not answer"
+# When the provider dated its answer to Argus's flip of `SOME_FLAG`, by its own
+# clock - after `SOME_MOMENT`, the plan's read, which the flip's history is read
+# from.
+THE_MOMENT_THE_FLIP_WAS_ANSWERED = SOME_MOMENT + timedelta(seconds=2)
+# Argus's flip of `SOME_FLAG`, as the row records it - what puts it back - and as
+# the provider's history records it.
+ARGUS_S_FLIP = FlagUndo(flag=SOME_FLAG, was_enabled=True,
+                        written_at=THE_MOMENT_THE_FLIP_WAS_ANSWERED)
+ARGUS_S_FLIP_IN_THE_HISTORY = FlagChange(
+    flag=SOME_FLAG,
+    enabled=not ARGUS_S_FLIP.was_enabled,
+    occurred_at=to_iso(THE_MOMENT_THE_FLIP_WAS_ANSWERED),
+    actor=SOME_ARGUS_FLAG_ACTOR,
+    made_by_argus=True
 )
 
 SOME_FENCE = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
@@ -431,31 +483,12 @@ def test_the_history_is_the_providers_from_the_moment_asked() -> None:
 def test_a_history_the_provider_could_not_give_is_an_error_rather_than_empty() -> None:
     # "Nothing changed" is a conclusion Mitigation escalates on.
     flags = _a_provider()
-    flags.changes_since.side_effect = FlagProviderUnavailable("dont-care")
+    flags.changes_since.side_effect = FlagProviderUnavailable(DONT_CARE_PROVIDER_WORDS)
 
     Scenario() \
         .given(server := _a_server(flags)) \
         .when(lambda: _asked(server, THE_HISTORY, None, since=to_iso(SOME_MOMENT)).isError) \
         .then(the_answer_was(True))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("answer", [True, False, None], ids=["yes", "no", "nobody can say"])
-def test_whether_argus_changed_a_flag_is_the_providers_answer(answer: bool | None) -> None:
-    # `None` crossing the wire as itself is the case that matters: a resumed walk
-    # told `False` instead acts again on something that may already have been done.
-    flags = _a_provider()
-    flags.argus_changed_since.return_value = answer
-
-    Scenario() \
-        .given(server := _a_server(flags)) \
-        .when(lambda: _the_answer_to(server, WHETHER_ARGUS_CHANGED_IT,
-                                     flag=SOME_FLAG, since=to_iso(SOME_MOMENT))) \
-        .then(all_of(
-            _it_answered(answer),
-            lambda _: _the_provider_was_asked(flags.argus_changed_since,
-                                              (SOME_FLAG, SOME_MOMENT))
-        ))
 
 
 @pytest.mark.unit
@@ -608,10 +641,12 @@ def _a_platform_an_accelerator_pin_can_be_planned_over() -> Mock:
     return platform
 
 
-def _a_platform_a_rollback_since_the_plan_stands_on(by: str) -> Mock:
+def _a_platform_a_rollback_since_the_plan_stands_on(by: str,
+                                                    marked_by: str = SOME_ACTION_ID) -> Mock:
     """A platform `_a_rollback_plan`'s rollback has been made on since the plan
     was read: its newest entry, of the revision rolled back to, made by `by`
-    after the plan; sync off, under this action's own mark."""
+    after the plan; sync off, under the mark of the action `marked_by` names -
+    this action's own, unless a case names another."""
     platform = _a_platform_read_at(SOME_PLATFORM_TIME)
     platform.deployments_of.return_value = [
         *_the_history_a_rollback_is_planned_from(),
@@ -620,7 +655,7 @@ def _a_platform_a_rollback_since_the_plan_stands_on(by: str) -> Mock:
     ]
     platform.is_syncing_itself.return_value = False
     platform.mark_on.side_effect = (
-        lambda dont_care_application, kind: SOME_ACTION_ID
+        lambda dont_care_application, kind: a_mark_found(marked_by)
             if kind == MarkedObject.APPLICATION else None
     )
     platform.images_running.return_value = THE_IMAGES_ROLLED_BACK_TO
@@ -896,6 +931,567 @@ def _changes_are(server: FencedFastMCP,
                 f"Expected {sorted(expected)} registered as changes and only "
                 f"{sorted(reads)} served as reads; the changes were "
                 f"{sorted(server.changes)} and the rest {sorted(served - set(server.changes))}."
+            )
+
+        return True
+
+    return assertion
+
+
+# What a scale-out of `SOME_COUNT` asks for: one doubling of it.
+TWICE_SOME_COUNT = 2 * SOME_COUNT
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("tool", "takes"),
+    [
+        pytest.param(FLAG_STILL_ARGUS_S, {"planned", "descriptor"}, id="flag"),
+        pytest.param(ROLLBACK_STILL_ARGUS_S, {"descriptor"}, id="rollback"),
+        pytest.param(SCALE_OUT_STILL_ARGUS_S, {"descriptor"}, id="scale-out"),
+        pytest.param(AUTOSCALER_PIN_STILL_ARGUS_S, {"descriptor"}, id="autoscaler-pin"),
+        pytest.param(ACCELERATOR_PIN_STILL_ARGUS_S, {"descriptor"}, id="accelerator-pin")
+    ]
+)
+def test_a_check_on_a_change_takes_what_the_row_recorded_and_nothing_else(
+    tool: str, takes: set[str]
+) -> None:
+    # The change the row recorded - and, for a flag, the plan the claim carries,
+    # whose read the provider's history is asked from, as the write asks it. Not
+    # the claim: that travels in `_meta`, which a model is never offered as an
+    # argument - and never anything the check could work out from the estate.
+    Scenario() \
+        .given(
+            server := _a_server()
+        ) \
+        .when(
+            lambda: _the_arguments_of(server, tool)
+        ) \
+        .then(
+            _the_arguments_are(tool, takes)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("tool", "a_change_argus_made", "a_platform_as_argus_left_it"),
+    [
+        pytest.param(ROLLBACK_STILL_ARGUS_S, lambda: _a_rollback_descriptor(),
+                     lambda: _a_platform_argus_s_rollback_still_stands_on(
+                         by=SOME_ARGUS_ACCOUNT),
+                     id="rollback"),
+        pytest.param(SCALE_OUT_STILL_ARGUS_S, lambda: _a_scale_out(),
+                     lambda: _a_platform_as_the_scale_out_left_it(marked_by=SOME_ACTION_ID),
+                     id="scale-out"),
+        pytest.param(AUTOSCALER_PIN_STILL_ARGUS_S, lambda: _an_autoscaler_pin(),
+                     lambda: _a_platform_as_the_autoscaler_pin_left_it(
+                         marked_by=SOME_ACTION_ID),
+                     id="autoscaler-pin"),
+        pytest.param(ACCELERATOR_PIN_STILL_ARGUS_S, lambda: _an_accelerator_pin(),
+                     lambda: _a_platform_as_the_accelerator_pin_left_it(
+                         marked_by=SOME_ACTION_ID),
+                     id="accelerator-pin")
+    ]
+)
+def test_a_platform_change_as_argus_left_it_is_found_so_holding_no_run_and_writing_nothing(
+    tool: str,
+    a_change_argus_made: Callable[[], BaseModel],
+    a_platform_as_argus_left_it: Callable[[], Mock]
+) -> None:
+    # Asked with no run held - the server's hold refuses to be asked - because
+    # a read gets nothing wrong for a stale walk; and what was found crosses the
+    # wire as itself.
+    platform = a_platform_as_argus_left_it()
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform, argus_account=SOME_ARGUS_ACCOUNT)
+        ) \
+        .when(
+            lambda: _what_it_found(server, tool, _acting_for(SOME_ACTION_ID),
+                                   descriptor=a_change_argus_made().model_dump(mode="json"))
+        ) \
+        .then(all_of(
+            _it_found_it_still_argus_s(True),
+            lambda _: _nothing_was_written_to(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_flag_as_argus_left_it_is_found_so_from_the_plans_read() -> None:
+    # The provider's history, from the plan's read - the write's own - with
+    # Argus's flip in it, and nobody else's. The plan crosses the wire beside
+    # the change.
+    flags = _a_provider()
+    flags.changes_since.return_value = [ARGUS_S_FLIP_IN_THE_HISTORY]
+
+    Scenario() \
+        .given(
+            server := _a_server(flags)
+        ) \
+        .when(
+            lambda: _what_it_found(
+                server, FLAG_STILL_ARGUS_S, None,
+                planned=_a_flag_plan(was_enabled=ARGUS_S_FLIP.was_enabled).model_dump(
+                    mode="json"),
+                descriptor=ARGUS_S_FLIP.model_dump(mode="json")
+            )
+        ) \
+        .then(all_of(
+            _it_found_it_still_argus_s(True),
+            lambda _: _the_provider_was_asked(flags.changes_since, (SOME_MOMENT,)),
+            lambda _: _the_flag_was_never_set(flags)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("tool", "a_change_argus_made", "a_platform_marked_by"),
+    [
+        pytest.param(SCALE_OUT_STILL_ARGUS_S, lambda: _a_scale_out(),
+                     lambda claim: _a_platform_as_the_scale_out_left_it(marked_by=claim),
+                     id="scale-out"),
+        pytest.param(AUTOSCALER_PIN_STILL_ARGUS_S, lambda: _an_autoscaler_pin(),
+                     lambda claim: _a_platform_as_the_autoscaler_pin_left_it(marked_by=claim),
+                     id="autoscaler-pin"),
+        pytest.param(ACCELERATOR_PIN_STILL_ARGUS_S, lambda: _an_accelerator_pin(),
+                     lambda claim: _a_platform_as_the_accelerator_pin_left_it(marked_by=claim),
+                     id="accelerator-pin")
+    ]
+)
+@pytest.mark.parametrize(
+    ("meta", "still_argus_s"),
+    [
+        pytest.param(_acting_for(SOME_ACTION_ID), True, id="the-claim-that-marked-it"),
+        pytest.param(_acting_for(ANOTHER_CLAIM), False, id="another-claim"),
+        pytest.param(None, None, id="no-claim")
+    ]
+)
+def test_a_marked_change_is_found_argus_s_only_for_the_claim_its_call_names(
+    tool: str,
+    a_change_argus_made: Callable[[], BaseModel],
+    a_platform_marked_by: Callable[[str], Mock],
+    meta: dict[str, Any] | None,
+    still_argus_s: bool | None
+) -> None:
+    # The claim travels in `_meta`, as a marked write's does, and reaches the
+    # check: the objects carry `SOME_ACTION_ID`'s mark, so the call naming that
+    # claim finds the change its own, one naming another finds somebody's, and
+    # one naming none is a question nobody can answer.
+    platform = a_platform_marked_by(SOME_ACTION_ID)
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform)
+        ) \
+        .when(
+            lambda: _what_it_found(server, tool, meta,
+                                   descriptor=a_change_argus_made().model_dump(mode="json"))
+        ) \
+        .then(
+            _it_found_it_still_argus_s(still_argus_s)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("newest_by", "still_argus_s"), [
+    pytest.param(SOME_ARGUS_ACCOUNT, True, id="argus-s-own-account"),
+    pytest.param(SOME_PERSON, False, id="somebody-else-s")
+])
+def test_a_rollback_is_found_argus_s_only_where_the_account_it_was_handed_made_the_newest_entry(
+    newest_by: str, still_argus_s: bool
+) -> None:
+    # The account Argus signs in as is the server's to hand the check, as it is
+    # the rollback's and the restore's: a check told any other name would take
+    # Argus's own rollback for a person's, or a person's for Argus's.
+    platform = _a_platform_argus_s_rollback_still_stands_on(by=newest_by)
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform, argus_account=SOME_ARGUS_ACCOUNT)
+        ) \
+        .when(
+            lambda: _what_it_found(server, ROLLBACK_STILL_ARGUS_S, None,
+                                   descriptor=_a_rollback_descriptor().model_dump(mode="json"))
+        ) \
+        .then(
+            _it_found_it_still_argus_s(still_argus_s)
+        )
+
+
+
+def _a_scale_out() -> ReplicaUndo:
+    """A scale-out of `SOME_COUNT` to one doubling of it, that suspended sync."""
+    return ReplicaUndo(application=SOME_APPLICATION, was_replicas=SOME_COUNT,
+                       replicas_asked_for=TWICE_SOME_COUNT, was_syncing_itself=True)
+
+
+def _an_autoscaler_pin() -> AutoscalerUndo:
+    """A pin of `SOME_BOUNDS`' floor to its ceiling, that suspended sync."""
+    return AutoscalerUndo(application=SOME_APPLICATION, was_min_replicas=SOME_BOUNDS.floor,
+                          min_replicas_asked_for=SOME_BOUNDS.ceiling, was_syncing_itself=True)
+
+
+def _an_accelerator_pin() -> AcceleratorPinUndo:
+    """A pin to `SOME_CARD` of pods held to none, that suspended sync."""
+    return AcceleratorPinUndo(application=SOME_APPLICATION, was_pinned_to=None,
+                              pinned_to=SOME_CARD, was_syncing_itself=True)
+
+
+def _a_platform_marked_by(claim: str, *objects: MarkedObject) -> Mock:
+    """A platform not syncing itself, the application and `objects` carrying
+    `claim`'s mark."""
+    marked = {MarkedObject.APPLICATION, *objects}
+    platform = _a_platform_read_at(SOME_PLATFORM_TIME)
+    platform.is_syncing_itself.return_value = False
+    platform.mark_on.side_effect = (
+        lambda dont_care_application, kind: a_mark_found(claim) if kind in marked else None
+    )
+
+    return platform
+
+
+def _a_platform_as_the_scale_out_left_it(marked_by: str) -> Mock:
+    """Running the count `_a_scale_out` asked for, with no autoscaler."""
+    platform = _a_platform_marked_by(marked_by, MarkedObject.DEPLOYMENT)
+    platform.rollout_of.return_value = RolloutProgress(
+        replicas_wanted=TWICE_SOME_COUNT, replicas_serving=TWICE_SOME_COUNT,
+        replicas_updated=TWICE_SOME_COUNT, is_paused=False, has_failed=False
+    )
+    platform.autoscaler_of.return_value = None
+
+    return platform
+
+
+def _a_platform_as_the_autoscaler_pin_left_it(marked_by: str) -> Mock:
+    """Its autoscaler's floor raised to its ceiling, as `_an_autoscaler_pin` asked."""
+    platform = _a_platform_marked_by(marked_by, MarkedObject.AUTOSCALER)
+    platform.autoscaler_of.return_value = SOME_AUTOSCALER
+    platform.autoscaler_bounds.return_value = AutoscalerBounds(
+        floor=SOME_BOUNDS.ceiling, ceiling=SOME_BOUNDS.ceiling
+    )
+
+    return platform
+
+
+def _a_platform_as_the_accelerator_pin_left_it(marked_by: str) -> Mock:
+    """Its pods held to `SOME_CARD`, as `_an_accelerator_pin` asked."""
+    platform = _a_platform_marked_by(marked_by, MarkedObject.DEPLOYMENT)
+    platform.accelerator_pin_of.return_value = SOME_CARD
+
+    return platform
+
+
+def _what_it_found(server: FencedFastMCP,
+                   tool: str,
+                   meta: dict[str, Any] | None,
+                   **arguments: object) -> ChangeFound:
+    """What a check answered over the wire, carrying `meta`, read as what it
+    found."""
+    result = _asked(server, tool, meta, **arguments)
+
+    if result.isError or result.structuredContent is None:
+        raise AssertionError(f"Expected [{tool}] to answer, and it said [{result.content}].")
+
+    return ChangeFound.model_validate(
+        result.structuredContent.get("result", result.structuredContent)
+    )
+
+
+def _it_found_it_still_argus_s(expected: bool | None) -> Assertion[ChangeFound]:
+    """`is` rather than `==`: `None` and `False` are the whole distinction here."""
+    def assertion(found: ChangeFound) -> bool:
+        if found.still_argus_s is not expected:
+            raise AssertionError(
+                f"Expected the change found still Argus's [{expected}], got "
+                f"[{found.still_argus_s}] finding [{found.found}]."
+            )
+
+        return True
+
+    return assertion
+
+
+# How a call to one of the reads asking whether a claim's change was made comes
+# back: made, nothing landed, refused as changed since, or refused with nobody
+# able to say.
+MADE = "made"
+NOTHING_LANDED = "nothing landed"
+CHANGED_SINCE = "changed since"
+NOBODY_CAN_SAY = "nobody can say"
+
+# Every platform kind, as a plan of it, the platform as the change left it
+# under a claim's marks, and the moment that platform says it was made.
+EVERY_PLATFORM_KIND_MADE = [
+    pytest.param(WHETHER_ROLLBACK_WAS_MADE, lambda: _a_rollback_plan(),
+                 lambda claim: _a_platform_a_rollback_since_the_plan_stands_on(
+                     by=SOME_ARGUS_ACCOUNT, marked_by=claim),
+                 AFTER_THE_PLAN, id="rollback"),
+    pytest.param(WHETHER_SCALE_OUT_WAS_MADE,
+                 lambda: Planned[ReplicaUndo](descriptor=_a_scale_out(), since=SOME_PLATFORM_TIME),
+                 lambda claim: _a_platform_as_the_scale_out_left_it(marked_by=claim),
+                 THE_MOMENT_A_MARK_SAYS, id="scale-out"),
+    pytest.param(WHETHER_AUTOSCALER_PIN_WAS_MADE,
+                 lambda: Planned[AutoscalerUndo](descriptor=_an_autoscaler_pin(),
+                                                 since=SOME_PLATFORM_TIME),
+                 lambda claim: _a_platform_as_the_autoscaler_pin_left_it(marked_by=claim),
+                 THE_MOMENT_A_MARK_SAYS, id="autoscaler-pin"),
+    pytest.param(WHETHER_ACCELERATOR_PIN_WAS_MADE,
+                 lambda: Planned[AcceleratorPinUndo](descriptor=_an_accelerator_pin(),
+                                                     since=SOME_PLATFORM_TIME),
+                 lambda claim: _a_platform_as_the_accelerator_pin_left_it(marked_by=claim),
+                 THE_MOMENT_A_MARK_SAYS, id="accelerator-pin")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("tool", sorted(EVERY_WHETHER_IT_WAS_MADE))
+def test_whether_a_change_was_made_takes_the_claim_s_plan_and_nothing_else(tool: str) -> None:
+    Scenario() \
+        .given(
+            server := _a_server()
+        ) \
+        .when(
+            lambda: _the_arguments_of(server, tool)
+        ) \
+        .then(
+            _the_arguments_are(tool, {"planned"})
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("tool", "a_plan", "a_platform_marked_by", "made_at"),
+                         EVERY_PLATFORM_KIND_MADE)
+def test_a_platform_change_made_is_found_made_and_dated_holding_no_run_and_writing_nothing(
+    tool: str,
+    a_plan: Callable[[], BaseModel],
+    a_platform_marked_by: Callable[[str], Mock],
+    made_at: datetime
+) -> None:
+    # Asked with no run held - the server's hold refuses to be asked - and the
+    # moment it was made crosses the wire as itself.
+    platform = a_platform_marked_by(SOME_ACTION_ID)
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform, argus_account=SOME_ARGUS_ACCOUNT)
+        ) \
+        .when(
+            lambda: _asked(server, tool, _acting_for(SOME_ACTION_ID),
+                           planned=a_plan().model_dump(mode="json"))
+        ) \
+        .then(all_of(
+            _it_came_back(MADE),
+            _it_was_made_at(made_at),
+            lambda _: _nothing_was_written_to(platform)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("tool", "a_plan", "a_platform_marked_by", "dont_care_made_at"),
+                         EVERY_PLATFORM_KIND_MADE)
+@pytest.mark.parametrize(
+    ("meta", "came_back", "saying"),
+    [
+        pytest.param(_acting_for(SOME_ACTION_ID), MADE, None, id="the-claim-that-marked-it"),
+        pytest.param(_acting_for(ANOTHER_CLAIM), CHANGED_SINCE, CHANGED_SINCE_MARKER,
+                     id="another-claim"),
+        pytest.param(None, NOBODY_CAN_SAY, ACTION_META_KEY, id="no-claim")
+    ]
+)
+def test_a_platform_change_is_found_made_only_for_the_claim_its_call_names(
+    tool: str,
+    a_plan: Callable[[], BaseModel],
+    a_platform_marked_by: Callable[[str], Mock],
+    dont_care_made_at: datetime,
+    meta: dict[str, Any] | None,
+    came_back: str,
+    saying: str | None
+) -> None:
+    # The claim travels in `_meta` and reaches the compare: the platform carries
+    # `SOME_ACTION_ID`'s marks, so the call naming that claim finds the change
+    # made, one naming another finds somebody's switch or change since - as the
+    # write would - and one naming none is refused, saying the `_meta` key it
+    # found no claim under, as a marked write refused for the same is.
+    platform = a_platform_marked_by(SOME_ACTION_ID)
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform, argus_account=SOME_ARGUS_ACCOUNT)
+        ) \
+        .when(
+            lambda: _asked(server, tool, meta, planned=a_plan().model_dump(mode="json"))
+        ) \
+        .then(
+            _it_came_back(came_back, saying=saying)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("newest_by", "came_back"), [
+    pytest.param(SOME_ARGUS_ACCOUNT, MADE, id="argus-s-own-account"),
+    pytest.param(SOME_PERSON, CHANGED_SINCE, id="somebody-else-s")
+])
+def test_a_rollback_is_found_made_only_where_the_account_it_was_handed_made_the_entry(
+    newest_by: str, came_back: str
+) -> None:
+    platform = _a_platform_a_rollback_since_the_plan_stands_on(by=newest_by)
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform, argus_account=SOME_ARGUS_ACCOUNT)
+        ) \
+        .when(
+            lambda: _asked(server, WHETHER_ROLLBACK_WAS_MADE, _acting_for(SOME_ACTION_ID),
+                           planned=_a_rollback_plan().model_dump(mode="json"))
+        ) \
+        .then(
+            _it_came_back(came_back)
+        )
+
+
+@pytest.mark.unit
+def test_a_scale_out_that_never_landed_comes_back_as_nothing_landed() -> None:
+    # Nothing crossing the wire as itself: the walk makes the change, as the live
+    # walk would.
+    platform = _a_platform_a_scale_out_can_be_planned_over()
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform)
+        ) \
+        .when(
+            lambda: _asked(server, WHETHER_SCALE_OUT_WAS_MADE, _acting_for(SOME_ACTION_ID),
+                           planned=Planned[ReplicaUndo](descriptor=_a_scale_out(),
+                                                        since=SOME_PLATFORM_TIME
+                                                        ).model_dump(mode="json"))
+        ) \
+        .then(all_of(
+            _it_came_back(NOTHING_LANDED),
+            lambda _: _nothing_was_written_to(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_a_scale_out_whose_suspension_alone_landed_carries_it_across_the_wire() -> None:
+    # The count where the plan found it, the sync suspended under the claim's
+    # mark: nothing landed, carrying the plan whole - what a walk stopped before
+    # it writes puts the suspension back with.
+    platform = _a_platform_marked_by(SOME_ACTION_ID)
+    platform.rollout_of.return_value = RolloutProgress(
+        replicas_wanted=SOME_COUNT, replicas_serving=SOME_COUNT, replicas_updated=SOME_COUNT,
+        is_paused=False, has_failed=False
+    )
+    platform.autoscaler_of.return_value = None
+
+    Scenario() \
+        .given(
+            server := _a_server(platform=platform)
+        ) \
+        .when(
+            lambda: _asked(server, WHETHER_SCALE_OUT_WAS_MADE, _acting_for(SOME_ACTION_ID),
+                           planned=Planned[ReplicaUndo](descriptor=_a_scale_out(),
+                                                        since=SOME_PLATFORM_TIME
+                                                        ).model_dump(mode="json"))
+        ) \
+        .then(all_of(
+            _it_came_back(NOTHING_LANDED),
+            _it_left_behind_across_the_wire(_a_scale_out()),
+            lambda _: _nothing_was_written_to(platform)
+        ))
+
+
+def _it_left_behind_across_the_wire(expected: ReplicaUndo) -> Assertion[CallToolResult]:
+    """Nothing landed, carrying `expected` - read back as the kind it is."""
+    def assertion(result: CallToolResult) -> bool:
+        answered = (result.structuredContent or {}).get("result", result.structuredContent)
+        carried = answered.get("left_behind") if isinstance(answered, dict) else None
+        left = None if carried is None else TypeAdapter(ReplicaUndo).validate_python(carried)
+
+        if left != expected:
+            raise AssertionError(
+                f"Expected nothing landed carrying {expected!r} across the wire, got "
+                f"[{answered}]."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("history", "came_back"),
+    [
+        pytest.param([ARGUS_S_FLIP_IN_THE_HISTORY], MADE, id="argus-s-flip"),
+        pytest.param([], NOTHING_LANDED, id="nothing"),
+        pytest.param([SOME_CHANGE], CHANGED_SINCE, id="somebody-else-s")
+    ]
+)
+def test_whether_a_flip_was_made_is_the_provider_s_history_since_the_plan(
+    history: list[FlagChange], came_back: str
+) -> None:
+    flags = _a_provider()
+    flags.changes_since.return_value = history
+
+    Scenario() \
+        .given(
+            server := _a_server(flags)
+        ) \
+        .when(
+            lambda: _asked(server, WHETHER_FLAG_WAS_MADE, None,
+                           planned=_a_flag_plan(
+                               was_enabled=ARGUS_S_FLIP.was_enabled).model_dump(mode="json"))
+        ) \
+        .then(all_of(
+            _it_came_back(came_back),
+            lambda _: _the_provider_was_asked(flags.changes_since, (SOME_MOMENT,)),
+            lambda _: _the_flag_was_never_set(flags)
+        ))
+
+
+def _it_came_back(expected: str, saying: str | None = None) -> Assertion[CallToolResult]:
+    """Which of the four ways the read came back - and, for a refusal, in its own
+    words: a changed-since refusal carries the marker, and one nobody can answer
+    for says why, in `saying`, and carries no marker."""
+    def assertion(result: CallToolResult) -> bool:
+        words = _the_words_of(result)
+
+        answered = (result.structuredContent or {}).get("result", result.structuredContent)
+
+        if result.isError:
+            came_back = CHANGED_SINCE if CHANGED_SINCE_MARKER in words else NOBODY_CAN_SAY
+        elif isinstance(answered, dict) and "made_at" in answered:
+            came_back = MADE
+        elif isinstance(answered, dict) and "left_behind" in answered:
+            came_back = NOTHING_LANDED
+        else:
+            came_back = f"neither made nor nothing landed, [{answered}]"
+
+        if came_back != expected:
+            raise AssertionError(
+                f"Expected the read to come back [{expected}], got [{came_back}] saying "
+                f"[{result.content}]."
+            )
+
+        if saying is not None and saying not in words:
+            raise AssertionError(
+                f"Expected the refusal to say [{saying}], got [{words}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_made_at(expected: datetime) -> Assertion[CallToolResult]:
+    def assertion(result: CallToolResult) -> bool:
+        answered = (result.structuredContent or {}).get("result", result.structuredContent)
+        made_at = None if answered is None else answered.get("made_at")
+
+        if made_at is None or datetime.fromisoformat(made_at) != expected:
+            raise AssertionError(
+                f"Expected the change found made at [{expected}], got [{made_at}]."
             )
 
         return True

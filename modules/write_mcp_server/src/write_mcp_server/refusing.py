@@ -21,6 +21,7 @@ the action's, which is why each says `asked_to_change` itself.
 from __future__ import annotations
 
 from core.mcp_transport import (
+    ACTION_META_KEY,
     a_refusal_saying_what_it_left,
     an_unreachable_platform,
     with_what_it_left,
@@ -53,3 +54,15 @@ def a_platform_refusal(said: str,
         return an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
 
     return a_refusal_saying_what_it_left(said, left_behind)
+
+
+def no_claim_to_compare_with(the_change: str) -> str:
+    """What a read of whose a marked change is says where the call named no
+    claim: the claim is the whole of whose a mark is, so nobody can say.
+
+    Unmarked, as a question nobody could answer: no evidence anybody acted, so
+    not changed since, and nothing it can vouch for about what landed. Names the
+    `_meta` key it found no claim under, as a marked write refused for the same
+    does (`marking`)."""
+    return (f"the call named no claim under [{ACTION_META_KEY}], so whether "
+            f"{the_change} was made under one's mark cannot be asked, and nobody can say")

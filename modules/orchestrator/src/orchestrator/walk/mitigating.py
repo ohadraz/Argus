@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
-from typing import Any
+from typing import Any, Final
 
-from core import utc_now, was_lost
+from core import parse_iso, utc_now, was_lost
 from core.events import (
     ActionTaken,
     AgentInvoked,
@@ -20,12 +21,14 @@ from core.events import (
     publish,
 )
 from core.models import (
-    FLAG_PROVIDER,
     Action,
     ActionProgress,
     Actor,
     AlarmClaim,
+    ChangeFound,
     IncidentStatus,
+    Made,
+    NotMade,
     Planned,
     UndoDescriptor,
     UnreadVerdict,
@@ -37,20 +40,26 @@ from core.models import (
     the_subject_of,
 )
 from incident_record import IsStillWanted
-from mitigation import Outcome, Verdict, stopped_before_it_was_taken
+from mitigation import (
+    NobodyCanSay,
+    Outcome,
+    Verdict,
+    performed_as_recorded,
+    stopped_before_it_was_taken,
+)
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     ActingFor,
     ActionAlreadyTaken,
     AdvanceAction,
-    ChangeLanded,
     ClaimedAction,
     CompleteAction,
     OweAPutBack,
     PlanAction,
     RecordAction,
     RecordOutcome,
+    Resuming,
     TakeAction,
 )
 from orchestrator.walk.routes import (
@@ -61,6 +70,30 @@ from orchestrator.walk.routes import (
 from orchestrator.walk.state import IncidentState
 
 logger = logging.getLogger(__name__)
+
+# How a resumed walk hands an incident over, in the words a person reads. A
+# change made and a change nobody can account for are the same decision and
+# different situations: the first needs somebody to look at the service, the
+# second somebody to establish what the earlier attempt managed. Named for the
+# action rather than a flag, since a change told as made can be any kind.
+_A_CHANGE_MADE_AND_NEVER_RECORDED: Final = (
+    "an earlier attempt carried out this action and stopped before recording what came "
+    "of it"
+)
+_A_CHANGE_NOBODY_CAN_ACCOUNT_FOR: Final = (
+    "an earlier attempt claimed this action and nothing can say whether it was carried out"
+)
+_CHANGED_SINCE_IT_WAS_MADE: Final = (
+    "an earlier attempt carried out this action, and it has been changed since"
+)
+_NOBODY_CAN_SAY_IT_STILL_STANDS: Final = (
+    "an earlier attempt carried out this action, and nothing can say whether it still "
+    "stands as it was left"
+)
+_THE_METRICS_NO_LONGER_REACH_BACK: Final = (
+    "the metrics kept no longer reach back to when the incident began, so whether the "
+    "change helped cannot be judged"
+)
 
 
 def mitigation_node(
@@ -74,7 +107,7 @@ def mitigation_node(
     still_wanted: IsStillWanted,
     take: TakeAction,
     plan_action: PlanAction,
-    change_landed: ChangeLanded,
+    resuming: Resuming,
     acting_for: ActingFor,
     publisher: Publisher = nobody,
     now: Callable[[], datetime] = utc_now
@@ -96,8 +129,12 @@ def mitigation_node(
 
     `advance_action` writes on the claim what is learnt before the verdict:
     that the change was made, the moment the agent says so, with what would
-    put it back and when the walk recorded it - so a worker that dies during
-    the wait leaves a row a withdrawal can undo and a write-up can call tried.
+    put it back and when it was made - so a worker that dies during the wait
+    leaves a row a withdrawal can undo and a write-up can call tried.
+
+    `resuming` is what a walk refused the claim reads of the estate and
+    carries on with: the claim was written by a worker that is gone, and the
+    walk picks its attempt up at the step the row records (spec §11.1).
 
     `owe_a_put_back` writes on the claim that the wait refuted a change that
     left something to put back, with what it found, before the put-back is
@@ -156,28 +193,17 @@ def mitigation_node(
     )
 
     if action_id is None:
-        claimed = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
-        resumed = _what_the_earlier_attempt_left(
-            state, claimed, change_landed, advance_action, publisher
+        return _the_earlier_attempt_resumed(
+            state,
+            already_taken(state.incident_id, hypothesis_id=state.hypothesis.id),
+            _Resumption(
+                planned=planned, refused=refused, resuming=resuming, take=take,
+                complete_action=complete_action, advance_action=advance_action,
+                owe_a_put_back=owe_a_put_back, record_outcome=record_outcome,
+                still_wanted=still_wanted, acting_for=acting_for, publisher=publisher,
+                now=now
+            )
         )
-
-        # `None` means the earlier attempt left nothing behind - the claim was
-        # written and the change never reached the provider - so this walk
-        # takes the action that claim was for, on the claim already in hand, and
-        # marks its writes as that claim's: the same action, so the same mark.
-        if resumed is not None:
-            return resumed
-
-        assert claimed is not None
-        action_id = claimed.action_id
-
-        # And on that claim's plan, where it was written with one: the write
-        # compares the estate with what the claim recorded - so this walk's own
-        # plan, made from an estate read later, is neither acted on nor
-        # refused on.
-        if claimed.planned is not None:
-            planned = claimed.planned
-            refused = None
 
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
     # The announcement, once the agent says the change was made - and none for
@@ -226,62 +252,88 @@ def _take_on_the_claim(state: IncidentState,
                        now: Callable[[], datetime]) -> Outcome:
     """Takes the claimed action on its plan, inside the claim's action, and
     answers with what came of it."""
-    assert state.proposed_action is not None and state.hypothesis is not None
-
-    # The incident and the publisher travel with the action, so the
-    # verification wait - the longest silence in an incident - is narrated
-    # from inside Mitigation, where the looking actually happens. So does the
-    # question of whether anybody still wants it: that wait is the one stretch
-    # long enough for somebody to give up on it, and the only place in the walk
-    # where a withdrawal is noticed anywhere but a node boundary.
-    # The minute the alert dated the incident to travels with them, because the
-    # wait has one more question to answer than a level: whether any of this
-    # incident's own minutes were ever published. Read off the alert rather than
-    # derived here, since the alert is the only thing that ever states one.
-    #
     # Inside the claim's action, put-back of a refuted change included, so that
     # every write the tier makes for it carries its mark.
     with acting_for(action_id):
-        return take(
-            state.proposed_action,
-            # The plan the claim carries - this walk's, or on a resume the
-            # earlier claim's - and not one worked out again: the write
-            # compares the estate with what the claim recorded.
-            plan=planned,
-            still_wanted=partial(still_wanted, state.incident_id),
+        return _taken(state, take, planned, still_wanted, advance_action, owe_a_put_back,
+                      announced, publisher, now)
+
+
+def _taken(state: IncidentState,
+           take: TakeAction,
+           planned: Planned[Any] | None,
+           still_wanted: IsStillWanted,
+           advance_action: AdvanceAction,
+           owe_a_put_back: OweAPutBack,
+           announced: list[ActionTaken],
+           publisher: Publisher,
+           now: Callable[[], datetime]) -> Outcome:
+    """Takes the action on its plan, for whichever claim its caller acts for,
+    and answers with what came of it."""
+    assert state.proposed_action is not None and state.hypothesis is not None
+
+    return take(
+        state.proposed_action,
+        # The plan the claim carries - this walk's, or on a resume the
+        # earlier claim's - and not one worked out again: the write
+        # compares the estate with what the claim recorded.
+        plan=planned,
+        **_what_the_wait_is_handed(state, still_wanted, publisher),
+        change_made=partial(
+            _the_change_was_made,
+            advance_action,
+            announced,
+            publisher,
+            now,
             incident_id=state.incident_id,
-            publisher=publisher,
-            onset=state.alert.stated_onset,
-            # The minute the investigation dated the incident from, so the
-            # recovery is never dated before it.
-            incident_began=state.onset.minute if state.onset is not None else None,
-            # The rule that paged, where the alert is about a series - the
-            # action is judged by whether it stops firing. A finding's check
-            # runs on its own schedule, so it keeps the confirmation it has.
-            rule=(
-                state.alert.rule
-                if state.alert.claim is AlarmClaim.A_SERIES_CONDITION
-                else None
-            ),
-            change_made=partial(
-                _the_change_was_made,
-                advance_action,
-                announced,
-                publisher,
-                now,
-                incident_id=state.incident_id,
-                hypothesis_id=state.hypothesis.id,
-                candidate_number=state.hypothesis.number,
-                action=state.proposed_action,
-                alerting_service=state.alert.service
-            ),
-            put_back_owed=partial(
-                _the_put_back_is_owed,
-                owe_a_put_back,
-                incident_id=state.incident_id,
-                hypothesis_id=state.hypothesis.id
-            )
+            hypothesis_id=state.hypothesis.id,
+            candidate_number=state.hypothesis.number,
+            action=state.proposed_action,
+            alerting_service=state.alert.service
+        ),
+        put_back_owed=partial(
+            _the_put_back_is_owed,
+            owe_a_put_back,
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id
         )
+    )
+
+
+def _what_the_wait_is_handed(state: IncidentState,
+                             still_wanted: IsStillWanted,
+                             publisher: Publisher) -> dict[str, Any]:
+    """What the verification wait is handed of the incident, whoever made the
+    change it waits on.
+
+    The incident and the publisher travel with the action, so the verification
+    wait - the longest silence in an incident - is narrated from inside
+    Mitigation, where the looking actually happens. So does the question of
+    whether anybody still wants it: that wait is the one stretch long enough
+    for somebody to give up on it, and the only place in the walk where a
+    withdrawal is noticed anywhere but a node boundary. The minute the alert
+    dated the incident to travels with them, because the wait has one more
+    question to answer than a level: whether any of this incident's own
+    minutes were ever published. Read off the alert rather than derived here,
+    since the alert is the only thing that ever states one.
+    """
+    return {
+        "still_wanted": partial(still_wanted, state.incident_id),
+        "incident_id": state.incident_id,
+        "publisher": publisher,
+        "onset": state.alert.stated_onset,
+        # The minute the investigation dated the incident from, so the
+        # recovery is never dated before it.
+        "incident_began": state.onset.minute if state.onset is not None else None,
+        # The rule that paged, where the alert is about a series - the action
+        # is judged by whether it stops firing. A finding's check runs on its
+        # own schedule, so it keeps the confirmation it has.
+        "rule": (
+            state.alert.rule
+            if state.alert.claim is AlarmClaim.A_SERIES_CONDITION
+            else None
+        )
+    }
 
 
 def _the_attempt_recorded(state: IncidentState,
@@ -543,62 +595,50 @@ def _the_put_back_is_owed(owe_a_put_back: OweAPutBack,
                        extra={"incident_id": incident_id, "hypothesis_id": hypothesis_id})
 
 
-def _what_the_earlier_attempt_left(state: IncidentState,
-                                   claimed: ClaimedAction | None,
-                                   change_landed: ChangeLanded,
-                                   advance_action: AdvanceAction,
-                                   publisher: Publisher
-                                   ) -> StateDelta | None:
-    """What a walk resumed inside the mitigation node should answer with, or
-    `None` where it should simply take the action itself.
+@dataclass(frozen=True)
+class _Resumption:
+    """What a walk refused the claim carries into picking the earlier attempt
+    up: this walk's own plan, or the refusal of it, and every collaborator the
+    node was handed that a resumed attempt can reach."""
 
-    Three states, and the whole point is that they are three rather than one.
+    planned: Planned[Any] | None
+    refused: Outcome | None
+    resuming: Resuming
+    take: TakeAction
+    complete_action: CompleteAction
+    advance_action: AdvanceAction
+    owe_a_put_back: OweAPutBack
+    record_outcome: RecordOutcome
+    still_wanted: IsStillWanted
+    acting_for: ActingFor
+    publisher: Publisher
+    now: Callable[[], datetime]
+
+
+def _the_earlier_attempt_resumed(state: IncidentState,
+                                 claimed: ClaimedAction | None,
+                                 resumption: _Resumption) -> StateDelta:
+    """What a walk resumed inside the mitigation node answers with, picking the
+    earlier attempt up at the step its row records (spec §11.1).
 
     An outcome on file means the earlier attempt finished: this walk reports it
     and lets the routing continue as though it had reached it. The recorded
     outcome rather than a word of its own, because everything downstream reads
     `action_outcome` as a verdict and a new spelling would have to be
-    understood in every one of those places.
+    understood in every one of those places. An outcome nobody here can read
+    escalates without asking anything: a verdict was reached, and every answer
+    available would be wrong.
 
     No outcome means the worker died mid-action, and the claim's progress says
-    how far it got. Told as made, the change was made: the incident escalates
-    without asking anybody, since a change was made and nobody recorded what
-    came of it, and neither acting again nor inventing a verdict would produce
-    that record. Told as unknown, an earlier resume already failed to find out,
-    and the incident escalates on that - asking again could only be read as
-    licence to act a second time on a change somebody may already have made.
-
-    Still only claimed, the provider's log is asked whether the change actually
-    landed, under the flag the *action* names - the log answers about a flag it
-    recorded moving, where the candidate says only what a model thought was
-    wrong. It is the only record of what a process that no longer exists
-    managed to do. If the change did land, the claim is told so and the
-    incident escalates as above.
-
-    If the change never landed, nothing happened at all - so this walk takes
-    the action, on the claim already written. That answer is only ever given
-    about a claim that was found, since the question needs its moment.
-
-    A provider that cannot say is treated as the first case, not the second. An
-    unanswerable question is not a "no", and acting on it would be acting on a
-    guess about whether production has already been changed. The claim is told
-    that nobody can say, which is final: no walk will ask it again.
-
-    An action that does not go through the flag provider is never asked about,
-    and reaches that same case. The provider's log answers about flags: asked
-    about a "flag" named after a deployment it finds no such change, and that
-    "no" would have this walk roll back, scale or pin a second time a deployment
-    the dead worker may already have changed. Nothing else keeps a log that
-    says whether Argus's own change to a deployment landed - a restart writes to
-    nothing at all - and a second action taken on that guess is the loop the
-    per-subject cap exists to prevent, arrived at by another road.
-
-    An outcome nobody here can read is the fourth state, and it escalates
-    without asking the provider anything. A verdict was reached, so the
-    question this node asks a claim carrying nothing - did the change land -
-    is not the question: a "yes" would describe an unmeasured change that was
-    in fact measured, and a "no" would be read as licence to act again on a
-    subject somebody already settled.
+    how far it got - each step asked of the estate rather than taken on either
+    walk's memory, since the estate is the only record of what a process that
+    no longer exists managed to do. Only claimed, the change is asked after
+    (`_the_claim_resumed`); told as made, it is asked whether it still stands
+    and watched (`_the_change_made_resumed`); owed back, it is put back
+    (`_the_put_back_resumed`). Told as unknown, an earlier resume already failed
+    to find out, and the incident escalates on that - asking again could only
+    be read as licence to act a second time on a change somebody may already
+    have made.
     """
     assert state.hypothesis is not None and state.proposed_action is not None
 
@@ -630,18 +670,16 @@ def _what_the_earlier_attempt_left(state: IncidentState,
                 hypothesis_id=state.hypothesis.id,
                 outcome=outcome
             ),
-            publisher
+            resumption.publisher
         )
 
-        # The moment the claim was written, just before the action was taken.
-        # The walk that announced it is gone, and the row is all that is left.
         return StateDelta(
             action_outcome=outcome,
             # Told outright: the claim records the verdict and not the reason,
             # and left unset the walk would keep an earlier round's reason and
             # hand it on as this action's.
             action_because=None,
-            acted_at=claimed.claimed_at,
+            acted_at=_when_it_was_made(claimed),
             narration=Narration(
                 action="mitigation resumed",
                 detail=f"an earlier attempt already acted on this explanation: "
@@ -649,92 +687,416 @@ def _what_the_earlier_attempt_left(state: IncidentState,
             )
         )
 
-    # Already answered on the claim, so nobody is asked. Made is made, whoever
-    # the provider would credit with it - a change owed back was made too, and
-    # judged, and until a walk puts it back it is handed over the same way; and
-    # unknown was an earlier resume's answer that nobody can say, which asking
-    # again cannot improve on.
-    if claimed is not None and claimed.progress.its_change_was_made() is True:
-        return _the_resumed_walk_stops(landed=True)
+    if claimed is None or claimed.progress is ActionProgress.UNKNOWN:
+        return _the_resumed_walk_stops(_A_CHANGE_NOBODY_CAN_ACCOUNT_FOR)
 
-    if claimed is not None and claimed.progress is ActionProgress.UNKNOWN:
-        return _the_resumed_walk_stops(landed=None)
+    match claimed.progress:
+        case ActionProgress.CLAIMED:
+            return _the_claim_resumed(state, claimed, resumption)
+        case ActionProgress.PERFORMED:
+            return _the_change_made_resumed(state, claimed, resumption)
+        case ActionProgress.PUTTING_BACK:
+            return _the_put_back_resumed(state, claimed, resumption)
+        case _:
+            # Not performed with no outcome recorded against it: a row no walk
+            # writes, so one nothing here can account for.
+            return _the_resumed_walk_stops(_A_CHANGE_NOBODY_CAN_ACCOUNT_FOR)
 
-    # Both are needed to ask the question at all: which flag, and from when. A
-    # claim whose moment cannot be read is a question that cannot be put -
-    # which is the same answer as a provider that will not answer it.
-    #
-    # The flag comes from the action rather than from the candidate, because
-    # the provider's log answers about a flag it recorded moving and the
-    # candidate says what a model thought was wrong. And an action through any
-    # other platform is not asked about at all: the provider's log knows
-    # nothing of a deployment, so its "no" would be a guess read as a fact, and
-    # that unanswerable question ends the same way every unanswerable one does.
-    since = claimed.claimed_at if claimed is not None else None
-    landed = (
-        change_landed(the_subject_of(state.proposed_action), since)
-        if since is not None
-        and the_platform_of(state.proposed_action.action_type) == FLAG_PROVIDER
-        else None
+
+def _the_claim_resumed(state: IncidentState,
+                       claimed: ClaimedAction,
+                       resumption: _Resumption) -> StateDelta:
+    """A claim and nothing more: the dead worker may or may not have made its
+    change, and the estate is asked first - before anybody is asked whether it
+    is still wanted, so a change found made is never recorded as one not taken.
+
+    Asked on the plan the claim was written with, the write's own rule without
+    the write. A claim written with none - its plan was refused and the worker
+    died before recording it - has this walk's own plan, there being no other.
+    A restart or a discard has no plan and no record of whether it ran, and is
+    never done twice on a guess: it is handed over as nobody can say.
+
+    Made, the row is moved on to made with what the estate says puts it back
+    and when, and carried on as a change told as made. Not made, the action is
+    taken on the plan as the live walk takes it, its compare guarding the gap -
+    and what the read said of the claim's is out there all the same, a
+    suspension standing, is recorded as left behind wherever taking it ends
+    before its own change. Somebody's change since is the live write's refusal,
+    recorded as the live walk records it - where this claim's change had landed
+    first, the row is moved on to made at no moment the estate gave, and dated
+    by the claim, the nearest it has. Nobody can say is kept on the claim, with
+    whatever the refusal carried of the claim's, which is final, and handed
+    over with nothing completed.
+
+    A claim written with no plan is taken on this walk's, written onto the claim
+    first: the plan lives on the claim, and the write compares with it.
+    """
+    assert state.hypothesis is not None and state.proposed_action is not None
+    action = state.proposed_action
+    planned = claimed.planned if claimed.planned is not None else resumption.planned
+
+    if planned is None:
+        if resumption.refused is not None:
+            # The plan was refused, by the dead worker's walk and by this one:
+            # nothing was written, and the refusal is the attempt.
+            result = (resumption.refused if resumption.still_wanted(state.incident_id)
+                      else stopped_before_it_was_taken())
+
+            return _the_attempt_recorded(state, result, None, resumption.complete_action,
+                                         resumption.record_outcome, resumption.publisher)
+
+        _the_claim_is_told(state, resumption.advance_action, ActionProgress.UNKNOWN)
+
+        return _the_resumed_walk_stops(_A_CHANGE_NOBODY_CAN_ACCOUNT_FOR)
+
+    if claimed.planned is None:
+        _the_plan_is_put_on_the_claim(state, planned, resumption)
+
+    with resumption.acting_for(claimed.action_id):
+        answer = resumption.resuming.whether_it_was_made(
+            action, planned,
+            change_made=partial(_the_change_was_found_made, resumption, claimed, state=state)
+        )
+
+        if isinstance(answer, NobodyCanSay):
+            _the_claim_is_told(state, resumption.advance_action, ActionProgress.UNKNOWN,
+                               undo_descriptor=answer.left_behind)
+
+            return _the_resumed_walk_stops(_A_CHANGE_NOBODY_CAN_ACCOUNT_FOR)
+
+        if isinstance(answer, Outcome):
+            # Rule 6: a change made - this claim's, landed before somebody
+            # overtook it - is dated by the claim, the estate giving no moment.
+            return _the_attempt_recorded(state, answer,
+                                         claimed.claimed_at if answer.performed else None,
+                                         resumption.complete_action,
+                                         resumption.record_outcome, resumption.publisher)
+
+        if isinstance(answer, Made):
+            return _the_found_made_carried_on(state, claimed, answer, resumption)
+
+        return _the_claim_taken(state, planned, answer, resumption)
+
+
+def _the_found_made_carried_on(state: IncidentState,
+                               claimed: ClaimedAction,
+                               made: Made[Any],
+                               resumption: _Resumption) -> StateDelta:
+    """A claimed change found made: moved on to made, dated by when the estate
+    says it was - the only record of when it happened, and no moment at all
+    where the estate has none, never this walk's clock - then announced where
+    nothing is on file, and watched as a change told as made is."""
+    assert state.hypothesis is not None and state.proposed_action is not None
+
+    _the_claim_is_told(state, resumption.advance_action, ActionProgress.PERFORMED,
+                       undo_descriptor=made.descriptor, performed_at=made.made_at)
+    acted_at = made.made_at if made.made_at is not None else claimed.claimed_at
+    _announced_where_none_is_on_file(state, acted_at, resumption)
+
+    return _the_change_watched(state, made.descriptor, acted_at, resumption)
+
+
+def _the_claim_taken(state: IncidentState,
+                     planned: Planned[Any],
+                     not_made: NotMade[Any],
+                     resumption: _Resumption) -> StateDelta:
+    """A claimed change found not made, taken on its plan as the live walk takes
+    it - unless the metrics can no longer judge it, when a change nobody can
+    judge is not made. Either way, what the read said of the claim's is out
+    there all the same is recorded as left behind where the attempt ends before
+    its own change, and known: nothing else of the claim's was made."""
+    assert state.hypothesis is not None and state.proposed_action is not None
+    left_behind = not_made.left_behind
+
+    if not _the_metrics_reach_back(state, resumption):
+        _the_attempt_recorded(
+            state,
+            Outcome(verdict=Verdict.ESCALATED, detail=_THE_METRICS_NO_LONGER_REACH_BACK,
+                    undo_descriptor=left_behind, left_behind_known=True, judged=False,
+                    performed=False),
+            None, resumption.complete_action, resumption.record_outcome,
+            resumption.publisher
+        )
+
+        return _the_resumed_walk_stops(_THE_METRICS_NO_LONGER_REACH_BACK)
+
+    publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION),
+            resumption.publisher)
+    announced: list[ActionTaken] = []
+    result = _taken(state, resumption.take, planned, resumption.still_wanted,
+                    resumption.advance_action, resumption.owe_a_put_back, announced,
+                    resumption.publisher, resumption.now)
+
+    if not result.performed and result.undo_descriptor is None and left_behind is not None:
+        result = result.model_copy(update={"undo_descriptor": left_behind})
+
+    return _the_attempt_recorded(state, result, announced[0].at if announced else None,
+                                 resumption.complete_action, resumption.record_outcome,
+                                 resumption.publisher)
+
+
+def _the_change_made_resumed(state: IncidentState,
+                             claimed: ClaimedAction,
+                             resumption: _Resumption) -> StateDelta:
+    """A change told as made: the worker died in the wait. Asked whether it is
+    still as it was left, and watched afresh where it is - in the words it was
+    made with, and not made again.
+
+    Somebody's change since is handed over saying what was found, the row
+    keeping the way back it already holds so a withdrawal can put back
+    whatever of it is Argus's; and so is a change nobody can say still stands,
+    since a reading of a service whose state nobody can describe would judge a
+    change nobody can say is there - a read that failed among it. A row that
+    says the change was made and keeps nothing that puts it back has nothing to
+    ask after, and is handed over as a change made and never recorded.
+
+    Whichever the answer, the change was made, so it is announced where the
+    dead worker died before announcing it, dated when it was made.
+    """
+    assert state.hypothesis is not None
+    descriptor = claimed.undo_descriptor
+
+    if descriptor is None:
+        return _the_resumed_walk_stops(_A_CHANGE_MADE_AND_NEVER_RECORDED)
+
+    with resumption.acting_for(claimed.action_id):
+        found = _whether_it_still_stands(state, claimed.planned, descriptor, resumption)
+        acted_at = _when_it_was_made(claimed)
+        _announced_where_none_is_on_file(state, acted_at, resumption)
+
+        if found.still_argus_s is not True:
+            return _the_resumed_walk_stops(_said_with_what_was_found(
+                _CHANGED_SINCE_IT_WAS_MADE if found.still_argus_s is False
+                else _NOBODY_CAN_SAY_IT_STILL_STANDS,
+                found.found
+            ))
+
+        return _the_change_watched(state, descriptor, acted_at, resumption)
+
+
+def _whether_it_still_stands(state: IncidentState,
+                             planned: Planned[Any] | None,
+                             descriptor: UndoDescriptor,
+                             resumption: _Resumption) -> ChangeFound:
+    """The estate's answer to whether a change made is still as Argus left it -
+    or, where the read itself failed, nobody can say, in its own words. A lost
+    run raises: the incident is another claim's walk."""
+    try:
+        return resumption.resuming.still_argus_s(planned, descriptor)
+    except Exception as error:
+        if was_lost(error):
+            raise
+
+        logger.warning("whether a resumed change still stands could not be read",
+                       exc_info=True, extra={"incident_id": state.incident_id})
+
+        return ChangeFound(still_argus_s=None, found=str(error) or type(error).__name__)
+
+
+def _the_change_watched(state: IncidentState,
+                        descriptor: UndoDescriptor,
+                        acted_at: datetime | None,
+                        resumption: _Resumption) -> StateDelta:
+    """A change an earlier worker made, watched as the live walk watches it and
+    recorded as the live walk records it - unless the metrics no longer reach
+    back to when the incident began, when whether it helped cannot be judged
+    and it is handed over, still standing, rather than watched.
+
+    Acted for the claim's own row by whoever calls it, so a refutation the
+    watch puts back is a write marked as that action's.
+    """
+    assert state.hypothesis is not None and state.proposed_action is not None
+
+    if not _the_metrics_reach_back(state, resumption):
+        return _the_resumed_walk_stops(_THE_METRICS_NO_LONGER_REACH_BACK)
+
+    publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION),
+            resumption.publisher)
+    result = resumption.resuming.watch(
+        state.proposed_action,
+        performed_as_recorded(state.proposed_action, descriptor),
+        **_what_the_wait_is_handed(state, resumption.still_wanted, resumption.publisher),
+        put_back_owed=partial(
+            _the_put_back_is_owed,
+            resumption.owe_a_put_back,
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id
+        )
     )
 
-    if landed is False:
+    return _the_attempt_recorded(state, result, acted_at, resumption.complete_action,
+                                 resumption.record_outcome, resumption.publisher)
+
+
+def _the_put_back_resumed(state: IncidentState,
+                          claimed: ClaimedAction,
+                          resumption: _Resumption) -> StateDelta:
+    """A change owed back: the watch refuted it and the worker died before
+    putting it back. Put back for what the watch found - not watched again, not
+    made again - said in the words the walk that made it used, and recorded as
+    the live walk records its put-back. The row already says it is owed back,
+    so it is neither owed again nor moved on."""
+    assert state.hypothesis is not None and state.proposed_action is not None
+    descriptor, because = claimed.undo_descriptor, claimed.put_back_because
+
+    if descriptor is None or because is None:
+        return _the_resumed_walk_stops(_A_CHANGE_MADE_AND_NEVER_RECORDED)
+
+    publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION),
+            resumption.publisher)
+
+    with resumption.acting_for(claimed.action_id):
+        result = resumption.resuming.settle(
+            state.proposed_action.action_type,
+            performed_as_recorded(state.proposed_action, descriptor),
+            because,
+            still_wanted=partial(resumption.still_wanted, state.incident_id)
+        )
+
+    return _the_attempt_recorded(state, result, _when_it_was_made(claimed),
+                                 resumption.complete_action, resumption.record_outcome,
+                                 resumption.publisher)
+
+
+def _the_change_was_found_made(resumption: _Resumption,
+                               claimed: ClaimedAction,
+                               undo_descriptor: UndoDescriptor | None,
+                               *,
+                               state: IncidentState) -> None:
+    """What a resumed read's refusal says of a change that landed before
+    somebody overtook it: put on the claim as made, with what puts it back - at
+    no moment, since the refusal gives none and this walk's clock would date it
+    minutes after it happened - and announced where no line for the claim is
+    on file, dated by the claim, the nearest moment the row has."""
+    _the_claim_is_told(state, resumption.advance_action, ActionProgress.PERFORMED,
+                       undo_descriptor=undo_descriptor, performed_at=None)
+    _announced_where_none_is_on_file(state, claimed.claimed_at, resumption)
+
+
+def _the_plan_is_put_on_the_claim(state: IncidentState,
+                                  planned: Planned[Any],
+                                  resumption: _Resumption) -> None:
+    """Writes the plan this walk takes a claim's action on onto a claim written
+    with none, before the write - so a walk resumed after this one dies asks
+    after the change on the plan it was taken on.
+
+    A write that fails raises, and the change is not made: a write made with
+    the plan nowhere on the claim leaves a walk resumed after this one to plan
+    again - a flag's plan then refused as spent, and a change that landed read
+    as never attempted. The live walk never writes without its claim carrying
+    the plan, and nothing is made yet, so the run's failure costs only its
+    escalation.
+    """
+    assert state.hypothesis is not None
+
+    resumption.resuming.plan_the_claim(state.incident_id,
+                                       hypothesis_id=state.hypothesis.id, planned=planned)
+
+
+def _the_claim_is_told(state: IncidentState,
+                       advance_action: AdvanceAction,
+                       to: ActionProgress,
+                       *,
+                       undo_descriptor: UndoDescriptor | None = None,
+                       performed_at: datetime | None = None) -> None:
+    """Moves the claim on to what a resumed walk learnt of it, so the next walk
+    to find it reads the answer rather than asking again.
+
+    Made is told with when the estate says it was made, and told outright -
+    `None` included - so a change the estate dates nowhere is never dated by
+    this walk's clock. A write that fails is logged and the walk goes on, for
+    `_the_change_was_made`'s reason; all but a write refused for a lost run.
+    """
+    assert state.hypothesis is not None
+
+    try:
+        if to is ActionProgress.PERFORMED:
+            advance_action(state.incident_id, hypothesis_id=state.hypothesis.id, to=to,
+                           undo_descriptor=undo_descriptor, performed_at=performed_at)
+        else:
+            advance_action(state.incident_id, hypothesis_id=state.hypothesis.id, to=to,
+                           undo_descriptor=undo_descriptor)
+    except Exception as error:
+        if was_lost(error):
+            raise
+
+        logger.warning("a resumed claim could not be moved on", exc_info=True,
+                       extra={"incident_id": state.incident_id, "to": to})
+
+
+def _announced_where_none_is_on_file(state: IncidentState,
+                                     at: datetime | None,
+                                     resumption: _Resumption) -> None:
+    """The line saying the action was taken, dated when the change was made -
+    where the dead worker died before announcing it. It announced whether or
+    not its own advance landed, so a line can be on file for a claim with
+    nothing after it; two would read as Argus acting twice."""
+    assert state.hypothesis is not None and state.proposed_action is not None
+
+    if at is None or resumption.resuming.announced(state.incident_id, state.hypothesis.id):
+        return
+
+    action = state.proposed_action
+    publish(
+        ActionTaken(
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            candidate_number=state.hypothesis.number,
+            action_type=action.action_type,
+            subject=the_subject_of(action),
+            enabled=the_direction_of(action),
+            a_dependency_of=_whose_dependency_was_acted_on(action, state.alert.service),
+            accelerator=the_accelerator_of(action),
+            at=at
+        ),
+        resumption.publisher
+    )
+
+
+def _when_it_was_made(claimed: ClaimedAction) -> datetime | None:
+    """When the row says its change was made, for the round that remembers the
+    attempt: the moment it was made where the row keeps one, the claim's -
+    written just before the change - for a change made at no recorded moment,
+    and nothing for a change never made, as the live walk tells it."""
+    if claimed.progress.its_change_was_made() is not True:
         return None
 
-    # The answer kept on the claim, so the next walk to find it - the one
-    # resumed after this one dies before escalating - reads it rather than
-    # asking again. Not where no claim was found: there is no row to keep it.
-    if claimed is not None:
-        advance_action(
-            state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            to=ActionProgress.PERFORMED if landed else ActionProgress.UNKNOWN,
-            # What the dead worker was told would put it back went with it.
-            undo_descriptor=None
-        )
-
-    return _the_resumed_walk_stops(landed)
+    return claimed.performed_at if claimed.performed_at is not None else claimed.claimed_at
 
 
-def _the_resumed_walk_stops(landed: bool | None) -> StateDelta:
-    """The incident handed to a person by a resumed walk that cannot carry
-    the earlier attempt on."""
+def _when_the_incident_began(state: IncidentState) -> datetime | None:
+    """The instant the incident began: the investigation's minute, else the
+    one the alert stated, else when the alert fired - `None` where nothing
+    states one."""
+    if state.onset is not None:
+        return parse_iso(state.onset.minute)
+
+    return state.alert.stated_onset if state.alert.stated_onset is not None \
+        else state.alert.started_at
+
+
+def _the_metrics_reach_back(state: IncidentState, resumption: _Resumption) -> bool:
+    """Whether the metrics kept still reach back to when the incident began -
+    the oldest minute kept included - so a change watched now can be judged
+    against the service as it was before. An incident nothing dates is watched,
+    as the live walk watches it: no window can be said to have passed it."""
+    began = _when_the_incident_began(state)
+
+    return began is None or resumption.now() - began <= resumption.resuming.metrics_window
+
+
+def _said_with_what_was_found(said: str, found: str | None) -> str:
+    """`said`, and what the estate's read found where it said anything."""
+    return said if found is None else f"{said}: {found}"
+
+
+def _the_resumed_walk_stops(why: str) -> StateDelta:
+    """The incident handed to a person by a resumed walk that cannot carry the
+    earlier attempt on, saying `why` in the words a person reads."""
     return StateDelta(
         status=IncidentStatus.ESCALATED,
-        narration=Narration(
-            action="mitigation resumed",
-            detail=_why_the_resumed_walk_stopped(landed)
-        )
+        narration=Narration(action="mitigation resumed", detail=why)
     )
-
-
-def _why_the_resumed_walk_stopped(landed: bool | None) -> str:
-    """The two ways a resumed attempt ends the incident rather than continuing
-    it, told apart in the words a human reads.
-
-    A change that landed and a change nobody can account for are the same
-    decision and different situations: the first needs somebody to look at the
-    service, the second needs somebody to establish what the earlier attempt
-    managed before it stopped.
-
-    The first names the action rather than a flag. A change told as made
-    before the wait can be any kind of action, a rollback as much as a flag.
-    And it says the attempt stopped before *recording* what came of it rather
-    than before measuring it: a verdict can be reached and the worker die
-    before writing it, and the row cannot tell the two apart.
-
-    The second is not always a provider that would not answer. An action
-    through any platform but the flag provider is never asked about in the
-    first place - there is no log of a restart or a rollback to consult - so the
-    words say that nothing can account for the change rather than naming a
-    provider that was never involved.
-    """
-    if landed:
-        return ("an earlier attempt carried out this action and stopped before "
-                "recording what came of it")
-
-    return ("an earlier attempt claimed this action and nothing can say "
-            "whether it was carried out")
 
 
 def _nothing_to_act_on() -> StateDelta:

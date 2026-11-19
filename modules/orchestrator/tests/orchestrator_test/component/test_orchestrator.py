@@ -15,7 +15,7 @@ theirs to answer, one module down.
 
 from __future__ import annotations
 
-from collections.abc import Generator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -31,6 +31,7 @@ from core.models import (
     ActionProgress,
     Alert,
     Attempt,
+    ChangeFound,
     EstablishedOnset,
     Evidence,
     ExecutiveSynopsisDocument,
@@ -41,6 +42,7 @@ from core.models import (
     Hypothesis,
     IncidentStatus,
     Leads,
+    NotMade,
     PostmortemDocument,
     ProposedFix,
     Reading,
@@ -136,7 +138,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         acting_for=lambda dont_care_action_id: nullcontext(),
         advance_action=lambda *dont_care_args, **dont_care_keywords: None,
         owe_a_put_back=lambda *dont_care_args, **dont_care_keywords: None,
-        change_landed=_a_change_that_never_landed(),
+        resuming=_a_resumption_nothing_reaches(),
         propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: (
             ProposedFix(pull_request=None, explanation=None)),
         actions_taken=lambda dont_care_incident: [],
@@ -1006,11 +1008,30 @@ def _one_claim_was_moved_on_to_performed_carrying_a_way_back_for(
     return assertion
 
 
-def _a_change_that_never_landed() -> ports.ChangeLanded:
-    def change_landed(flag: str, since: datetime) -> bool | None:
-        return False
+def _a_resumption_nothing_reaches() -> ports.Resuming:
+    """What a resumed walk reads and carries on with, for walks no case here
+    resumes: every claim is won, so none of it is asked - and were it asked,
+    nothing of a claim landed, a change told as made is still Argus's, and
+    nothing is on file."""
+    return ports.Resuming(
+        whether_it_was_made=lambda dont_care_action, dont_care_plan, /, **dont_care: NotMade(
+            left_behind=None),
+        still_argus_s=lambda dont_care_plan, dont_care_descriptor, /: ChangeFound(
+            still_argus_s=True),
+        watch=_a_watch_that(Verdict.CONFIRMED),
+        settle=_a_watch_that(Verdict.REFUTED),
+        announced=lambda dont_care_incident_id, dont_care_hypothesis_id: False,
+        plan_the_claim=lambda dont_care_incident_id, dont_care_hypothesis_id, dont_care_plan: None,
+        metrics_window=timedelta(minutes=get_settings().metrics_window_minutes)
+    )
 
-    return change_landed
+
+def _a_watch_that(verdict: Verdict) -> Callable[..., Outcome]:
+    """A watch, or a put-back, that answers `verdict` whatever it is handed."""
+    def watching(*dont_care_args: object, **dont_care_keywords: object) -> Outcome:
+        return Outcome(verdict=verdict, detail="dont care", left_behind_known=True)
+
+    return watching
 
 
 def _a_document() -> PostmortemDocument:

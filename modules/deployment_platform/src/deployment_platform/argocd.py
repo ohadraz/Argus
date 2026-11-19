@@ -33,6 +33,7 @@ from deployment_platform.port import (
     DeploymentRecord,
     Mark,
     MarkedObject,
+    MarkFound,
     RequestedSync,
     SyncOperations,
     SyncPhase,
@@ -186,14 +187,39 @@ _OPERATION_STATE: Final = "operationState"
 _SYNC: Final = "sync"
 _STARTED_AT: Final = "startedAt"
 _PHASE: Final = "phase"
+_MESSAGE: Final = "message"
 # Argo CD's `OperationPhase` values, as Argus names them.
+_FAILED: Final = "Failed"
+_ERROR: Final = "Error"
 _PHASES: Final = {
     "Running": SyncPhase.RUNNING,
     "Succeeded": SyncPhase.SUCCEEDED,
-    "Failed": SyncPhase.FAILED,
-    "Error": SyncPhase.ERROR,
+    _FAILED: SyncPhase.FAILED,
+    _ERROR: SyncPhase.ERROR,
     "Terminating": SyncPhase.TERMINATING
 }
+# What the controller says a run ended with where it was terminated - by
+# somebody, or by the controller itself where `controller.sync.timeout.seconds`
+# is set and the run outlasts it, or its operation state outgrows the size
+# limit (controller/appcontroller.go); a timeout's stop taking more than one
+# pass ends in "Operation terminated" as a person's does - from
+# gitops-engine's `syncContext.Terminate()` (pkg/sync/sync_context.go):
+# `setOperationPhase(common.OperationFailed, "Operation terminated")` once every
+# hook is stopped, `setOperationPhase(common.OperationError, "Operation
+# termination had errors")` where one would not stop, and
+# `setOperationPhase(common.OperationError, fmt.Sprintf("Failed to get hook
+# health: %v", err))` where a hook's health could not be read on the way. The
+# last is written nowhere else in that file - `Sync`'s own health failure is a
+# resource's result, lower-cased, never the operation's message - so its prefix
+# alone says termination. Once the controller is done the run reads only
+# `Failed` or `Error`, and these words are all that tell it from a run that
+# failed of itself - so a run carrying any of them is `SyncPhase.TERMINATED`,
+# and nothing above the port reads the words.
+RUN_TERMINATED_MESSAGE: Final = "Operation terminated"
+RUN_TERMINATION_ERRED_MESSAGE: Final = "Operation termination had errors"
+RUN_TERMINATION_HOOK_HEALTH_PREFIX: Final = "Failed to get hook health: "
+_ENDED_BY_TERMINATION: Final = {(_FAILED, RUN_TERMINATED_MESSAGE),
+                                (_ERROR, RUN_TERMINATION_ERRED_MESSAGE)}
 # What the platform answers a sync - a rollback among them - asked while
 # another is still being run (`FailedPrecondition`, served as a 400).
 ANOTHER_OPERATION_IN_PROGRESS: Final = "another operation is already in progress"
@@ -386,21 +412,23 @@ class ArgoCd:
                     revision=_the_revision_synced_by(run[_OPERATION]),
                     initiated_by=_who_asked_for(run[_OPERATION]),
                     started_at=datetime.fromisoformat(str(run[_STARTED_AT])),
-                    phase=_PHASES[run[_PHASE]]
+                    phase=_the_phase_of(run)
                 )
             )
 
         return _parsed(operations, f"[{application}]'s syncs")
 
-    def mark_on(self, application: str, kind: MarkedObject, /) -> str | None:
-        """The action named on the object's own metadata, never on a pod
-        template's: Argus writes its mark on the object, and one found in a
-        template is not one Argus wrote.
+    def mark_on(self, application: str, kind: MarkedObject, /) -> MarkFound | None:
+        """The mark on the object's own metadata, never on a pod template's:
+        Argus writes its mark on the object, and one found in a template is not
+        one Argus wrote.
 
         Each object is read where its write is sent - the application on its own
         route, the Deployment and the autoscaler as live manifests, the
         autoscaler addressed as the tree names it. An application with no
-        autoscaler has no mark on one.
+        autoscaler has no mark on one. A mark whose moment is absent, or is not
+        spelled as Argus spells one, still names its action; the moment is then
+        unknown rather than made up.
         """
         match kind:
             case MarkedObject.APPLICATION:
@@ -417,13 +445,19 @@ class ArgoCd:
             case _:
                 assert_never(kind)
 
-        def action() -> str | None:
+        def mark() -> MarkFound | None:
             annotations = (found.get(METADATA) or {}).get(ANNOTATIONS) or {}
             marked = annotations.get(ACTION_ANNOTATION)
 
-            return None if marked is None else str(marked)
+            if marked is None:
+                return None
 
-        return _parsed(action, f"the mark on [{application}]'s {kind}")
+            return MarkFound(action_id=str(marked),
+                             written_at=_when_it_was_marked(
+                                 annotations.get(WRITTEN_AT_ANNOTATION)
+                             ))
+
+        return _parsed(mark, f"the mark on [{application}]'s {kind}")
 
     def is_syncing_itself(self, application: str, /) -> bool:
         """Read exactly as Argo CD's own `SyncPolicy.IsAutomatedSyncEnabled` reads it.
@@ -826,6 +860,18 @@ def _marked(mark: Mark) -> dict[str, Any]:
     }
 
 
+def _when_it_was_marked(written_at: object) -> datetime | None:
+    """A mark's moment read back as `_marked` spells it, or `None` where it is
+    absent or spelled otherwise."""
+    if not isinstance(written_at, str):
+        return None
+
+    try:
+        return datetime.strptime(written_at, _WRITTEN_AT_FORMAT).replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
 def _the_images_in(deployment: dict[str, Any]) -> dict[str, str]:
     """Each container's image in a Deployment's pod template, by container name.
 
@@ -869,6 +915,20 @@ def _the_revision_synced_by(operation: dict[str, Any]) -> str | None:
     revision = (operation.get(_SYNC) or {}).get(_REVISION)
 
     return None if revision is None else str(revision)
+
+
+def _the_phase_of(run: dict[str, Any]) -> SyncPhase:
+    """Where a run the controller ran stands - `TERMINATED` where it ended
+    failed or errored in the words the controller ends a terminated run with,
+    since only those words tell it from a run that failed of itself."""
+    phase, message = run[_PHASE], run.get(_MESSAGE)
+
+    if (phase, message) in _ENDED_BY_TERMINATION or (
+            phase == _ERROR and isinstance(message, str)
+            and message.startswith(RUN_TERMINATION_HOOK_HEALTH_PREFIX)):
+        return SyncPhase.TERMINATED
+
+    return _PHASES[run[_PHASE]]
 
 
 def _who_asked_for(operation: dict[str, Any]) -> str | None:

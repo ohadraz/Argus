@@ -43,7 +43,9 @@ from core.models import (
     AlertRuleStanding,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
+    Made,
     MetricBucket,
+    NotMade,
     PinAutoscaler,
     Planned,
     ReplicaUndo,
@@ -55,6 +57,7 @@ from core.models import (
 from mitigation import (
     Action,
     ChangeMade,
+    NobodyCanSay,
     Outcome,
     UndoAttempt,
     Undone,
@@ -62,6 +65,7 @@ from mitigation import (
     settle_the_refutation,
     take_action,
     watch_what_was_performed,
+    whether_it_was_made,
 )
 from mitigation.kinds import ActionKind, KindOf, Performed, UndoableKind, UndoingKindOf
 from mitigation.tools import (
@@ -78,6 +82,7 @@ from mitigation.tools import (
     RuleReader,
     ScaleOutPlanner,
     ServiceRestarter,
+    WhetherAScaleOutWasMade,
 )
 from mitigation.trying import UndoChange, plan_action
 
@@ -125,6 +130,8 @@ from mitigation_test.framework.builders import (
 )
 
 _SOME_INCIDENT_ID = new_id()
+# What a write refused for a lost run says.
+A_NEWER_CLAIM_HOLDS_THE_RUN = "a newer claim holds this run"
 _A_MINUTE = timedelta(minutes=1)
 _A_MINUTE_IN_SECONDS = int(_A_MINUTE.total_seconds())
 # An hour, in seconds.
@@ -3389,7 +3396,7 @@ def _a_flag_setter_that_cannot_write(failure: str) -> MagicMock:
 def _a_flag_setter_told_the_run_was_lost() -> MagicMock:
     """The write tier refuses the write: the run is a newer claim's."""
     set_state: MagicMock = create_autospec(FlagSetter, instance=True)
-    set_state.side_effect = RunLost("a newer claim holds this run")
+    set_state.side_effect = RunLost(A_NEWER_CLAIM_HOLDS_THE_RUN)
 
     return set_state
 
@@ -6374,7 +6381,7 @@ def test_a_put_back_owed_on_the_claim_of_a_lost_run_stops_the_attempt_before_it_
     # leave, and a put-back from here would be nobody's walk changing
     # production.
     def owed_on_a_lost_run(dont_care_because: str) -> None:
-        raise RunLost("a newer claim holds this run")
+        raise RunLost(A_NEWER_CLAIM_HOLDS_THE_RUN)
 
     Scenario() \
         .given(
@@ -6427,6 +6434,294 @@ def _the_undo_was_never_asked(undo: MagicMock) -> Assertion[Exception | None]:
     def assertion(dont_care_error: Exception | None) -> bool:
         if undo.called:
             raise AssertionError(f"Expected nothing put back, got {undo.call_args_list}.")
+
+        return True
+
+    return assertion
+
+
+# When the write tier found a claim's change was made: the moment it says, which
+# a resumed walk dates the change by. Nothing here compares it with anything.
+SOME_MOMENT_IT_WAS_MADE = ACTION_TIME
+# What a read could not establish, in the tier's own words - which are the whole
+# of what a resumed walk escalating on it can say.
+SOME_READ_NOBODY_COULD_ANSWER = f"could not read what [{SOME_APPLICATION}] is now"
+# What the write tier can answer about a claim's change on its plan, built from
+# the plan: made - the plan's change, and when - or not made, carrying nothing,
+# or carrying the plan where the suspension before the change landed alone.
+EVERY_ANSWER_THE_TIER_GIVES = [
+    pytest.param(lambda planned: Made(descriptor=planned.descriptor,
+                                      made_at=SOME_MOMENT_IT_WAS_MADE), id="made"),
+    pytest.param(lambda dont_care_planned: NotMade(left_behind=None), id="nothing-landed"),
+    pytest.param(lambda planned: NotMade(left_behind=planned.descriptor),
+                 id="its-suspension-alone-landed")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("an_answer", EVERY_ANSWER_THE_TIER_GIVES)
+def test_what_the_write_tier_found_of_a_claim_s_change_is_the_answer(
+    an_answer: Callable[[Planned[ReplicaUndo]], Made[ReplicaUndo] | NotMade[ReplicaUndo]]
+) -> None:
+    # Made, with when, is the walk's to record as made and carry on from; not
+    # made is the walk's to act on as a live walk would, with what it left - the
+    # suspension alone, where that landed. Neither is worked out again here.
+    the_plan = a_plan_of(_a_resize_descriptor_for(SOME_APPLICATION))
+    the_answer = an_answer(the_plan)
+
+    Scenario() \
+        .given(
+            reading := _a_made_read_answering(the_answer)
+        ) \
+        .when(
+            lambda: whether_it_was_made(_a_scale_out_of(SOME_APPLICATION), the_plan,
+                                        writes=the_writes(whether_scale_out_was_made=reading))
+        ) \
+        .then(
+            _it_answered(the_answer)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("an_answer", EVERY_ANSWER_THE_TIER_GIVES)
+def test_what_the_write_tier_found_of_a_claim_s_change_tells_nobody_it_was_made(
+    an_answer: Callable[[Planned[ReplicaUndo]], Made[ReplicaUndo] | NotMade[ReplicaUndo]]
+) -> None:
+    # Made is the walk's to record from the answer itself - the change it
+    # describes and when - so telling it as made here as well would record it
+    # twice; not made is no change at all, whatever it left.
+    the_plan = a_plan_of(_a_resize_descriptor_for(SOME_APPLICATION))
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            reading := _a_made_read_answering(an_answer(the_plan))
+        ) \
+        .when(
+            lambda: whether_it_was_made(_a_scale_out_of(SOME_APPLICATION), the_plan,
+                                        writes=the_writes(whether_scale_out_was_made=reading),
+                                        change_made=_each_change_kept_in(happened))
+        ) \
+        .then(
+            _no_change_was_told(happened)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("performed", "told"), [
+    pytest.param(True, lambda happened, left_behind: _the_change_was_told_once_as_made(
+        happened, left_behind
+    ), id="landed"),
+    pytest.param(False, lambda happened, dont_care_left_behind: _no_change_was_told(happened),
+                 id="not-landed")
+])
+def test_a_claim_s_change_made_since_is_answered_as_the_live_write_s_refusal_is(
+    performed: bool,
+    told: Callable[[list[tuple[str, UndoDescriptor | None]], UndoDescriptor],
+                   Assertion[Outcome]]
+) -> None:
+    # The read is the write's own rule, so its refusal is the write's and is
+    # answered the way `take_action` answers it: the same outcome, and the
+    # change told as made where this claim's own change had landed - and only
+    # there. A resumed walk and a live one finding somebody acting on the
+    # service read it the same way, by construction.
+    what_an_earlier_asking_left = _a_resize_descriptor_for(SOME_APPLICATION)
+    the_plan = a_plan_of(what_an_earlier_asking_left)
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+    the_live_walk_s_answer = take_action(
+        _a_scale_out_of(SOME_APPLICATION),
+        settings=_some_mitigation_settings(),
+        thresholds=_some_thresholds(),
+        plan=the_plan,
+        writes=the_writes(scale_out=_a_scaler_finding_it_changed_since(
+            SOMEBODY_SCALED_IT, left_behind=what_an_earlier_asking_left, performed=performed
+        )),
+        fetch_metrics=_metrics_that_never_recover(),
+        now=a_clock_frozen_at(ACTION_TIME),
+        sleep=dont_care_sleep,
+        undo=an_undo_nobody_calls()
+    )
+
+    Scenario() \
+        .given(
+            reading := _a_made_read_raising(_a_change_made_since_by_somebody(
+                left_behind=what_an_earlier_asking_left, performed=performed
+            ))
+        ) \
+        .when(
+            lambda: whether_it_was_made(_a_scale_out_of(SOME_APPLICATION), the_plan,
+                                        writes=the_writes(whether_scale_out_was_made=reading),
+                                        change_made=_each_change_kept_in(happened))
+        ) \
+        .then(all_of(
+            _it_answered(the_live_walk_s_answer),
+            told(happened, what_an_earlier_asking_left)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("a_refusal", [
+    pytest.param(lambda: McpToolError(SOME_READ_NOBODY_COULD_ANSWER), id="refused"),
+    pytest.param(lambda: PlatformUnreachable(SOME_READ_NOBODY_COULD_ANSWER),
+                 id="platform-unreachable"),
+    pytest.param(lambda: RuntimeError(SOME_READ_NOBODY_COULD_ANSWER), id="unexpected")
+])
+def test_a_read_that_could_not_say_whether_a_claim_s_change_was_made_says_nobody_can(
+    a_refusal: Callable[[], Exception]
+) -> None:
+    # Not "nothing landed", which would have the walk act a second time on a
+    # change the dead worker may have made; not an outcome, since no attempt was
+    # made by this walk. Nobody can say, in the tier's words, and nothing told.
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            reading := _a_made_read_raising(a_refusal())
+        ) \
+        .when(
+            lambda: whether_it_was_made(_a_scale_out_of(SOME_APPLICATION),
+                                        a_plan_of(_a_resize_descriptor_for(SOME_APPLICATION)),
+                                        writes=the_writes(whether_scale_out_was_made=reading),
+                                        change_made=_each_change_kept_in(happened))
+        ) \
+        .then(all_of(
+            _it_answered(NobodyCanSay(because=SOME_READ_NOBODY_COULD_ANSWER)),
+            _no_change_was_told(happened)
+        ))
+
+
+@pytest.mark.unit
+def test_a_read_refused_saying_what_it_left_says_nobody_can_and_carries_it() -> None:
+    # The platform in a sync of its own: the read cannot say whether the change
+    # was made, and the suspension this claim left found standing is kept on the
+    # answer - a read that could not answer has not said nothing is out there.
+    what_the_suspension_left = _a_resize_descriptor_for(SOME_APPLICATION)
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            reading := _a_made_read_raising(McpToolError(
+                SOME_READ_NOBODY_COULD_ANSWER, undo_descriptor=what_the_suspension_left
+            ))
+        ) \
+        .when(
+            lambda: whether_it_was_made(_a_scale_out_of(SOME_APPLICATION),
+                                        a_plan_of(what_the_suspension_left),
+                                        writes=the_writes(whether_scale_out_was_made=reading),
+                                        change_made=_each_change_kept_in(happened))
+        ) \
+        .then(all_of(
+            _it_answered(NobodyCanSay(because=SOME_READ_NOBODY_COULD_ANSWER,
+                                      left_behind=what_the_suspension_left)),
+            _no_change_was_told(happened)
+        ))
+
+
+@pytest.mark.unit
+def test_a_read_refused_because_the_run_was_lost_is_raised_rather_than_said() -> None:
+    # The incident is another claim's walk now: nothing this walk could say of
+    # the change is its to say.
+    Scenario() \
+        .given(
+            reading := _a_made_read_raising(RunLost(A_NEWER_CLAIM_HOLDS_THE_RUN))
+        ) \
+        .when(attempting(
+            lambda: whether_it_was_made(_a_scale_out_of(SOME_APPLICATION),
+                                        a_plan_of(_a_resize_descriptor_for(SOME_APPLICATION)),
+                                        writes=the_writes(whether_scale_out_was_made=reading))
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("a_read", [
+    pytest.param(lambda: _a_made_read_answering(Made(
+        descriptor=_a_resize_descriptor_for(SOME_APPLICATION), made_at=SOME_MOMENT_IT_WAS_MADE
+    )), id="made"),
+    pytest.param(lambda: _a_made_read_answering(NotMade(left_behind=None)), id="nothing-landed"),
+    pytest.param(lambda: _a_made_read_raising(_a_change_made_since_by_somebody(
+        left_behind=_a_resize_descriptor_for(SOME_APPLICATION), performed=True
+    )), id="changed-since"),
+    pytest.param(lambda: _a_made_read_raising(McpToolError(SOME_READ_NOBODY_COULD_ANSWER)),
+                 id="nobody-can-say")
+])
+def test_asking_whether_a_claim_s_change_was_made_writes_nothing(
+    a_read: Callable[[], MagicMock]
+) -> None:
+    # Whatever the answer, the asking changed nothing: a read that wrote would be
+    # the second write it exists to rule out.
+    Scenario() \
+        .given(
+            writes := the_writes(whether_scale_out_was_made=a_read())
+        ) \
+        .when(
+            lambda: whether_it_was_made(_a_scale_out_of(SOME_APPLICATION),
+                                        a_plan_of(_a_resize_descriptor_for(SOME_APPLICATION)),
+                                        writes=writes)
+        ) \
+        .then(
+            _nothing_was_written_by(writes)
+        )
+
+
+def _a_made_read_answering(answer: Made[ReplicaUndo] | NotMade[ReplicaUndo]) -> MagicMock:
+    """The write tier's read of whether a scale-out was made, answering `answer`."""
+    reading: MagicMock = create_autospec(WhetherAScaleOutWasMade, instance=True)
+    reading.return_value = answer
+
+    return reading
+
+
+def _a_made_read_raising(failure: Exception) -> MagicMock:
+    """The write tier's read of whether a scale-out was made, raising `failure`
+    as the transport raises it."""
+    return _a_collaborator_raising(WhetherAScaleOutWasMade, failure)
+
+
+def _a_change_made_since_by_somebody(left_behind: UndoDescriptor,
+                                     performed: bool) -> ChangedSince:
+    """The write's own changed-since refusal, as the read raises it: somebody
+    has scaled it since, carrying what this claim's marks show landed, and
+    whether this claim's own change was among it."""
+    return ChangedSince(
+        a_change_made_since(SOMEBODY_SCALED_IT, left_behind, performed=performed), left_behind,
+        performed=performed
+    )
+
+
+def _it_answered(expected: object) -> Assertion[object]:
+    def assertion(answer: object) -> bool:
+        if answer != expected:
+            raise AssertionError(f"Expected the answer [{expected!r}], got [{answer!r}].")
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_written_by(writes: PerformingWrites) -> Assertion[object]:
+    """None of the writes in the bundle asked - every one a spy, so an asking
+    that wrote anything at all, of any kind, is caught here."""
+    def assertion(dont_care_answer: object) -> bool:
+        every_write: dict[str, object] = {
+            "set_state": writes.set_state,
+            "restart": writes.restart,
+            "roll_back": writes.roll_back,
+            "scale_out": writes.scale_out,
+            "pin": writes.pin,
+            "discard": writes.discard,
+            "pin_to_accelerator": writes.pin_to_accelerator
+        }
+        written = {
+            name: cast(MagicMock, write).call_args_list
+            for name, write in every_write.items()
+            if cast(MagicMock, write).called
+        }
+
+        if written:
+            raise AssertionError(f"Expected nothing written, and it wrote {written}")
 
         return True
 

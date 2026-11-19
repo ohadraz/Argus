@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Final
 
 from core.mcp_transport import (
@@ -77,17 +78,27 @@ from core.mcp_transport import (
     a_refusal_saying_what_it_left,
     an_exhausted_action,
 )
-from core.models import CapacityRestored, Planned, ReplicaUndo
+from core.models import (
+    CapacityRestored,
+    ChangeFound,
+    Made,
+    NotMade,
+    Planned,
+    ReplicaUndo,
+)
 from deployment_platform import (
+    Autoscaler,
     DeploymentPlatformError,
     DeploymentPlatformWrites,
     Mark,
     MarkedObject,
+    MarkFound,
 )
 
-from write_mcp_server.refusing import a_platform_refusal
+from write_mcp_server.refusing import a_platform_refusal, no_claim_to_compare_with
 from write_mcp_server.sync_switch import (
     Switch,
+    is_this_claim_s,
     suspend_where_it_is_to_be,
     the_switch,
     this_claim_s_suspension_stands,
@@ -226,57 +237,10 @@ def scale_out(planned: Planned[ReplicaUndo],
     """
     descriptor = planned.descriptor
     application = descriptor.application
-    asked_for = descriptor.replicas_asked_for
+    found, compared = _compared_with_the_plan(planned, platform, mark)
+    running, asked_for, left_behind = found.running, compared.asked_for, compared.left_behind
 
-    # The plan is held to this tier's own rule from its own "was": a doubling,
-    # bounded by the ceiling, and larger than what it found.
-    if asked_for is None or asked_for != _twice(descriptor.was_replicas) or (
-            asked_for <= descriptor.was_replicas):
-        raise ScaleRefused(a_refusal_saying_what_it_left(
-            f"the scale-out of [{application}] asks for [{asked_for}] replicas from "
-            f"[{descriptor.was_replicas}], which is not twice that within the "
-            f"[{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}] Argus may ask for"
-        ))
-
-    try:
-        running = platform.rollout_of(application).replicas_wanted
-        autoscaler = platform.autoscaler_of(application)
-        syncing_now = platform.is_syncing_itself(application)
-        count_marked_by = platform.mark_on(application, MarkedObject.DEPLOYMENT)
-        switch_marked_by = platform.mark_on(application, MarkedObject.APPLICATION)
-    except DeploymentPlatformError as error:
-        raise _refusing(
-            f"could not read what [{application}] is now: {error}", error,
-            asked_to_change=False
-        ) from error
-
-    # What of this claim's is out there is worked out before any refusal that
-    # follows the reads, so every one of them carries it.
-    count_landed = count_marked_by == mark.action_id
-    left_behind = descriptor if count_landed or this_claim_s_suspension_stands(
-        descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
-    ) else None
-
-    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
-    # Under an autoscaler a count says nothing of whose it is: the controller
-    # moves it within a sync period of any write.
-    made = count_landed and (autoscaler is not None or running == asked_for)
-    still_as_found = not count_landed and (
-        autoscaler is not None or running == descriptor.was_replicas
-    )
-
-    if switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
-            made and switch is Switch.TO_SUSPEND):
-        raise ScaleRefused(a_change_made_since(
-            f"[{application}] is asked to run [{running}] replicas and "
-            f"{'is' if syncing_now else 'is not'} syncing itself, which is not where "
-            f"the scale-out from [{descriptor.was_replicas}] to [{asked_for}] found "
-            f"it or would leave it",
-            left_behind,
-            performed=count_landed
-        ))
-
-    if made:
+    if compared.made:
         logger.info("deployment already scaled out", extra={
             "application": application, "to_replicas": asked_for
         })
@@ -305,7 +269,7 @@ def scale_out(planned: Planned[ReplicaUndo],
             "was_replicas": running, "replicas_asked_for": to_replicas
         })
 
-    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
+    suspend_where_it_is_to_be(application, compared.switch, platform, mark, _refusing_a_change)
 
     try:
         answered_at = platform.scale(application, to_replicas, mark)
@@ -344,6 +308,211 @@ def _refusing_a_change(said: str, error: DeploymentPlatformError) -> ScaleRefuse
     """This module's refusal of a change it asked for, with nothing before it
     left behind."""
     return _refusing(said, error, asked_to_change=True)
+
+
+def whether_it_was_made(planned: Planned[ReplicaUndo],
+                        platform: DeploymentPlatformWrites,
+                        action_id: str | None
+                        ) -> Made[ReplicaUndo] | NotMade[ReplicaUndo]:
+    """Whether the scale-out `planned` describes was made under the claim
+    `action_id` - the write's own rule on the plan, with the write left out,
+    for a walk resumed after the worker that claimed it died.
+
+    Made is answered with what the write would answer, dated by the moment the
+    claim's mark on the count says it was written - the only record of when,
+    and `None` where the mark says none. The count still where the plan found
+    it, under no mark of the claim's, is nothing landed: the write is still to
+    make - carrying the plan where the claim's suspension of the sync stands,
+    since that is the claim's all the same. Anything else is refused exactly as
+    the write refuses it on the same estate - changed since, a read that never
+    came back, a plan the tier's rule does not give - since the two are one
+    compare.
+
+    A call naming no claim is refused plainly: whose mark the count carries is
+    the whole question, and nothing says it is anybody's. Writes nothing.
+    """
+    if action_id is None:
+        raise ScaleRefused(no_claim_to_compare_with(
+            f"the scale-out of [{planned.descriptor.application}]"
+        ))
+
+    found, compared = _compared_with_the_plan(planned, platform, action_id)
+
+    if not compared.made:
+        return NotMade[ReplicaUndo](left_behind=compared.left_behind)
+
+    return Made[ReplicaUndo](
+        descriptor=planned.descriptor.model_copy(update={"written_at": None}),
+        made_at=None if found.count_marked_by is None else found.count_marked_by.written_at
+    )
+
+
+def still_argus_s(descriptor: ReplicaUndo,
+                  platform: DeploymentPlatformWrites,
+                  action_id: str | None) -> ChangeFound:
+    """Whether the scale-out `descriptor` records is still as Argus left it -
+    the write's own "made" rule, read and not acted on, for a walk resumed after
+    the worker that made it died.
+
+    The count it asked for under the claim `action_id`'s mark - or, under an
+    autoscaler, the mark alone - and the sync switch where the scale-out left
+    it, is still Argus's. Anything else is somebody's change since, saying what
+    was found: the count moved, the count right under no mark of the claim's,
+    the sync running again, or both halves gone. A read that never came back, a
+    call naming no claim, and a scale-out recorded without the count it asked
+    for are questions nobody can answer. Writes nothing.
+    """
+    application = descriptor.application
+    asked_for = descriptor.replicas_asked_for
+
+    if action_id is None:
+        return ChangeFound(still_argus_s=None, found=no_claim_to_compare_with(
+            f"the scale-out of [{application}]"
+        ))
+
+    if asked_for is None:
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"the scale-out of [{application}] was recorded without the count it "
+                  f"asked for"
+        )
+
+    try:
+        found = _what_is_there(application, platform)
+    except DeploymentPlatformError as error:
+        logger.warning("still-argus-s check failed", exc_info=True,
+                       extra={"application": application})
+        return ChangeFound(still_argus_s=None,
+                           found=f"could not read what [{application}] is now: {error}")
+
+    if _compared(descriptor, asked_for, found, action_id).made:
+        return ChangeFound(still_argus_s=True)
+
+    return ChangeFound(
+        still_argus_s=False,
+        found=f"{_as_it_stands(application, found)}, which is not where the scale-out "
+              f"from [{descriptor.was_replicas}] to [{asked_for}] left it"
+    )
+
+
+@dataclass(frozen=True)
+class _Found:
+    """What the platform says of a scale-out's deployment now: the count it
+    runs, its autoscaler, whether it reconciles itself, and the marks on the
+    Deployment and on the Application."""
+
+    running: int
+    autoscaler: Autoscaler | None
+    syncing_now: bool
+    count_marked_by: MarkFound | None
+    switch_marked_by: MarkFound | None
+
+
+@dataclass(frozen=True)
+class _Compared:
+    """A scale-out's plan held against what was found: the count it asks for,
+    where the sync switch stands, whether the claim's count landed, whether the
+    change is made or somebody's since, and what of the claim's is out there."""
+
+    asked_for: int
+    switch: Switch
+    count_landed: bool
+    made: bool
+    changed_since: bool
+    left_behind: ReplicaUndo | None
+
+
+def _what_is_there(application: str, platform: DeploymentPlatformWrites) -> _Found:
+    """The reads a scale-out is compared with. Raises `DeploymentPlatformError`
+    where any of them fails."""
+    return _Found(
+        running=platform.rollout_of(application).replicas_wanted,
+        autoscaler=platform.autoscaler_of(application),
+        syncing_now=platform.is_syncing_itself(application),
+        count_marked_by=platform.mark_on(application, MarkedObject.DEPLOYMENT),
+        switch_marked_by=platform.mark_on(application, MarkedObject.APPLICATION)
+    )
+
+
+def _compared(descriptor: ReplicaUndo,
+              asked_for: int,
+              found: _Found,
+              claim: Mark | str) -> _Compared:
+    """The one rule the write, the claimed read and the performed read share:
+    made is the count asked for under `claim`'s mark - under an autoscaler the
+    mark alone, since the controller moves a count within a sync period of any
+    write - with the switch where the change needs it; as the plan found it is
+    the count it found under no mark of `claim`'s; anything else is changed
+    since."""
+    count_landed = is_this_claim_s(found.count_marked_by, claim)
+    left_behind = descriptor if count_landed or this_claim_s_suspension_stands(
+        descriptor.was_syncing_itself, found.syncing_now, found.switch_marked_by, claim
+    ) else None
+    switch = the_switch(descriptor.was_syncing_itself, found.syncing_now,
+                        found.switch_marked_by, claim)
+    under_an_autoscaler = found.autoscaler is not None
+    made = count_landed and (under_an_autoscaler or found.running == asked_for)
+    still_as_found = not count_landed and (
+        under_an_autoscaler or found.running == descriptor.was_replicas
+    )
+    changed_since = switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
+        made and switch is Switch.TO_SUSPEND)
+
+    return _Compared(asked_for=asked_for, switch=switch, count_landed=count_landed,
+                     made=made and not changed_since, changed_since=changed_since,
+                     left_behind=left_behind)
+
+
+def _compared_with_the_plan(planned: Planned[ReplicaUndo],
+                            platform: DeploymentPlatformWrites,
+                            claim: Mark | str) -> tuple[_Found, _Compared]:
+    """What the platform is now, held against `planned` for `claim` - every
+    comparison the write makes before it writes, raising as it raises.
+
+    The plan is held to this tier's own rule from its own "was" first - a
+    doubling, bounded by the ceiling, and larger than what it found - and
+    refused plainly where it is not. A read that fails is refused as the
+    platform's failure says. Somebody's change since is refused as changed
+    since, carrying what of the claim's is out there - worked out before the
+    refusal, so it carries it.
+    """
+    descriptor = planned.descriptor
+    application = descriptor.application
+    asked_for = descriptor.replicas_asked_for
+
+    if asked_for is None or asked_for != _twice(descriptor.was_replicas) or (
+            asked_for <= descriptor.was_replicas):
+        raise ScaleRefused(a_refusal_saying_what_it_left(
+            f"the scale-out of [{application}] asks for [{asked_for}] replicas from "
+            f"[{descriptor.was_replicas}], which is not twice that within the "
+            f"[{THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR}] Argus may ask for"
+        ))
+
+    try:
+        found = _what_is_there(application, platform)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not read what [{application}] is now: {error}", error,
+            asked_to_change=False
+        ) from error
+
+    compared = _compared(descriptor, asked_for, found, claim)
+
+    if compared.changed_since:
+        raise ScaleRefused(a_change_made_since(
+            f"{_as_it_stands(application, found)}, which is not where the scale-out "
+            f"from [{descriptor.was_replicas}] to [{asked_for}] found it or would leave it",
+            compared.left_behind,
+            performed=compared.count_landed
+        ))
+
+    return found, compared
+
+
+def _as_it_stands(application: str, found: _Found) -> str:
+    """The deployment's count and its reconciliation, as a sentence says them."""
+    return (f"[{application}] is asked to run [{found.running}] replicas and "
+            f"{'is' if found.syncing_now else 'is not'} syncing itself")
 
 
 def restore_replica_count(descriptor: ReplicaUndo,

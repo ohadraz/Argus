@@ -23,7 +23,12 @@ from argus_testkit import (
     attempting,
     the_answer_was,
 )
-from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites, PlatformRefused
+from deployment_platform import (
+    DeploymentPlatformError,
+    DeploymentPlatformWrites,
+    MarkFound,
+    PlatformRefused,
+)
 from write_mcp_server.sync_switch import (
     Switch,
     suspend_where_it_is_to_be,
@@ -31,32 +36,42 @@ from write_mcp_server.sync_switch import (
     this_claim_s_suspension_stands,
 )
 
-from write_mcp_server_test.framework.marks import ANOTHER_CLAIM, THIS_CLAIM, a_mark
+from write_mcp_server_test.framework.marks import (
+    ANOTHER_CLAIM,
+    THIS_CLAIM,
+    a_mark,
+    a_mark_found,
+)
 
 SOME_APPLICATION = "io-shop"
 SOME_MARK = a_mark()
 SOME_PLATFORM_WORDS = "the platform said no"
+# The Application's mark as the port reads it back: this claim's, or another's.
+THIS_CLAIM_S_MARK = a_mark_found(THIS_CLAIM)
+ANOTHER_CLAIM_S_MARK = a_mark_found(ANOTHER_CLAIM)
 
 # Every way the switch can stand: (whether the plan found it syncing, whether it
-# syncs now, whose mark the Application carries), and what that makes it.
+# syncs now, whose mark the Application carries, as the port reads it back), and
+# what that makes it.
 EVERY_WAY_THE_SWITCH_STANDS = [
     pytest.param(True, True, None, Switch.TO_SUSPEND, id="syncing-as-found-unmarked"),
-    pytest.param(True, True, ANOTHER_CLAIM, Switch.TO_SUSPEND,
+    pytest.param(True, True, ANOTHER_CLAIM_S_MARK, Switch.TO_SUSPEND,
                  id="syncing-as-found-under-another-claim"),
-    pytest.param(True, True, THIS_CLAIM, Switch.CHANGED_SINCE,
+    pytest.param(True, True, THIS_CLAIM_S_MARK, Switch.CHANGED_SINCE,
                  id="resumed-after-this-claim-suspended-it"),
-    pytest.param(True, False, THIS_CLAIM, Switch.AS_NEEDED, id="suspended-by-this-claim"),
+    pytest.param(True, False, THIS_CLAIM_S_MARK, Switch.AS_NEEDED, id="suspended-by-this-claim"),
     pytest.param(True, False, None, Switch.CHANGED_SINCE, id="suspended-unmarked"),
-    pytest.param(True, False, ANOTHER_CLAIM, Switch.CHANGED_SINCE,
+    pytest.param(True, False, ANOTHER_CLAIM_S_MARK, Switch.CHANGED_SINCE,
                  id="suspended-under-another-claim"),
     pytest.param(False, False, None, Switch.AS_NEEDED, id="off-as-found"),
-    pytest.param(False, False, THIS_CLAIM, Switch.AS_NEEDED, id="off-as-found-under-this-claim"),
-    pytest.param(False, False, ANOTHER_CLAIM, Switch.AS_NEEDED,
+    pytest.param(False, False, THIS_CLAIM_S_MARK, Switch.AS_NEEDED,
+                 id="off-as-found-under-this-claim"),
+    pytest.param(False, False, ANOTHER_CLAIM_S_MARK, Switch.AS_NEEDED,
                  id="off-as-found-under-another-claim"),
     pytest.param(False, True, None, Switch.CHANGED_SINCE, id="turned-on-since"),
-    pytest.param(False, True, THIS_CLAIM, Switch.CHANGED_SINCE,
+    pytest.param(False, True, THIS_CLAIM_S_MARK, Switch.CHANGED_SINCE,
                  id="turned-on-since-under-this-claim"),
-    pytest.param(False, True, ANOTHER_CLAIM, Switch.CHANGED_SINCE,
+    pytest.param(False, True, ANOTHER_CLAIM_S_MARK, Switch.CHANGED_SINCE,
                  id="turned-on-since-under-another-claim")
 ]
 
@@ -65,16 +80,17 @@ EVERY_WAY_THE_SWITCH_STANDS = [
 # found it syncing, whether it syncs now, whose mark the Application carries).
 EVERY_WAY_NO_SUSPENSION_OF_THIS_CLAIM_S_STANDS = [
     pytest.param(True, True, None, id="syncing-as-found-unmarked"),
-    pytest.param(True, True, THIS_CLAIM, id="resumed-since"),
-    pytest.param(True, True, ANOTHER_CLAIM, id="syncing-as-found-under-another-claim"),
+    pytest.param(True, True, THIS_CLAIM_S_MARK, id="resumed-since"),
+    pytest.param(True, True, ANOTHER_CLAIM_S_MARK, id="syncing-as-found-under-another-claim"),
     pytest.param(True, False, None, id="suspended-unmarked"),
-    pytest.param(True, False, ANOTHER_CLAIM, id="suspended-under-another-claim"),
+    pytest.param(True, False, ANOTHER_CLAIM_S_MARK, id="suspended-under-another-claim"),
     pytest.param(False, False, None, id="off-before-argus-came"),
-    pytest.param(False, False, THIS_CLAIM, id="off-before-argus-came-under-this-claim"),
-    pytest.param(False, False, ANOTHER_CLAIM, id="off-before-argus-came-under-another-claim"),
+    pytest.param(False, False, THIS_CLAIM_S_MARK, id="off-before-argus-came-under-this-claim"),
+    pytest.param(False, False, ANOTHER_CLAIM_S_MARK,
+                 id="off-before-argus-came-under-another-claim"),
     pytest.param(False, True, None, id="turned-on-since"),
-    pytest.param(False, True, THIS_CLAIM, id="turned-on-since-under-this-claim"),
-    pytest.param(False, True, ANOTHER_CLAIM, id="turned-on-since-under-another-claim")
+    pytest.param(False, True, THIS_CLAIM_S_MARK, id="turned-on-since-under-this-claim"),
+    pytest.param(False, True, ANOTHER_CLAIM_S_MARK, id="turned-on-since-under-another-claim")
 ]
 
 
@@ -82,7 +98,7 @@ EVERY_WAY_NO_SUSPENSION_OF_THIS_CLAIM_S_STANDS = [
 @pytest.mark.parametrize(("was_syncing_itself", "syncing_now", "marked_by", "expected"),
                          EVERY_WAY_THE_SWITCH_STANDS)
 def test_the_switch_is_read_from_the_plan_the_platform_and_the_mark(
-    was_syncing_itself: bool, syncing_now: bool, marked_by: str | None, expected: Switch
+    was_syncing_itself: bool, syncing_now: bool, marked_by: MarkFound | None, expected: Switch
 ) -> None:
     # Reconciling as the plan found it is still to be suspended, whoever marked
     # it last; off under this claim's mark is where this claim left it; off as
@@ -102,7 +118,8 @@ def test_a_suspension_of_this_claim_s_stands_where_the_switch_is_off_under_its_m
     # of how to turn it back on.
     Scenario() \
         .given(SOME_MARK) \
-        .when(lambda: this_claim_s_suspension_stands(True, False, THIS_CLAIM, SOME_MARK)) \
+        .when(lambda: this_claim_s_suspension_stands(True, False, THIS_CLAIM_S_MARK,
+                                                        SOME_MARK)) \
         .then(the_answer_was(True))
 
 
@@ -110,7 +127,7 @@ def test_a_suspension_of_this_claim_s_stands_where_the_switch_is_off_under_its_m
 @pytest.mark.parametrize(("was_syncing_itself", "syncing_now", "marked_by"),
                          EVERY_WAY_NO_SUSPENSION_OF_THIS_CLAIM_S_STANDS)
 def test_no_suspension_of_this_claim_s_stands_any_other_way(
-    was_syncing_itself: bool, syncing_now: bool, marked_by: str | None
+    was_syncing_itself: bool, syncing_now: bool, marked_by: MarkFound | None
 ) -> None:
     # A switch somebody turned back on, one turned off by somebody else, and one
     # that was off before Argus came hold nothing of this claim's to put back.

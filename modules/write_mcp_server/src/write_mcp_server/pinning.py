@@ -51,13 +51,21 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from core.mcp_transport import (
     a_change_made_since,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
 )
-from core.models import AutoscalerUndo, AutoscalingRestored, Planned
+from core.models import (
+    AutoscalerUndo,
+    AutoscalingRestored,
+    ChangeFound,
+    Made,
+    NotMade,
+    Planned,
+)
 from deployment_platform import (
     Autoscaler,
     AutoscalerBounds,
@@ -65,12 +73,14 @@ from deployment_platform import (
     DeploymentPlatformWrites,
     Mark,
     MarkedObject,
+    MarkFound,
 )
 
-from write_mcp_server.refusing import a_platform_refusal
+from write_mcp_server.refusing import a_platform_refusal, no_claim_to_compare_with
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 from write_mcp_server.sync_switch import (
     Switch,
+    is_this_claim_s,
     suspend_where_it_is_to_be,
     the_switch,
     this_claim_s_suspension_stands,
@@ -200,65 +210,16 @@ def pin_autoscaler(planned: Planned[AutoscalerUndo],
     descriptor = planned.descriptor
     application = descriptor.application
     asked_for = descriptor.min_replicas_asked_for
+    autoscaler, _, compared = _compared_with_the_plan(planned, platform, mark)
 
-    try:
-        autoscaler = platform.autoscaler_of(application)
-        bounds = (None if autoscaler is None
-                  else platform.autoscaler_bounds(application, autoscaler))
-        syncing_now = platform.is_syncing_itself(application)
-        switch_marked_by = platform.mark_on(application, MarkedObject.APPLICATION)
-        floor_marked_by = platform.mark_on(application, MarkedObject.AUTOSCALER)
-    except DeploymentPlatformError as error:
-        raise _refusing(
-            f"could not read what [{application}]'s autoscaler is now: {error}", error,
-            asked_to_change=False
-        ) from error
-
-    # What of this claim's is out there is worked out before any refusal that
-    # follows the reads, so every one of them carries it.
-    floor_landed = floor_marked_by == mark.action_id
-    left_behind = descriptor if floor_landed or this_claim_s_suspension_stands(
-        descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark
-    ) else None
-
-    # The plan is held to this tier's own rule from its own "was": a floor
-    # raised, and no higher than the bounds read now allow.
-    if asked_for <= descriptor.was_min_replicas or (
-            bounds is not None and asked_for > _the_highest_floor_within(bounds)):
-        raise PinRefused(a_refusal_saying_what_it_left(
-            f"the pin of [{application}]'s autoscaler asks for a floor of "
-            f"[{asked_for}] from [{descriptor.was_min_replicas}], which is not a "
-            f"floor raised within what Argus may ask for",
-            left_behind
-        ))
-
-    switch = the_switch(descriptor.was_syncing_itself, syncing_now, switch_marked_by, mark)
-    floor = None if bounds is None else bounds.floor
-    made = floor_landed and floor == asked_for
-    still_as_found = not floor_landed and floor == descriptor.was_min_replicas
-
-    if autoscaler is None or switch is Switch.CHANGED_SINCE or not (made or still_as_found) or (
-            made and switch is Switch.TO_SUSPEND):
-        # The autoscaler among it: one taken away since is somebody's change,
-        # and a pin would have nowhere to go.
-        raise PinRefused(a_change_made_since(
-            f"[{application}]'s autoscaler "
-            f"{'is gone' if floor is None else f'may fall to [{floor}]'} and the "
-            f"application {'is' if syncing_now else 'is not'} syncing itself, which is "
-            f"not where the pin from [{descriptor.was_min_replicas}] to [{asked_for}] "
-            f"found it or would leave it",
-            left_behind,
-            performed=floor_landed
-        ))
-
-    if made:
+    if compared.made:
         logger.info("autoscaler floor already raised", extra={
             "application": application, "to_floor": asked_for
         })
         # Undated, as `scaling`'s made answer is.
         return descriptor.model_copy(update={"written_at": None})
 
-    suspend_where_it_is_to_be(application, switch, platform, mark, _refusing_a_change)
+    suspend_where_it_is_to_be(application, compared.switch, platform, mark, _refusing_a_change)
 
     try:
         answered_at = platform.set_autoscaler_floor(application, autoscaler, asked_for, mark)
@@ -291,6 +252,201 @@ def _refusing_a_change(said: str, error: DeploymentPlatformError) -> PinRefused:
     """This module's refusal of a change it asked for, with nothing before it
     left behind."""
     return _refusing(said, error, asked_to_change=True)
+
+
+def whether_it_was_made(planned: Planned[AutoscalerUndo],
+                        platform: DeploymentPlatformWrites,
+                        action_id: str | None
+                        ) -> Made[AutoscalerUndo] | NotMade[AutoscalerUndo]:
+    """Whether the pin `planned` describes was made under the claim `action_id`
+    - the write's own rule on the plan, with the write left out, for a walk
+    resumed after the worker that claimed it died.
+
+    Made is answered with what the write would answer, dated by the moment the
+    claim's mark on the autoscaler says the floor was written, `None` where it
+    says none. The floor still where the plan found it, under no mark of the
+    claim's, is nothing landed - carrying the plan where the claim's suspension
+    of the sync stands, as `scaling`'s read does. Anything else is refused
+    exactly as the write refuses it on the same estate, since the two are one
+    compare. A call naming no claim is refused plainly, as `scaling`'s read
+    refuses one. Writes nothing.
+    """
+    if action_id is None:
+        raise PinRefused(no_claim_to_compare_with(
+            f"the pin of [{planned.descriptor.application}]'s autoscaler"
+        ))
+
+    _, found, compared = _compared_with_the_plan(planned, platform, action_id)
+
+    if not compared.made:
+        return NotMade[AutoscalerUndo](left_behind=compared.left_behind)
+
+    return Made[AutoscalerUndo](
+        descriptor=planned.descriptor.model_copy(update={"written_at": None}),
+        made_at=None if found.floor_marked_by is None else found.floor_marked_by.written_at
+    )
+
+
+def still_argus_s(descriptor: AutoscalerUndo,
+                  platform: DeploymentPlatformWrites,
+                  action_id: str | None) -> ChangeFound:
+    """Whether the pin `descriptor` records is still as Argus left it - the
+    write's own "made" rule, read and not acted on, for a walk resumed after the
+    worker that made it died.
+
+    The floor it asked for under the claim `action_id`'s mark, on an autoscaler
+    still there, and the sync switch where the pin left it, is still Argus's.
+    Anything else is somebody's change since, saying what was found. A read
+    that never came back, or a call naming no claim, is a question nobody can
+    answer. Writes nothing.
+    """
+    application = descriptor.application
+
+    if action_id is None:
+        return ChangeFound(still_argus_s=None, found=no_claim_to_compare_with(
+            f"the pin of [{application}]'s autoscaler"
+        ))
+
+    try:
+        found = _what_is_there(application, platform)
+    except DeploymentPlatformError as error:
+        logger.warning("still-argus-s check failed", exc_info=True,
+                       extra={"application": application})
+        return ChangeFound(
+            still_argus_s=None,
+            found=f"could not read what [{application}]'s autoscaler is now: {error}"
+        )
+
+    if _compared(descriptor, found, action_id).made:
+        return ChangeFound(still_argus_s=True)
+
+    return ChangeFound(
+        still_argus_s=False,
+        found=f"{_as_it_stands(application, found)}, which is not where the pin from "
+              f"[{descriptor.was_min_replicas}] to [{descriptor.min_replicas_asked_for}] "
+              f"left it"
+    )
+
+
+@dataclass(frozen=True)
+class _Found:
+    """What the platform says of a pin's autoscaler now: the autoscaler, its
+    bounds, whether the application reconciles itself, and the marks on the
+    Application and on the autoscaler."""
+
+    autoscaler: Autoscaler | None
+    bounds: AutoscalerBounds | None
+    syncing_now: bool
+    switch_marked_by: MarkFound | None
+    floor_marked_by: MarkFound | None
+
+
+@dataclass(frozen=True)
+class _Compared:
+    """A pin held against what was found: where the sync switch stands, whether
+    the claim's floor landed, whether the change is made or somebody's since,
+    and what of the claim's is out there."""
+
+    switch: Switch
+    floor_landed: bool
+    made: bool
+    changed_since: bool
+    left_behind: AutoscalerUndo | None
+
+
+def _what_is_there(application: str, platform: DeploymentPlatformWrites) -> _Found:
+    """The reads a pin is compared with. Raises `DeploymentPlatformError` where
+    any of them fails."""
+    autoscaler = platform.autoscaler_of(application)
+
+    return _Found(
+        autoscaler=autoscaler,
+        bounds=(None if autoscaler is None
+                else platform.autoscaler_bounds(application, autoscaler)),
+        syncing_now=platform.is_syncing_itself(application),
+        switch_marked_by=platform.mark_on(application, MarkedObject.APPLICATION),
+        floor_marked_by=platform.mark_on(application, MarkedObject.AUTOSCALER)
+    )
+
+
+def _compared(descriptor: AutoscalerUndo, found: _Found, claim: Mark | str) -> _Compared:
+    """The one rule the write, the claimed read and the performed read share:
+    made is the floor asked for under `claim`'s mark, with the switch where the
+    change needs it; as the plan found it is the floor it found under no mark of
+    `claim`'s; anything else - an autoscaler gone among it, since a pin would
+    have nowhere to go - is changed since."""
+    floor_landed = is_this_claim_s(found.floor_marked_by, claim)
+    left_behind = descriptor if floor_landed or this_claim_s_suspension_stands(
+        descriptor.was_syncing_itself, found.syncing_now, found.switch_marked_by, claim
+    ) else None
+    switch = the_switch(descriptor.was_syncing_itself, found.syncing_now,
+                        found.switch_marked_by, claim)
+    floor = None if found.bounds is None else found.bounds.floor
+    made = floor_landed and floor == descriptor.min_replicas_asked_for
+    still_as_found = not floor_landed and floor == descriptor.was_min_replicas
+    changed_since = found.autoscaler is None or switch is Switch.CHANGED_SINCE or not (
+        made or still_as_found) or (made and switch is Switch.TO_SUSPEND)
+
+    return _Compared(switch=switch, floor_landed=floor_landed,
+                     made=made and not changed_since, changed_since=changed_since,
+                     left_behind=left_behind)
+
+
+def _compared_with_the_plan(planned: Planned[AutoscalerUndo],
+                            platform: DeploymentPlatformWrites,
+                            claim: Mark | str) -> tuple[Autoscaler, _Found, _Compared]:
+    """What the platform is now, held against `planned` for `claim` - every
+    comparison the write makes before it writes, raising as it raises - with
+    the autoscaler the change is to be made on.
+
+    The reads come first, because the plan is held to this tier's own rule
+    against the bounds read now: a floor raised, and no higher than those
+    bounds allow - refused plainly where it is not, carrying what of the
+    claim's is out there. Somebody's change since is refused as changed since,
+    carrying the same.
+    """
+    descriptor = planned.descriptor
+    application = descriptor.application
+    asked_for = descriptor.min_replicas_asked_for
+
+    try:
+        found = _what_is_there(application, platform)
+    except DeploymentPlatformError as error:
+        raise _refusing(
+            f"could not read what [{application}]'s autoscaler is now: {error}", error,
+            asked_to_change=False
+        ) from error
+
+    compared = _compared(descriptor, found, claim)
+
+    if asked_for <= descriptor.was_min_replicas or (
+            found.bounds is not None and asked_for > _the_highest_floor_within(found.bounds)):
+        raise PinRefused(a_refusal_saying_what_it_left(
+            f"the pin of [{application}]'s autoscaler asks for a floor of "
+            f"[{asked_for}] from [{descriptor.was_min_replicas}], which is not a "
+            f"floor raised within what Argus may ask for",
+            compared.left_behind
+        ))
+
+    if compared.changed_since or found.autoscaler is None:
+        raise PinRefused(a_change_made_since(
+            f"{_as_it_stands(application, found)}, which is not where the pin from "
+            f"[{descriptor.was_min_replicas}] to [{asked_for}] found it or would leave it",
+            compared.left_behind,
+            performed=compared.floor_landed
+        ))
+
+    return found.autoscaler, found, compared
+
+
+def _as_it_stands(application: str, found: _Found) -> str:
+    """The autoscaler's floor and the application's reconciliation, as a
+    sentence says them."""
+    floor = None if found.bounds is None else found.bounds.floor
+
+    return (f"[{application}]'s autoscaler "
+            f"{'is gone' if floor is None else f'may fall to [{floor}]'} and the "
+            f"application {'is' if found.syncing_now else 'is not'} syncing itself")
 
 
 def restore_autoscaler_floor(descriptor: AutoscalerUndo,
