@@ -371,7 +371,8 @@ def _nobody_can_say_whether_it_was_carried_out(state: IncidentState,
                        undo_descriptor=planned.descriptor if planned is not None else None)
 
     return StateDelta(
-        status=IncidentStatus.ESCALATED,
+        action_outcome=Verdict.ESCALATED,
+        action_because=_A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR,
         narration=Narration(action="mitigation attempted",
                             detail=_A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR)
     )
@@ -686,13 +687,9 @@ def _the_earlier_attempt_resumed(state: IncidentState,
     outcome = claimed.outcome if claimed is not None else None
 
     if isinstance(outcome, UnreadVerdict):
-        return StateDelta(
-            status=IncidentStatus.ESCALATED,
-            narration=Narration(
-                action="mitigation resumed",
-                detail=f"an earlier attempt already acted on this explanation, and "
-                       f"recorded an outcome this version cannot read: {outcome}"
-            )
+        return _the_resumed_walk_stops(
+            f"an earlier attempt already acted on this explanation, and recorded an "
+            f"outcome this version cannot read: {outcome}"
         )
 
     if claimed is not None and outcome is not None:
@@ -1142,9 +1139,14 @@ def _said_with_what_was_found(said: str, found: str | None) -> str:
 
 def _the_resumed_walk_stops(why: str) -> StateDelta:
     """The incident handed to a person by a resumed walk that cannot carry the
-    earlier attempt on, saying `why` in the words a person reads."""
+    earlier attempt on, saying `why` in the words a person reads.
+
+    Said as the attempt's outcome, escalated, and not as a status: the status
+    is `status_after`'s to draw from the outcome, and the wrapper's to write
+    with the sentence that accounts for it."""
     return StateDelta(
-        status=IncidentStatus.ESCALATED,
+        action_outcome=Verdict.ESCALATED,
+        action_because=why,
         narration=Narration(action="mitigation resumed", detail=why)
     )
 
@@ -1182,9 +1184,10 @@ def route_after_mitigation(state: IncidentState) -> str:
     A refuted action stays in `mitigating` and goes to the node that decides
     whether another explanation is left to try.
 
-    An `escalated` outcome still ends things immediately: the action could not
-    be taken at all, so nothing was changed and nothing was measured, and a
-    further experiment would run against a world Argus cannot describe.
+    An `escalated` outcome still ends things immediately: nothing was measured,
+    or nothing can be - a change whose answer was lost may stand, and a resumed
+    claim nobody can account for may too - so a further experiment would run
+    against a world Argus cannot describe.
     """
     if state.status == IncidentStatus.MITIGATED:
         return FIXING_ROUTE

@@ -293,8 +293,9 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     if state.the_mode_has_no_mitigation:
         return IncidentStatus.FIXING
 
-    # Not a third opinion on the hypothesis: nothing was changed and nothing was
-    # measured, so a further experiment would run against a world Argus cannot
+    # Not a third opinion on the hypothesis: nothing was measured, or nothing
+    # can be - a change that may or may not stand, or one nobody can account
+    # for - so a further experiment would run against a world Argus cannot
     # describe.
     if state.action_outcome == Verdict.ESCALATED:
         return IncidentStatus.ESCALATED

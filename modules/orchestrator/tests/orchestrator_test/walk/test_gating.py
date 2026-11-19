@@ -115,7 +115,6 @@ def test_the_gate_rejects_an_action_of_a_kind_argus_may_not_take(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
-                     _the_incident_was_moved_nowhere(),
                      _nothing_was_narrated(),
                      _the_refusal_was_published(Refusal.NOT_A_GENERIC_MITIGATION,
                                                 published)))
@@ -164,7 +163,6 @@ def test_the_gate_rejects_an_incident_with_no_proposed_action(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
-                     _the_incident_was_moved_nowhere(),
                      _nothing_was_narrated(),
                      _the_refusal_was_published(Refusal.NO_MITIGATION_PROPOSED,
                                                 published)))
@@ -283,7 +281,6 @@ def test_a_mitigation_already_tried_on_this_subject_as_often_as_allowed_is_refus
                                      attempts_per_subject=1,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
-                     _the_incident_was_moved_nowhere(),
                      _nothing_was_narrated(),
                      _the_refusal_was_published(Refusal.ALREADY_TRIED_ENOUGH,
                                                 published)))
@@ -423,7 +420,6 @@ def test_a_mode_argus_takes_nothing_for_is_refused_for_its_own_reason(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
-                     _the_incident_was_moved_nowhere(),
                      _the_refusal_was_published(refusal, published)))
 
 
@@ -508,8 +504,7 @@ def test_a_candidate_naming_a_flag_the_provider_never_recorded_is_left_to_a_pers
             _the_refusal_was_published(Refusal.NAMED_CHANGE_NOT_RECORDED, published),
             _the_candidate_was_recorded_as_untried(
                 some_candidate, why_it_was_refused(Refusal.NAMED_CHANGE_NOT_RECORDED),
-                record_outcome),
-            _the_incident_was_moved_nowhere()
+                record_outcome)
         ))
 
 
@@ -589,7 +584,6 @@ def test_an_action_addressed_outside_the_estate_is_refused(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
-                     _the_incident_was_moved_nowhere(),
                      _nothing_was_narrated(),
                      _the_refusal_was_published(
                          Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH, published)))
@@ -647,7 +641,6 @@ def test_an_action_nothing_could_confirm_is_refused(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
-                     _the_incident_was_moved_nowhere(),
                      _the_recommendation_was_narrated(Refusal.NOTHING_COULD_CONFIRM_IT),
                      _the_refusal_was_published(
                          Refusal.NOTHING_COULD_CONFIRM_IT, published)))
@@ -1120,21 +1113,6 @@ def _nothing_was_recommended() -> Assertion[StateDelta]:
                 f"Expected no recommendation from a refusal that is a judgement "
                 f"on the action itself, the gate returned "
                 f"{updates.recommended_action!r}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_incident_was_moved_nowhere() -> Assertion[StateDelta]:
-    """A rejection ends this attempt, not the incident: `mitigating` before and
-    after, so the gate names no status at all."""
-    def assertion(updates: StateDelta) -> bool:
-        if "status" in updates.model_fields_set:
-            raise AssertionError(
-                f"Expected the gate to name no status, it named "
-                f"[{updates.status}]."
             )
 
         return True

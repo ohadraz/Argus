@@ -131,7 +131,7 @@ def with_status(
         ending = ended_by_a_person(state.incident_id)
 
         if ending in stops_for:
-            return StateDelta(status=ending).as_updates()
+            return {"status": ending}
 
         delta = node(state)
         updates = delta.as_updates()

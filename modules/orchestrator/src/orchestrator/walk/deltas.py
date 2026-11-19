@@ -31,7 +31,6 @@ from core.models import (
     EstablishedOnset,
     FlagChange,
     Hypothesis,
-    IncidentStatus,
     Platform,
     Reading,
     RecordedPlacement,
@@ -78,11 +77,17 @@ class StateDelta(BaseModel):
     Extra fields are refused rather than ignored. Pydantic's default would drop
     a misspelt one in silence, which is the failure this model exists to end -
     said in a constructor instead of in a dict literal, but just as quiet.
+
+    No `status` among them. The status is a conclusion `status_after` draws
+    from the work - a node that wants the incident escalated says the attempt's
+    outcome was - and `with_status` alone writes it, with the sentence that
+    accounts for it. A status a node set would reach the state without the
+    row, which is how an incident came to read `mitigating` while its walk was
+    over.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    status: IncidentStatus | None = None
     hypothesis: Hypothesis | None = None
     candidates: list[Hypothesis] | None = None
     candidate_index: int | None = None

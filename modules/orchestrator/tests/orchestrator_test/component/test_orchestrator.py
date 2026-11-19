@@ -798,6 +798,64 @@ def test_a_mode_nothing_answers_goes_to_code_fix_past_a_rollback_it_could_have_t
             _the_incident_ended(IncidentStatus.ESCALATED)))
 
 
+@pytest.mark.component
+def test_a_resumed_mitigation_nobody_can_account_for_leaves_the_incident_escalated_saying_why(
+    collaborators: Collaborators,
+    transition_incident: MagicMock
+) -> None:
+    # The claim an earlier worker wrote is found, and nothing can say whether its
+    # action was carried out. The node reports the verdict and says why; the
+    # status is derived from that like every other, and the row is moved to
+    # escalated with the sentence a person reads.
+    Scenario() \
+        .given(
+            a_walk_resuming_a_claim_nobody_can_account_for := replace(
+                collaborators,
+                record_action=lambda *dont_care_args, **dont_care_keywords: None,
+                already_taken=lambda incident_id, hypothesis_id: ports.ClaimedAction(
+                    action_id=DONT_CARE_ACTION_ID, outcome=None,
+                    claimed_at=SOME_MOMENT_AN_EARLIER_WORKER_CLAIMED_IT,
+                    progress=ActionProgress.UNKNOWN
+                )
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(),
+                                   a_walk_resuming_a_claim_nobody_can_account_for)) \
+        .then(all_of(
+            _the_incident_ended(IncidentStatus.ESCALATED),
+            _the_row_was_moved_to(transition_incident, IncidentStatus.ESCALATED,
+                                  saying=A_CHANGE_NOBODY_CAN_ACCOUNT_FOR)
+        ))
+
+
+# When the worker that is gone wrote its claim, which nothing here reads.
+SOME_MOMENT_AN_EARLIER_WORKER_CLAIMED_IT = datetime(2026, 8, 20, 11, 10, tzinfo=UTC)
+# How a resumed walk hands over a claim nobody can account for, in the words a
+# person reads.
+A_CHANGE_NOBODY_CAN_ACCOUNT_FOR = ("an earlier attempt claimed this action and nothing can "
+                                   "say whether it was carried out")
+
+
+def _the_row_was_moved_to(transition_incident: MagicMock,
+                          status: IncidentStatus,
+                          saying: str) -> Assertion[Walked]:
+    """The row was moved to `status` once, with the line saying `saying`."""
+    def assertion(dont_care_walked: Walked) -> bool:
+        moves = [(call.args[1], call.kwargs["narrating"].detail)
+                 for call in transition_incident.call_args_list
+                 if call.args[1] == status]
+
+        if moves != [(status, saying)]:
+            raise AssertionError(
+                f"Expected the row moved to [{status}] once saying [{saying}], got "
+                f"{[(call.args, call.kwargs) for call in transition_incident.call_args_list]}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_walk_of(incident: IncidentState, collaborators: Collaborators) -> Walked:
     """One incident through the compiled graph, and the nodes it passed.
 

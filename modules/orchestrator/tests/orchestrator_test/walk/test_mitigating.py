@@ -692,41 +692,6 @@ def test_an_escalated_action_says_nothing_about_any_platform(
 
 
 @pytest.mark.unit
-def test_the_node_that_takes_the_action_decides_no_status(
-    take: MagicMock,
-    record_action: MagicMock,
-    complete_action: MagicMock,
-    record_outcome: MagicMock,
-    already_taken: MagicMock,
-    acting_for: ports.ActingFor,
-    still_wanted: MagicMock
-) -> None:
-    # The verdict is what this node measured; where the incident stands as a
-    # result is a conclusion drawn from it elsewhere. Drawing it here is how the
-    # same verdict came to mean two different statuses in two places.
-    Scenario() \
-        .given(
-            calling(lambda: _the_action_came_back(take, Verdict.REFUTED)),
-            an_action_taking_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor()
-            )
-        ) \
-        .when(lambda: mitigation_node(an_action_taking_incident,
-                                      take=take,
-                                      plan_action=_a_plan_nobody_checks(),
-                                      resuming=_resuming_nobody_checks(),
-                                      advance_action=_an_advance_nobody_checks(),
-                                      owe_a_put_back=_an_owing_nobody_checks(),
-                                      record_action=record_action,
-                                      complete_action=complete_action,
-                                      record_outcome=record_outcome,
-                                      already_taken=already_taken,
-                                      acting_for=acting_for,
-                                      still_wanted=still_wanted)) \
-        .then(_no_status_was_decided())
-
-
-@pytest.mark.unit
 def test_the_action_row_records_the_undo_descriptor_the_write_returned(
     take: MagicMock,
     record_action: MagicMock,
@@ -3349,28 +3314,24 @@ def _the_walk_carries(expected: datetime) -> Assertion[StateDelta]:
     return assertion
 
 
-def _no_status_was_decided() -> Assertion[StateDelta]:
+def _the_incident_was_escalated() -> Assertion[StateDelta]:
+    """Nothing was measured and nothing can be: the node reports the verdict
+    that says so - escalated - with the sentence it says as the reason, which
+    `status_after` derives the status from."""
     def assertion(updates: StateDelta) -> bool:
-        if "status" in updates.model_fields_set:
+        told = updates.as_updates()
+        said = updates.narration.said() if updates.narration is not None else None
+
+        if told.get("action_outcome") is not Verdict.ESCALATED:
             raise AssertionError(
-                f"Expected the node to decide no status, it decided "
-                f"[{updates.status}]."
+                f"Expected the node to report the verdict [{Verdict.ESCALATED}], it "
+                f"reported [{told.get('action_outcome', 'nothing at all')}]."
             )
 
-        return True
-
-    return assertion
-
-
-def _the_incident_was_escalated() -> Assertion[StateDelta]:
-    """The one case where this node does name a status: nothing was measured
-    and nothing can be, so there is no verdict for anything downstream to draw
-    a conclusion from."""
-    def assertion(updates: StateDelta) -> bool:
-        if updates.status != IncidentStatus.ESCALATED:
+        if told.get("action_because") != said:
             raise AssertionError(
-                f"Expected the incident to be escalated, the node returned "
-                f"[{updates.status}]."
+                f"Expected the node to report the reason it says, [{said}], it reported "
+                f"[{told.get('action_because', 'nothing at all')}]."
             )
 
         return True
