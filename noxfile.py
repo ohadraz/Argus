@@ -1,5 +1,7 @@
+import argparse
 import contextlib
 import ctypes
+import enum
 import functools
 import json
 import os
@@ -8,13 +10,15 @@ import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import IO, Any, Final
 
 import nox
 
@@ -200,33 +204,208 @@ def test_all(session: nox.Session) -> None:
     Registers `test_all` as a nox session, i.e., runnable via
     `uv run python -m nox -s test_all` (fail-fast, default), or with
     `-- --ci` / `-- --aggregate` appended to continue past failures and
-    report every failure at the end.
-    Runs every discovered module's full test suite. Fail-fast stops at the first
-    failing module - fast local feedback. --ci mode runs every module regardless
-    of earlier failures, then fails the session with a summary if any failed -
+    report every failure at the end. `-- --workers N` runs at most N suites at
+    once; the default is the machine's CPU count.
+    Runs every discovered module's full test suite, each in a process of its
+    own and up to `--workers` of them at once. A suite's output is held until
+    it finishes and then printed whole, under one line naming the module,
+    whether it passed and how many seconds it took, so two suites never
+    interleave; one summary line closes the run. Fail-fast starts nothing new
+    once a suite fails, stops the ones still running, removes the containers
+    they would have stopped themselves, and fails naming the module - fast
+    local feedback. --ci mode runs every module regardless of earlier
+    failures, then fails the session listing every module that failed -
     full-picture visibility, intended for CI.
 
-    On a database of its own and a Slack double port of its own, for the reason
-    `test_module` has each - and not the same ones, since running both at once
-    is the case that would otherwise have each stopping the other's.
+    Concurrent because no two suites share anything: each runs with the
+    database, Slack double port and vector store port `test_module` gives that
+    module, so none binds another's port or stops another's containers. Which
+    is also why `test_all` and `test_module` for the same module cannot run at
+    once - they are the same suite in the same places.
     """
-    os.environ.update(_TEST_ALL_STACK)
-    ci_mode = "--ci" in session.posargs or "--aggregate" in session.posargs
-    failed_modules: list[str] = []
+    options = _test_all_options(session.posargs)
+    started = time.monotonic()
+    verdicts = _run_every_suite(options.workers, stop_at_first_failure=not options.keep_going)
+    print(_the_summary(verdicts, time.monotonic() - started), flush=True)
+    failed = [module for module, verdict in verdicts.items() if verdict is _Verdict.FAILED]
 
-    for module in MODULES:
+    if failed:
+        session.error(f"Failed modules: {', '.join(failed)}")
+
+
+# The flags `test_all` reads after `--`. Named because the docstring, the
+# parser and anyone scripting a CI step all spell them. The two that mean the
+# same thing are both kept because the session has always taken both, and the
+# nightly spells it `--ci`.
+_WORKERS_FLAG: Final = "--workers"
+_CI_FLAG: Final = "--ci"
+_AGGREGATE_FLAG: Final = "--aggregate"
+
+# How often `test_all` looks at the suites it is running. Short, because a
+# finished suite is a free worker standing idle until it is noticed.
+_SECONDS_BETWEEN_SUITE_LOOKS: Final = 0.5
+
+
+class _Verdict(enum.Enum):
+    """What became of one module's suite in a `test_all` run, as its header says it."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    # Stopped by a failure elsewhere before it finished: no verdict of its own,
+    # and a log ending mid-run must not be read as a second failure.
+    STOPPED = "stopped without a verdict"
+
+
+@dataclass(frozen=True)
+class _TestAllOptions:
+    """What `test_all` was asked for after `--`."""
+
+    workers: int
+    keep_going: bool
+
+
+@dataclass(frozen=True)
+class _RunningSuite:
+    """One module's suite in flight: its process, where its output is going,
+    and when it started."""
+
+    module: str
+    process: subprocess.Popen[bytes]
+    output: IO[bytes]
+    started: float
+
+
+def _a_positive_count(text: str) -> int:
+    """`--workers`' value, refused unless it is a whole number of at least one -
+    zero workers is a run that waits forever on nothing."""
+    try:
+        count = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole number: {text}") from None
+
+    if count < 1:
+        raise argparse.ArgumentTypeError(f"needs at least one worker, not {count}")
+
+    return count
+
+
+def _test_all_options(posargs: list[str]) -> _TestAllOptions:
+    """Reads `test_all`'s flags. An unknown one is refused rather than ignored:
+    a misspelled `--aggregate` would otherwise be a fail-fast run that looked
+    like a full one."""
+    parser = argparse.ArgumentParser(prog="nox -s test_all --")
+    parser.add_argument(_WORKERS_FLAG, type=_a_positive_count, default=os.cpu_count() or 1)
+    parser.add_argument(_CI_FLAG, action="store_true")
+    parser.add_argument(_AGGREGATE_FLAG, action="store_true")
+    parsed = parser.parse_args(posargs)
+
+    return _TestAllOptions(workers=parsed.workers, keep_going=parsed.ci or parsed.aggregate)
+
+
+def _start_suite(module: str, output: IO[bytes]) -> _RunningSuite:
+    """Starts one module's suite, its output captured to `output`.
+
+    The command is the one a serial run made: the module's own declared
+    dependencies (`uv run --package`) and every marker its suite holds. The
+    environment is `test_module`'s for that module. A file rather than a pipe,
+    because a pipe nobody reads until the end fills, and a suite blocked
+    writing to it never ends.
+    """
+    process = _start_process(
+        ["uv", "run", "--package", f"argus-{module}",
+         "python", "-m", "pytest", _SUITES[module], "-v"],
+        env=_a_database_for(module) | _a_slack_double_for(module) | _a_qdrant_for(module),
+        output=output
+    )
+
+    return _RunningSuite(module, process, output, time.monotonic())
+
+
+def _report(suite: _RunningSuite, verdict: _Verdict) -> None:
+    """Prints one suite's header and, unless it was stopped, its output whole.
+
+    The bytes as the suite wrote them, straight to stdout's buffer: they are
+    UTF-8 already, and decoding them only to encode them again is one more
+    place a character can fail to survive.
+    """
+    print(f"===== {suite.module}: {verdict.value} in "
+          f"{time.monotonic() - suite.started:.1f}s =====", flush=True)
+
+    if verdict is not _Verdict.STOPPED:
+        suite.output.seek(0)
+        sys.stdout.buffer.write(suite.output.read())
+        sys.stdout.buffer.flush()
+
+
+def _the_finished(running: list[_RunningSuite]) -> list[_RunningSuite]:
+    """The suites that have exited, taken out of `running`."""
+    finished = [suite for suite in running if suite.process.poll() is not None]
+
+    for suite in finished:
+        running.remove(suite)
+
+    return finished
+
+
+def _run_every_suite(workers: int, stop_at_first_failure: bool) -> dict[str, _Verdict]:
+    """Runs every module's suite, at most `workers` at once, and says what
+    became of each one that started.
+
+    Stopping on a failure starts nothing further and stops what is running. A
+    stopped suite never reaches its own teardown, so the containers it brought
+    up are removed here - `down -v`, for `_clean_up_after`'s reason. In a
+    `finally`, so an interrupted run does the same. Each suite's output file
+    lives until the run ends, closed with the rest whichever way it ends.
+    """
+    waiting = list(MODULES)
+    running: list[_RunningSuite] = []
+    verdicts: dict[str, _Verdict] = {}
+
+    with contextlib.ExitStack() as outputs:
         try:
-            session.run(
-                "uv", "run", "--package", f"argus-{module}",
-                "python", "-m", "pytest", _SUITES[module], "-v", external=True
-            )
-        except Exception:
-            if not ci_mode:
-                raise  # fail-fast: propagate immediately, stop the loop
-            failed_modules.append(module)
+            while waiting or running:
+                while waiting and len(running) < workers:
+                    output = outputs.enter_context(tempfile.TemporaryFile())
+                    running.append(_start_suite(waiting.pop(0), output))
 
-    if failed_modules:
-        session.error(f"Failed modules: {', '.join(failed_modules)}")
+                for suite in _the_finished(running):
+                    passed = suite.process.returncode == 0
+                    verdict = _Verdict.PASSED if passed else _Verdict.FAILED
+                    verdicts[suite.module] = verdict
+                    _report(suite, verdict)
+
+                if stop_at_first_failure and _Verdict.FAILED in verdicts.values():
+                    return verdicts
+
+                time.sleep(_SECONDS_BETWEEN_SUITE_LOOKS)
+
+            return verdicts
+        finally:
+            for suite in running:
+                _stop_service(suite.process)
+                _remove_the_containers_of(_a_database_for(suite.module)["COMPOSE_PROJECT_NAME"])
+                verdicts[suite.module] = _Verdict.STOPPED
+                _report(suite, _Verdict.STOPPED)
+
+
+def _the_summary(verdicts: dict[str, _Verdict], seconds: float) -> str:
+    """One line: how many suites came to each verdict, which failed, how many
+    never started, and how long the run took."""
+    parts = []
+
+    for verdict in _Verdict:
+        modules = [module for module, found in verdicts.items() if found is verdict]
+
+        if modules:
+            named = f" ({', '.join(modules)})" if verdict is _Verdict.FAILED else ""
+            parts.append(f"{len(modules)} {verdict.value}{named}")
+
+    never_started = len(MODULES) - len(verdicts)
+
+    if never_started:
+        parts.append(f"{never_started} not started")
+
+    return f"===== test_all: {', '.join(parts)} in {seconds:.1f}s ====="
 
 @_a_session()
 def sweep(session: nox.Session) -> None:
@@ -239,9 +418,10 @@ def sweep(session: nox.Session) -> None:
 
     They can share a machine because none of them shares infrastructure: each
     brings up a database under a compose project of its own, and the doubles and
-    stores they publish bind ports of their own (`_INTEGRATION_STACK`,
-    `_MODULE_SUITE_STACK`). A project is not enough on its own - it decides
-    whose container a container is, and the published port is still the host's
+    stores they publish bind ports of their own (`_INTEGRATION_STACK`, and
+    `_a_database_for` and its two siblings per module). A project is not
+    enough on its own - it decides whose container a container is, and the
+    published port is still the host's
     one address - which is what a vector store on the default 6333 in both
     `test_all` and `e2e_replay` cost before either had a port here.
     Sequentially this is the better part of half an hour, almost all of it
@@ -347,19 +527,22 @@ def _clean_up_after(suites: list[str]) -> None:
     reported failure would bury the suite that actually broke.
     """
     for suite in suites:
-        project = _SWEEP_PROJECTS.get(suite)
+        for project in _SWEEP_PROJECTS.get(suite, ()):
+            _remove_the_containers_of(project)
 
-        if project is None:
-            continue
 
-        removed = subprocess.run(
-            ["docker", "compose", *project, "down", "-v"],
-            capture_output=True, check=False
-        )
+def _remove_the_containers_of(project: str) -> None:
+    """`docker compose down -v` for one compose project, complaining rather
+    than raising if it fails - see `_clean_up_after` for why. A project with
+    nothing in it is removed as quietly as one with something."""
+    removed = subprocess.run(
+        ["docker", "compose", "-p", project, "down", "-v"],
+        capture_output=True, check=False
+    )
 
-        if removed.returncode != 0:
-            print(f"could not remove the containers [{suite}] left behind: "
-                  f"{removed.stderr.decode(errors='replace').strip()}")
+    if removed.returncode != 0:
+        print(f"could not remove the containers [{project}] left behind: "
+              f"{removed.stderr.decode(errors='replace').strip()}")
 
 
 @_a_session()
@@ -1110,6 +1293,22 @@ def _start_service(
 ) -> subprocess.Popen[bytes]:
     """Starts one local service as a child of this session, via the venv's Python.
 
+    How it is started - its process group, its UTF-8, its dying with this run,
+    `env` - is `_start_process`'s.
+    """
+    return _start_process([_venv_python_binary(), *module_args], env)
+
+
+def _start_process(
+    command: list[str],
+    env: dict[str, str] | None = None,
+    output: IO[bytes] | None = None
+) -> subprocess.Popen[bytes]:
+    """Starts one command as a child of this session, stoppable by `_stop_service`.
+
+    `output`, when given, takes the child's stdout and stderr together, in the
+    order it wrote them; otherwise the child writes to this session's own.
+
     CREATE_NEW_PROCESS_GROUP is required on Windows for CTRL_BREAK_EVENT (the
     graceful-shutdown signal `_stop_service` sends) to be deliverable to the
     child at all.
@@ -1142,7 +1341,9 @@ def _start_service(
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
 
     process = subprocess.Popen(
-        [_venv_python_binary(), *module_args],
+        command,
+        stdout=output,
+        stderr=subprocess.STDOUT if output is not None else None,
         creationflags=creationflags,
         # The POSIX half of the same idea, and the reason both are set here
         # rather than at one call site: a child of its own gets signalled
@@ -1398,7 +1599,6 @@ _JUDGE_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_JUDGE_ANTHROPIC_DOUBLE_P
 # provider's database in the e2e stack. Far enough from both that nothing else
 # here claims them.
 _INTEGRATION_POSTGRES_PORT = "5544"
-_TEST_ALL_POSTGRES_PORT = "5545"
 # Where one module's own database goes, counted from the module's place in
 # `MODULES`. Derived rather than listed, because a module is discovered rather
 # than declared and a table of ports would be one more place to remember to add
@@ -1412,7 +1612,6 @@ _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_ANTHRO
 # double in-process, and the e2e stack runs one on 8094. Two of those at once -
 # which is exactly what a sweep is - and the second dies on the bind, so a suite
 # that had nothing to do with Slack takes down the run that did.
-_TEST_ALL_SLACK_DOUBLE_PORT = "8095"
 _MODULE_SUITE_SLACK_PORT_BASE = 8100
 # Where a suite's own vector store listens, for the reason its database and its
 # Slack double have ports of their own. Two module suites want one - the code
@@ -1420,7 +1619,6 @@ _MODULE_SUITE_SLACK_PORT_BASE = 8100
 # sweep is three stores at once and the second to bind dies. A compose project
 # of one's own is not enough here: it makes the *container* somebody else's, and
 # the published port is still the host's one address.
-_TEST_ALL_QDRANT_PORT = "6343"
 _MODULE_SUITE_QDRANT_PORT_BASE = 6350
 
 
@@ -1460,17 +1658,6 @@ _INTEGRATION_STACK = _a_database_of_its_own(
     "GITHUB_DOUBLE_PORT": _INTEGRATION_GITHUB_DOUBLE_PORT
 }
 
-# The module suites bring up a database of their own - four of them do, from
-# their own conftests, which is what a `component` test needing real postgres
-# looks like. No Anthropic double: every module suite that reaches a model
-# reaches a stub it constructs itself. A Slack double, though, is a real server
-# on a real port, because an SDK is what does the reaching - so it gets a port
-# of its own here for the same reason the database does.
-_TEST_ALL_STACK = _a_database_of_its_own("argus-modules", _TEST_ALL_POSTGRES_PORT) | {
-    "SLACK_DOUBLE_PORT": _TEST_ALL_SLACK_DOUBLE_PORT,
-    "ARGUS_QDRANT_PORT": _TEST_ALL_QDRANT_PORT
-}
-
 # Where the stack `e2e`, `e2e_replay`, `record` and `stack` bring up lives: its
 # compose project, its database, its store, and the port of every process of it
 # that reads one from the environment. Stated rather than defaulted, the way
@@ -1489,23 +1676,14 @@ _THE_STACKS_OWN_PLACES: Final = _a_database_of_its_own("argus", _STACK_POSTGRES_
     "PAGERDUTY_DOUBLE_PORT": _PAGERDUTY_DOUBLE_PORT
 }
 
-# How to name each swept suite's containers to `docker compose`, for the three
-# that have any. Read only when a suite had to be killed: it is what lets the
-# sweep finish a teardown that never ran, and the reason a suite's project has
-# to be stated somewhere a *different* process can find it.
-_SWEEP_PROJECTS: Final[dict[str, tuple[str, ...]]] = {
-    "test_all": ("-p", _TEST_ALL_STACK["COMPOSE_PROJECT_NAME"]),
-    "integration": ("-p", _INTEGRATION_STACK["COMPOSE_PROJECT_NAME"]),
-    _E2E_REPLAY_IN_PRODUCTION_MODE: ("-p", _THE_STACKS_OWN_PLACES["COMPOSE_PROJECT_NAME"])
-}
-
 
 def _a_database_for(module: str) -> dict[str, str]:
     """One module's own database, so two module suites can run at once.
 
-    A module rather than the session, because `test_module` is parametrized:
-    two of them in flight are two processes each bringing postgres up and each
-    stopping it afterwards, and the one that finishes first stops the other's.
+    A module rather than the session, because `test_module` is parametrized
+    and `test_all` runs every module at once: two suites in flight are two
+    processes each bringing postgres up and each stopping it afterwards, and
+    the one that finishes first stops the other's.
 
     A module nobody discovered has no place to count from, which would silently
     become somebody else's port. Nothing can ask for one - the parametrization
@@ -1544,6 +1722,19 @@ def _a_qdrant_for(module: str) -> dict[str, str]:
     return {
         "ARGUS_QDRANT_PORT": str(_MODULE_SUITE_QDRANT_PORT_BASE + MODULES.index(module))
     }
+
+
+# The compose projects each swept suite's containers can be under, for the
+# three that have any - `test_all` every module's, since it runs them all at
+# once and any of them may have been mid-run when it was killed. Read only when
+# a suite had to be killed: it is what lets the sweep finish a teardown that
+# never ran, and the reason a suite's projects have to be stated somewhere a
+# *different* process can find them.
+_SWEEP_PROJECTS: Final[dict[str, tuple[str, ...]]] = {
+    "test_all": tuple(_a_database_for(module)["COMPOSE_PROJECT_NAME"] for module in MODULES),
+    "integration": (_INTEGRATION_STACK["COMPOSE_PROJECT_NAME"],),
+    _E2E_REPLAY_IN_PRODUCTION_MODE: (_THE_STACKS_OWN_PLACES["COMPOSE_PROJECT_NAME"],)
+}
 
 # Settings every process in an e2e run shares - the services started here and
 # the pytest process asserting on them. One place, because the two derive

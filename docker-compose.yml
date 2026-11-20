@@ -144,8 +144,8 @@ configs:
             - targets: ["target-service:8000"]
 
 # One per compose project, which is one per suite: the name is scoped to the
-# project, so `argus-integration` and `argus-modules` get a volume each without
-# either being told about the other.
+# project, so `argus-integration` and every `argus-module-<name>` get a volume
+# each without any being told about the others.
 volumes:
   postgres-data:
   qdrant-data:
