@@ -23,6 +23,7 @@ from core.models import (
     Attempt,
     ChangeEvent,
     ChangeFound,
+    ClaimAnswer,
     EstablishedOnset,
     ExecutiveSynopsisDocument,
     Findings,
@@ -249,11 +250,13 @@ class PlanAction(Protocol):
 class RecordAction(Protocol):
     """Claims the right to act on one candidate, before anything is done.
 
-    Answers with the claim's id where this walk is the one that took the
-    action - what its writes are marked with. `None` means an earlier attempt
-    already claimed it - which a walk only ever sees when it has been resumed
-    inside this node, since the claim is written before the action and outlives
-    the worker that wrote it.
+    Answers `Claimed`, with the claim's id, where this walk is the one that
+    took the action - what its writes are marked with. `AlreadyClaimed` means
+    an earlier attempt already claimed it - which a walk only ever sees when it
+    has been resumed inside this node, since the claim is written before the
+    action and outlives the worker that wrote it. `SubjectOpen` means another
+    change to the same subject may still stand - another incident's, or this
+    one's own from an earlier candidate - and nothing was claimed.
     """
 
     def __call__(
@@ -281,7 +284,7 @@ class RecordAction(Protocol):
         # with nothing to plan, or a plan the tier refused. Written with the
         # claim and by nothing after.
         planned: Planned[Any] | None = None
-    ) -> str | None: ...
+    ) -> ClaimAnswer: ...
 
 
 # Makes the action named, by its claim's id, the one every change made inside the

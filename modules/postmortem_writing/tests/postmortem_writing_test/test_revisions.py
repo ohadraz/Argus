@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from argus_testkit import Scenario, the_answer_was
 from core.models import ActionItemType, ChangeEvent, ChangeKind, Lessons
-from postmortem_writing.prompting import (
+from postmortem_writing.answer import (
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,

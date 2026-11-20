@@ -36,8 +36,10 @@ from collections.abc import Mapping
 
 from core.models import TimelineEntry
 
+from postmortem_writing.answer import (
+    SubmittedPostmortem,
+)
 from postmortem_writing.figures import Figure, a_span_from_the_alert, an_instant_of
-from postmortem_writing.prompting import SubmittedPostmortem
 from postmortem_writing.sections import said_as_a_clause
 
 

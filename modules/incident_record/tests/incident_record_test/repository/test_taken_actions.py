@@ -18,20 +18,30 @@ from argus_testkit import (
 )
 from core import connect_from_env
 from core.models import (
+    RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
+    ROLL_BACK_DEPLOYMENT,
+    SCALE_OUT,
     ActionProgress,
+    ActionType,
     Alert,
+    AlreadyClaimed,
+    ClaimAnswer,
+    Claimed,
     DeploymentRollbackUndo,
     FailureMode,
     FlagUndo,
     Hypothesis,
     Planned,
+    SubjectOpen,
     TakenAction,
     UndoDescriptor,
     Undone,
     UnreadVerdict,
     Verdict,
 )
-from incident_record.repository import hypotheses, taken_actions
+from incident_record.repository import hypotheses, incidents, taken_actions
+from incident_record.repository.taken_actions import NoLongerOpen
 from psycopg import sql
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
@@ -65,6 +75,8 @@ THE_ROLLBACK_AS_MADE = SOME_ROLLBACK_PLAN.model_copy(
 SOME_MOMENT_IT_WAS_ANNOUNCED = SOME_MOMENT_ARGUS_WROTE + timedelta(seconds=1)
 # What the watch found that left a change owing its put-back, in its words.
 SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
+# The action's column a run's settle or a resolution sets, and nothing else.
+SET_BY_A_SETTLE_OR_A_RESOLUTION = "open_until"
 
 
 @pytest.mark.integration
@@ -135,7 +147,11 @@ def test_a_claim_answers_with_the_id_of_the_row_it_wrote() -> None:
 @pytest.mark.integration
 def test_a_candidate_already_claimed_is_answered_with_no_row() -> None:
     # The row is the earlier attempt's, and so is its id: a second claim
-    # handed it would mark this attempt's writes as that one's.
+    # handed it would mark this attempt's writes as that one's. Answered as
+    # already claimed while that row is still claimed - an open change on the
+    # very subject this claim names: the candidate's own claim is checked
+    # first, so a walk resumed on its candidate is never told its own change
+    # stands in the way.
     dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
@@ -143,7 +159,7 @@ def test_a_candidate_already_claimed_is_answered_with_no_row() -> None:
         incident_id = an_incident_created_for(conn, dont_care_alert)
         hypothesis_id = a_hypothesis_recorded_for(incident_id)
 
-        def claimed() -> str | None:
+        def claimed() -> ClaimAnswer:
             return taken_actions.claim(
                 conn,
                 incident_id,
@@ -161,7 +177,7 @@ def test_a_candidate_already_claimed_is_answered_with_no_row() -> None:
                 claimed
             ) \
             .then(
-                the_answer_was(None)
+                the_answer_was(AlreadyClaimed())
             )
 
 
@@ -348,7 +364,7 @@ def test_a_second_claim_on_a_candidate_leaves_the_first_claims_plan() -> None:
                 )
             ) \
             .then(all_of(
-                the_answer_was(None),
+                the_answer_was(AlreadyClaimed()),
                 _the_claim_read_back_planned(conn, incident_id, hypothesis_id,
                                              SOME_PLANNED_ROLLBACK)
             ))
@@ -898,6 +914,14 @@ def test_an_action_nobody_can_account_for_stays_unaccounted_for() -> None:
             )
 
 
+# The flags the settling case's four actions are on: one each, since one
+# subject holds one open change at a time.
+A_FLAG_STILL_CLAIMED = "first-flag"
+A_FLAG_SWITCHED = "second-flag"
+A_FLAG_NEVER_SWITCHED = "third-flag"
+ANOTHER_INCIDENT_S_FLAG = "fourth-flag"
+
+
 @pytest.mark.integration
 def test_settling_an_incidents_claims_leaves_every_row_that_moved_on_alone() -> None:
     # Where no walk will write the incident's rows again. A claim still open
@@ -916,22 +940,25 @@ def test_settling_an_incidents_claims_leaves_every_row_that_moved_on_alone() -> 
         never_performed = a_hypothesis_recorded_for(incident_id, subject="third", rank=3)
         anothers = a_hypothesis_recorded_for(another_incident_id)
 
+        # Each on a flag of its own: one subject holds one open change at a time.
         def four_actions_got_as_far_as_they_did() -> None:
-            for candidate, at in ((still_claimed, SOME_INSTANT),
-                                  (performed, SOME_INSTANT + timedelta(minutes=1))):
+            for candidate, flag, at in ((still_claimed, A_FLAG_STILL_CLAIMED, SOME_INSTANT),
+                                        (performed, A_FLAG_SWITCHED,
+                                         SOME_INSTANT + timedelta(minutes=1))):
                 taken_actions.claim(conn, incident_id, hypothesis_id=candidate,
                                     action_type="revert-feature-flag",
-                                    subject="dont-care-flag", at=at)
+                                    subject=flag, at=at)
             taken_actions.advance(conn, incident_id, hypothesis_id=performed,
                                   to=ActionProgress.PERFORMED, undo_descriptor=None)
             taken_actions.record(conn, incident_id, hypothesis_id=never_performed,
-                                 action_type="revert-feature-flag", subject="dont-care-flag",
+                                 action_type="revert-feature-flag",
+                                 subject=A_FLAG_NEVER_SWITCHED,
                                  outcome=Verdict.PLATFORM_UNREACHABLE, undo_descriptor=None,
                                  at=SOME_INSTANT + timedelta(minutes=2), performed=False,
                                  left_behind_known=True)
             taken_actions.claim(conn, another_incident_id, hypothesis_id=anothers,
-                                action_type="revert-feature-flag", subject="dont-care-flag",
-                                at=DONT_CARE_INSTANT)
+                                action_type="revert-feature-flag",
+                                subject=ANOTHER_INCIDENT_S_FLAG, at=DONT_CARE_INSTANT)
 
         Scenario() \
             .given(
@@ -1080,7 +1107,8 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
     # candidates about the same flag are indistinguishable to anything matching
     # on subject, so both actions would be attributed to whichever candidate was
     # found first. The walk forbids this today; the data model should not depend
-    # on its continuing to.
+    # on its continuing to. The first was refuted and put back, so its change no
+    # longer stands in the way of the second.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     the_contested_flag = "monthly-spend-feature"
 
@@ -1095,7 +1123,8 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
         second = a_hypothesis_recorded_for(incident_id, subject=the_contested_flag, rank=2)
 
         def an_action_is_taken_for_each() -> None:
-            for candidate, outcome in ((first, Verdict.REFUTED), (second, Verdict.CONFIRMED)):
+            for candidate, outcome, undone in ((first, Verdict.REFUTED, Undone.RESTORED),
+                                               (second, Verdict.CONFIRMED, None)):
                 taken_actions.record(
                     conn,
                     incident_id,
@@ -1105,7 +1134,8 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
                     outcome=outcome,
                     undo_descriptor=FlagUndo(flag=the_contested_flag, was_enabled=True),
                     at=DONT_CARE_INSTANT,
-                    left_behind_known=True
+                    left_behind_known=True,
+                    undone=undone
                 )
 
         Scenario() \
@@ -1131,10 +1161,12 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
         first = a_hypothesis_recorded_for(incident_id, subject="first", rank=1)
         second = a_hypothesis_recorded_for(incident_id, subject="second", rank=2)
 
+        # Tried, put back, and tried again: the first change no longer stands
+        # when the second is claimed.
         def two_actions_are_taken() -> None:
-            for candidate, outcome, at in ((first, Verdict.REFUTED, SOME_INSTANT),
-                                           (second, Verdict.CONFIRMED,
-                                            SOME_INSTANT + timedelta(minutes=4))):
+            for candidate, outcome, undone, at in (
+                    (first, Verdict.REFUTED, Undone.RESTORED, SOME_INSTANT),
+                    (second, Verdict.CONFIRMED, None, SOME_INSTANT + timedelta(minutes=4))):
                 taken_actions.record(
                     conn,
                     incident_id,
@@ -1144,7 +1176,8 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
                     outcome=outcome,
                     undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
                     at=at,
-                    left_behind_known=True
+                    left_behind_known=True,
+                    undone=undone
                 )
 
         Scenario() \
@@ -1255,7 +1288,12 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
                 )
             ) \
             .then(
-                no_column_is_empty(conn, "action", "incident_id", incident_id)
+                # `open_until` is the one column a complete action leaves empty,
+                # and rightly: it is set by a run's settle or its incident's
+                # resolution, neither of which is the walk's writing of an
+                # action. Its writers are pinned by the tests of those two.
+                no_column_is_empty(conn, "action", "incident_id", incident_id,
+                                   except_for=[SET_BY_A_SETTLE_OR_A_RESOLUTION])
             )
 
 
@@ -1608,9 +1646,10 @@ def _the_action_read_back_was_claimed_at(conn: psycopg.Connection,
 
 def _the_id_of_the_row_claimed_for(conn: psycopg.Connection,
                                    incident_id: str,
-                                   hypothesis_id: str) -> Assertion[str | None]:
-    """The answer is the id of the one row the candidate has, read back."""
-    def assertion(answered: str | None) -> bool:
+                                   hypothesis_id: str) -> Assertion[ClaimAnswer]:
+    """The answer is claimed, with the id of the one row the candidate has,
+    read back."""
+    def assertion(answered: ClaimAnswer) -> bool:
         row = taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
 
         if row is None:
@@ -1619,7 +1658,7 @@ def _the_id_of_the_row_claimed_for(conn: psycopg.Connection,
                 f"written; it answered [{answered}]."
             )
 
-        if answered != row.id:
+        if answered != Claimed(action_id=row.id):
             raise AssertionError(
                 f"Expected the claim answered with its row's id [{row.id}], got "
                 f"[{answered}]."
@@ -2204,6 +2243,576 @@ def _the_outcome_read_back_is_on(conn: psycopg.Connection,
         if found != [expected]:
             raise AssertionError(f"Expected one action read back with the outcome "
                                  f"[{expected}], got {found}")
+
+        return True
+
+    return assertion
+
+
+# ---------------------------------------------------------------------------
+# One open change per subject, across incidents
+# ---------------------------------------------------------------------------
+
+# The flag two incidents both reach for, and the way back from switching it off.
+THE_CONTESTED_FLAG = "kuki-flag"
+THE_WAY_BACK = FlagUndo(flag=THE_CONTESTED_FLAG, was_enabled=True)
+# The application the deployment kinds act on.
+THE_CONTESTED_APPLICATION = "io-shop"
+# When a run settled, or a person resolved its incident: the moment a change
+# stops being open on its subject.
+SOME_MOMENT_IT_STOPPED_BEING_OPEN = SOME_INSTANT + timedelta(hours=1)
+# A later claim than every first one here.
+A_LATER_INSTANT = SOME_INSTANT + timedelta(minutes=5)
+# No incident holds a subject open: a later claim on it is claimed.
+NOBODY = None
+
+
+def _claimed(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
+                        action_type=REVERT_FEATURE_FLAG, subject=THE_CONTESTED_FLAG,
+                        at=SOME_INSTANT)
+
+
+def _performed(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    _claimed(conn, incident_id, hypothesis_id)
+    taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
+                          to=ActionProgress.PERFORMED, undo_descriptor=THE_WAY_BACK)
+
+
+def _putting_back(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    _performed(conn, incident_id, hypothesis_id)
+    taken_actions.owe_a_put_back(conn, incident_id, hypothesis_id=hypothesis_id,
+                                 because=SOME_FINDING)
+
+
+def _unknown(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    _claimed(conn, incident_id, hypothesis_id)
+    taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
+                          to=ActionProgress.UNKNOWN, undo_descriptor=None)
+
+
+def _completed(outcome: Verdict,
+               undone: Undone | None,
+               performed: bool = True,
+               undo_descriptor: UndoDescriptor | None = THE_WAY_BACK,
+               left_behind_known: bool = True
+               ) -> Callable[[psycopg.Connection, str, str], None]:
+    """The flag change completed with `outcome`, its put-back having come to
+    `undone`."""
+    def completed(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+        _claimed(conn, incident_id, hypothesis_id)
+        taken_actions.complete(conn, incident_id, hypothesis_id=hypothesis_id,
+                               outcome=outcome, undo_descriptor=undo_descriptor,
+                               performed=performed, left_behind_known=left_behind_known,
+                               undone=undone)
+
+    return completed
+
+
+def _settled_by_a_person(conn: psycopg.Connection, incident_id: str, hypothesis_id: str) -> None:
+    """The change made and standing, and its incident ended by a person."""
+    _performed(conn, incident_id, hypothesis_id)
+    taken_actions.no_longer_open(conn, incident_id, SOME_MOMENT_IT_STOPPED_BEING_OPEN,
+                                 which=NoLongerOpen.EVERY_ROW)
+
+
+def _a_restart_nobody_answered(conn: psycopg.Connection,
+                               incident_id: str,
+                               hypothesis_id: str) -> None:
+    """A restart claimed, and moved to unknown by a resumed walk."""
+    _a_restart_claimed(conn, incident_id, hypothesis_id)
+    taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
+                          to=ActionProgress.UNKNOWN, undo_descriptor=None)
+
+
+def _a_restart_never_performed(conn: psycopg.Connection,
+                               incident_id: str,
+                               hypothesis_id: str) -> None:
+    """A restart the platform never carried out, with nobody saying what it
+    left: only that a restart has no way back makes it hold nothing."""
+    nothing_to_put_back = None
+    _a_restart_claimed(conn, incident_id, hypothesis_id)
+    taken_actions.complete(conn, incident_id, hypothesis_id=hypothesis_id,
+                           outcome=Verdict.PLATFORM_UNREACHABLE,
+                           undo_descriptor=nothing_to_put_back, performed=False,
+                           left_behind_known=False)
+
+
+# Every way a change may still stand on its subject: in flight, made, owed
+# back, unaccounted for, confirmed and left in place, left beside somebody's
+# change, put back with nothing established, or never performed with
+# something of it left behind - or with nothing said of what it left. Each
+# with the kind and subject a later claim reaches for.
+EVERY_CHANGE_STILL_OPEN = [
+    pytest.param(_claimed, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG, id="claimed"),
+    pytest.param(_performed, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG, id="performed"),
+    pytest.param(_putting_back, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG, id="putting-back"),
+    pytest.param(_unknown, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG, id="unknown"),
+    pytest.param(_completed(Verdict.CONFIRMED, None), REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG,
+                 id="confirmed-and-standing"),
+    pytest.param(_completed(Verdict.ESCALATED, Undone.LEFT_STANDING), REVERT_FEATURE_FLAG,
+                 THE_CONTESTED_FLAG, id="left-standing"),
+    pytest.param(_completed(Verdict.ESCALATED, Undone.NOT_ESTABLISHED), REVERT_FEATURE_FLAG,
+                 THE_CONTESTED_FLAG, id="not-established"),
+    pytest.param(_completed(Verdict.PLATFORM_UNREACHABLE, None, performed=False),
+                 REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG, id="not-performed-leaving-something"),
+    pytest.param(_completed(Verdict.PLATFORM_UNREACHABLE, None, performed=False,
+                            undo_descriptor=None, left_behind_known=False),
+                 REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG,
+                 id="not-performed-with-nothing-said-of-what-it-left")
+]
+# Every way it no longer can: put back, left as somebody found it, owing
+# nothing, never performed and known to have left nothing, its incident ended
+# by a person - or a kind with no way back that is no longer in flight.
+EVERY_CHANGE_NO_LONGER_OPEN = [
+    pytest.param(_completed(Verdict.REFUTED, Undone.RESTORED), REVERT_FEATURE_FLAG,
+                 THE_CONTESTED_FLAG, id="restored"),
+    pytest.param(_completed(Verdict.REFUTED, Undone.LEFT_AS_FOUND), REVERT_FEATURE_FLAG,
+                 THE_CONTESTED_FLAG, id="left-as-found"),
+    pytest.param(_completed(Verdict.CONFIRMED, Undone.NO_UNDO_WAS_OWED), REVERT_FEATURE_FLAG,
+                 THE_CONTESTED_FLAG, id="no-undo-owed"),
+    pytest.param(_completed(Verdict.PLATFORM_UNREACHABLE, None, performed=False,
+                            undo_descriptor=None),
+                 REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG, id="not-performed-leaving-nothing"),
+    pytest.param(_settled_by_a_person, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG,
+                 id="ended-by-a-person"),
+    pytest.param(_a_restart_nobody_answered, SCALE_OUT, THE_CONTESTED_APPLICATION,
+                 id="a-restart-nobody-answered"),
+    pytest.param(_a_restart_never_performed, SCALE_OUT, THE_CONTESTED_APPLICATION,
+                 id="a-restart-never-performed")
+]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("got_as_far_as", "reaching_with", "for_subject"),
+                         EVERY_CHANGE_STILL_OPEN)
+def test_a_claim_on_a_subject_another_incident_s_change_may_still_stand_on_names_it(
+        got_as_far_as: Callable[[psycopg.Connection, str, str], None],
+        reaching_with: ActionType,
+        for_subject: str) -> None:
+    # Two incidents acting on one flag undo each other: one's put-back takes
+    # the other's change away, and one's wait measures the other's change. So a
+    # claim on a subject whose change may still stand is refused, naming the
+    # incident that holds it, and nothing is written for it.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_first = an_incident_created_for(conn, dont_care_alert)
+        the_second = an_incident_created_for(conn, dont_care_alert)
+        the_second_s_candidate = a_hypothesis_recorded_for(the_second)
+
+        Scenario() \
+            .given(
+                calling(lambda: got_as_far_as(conn, the_first,
+                                              a_hypothesis_recorded_for(the_first)))
+            ) \
+            .when(
+                lambda: taken_actions.claim(conn, the_second,
+                                            hypothesis_id=the_second_s_candidate,
+                                            action_type=reaching_with,
+                                            subject=for_subject, at=A_LATER_INSTANT)
+            ) \
+            .then(all_of(
+                the_answer_was(SubjectOpen(open_in=the_first)),
+                _no_action_was_written_for(conn, the_second)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("got_as_far_as", "reaching_with", "for_subject"),
+                         EVERY_CHANGE_NO_LONGER_OPEN)
+def test_a_claim_on_a_subject_whose_change_no_longer_stands_is_claimed(
+        got_as_far_as: Callable[[psycopg.Connection, str, str], None],
+        reaching_with: ActionType,
+        for_subject: str) -> None:
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_first = an_incident_created_for(conn, dont_care_alert)
+        the_second = an_incident_created_for(conn, dont_care_alert)
+        the_second_s_candidate = a_hypothesis_recorded_for(the_second)
+
+        Scenario() \
+            .given(
+                calling(lambda: got_as_far_as(conn, the_first,
+                                              a_hypothesis_recorded_for(the_first)))
+            ) \
+            .when(
+                lambda: taken_actions.claim(conn, the_second,
+                                            hypothesis_id=the_second_s_candidate,
+                                            action_type=reaching_with,
+                                            subject=for_subject, at=A_LATER_INSTANT)
+            ) \
+            .then(
+                _the_id_of_the_row_claimed_for(conn, the_second, the_second_s_candidate)
+            )
+
+
+@pytest.mark.integration
+def test_a_claim_on_a_subject_this_incident_s_own_change_may_still_stand_on_names_it() -> None:
+    # Another candidate of the same incident reaching for the same flag: the
+    # earlier change is this incident's own, and is named as such.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        the_first_candidate = a_hypothesis_recorded_for(incident_id, rank=1)
+        the_second_candidate = a_hypothesis_recorded_for(incident_id, rank=2)
+
+        Scenario() \
+            .given(
+                calling(lambda: _performed(conn, incident_id, the_first_candidate))
+            ) \
+            .when(
+                lambda: taken_actions.claim(conn, incident_id,
+                                            hypothesis_id=the_second_candidate,
+                                            action_type=REVERT_FEATURE_FLAG,
+                                            subject=THE_CONTESTED_FLAG, at=A_LATER_INSTANT)
+            ) \
+            .then(
+                the_answer_was(SubjectOpen(open_in=incident_id))
+            )
+
+
+@pytest.mark.integration
+def test_the_same_name_in_another_realm_is_another_subject() -> None:
+    # A flag and an application can be called alike: what one holds open is
+    # nothing the other's change touches.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    a_flag_named_like_the_application = THE_CONTESTED_APPLICATION
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_first = an_incident_created_for(conn, dont_care_alert)
+        the_second = an_incident_created_for(conn, dont_care_alert)
+        the_second_s_candidate = a_hypothesis_recorded_for(the_second)
+
+        Scenario() \
+            .given(
+                calling(lambda: taken_actions.claim(
+                    conn, the_first, hypothesis_id=a_hypothesis_recorded_for(the_first),
+                    action_type=REVERT_FEATURE_FLAG,
+                    subject=a_flag_named_like_the_application, at=SOME_INSTANT))
+            ) \
+            .when(
+                lambda: taken_actions.claim(conn, the_second,
+                                            hypothesis_id=the_second_s_candidate,
+                                            action_type=ROLL_BACK_DEPLOYMENT,
+                                            subject=THE_CONTESTED_APPLICATION,
+                                            at=A_LATER_INSTANT)
+            ) \
+            .then(
+                _the_id_of_the_row_claimed_for(conn, the_second, the_second_s_candidate)
+            )
+
+
+@pytest.mark.integration
+def test_a_claim_naming_no_subject_never_stands_in_the_way() -> None:
+    # Nothing names what it would hold open, so nothing can be refused for it.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    no_subject = None
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_first = an_incident_created_for(conn, dont_care_alert)
+        the_second = an_incident_created_for(conn, dont_care_alert)
+        the_second_s_candidate = a_hypothesis_recorded_for(the_second)
+
+        Scenario() \
+            .given(
+                calling(lambda: taken_actions.claim(
+                    conn, the_first, hypothesis_id=a_hypothesis_recorded_for(the_first),
+                    action_type=REVERT_FEATURE_FLAG, subject=no_subject, at=SOME_INSTANT))
+            ) \
+            .when(
+                lambda: taken_actions.claim(conn, the_second,
+                                            hypothesis_id=the_second_s_candidate,
+                                            action_type=REVERT_FEATURE_FLAG,
+                                            subject=no_subject, at=A_LATER_INSTANT)
+            ) \
+            .then(
+                _the_id_of_the_row_claimed_for(conn, the_second, the_second_s_candidate)
+            )
+
+
+@pytest.mark.integration
+def test_a_restart_holds_its_application_open_while_it_is_in_flight() -> None:
+    # A restart leaves nothing to put back, but while it is being made the
+    # application is changing under it.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_first = an_incident_created_for(conn, dont_care_alert)
+        the_second = an_incident_created_for(conn, dont_care_alert)
+        the_second_s_candidate = a_hypothesis_recorded_for(the_second)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_restart_claimed(conn, the_first,
+                                                   a_hypothesis_recorded_for(the_first)))
+            ) \
+            .when(
+                lambda: taken_actions.claim(conn, the_second,
+                                            hypothesis_id=the_second_s_candidate,
+                                            action_type=SCALE_OUT,
+                                            subject=THE_CONTESTED_APPLICATION,
+                                            at=A_LATER_INSTANT)
+            ) \
+            .then(
+                the_answer_was(SubjectOpen(open_in=the_first))
+            )
+
+
+@pytest.mark.integration
+def test_a_restart_holds_nothing_open_once_it_has_an_outcome() -> None:
+    # Nothing of a restart stands after it: there is nothing to put back, and
+    # nothing for another incident's change to undo.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    nothing_to_put_back = None
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_first = an_incident_created_for(conn, dont_care_alert)
+        the_first_s_candidate = a_hypothesis_recorded_for(the_first)
+        the_second = an_incident_created_for(conn, dont_care_alert)
+        the_second_s_candidate = a_hypothesis_recorded_for(the_second)
+
+        def a_restart_made_and_judged() -> None:
+            _a_restart_claimed(conn, the_first, the_first_s_candidate)
+            taken_actions.complete(conn, the_first, hypothesis_id=the_first_s_candidate,
+                                   outcome=Verdict.CONFIRMED, undo_descriptor=nothing_to_put_back,
+                                   left_behind_known=True)
+
+        Scenario() \
+            .given(
+                calling(a_restart_made_and_judged)
+            ) \
+            .when(
+                lambda: taken_actions.claim(conn, the_second,
+                                            hypothesis_id=the_second_s_candidate,
+                                            action_type=SCALE_OUT,
+                                            subject=THE_CONTESTED_APPLICATION,
+                                            at=A_LATER_INSTANT)
+            ) \
+            .then(
+                _the_id_of_the_row_claimed_for(conn, the_second, the_second_s_candidate)
+            )
+
+
+@pytest.mark.integration
+def test_recording_a_change_its_subject_refuses_raises() -> None:
+    # A caller writing a finished action whole means it to be there: a claim
+    # refused would build a row that isn't, and the caller would never know.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_first = an_incident_created_for(conn, dont_care_alert)
+        the_second = an_incident_created_for(conn, dont_care_alert)
+        the_second_s_candidate = a_hypothesis_recorded_for(the_second)
+
+        Scenario() \
+            .given(
+                calling(lambda: _performed(conn, the_first, a_hypothesis_recorded_for(the_first)))
+            ) \
+            .when(attempting(
+                lambda: taken_actions.record(conn, the_second,
+                                             hypothesis_id=the_second_s_candidate,
+                                             action_type=REVERT_FEATURE_FLAG,
+                                             subject=THE_CONTESTED_FLAG,
+                                             outcome=Verdict.CONFIRMED,
+                                             undo_descriptor=THE_WAY_BACK, at=A_LATER_INSTANT,
+                                             left_behind_known=True)
+            )) \
+            .then(
+                an_error_was_raised(ValueError)
+            )
+
+
+@pytest.mark.integration
+def test_recording_a_candidate_already_claimed_raises() -> None:
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _claimed(conn, incident_id, hypothesis_id))
+            ) \
+            .when(attempting(
+                lambda: taken_actions.record(conn, incident_id, hypothesis_id=hypothesis_id,
+                                             action_type=REVERT_FEATURE_FLAG,
+                                             subject=THE_CONTESTED_FLAG,
+                                             outcome=Verdict.CONFIRMED,
+                                             undo_descriptor=THE_WAY_BACK, at=A_LATER_INSTANT,
+                                             left_behind_known=True)
+            )) \
+            .then(
+                an_error_was_raised(ValueError)
+            )
+
+
+@pytest.mark.integration
+def test_only_the_rows_of_kinds_with_no_way_back_stop_being_open_at_a_settle() -> None:
+    # A settled run will not finish a restart it left in flight, and nothing of
+    # a restart stands; a flag change made stands until it is put back. What
+    # says so is what another incident's claim on each finds.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        a_flag_s_candidate = a_hypothesis_recorded_for(incident_id, rank=1)
+        a_restart_s_candidate = a_hypothesis_recorded_for(incident_id, rank=2)
+
+        def a_flag_and_a_restart_made() -> None:
+            _performed(conn, incident_id, a_flag_s_candidate)
+            _a_restart_claimed(conn, incident_id, a_restart_s_candidate, at=A_LATER_INSTANT)
+            taken_actions.advance(conn, incident_id, hypothesis_id=a_restart_s_candidate,
+                                  to=ActionProgress.PERFORMED, undo_descriptor=None)
+
+        Scenario() \
+            .given(
+                calling(a_flag_and_a_restart_made)
+            ) \
+            .when(
+                lambda: taken_actions.no_longer_open(
+                    conn, incident_id, SOME_MOMENT_IT_STOPPED_BEING_OPEN,
+                    which=NoLongerOpen.KINDS_WITH_NO_WAY_BACK)
+            ) \
+            .then(all_of(
+                _another_incident_s_claim_on(conn, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG,
+                                             is_refused_for=incident_id),
+                _another_incident_s_claim_on(conn, SCALE_OUT, THE_CONTESTED_APPLICATION,
+                                             is_refused_for=NOBODY)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("withdrawn", [
+    pytest.param(True, id="withdrawn"),
+    pytest.param(False, id="not-withdrawn")
+])
+def test_every_row_of_a_withdrawn_incident_and_none_of_another_stops_being_open(
+        withdrawn: bool) -> None:
+    # A withdrawn incident is neither resolved nor withdrawn again, so what its
+    # unwind left standing would hold its subjects open for ever. Asked of the
+    # incident's status in the write itself.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+        # Freed where the incident was withdrawn; held by it where it was not.
+        still_held_by = NOBODY if withdrawn else incident_id
+
+        def a_change_left_standing() -> None:
+            _completed(Verdict.STOPPED, Undone.LEFT_STANDING)(conn, incident_id, hypothesis_id)
+            if withdrawn:
+                incidents.withdraw(conn, incident_id, at=SOME_INSTANT)
+
+        Scenario() \
+            .given(
+                calling(a_change_left_standing)
+            ) \
+            .when(
+                lambda: taken_actions.no_longer_open(
+                    conn, incident_id, SOME_MOMENT_IT_STOPPED_BEING_OPEN,
+                    which=NoLongerOpen.ROWS_OF_A_WITHDRAWN_INCIDENT)
+            ) \
+            .then(
+                _another_incident_s_claim_on(conn, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG,
+                                             is_refused_for=still_held_by)
+            )
+
+
+@pytest.mark.integration
+def test_every_row_of_an_incident_stops_being_open_and_no_other_incident_s() -> None:
+    # A person ending an incident takes what it left standing into their hands.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, dont_care_alert)
+        another_incident_id = an_incident_created_for(conn, dont_care_alert)
+
+        def a_change_made_in_each() -> None:
+            _performed(conn, incident_id, a_hypothesis_recorded_for(incident_id))
+            _a_restart_claimed(conn, another_incident_id,
+                               a_hypothesis_recorded_for(another_incident_id))
+
+        Scenario() \
+            .given(
+                calling(a_change_made_in_each)
+            ) \
+            .when(
+                lambda: taken_actions.no_longer_open(
+                    conn, incident_id, SOME_MOMENT_IT_STOPPED_BEING_OPEN,
+                    which=NoLongerOpen.EVERY_ROW)
+            ) \
+            .then(all_of(
+                _another_incident_s_claim_on(conn, REVERT_FEATURE_FLAG, THE_CONTESTED_FLAG,
+                                             is_refused_for=NOBODY),
+                _another_incident_s_claim_on(conn, SCALE_OUT, THE_CONTESTED_APPLICATION,
+                                             is_refused_for=another_incident_id)
+            ))
+
+
+def _a_restart_claimed(conn: psycopg.Connection,
+                       incident_id: str,
+                       hypothesis_id: str,
+                       at: datetime = SOME_INSTANT) -> None:
+    taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
+                        action_type=RESTART_SERVICE, subject=THE_CONTESTED_APPLICATION,
+                        at=at)
+
+
+def _no_action_was_written_for(conn: psycopg.Connection,
+                               incident_id: str) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        written = taken_actions.get_by_incident(conn, incident_id)
+
+        if written:
+            raise AssertionError(f"Expected no action written for the incident, got {written}")
+
+        return True
+
+    return assertion
+
+
+def _another_incident_s_claim_on(conn: psycopg.Connection,
+                                 action_type: ActionType,
+                                 subject: str,
+                                 *,
+                                 is_refused_for: str | None) -> Assertion[object]:
+    """What a claim on `subject`, by an incident of its own made afterwards,
+    finds: refused, naming the incident `is_refused_for` - or claimed, where
+    that is `NOBODY` and nothing holds the subject open any more."""
+    def assertion(_result: object) -> bool:
+        dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+        a_later_incident = an_incident_created_for(conn, dont_care_alert)
+        answered = taken_actions.claim(
+            conn, a_later_incident,
+            hypothesis_id=_a_hypothesis_recorded_for(conn, a_later_incident),
+            action_type=action_type, subject=subject, at=A_LATER_INSTANT
+        )
+        found = (isinstance(answered, Claimed) if is_refused_for is NOBODY
+                 else answered == SubjectOpen(open_in=is_refused_for))
+
+        if not found:
+            wanted = ("claimed" if is_refused_for is NOBODY
+                      else f"refused, naming [{is_refused_for}]")
+            raise AssertionError(
+                f"Expected a later claim on [{subject}] {wanted}, got [{answered}]."
+            )
 
         return True
 

@@ -1,5 +1,11 @@
 """Why an action was not taken, said as a value rather than as a sentence.
 
+A refusal is Argus declining to take an action, wherever it declined it: the
+tier gate, judging the action, or the claim, finding another change to the same
+subject that may still stand. One word for both, because every reader - the
+timeline, Slack, the candidate's row and the postmortem's declined step - reads
+them as the same kind of thing: a step the incident ended by, not taken.
+
 The tier gate refuses for several reasons and they are not the same finding: an
 investigation that produced nothing to act on has run out of ideas, one that
 produced an action nobody has pre-authorised ran into the boundary Argus is built
@@ -20,10 +26,12 @@ those is one the other reads by comparing spellings.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Final
 
 
 class Refusal(StrEnum):
-    """What stopped a proposed action at the gate.
+    """What stopped Argus taking a proposed action - at the gate, or at the
+    claim.
 
     The prose a reader sees is derived from this rather than stored beside it.
     Two sentences that must agree with one value is one of them eventually
@@ -97,9 +105,16 @@ class Refusal(StrEnum):
     # this rejects the possibility of confirming any action on this incident, and
     # a second candidate is no better placed than the first.
     NOTHING_COULD_CONFIRM_IT = "nothing-could-confirm-it"
+    # The one refusal the claim makes rather than the gate: another change of
+    # Argus's to the same subject is still being made or judged, or may still
+    # be in place - another incident's, or this one's own from an earlier
+    # candidate. Two changes open on one subject undo each other: one's
+    # put-back takes the other's away, and one's wait measures the other's
+    # change. Not a judgement on the action, which may be exactly right.
+    SUBJECT_ALREADY_OPEN = "subject-already-open"
 
 
-# Why the gate refused, in the one sentence the timeline, a candidate's row and
+# Why Argus refused, in the one sentence the timeline, a candidate's row and
 # the review all say it in - three spellings of one reason read as three
 # reasons. Each carries its own subject, so it reads after "Refused to act - ",
 # as a row on its own, and as a review's reason, where no line before it lends
@@ -150,8 +165,19 @@ _WHY_IT_WAS_REFUSED = {
     # take it.
     Refusal.NOTHING_COULD_CONFIRM_IT: "nothing would say whether the action that would "
                                       "test the candidate worked inside the time Argus "
-                                      "waits, so it is recommended rather than taken"
+                                      "waits, so it is recommended rather than taken",
+    # Said with no incident in it, because the review and the candidate's row
+    # read it with no event to name one from: whose change it is travels on the
+    # event, and narration says it after this (`whose_open_change`). Nor when
+    # the subject frees - for a withdrawn holder, an early put-back and a
+    # change still being judged, every wording of that is false somewhere.
+    Refusal.SUBJECT_ALREADY_OPEN: "another change of Argus's to the same thing is in "
+                                  "progress or may still be in place, so it was left alone"
 }
+
+# How a sentence names an incident: the first characters of its id, enough to
+# find it by on the page.
+_SHORT_INCIDENT_ID: Final = 8
 
 
 def why_it_was_refused(refusal: Refusal) -> str:
@@ -162,3 +188,27 @@ def why_it_was_refused(refusal: Refusal) -> str:
     reaching a reader as a blank they would take for nothing having happened.
     """
     return _WHY_IT_WAS_REFUSED[refusal]
+
+
+def whose_open_change(open_in: str | None, refused_in: str) -> str:
+    """What is said after a `SUBJECT_ALREADY_OPEN` refusal's sentence: whose the
+    change open on the subject is - another incident's, by its short id; this
+    one's own, from an earlier candidate; or nothing, where none was found to
+    name.
+
+    Here beside the sentence rather than in narration, because the walk's own
+    record of the attempt says the same two parts as the line does.
+    """
+    if open_in is None:
+        return ""
+
+    if open_in == refused_in:
+        return " - this incident's own, from earlier"
+
+    return f" - incident {an_incident_said_short(open_in)}'s"
+
+
+def an_incident_said_short(incident_id: str) -> str:
+    """An incident's id as a sentence names it: its first characters, enough
+    to find it by on the page, which links the whole id."""
+    return incident_id[:_SHORT_INCIDENT_ID]

@@ -36,6 +36,7 @@ from core import (
     fence,
     get_settings,
     open_pool,
+    utc_now,
     was_lost,
 )
 from core.events import StatusChanged, publish
@@ -51,6 +52,7 @@ from incident_record import (
 )
 from incident_record.repository import incidents, runs, taken_actions
 from incident_record.repository.incidents import NO_TRACE_CONTEXT
+from incident_record.repository.taken_actions import NoLongerOpen
 from mitigation import an_undo_over
 from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
@@ -59,6 +61,7 @@ from read_mcp_client import read_mcp
 from telemetry import start_telemetry
 from write_mcp_client import write_mcp
 
+from orchestrator.assembling import IncidentMemorySettings, the_store_for
 from orchestrator.entrypoint import CHECKPOINTER_CONNECTIONS, graph_for, run_incident
 from orchestrator.renewing import between_renewals, keep_renewing
 from orchestrator.unwinding import (
@@ -66,7 +69,6 @@ from orchestrator.unwinding import (
     undone_recorded_through,
     unwind_incident,
 )
-from orchestrator.walk.assembling import IncidentMemorySettings, the_store_for
 
 logger = logging.getLogger(__name__)
 
@@ -390,6 +392,10 @@ def _settled_as_failed(conn: psycopg.Connection,
         with conn.transaction() as settling:
             taken_actions.settle_claims(conn, held.incident_id)
             _the_incident_needs_a_person(conn, held.incident_id, failure)
+            # After the escalation, which refuses an incident a person ended:
+            # a withdrawal landing before it is then seen by this write, which
+            # asks the incident's status itself.
+            _no_longer_open_once_settled(conn, held.incident_id)
             settled = runs.fail(conn, held, f"{type(failure).__name__}: {failure}")
 
             if not settled:
@@ -414,6 +420,7 @@ def _settled_as_finished(conn: psycopg.Connection, held: runs.Run) -> bool:
     try:
         with conn.transaction() as settling:
             taken_actions.settle_claims(conn, held.incident_id)
+            _no_longer_open_once_settled(conn, held.incident_id)
             settled = runs.finish(conn, held)
 
             if not settled:
@@ -425,6 +432,24 @@ def _settled_as_finished(conn: psycopg.Connection, held: runs.Run) -> bool:
         return False
 
     return settled
+
+
+def _no_longer_open_once_settled(conn: psycopg.Connection, incident_id: str) -> None:
+    """The incident's changes that stop being open on their subjects once its
+    run settles, finished or failed (spec §11.1).
+
+    Every change of a kind with no way back - nothing of a restart or a
+    discard stands, and a settled run finishes none it left in flight. And,
+    where the incident is withdrawn, every change: a withdrawn incident is
+    neither resolved nor withdrawn again, so what its unwind left standing
+    would otherwise hold its subjects open for ever. Whether it is withdrawn is
+    asked in the write, not read before it. Committing is the settling's.
+    """
+    at = utc_now()
+    taken_actions.no_longer_open(conn, incident_id, at,
+                                 which=NoLongerOpen.KINDS_WITH_NO_WAY_BACK)
+    taken_actions.no_longer_open(conn, incident_id, at,
+                                 which=NoLongerOpen.ROWS_OF_A_WITHDRAWN_INCIDENT)
 
 
 def _the_run_was_lost() -> None:

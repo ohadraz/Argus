@@ -21,6 +21,7 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core import connect_from_env, new_id, to_iso, utc_now
 from core.events import (
+    ActionRefused,
     ChangesRetrieved,
     HypothesisFormed,
     LogsRetrieved,
@@ -63,6 +64,7 @@ from core.models import (
     PostmortemDocument,
     PostmortemLead,
     Reference,
+    Refusal,
     Report,
     ReportChannel,
     ResolutionStep,
@@ -2601,6 +2603,35 @@ def test_a_postmortem_line_about_an_earlier_incident_leads_to_its_page() -> None
             the_page_says(f'<a href="http://testserver/incidents/{the_earlier_incident}" '
                           f'target="_blank" rel="noopener noreferrer">{the_earlier_incident}</a>')
         )
+
+
+@pytest.mark.component
+def test_a_claim_refused_for_another_incident_s_open_subject_leads_to_that_incident_s_page(
+) -> None:
+    # The line names the incident whose change Argus left alone by its short id,
+    # which nobody looks up by hand - and that incident's page is where a reader
+    # sees how its change stands. So the short id is made the way there, on the
+    # walk page.
+    another_incident = "7b3d5f1e-0000-4000-8000-0000000000b2"
+    another_incident_short = another_incident[:8]
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        events.record(conn, ActionRefused(incident_id=incident_id, hypothesis_id=None,
+                                          refusal=Refusal.SUBJECT_ALREADY_OPEN,
+                                          open_in=another_incident))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/walk")
+        ) \
+        .then(all_of(
+            the_page_says(f'href="/incidents/{another_incident}"'),
+            the_page_says(f'>{another_incident_short}</a>')
+        ))
 
 
 @pytest.mark.component

@@ -13,12 +13,12 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from orchestrator.walk.assembling import Collaborators
 from orchestrator.walk.choosing import (
     next_candidate_node,
     route_after_next_candidate,
 )
 from orchestrator.walk.closing import postmortem_node, synopsis_node
+from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.ending import stopping_when_a_person_ended_it
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node

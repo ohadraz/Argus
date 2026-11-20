@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, assert_never
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from core.ids import UuidStr
 from core.models.action import UnreadVerdict, Verdict
@@ -64,6 +64,42 @@ class ActionProgress(StrEnum):
                 return None
             case _:
                 assert_never(self)
+
+
+class Claimed(BaseModel):
+    """The claim was written: the action is this attempt's, under `action_id`,
+    the id every write it makes is marked with."""
+
+    model_config = ConfigDict(frozen=True)
+
+    action_id: UuidStr
+
+
+class AlreadyClaimed(BaseModel):
+    """The candidate is already claimed - by an earlier attempt of this
+    incident's walk, which holds it and its plan."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+class SubjectOpen(BaseModel):
+    """Another change to the same subject may still stand, so nothing was
+    claimed: two changes open on one subject undo each other.
+
+    `open_in` is the incident whose change it is - this incident's own, from
+    an earlier candidate, included - or `None` where the claim was refused
+    again and no open change was found to name.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    open_in: UuidStr | None
+
+
+# What a claim answers with. A union of values rather than an id or nothing,
+# because "nothing was claimed" means two things a walk does two different
+# things about: resume the earlier attempt, or stand aside from another.
+type ClaimAnswer = Claimed | AlreadyClaimed | SubjectOpen
 
 
 class TakenAction(BaseModel):

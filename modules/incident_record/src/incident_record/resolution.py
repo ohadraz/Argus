@@ -21,7 +21,8 @@ from core import Connections, unit_of_work
 from core.events import Publisher, StatusChanged, publish
 from core.models import IncidentStatus, Report
 
-from incident_record.repository import incidents
+from incident_record.repository import incidents, taken_actions
+from incident_record.repository.taken_actions import NoLongerOpen
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,11 @@ def resolve_incident(incident_id: str,
 
     The change is built before the row is written, so a row ending now ends at
     the moment the account says it did.
+
+    Every change the incident made stops being open on its subject in the same
+    write (spec §11.1): Argus never puts back a resolved incident's changes,
+    so nothing of its could undo another incident's, and what it left standing
+    is the person's now. Another incident may then act on those subjects.
     """
     narrating = StatusChanged(incident_id=incident_id,
                               to_status=IncidentStatus.RESOLVED,
@@ -51,6 +57,10 @@ def resolve_incident(incident_id: str,
 
     with unit_of_work(connections) as conn:
         resolved = incidents.resolve(conn, incident_id, at=narrating.at)
+
+        if resolved:
+            taken_actions.no_longer_open(conn, incident_id, narrating.at,
+                                         which=NoLongerOpen.EVERY_ROW)
 
     if resolved:
         # The channel and not the name: which door the report came through is

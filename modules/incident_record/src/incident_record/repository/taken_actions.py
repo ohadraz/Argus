@@ -1,21 +1,54 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from enum import Enum
+from typing import Any, Final, assert_never
 
 import psycopg
 from core.models import (
     ActionProgress,
     ActionType,
+    AlreadyClaimed,
+    ClaimAnswer,
+    Claimed,
+    IncidentStatus,
     Planned,
+    SubjectOpen,
     TakenAction,
     UndoDescriptor,
     Undone,
     Verdict,
     leaves_something_to_put_back,
+    the_platform_of,
 )
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
+
+# The index that holds one open change per subject (`rev_001_the_schema`), by
+# the name a refusal of it carries.
+_ONE_OPEN_CHANGE_PER_SUBJECT: Final = "action_open_once_per_subject_idx"
+# How many times a claim refused for its subject is asked: once, and once more
+# where the open change stopped being open before it could be named.
+_ASKINGS_FOR_AN_OPEN_SUBJECT: Final = 2
+
+
+class NoLongerOpen(Enum):
+    """Which of an incident's changes stop being open on their subjects, and
+    when each is written.
+
+    `KINDS_WITH_NO_WAY_BACK` - a restart, a discard - at every settle of the
+    incident's run: nothing of them stands, and a settled run finishes none it
+    left in flight. `ROWS_OF_A_WITHDRAWN_INCIDENT` at that settle too, where the
+    incident is withdrawn - asked of its status in the write itself: a
+    withdrawn incident is neither resolved nor withdrawn again, so what its
+    unwind left standing would otherwise be open for ever. `EVERY_ROW` where a
+    person resolves the incident, and takes what it left standing into their
+    hands.
+    """
+
+    KINDS_WITH_NO_WAY_BACK = "kinds-with-no-way-back"
+    ROWS_OF_A_WITHDRAWN_INCIDENT = "rows-of-a-withdrawn-incident"
+    EVERY_ROW = "every-row"
 
 
 def claim(
@@ -27,11 +60,24 @@ def claim(
     at: datetime,
     *,
     planned: Planned[Any] | None = None
-) -> str | None:
+) -> ClaimAnswer:
     """Takes the right to act on one candidate, and answers with the claim's id
-    where it got it, or `None` where an earlier attempt holds it (spec §11.1,
-    §13). The id is what the action's writes are marked with, so the platform
-    can say afterwards which action a change was.
+    where it got it (spec §11.1, §13); `AlreadyClaimed` where an earlier
+    attempt holds the candidate; `SubjectOpen` where another change to the
+    same subject may still stand. The id is what the action's writes are
+    marked with, so the platform can say afterwards which action a change was.
+
+    One open change per subject, across incidents, and the database refuses
+    the second (`action_open_once_per_subject_idx`): two changes open on one
+    subject undo each other - one's put-back takes the other's away, and one's
+    wait measures the other's change. The candidate's own claim is asked
+    first, as the insert's arbiter, so a walk resumed on its candidate is
+    answered as already claimed, never as standing in its own way. Refused for
+    the subject, the claim names the incident whose change is open there - this
+    one's own included - and where that change stopped being open before it
+    could be read, asks once more; refused again with none to name, it names
+    none. The insert runs in a savepoint, so a refusal costs the caller's
+    transaction nothing.
 
     Written *before* the action is taken, which is what makes it a claim rather
     than a record: the unique index on the incident and the candidate is what
@@ -97,30 +143,74 @@ def claim(
     claim that holds the candidate. Never into `undo_descriptor`, which says
     something of Argus's is out there and would send a withdrawal to put back a
     change never made. `None` for a kind that plans nothing.
+
+    The realm the subject is a name in is the kind's platform
+    (`the_platform_of`), written beside it: a flag and an application can be
+    called alike, and only a change in the same realm is a change to the same
+    thing.
     """
-    with conn.cursor() as cursor:
+    realm = the_platform_of(action_type) if subject is not None else None
+    columns = (
+        incident_id,
+        hypothesis_id,
+        action_type,
+        subject,
+        realm,
+        leaves_something_to_put_back(action_type),
+        at,
+        ActionProgress.CLAIMED,
+        _as_column(planned.descriptor if planned is not None else None),
+        planned.since if planned is not None else None
+    )
+
+    for _ in range(_ASKINGS_FOR_AN_OPEN_SUBJECT):
+        try:
+            return _inserted(conn, columns)
+        except psycopg.errors.UniqueViolation as refused:
+            if refused.diag.constraint_name != _ONE_OPEN_CHANGE_PER_SUBJECT:
+                raise
+
+        open_in = _where_it_is_open(conn, realm, subject)
+
+        if open_in is not None:
+            return SubjectOpen(open_in=open_in)
+
+    return SubjectOpen(open_in=None)
+
+
+def _inserted(conn: psycopg.Connection, columns: tuple[Any, ...]) -> ClaimAnswer:
+    """The claim's insert, in a savepoint of its own: claimed, or already
+    claimed - and a refusal for the subject raised, with the savepoint rolled
+    back and the caller's transaction as it was."""
+    with conn.transaction(), conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO action (incident_id, hypothesis_id, type, subject, "
+            "INSERT INTO action (incident_id, hypothesis_id, type, subject, realm, "
             "                    has_a_way_back, taken_at, progress, plan, since) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
             "WHERE hypothesis_id IS NOT NULL DO NOTHING "
             "RETURNING id",
-            (
-                incident_id,
-                hypothesis_id,
-                action_type,
-                subject,
-                leaves_something_to_put_back(action_type),
-                at,
-                ActionProgress.CLAIMED,
-                _as_column(planned.descriptor if planned is not None else None),
-                planned.since if planned is not None else None
-            )
+            columns
         )
         claimed = cursor.fetchone()
 
-    return None if claimed is None else str(claimed[0])
+    return AlreadyClaimed() if claimed is None else Claimed(action_id=str(claimed[0]))
+
+
+def _where_it_is_open(conn: psycopg.Connection,
+                      realm: str | None,
+                      subject: str | None) -> str | None:
+    """The incident whose change is open on the subject, or `None` where none
+    is now."""
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT incident_id FROM action "
+            " WHERE realm = %s AND subject = %s AND open_on_subject",
+            (realm, subject)
+        )
+        found = cursor.fetchone()
+
+    return None if found is None else str(found[0])
 
 
 def complete(
@@ -324,6 +414,47 @@ def record_undone(conn: psycopg.Connection, action_id: str, undone: Undone) -> N
         cursor.execute("UPDATE action SET undone = %s WHERE id = %s", (undone, action_id))
 
 
+def no_longer_open(conn: psycopg.Connection,
+                   incident_id: str,
+                   at: datetime,
+                   *,
+                   which: NoLongerOpen) -> None:
+    """The incident's changes `which` names stop being open on their subjects
+    at `at`, so another incident may claim them (spec §11.1).
+
+    Only rows not already stopped: the first moment is the one kept. A
+    withdrawn incident's are asked of the incident's status in this statement
+    rather than by a read before it, so a withdrawal landing in between is
+    seen. Committing is the caller's.
+    """
+    match which:
+        case NoLongerOpen.KINDS_WITH_NO_WAY_BACK:
+            statement = (
+                "UPDATE action SET open_until = %(at)s "
+                " WHERE incident_id = %(incident)s AND open_until IS NULL "
+                "   AND NOT has_a_way_back"
+            )
+        case NoLongerOpen.ROWS_OF_A_WITHDRAWN_INCIDENT:
+            statement = (
+                "UPDATE action SET open_until = %(at)s "
+                " WHERE incident_id = %(incident)s AND open_until IS NULL "
+                "   AND EXISTS (SELECT 1 FROM incident "
+                "                WHERE incident.id = action.incident_id "
+                "                  AND incident.status = %(withdrawn)s)"
+            )
+        case NoLongerOpen.EVERY_ROW:
+            statement = (
+                "UPDATE action SET open_until = %(at)s "
+                " WHERE incident_id = %(incident)s AND open_until IS NULL"
+            )
+        case _:
+            assert_never(which)
+
+    with conn.cursor() as cursor:
+        cursor.execute(statement, {"at": at, "incident": incident_id,
+                                   "withdrawn": IncidentStatus.WITHDRAWN})
+
+
 def settle_claims(conn: psycopg.Connection, incident_id: str) -> None:
     """Every claim of the incident's still open becomes `unknown`.
 
@@ -363,8 +494,21 @@ def record(
     because writing a finished action is a real thing to want, and expressing
     it as the two halves at every call site would spread the ordering rule
     across everything that writes one.
+
+    Raises `ValueError` where the claim writes nothing - the candidate already
+    claimed, or another change open on the subject: a caller writing a
+    finished action whole means it to be there, and completing a row that was
+    never written would build one that isn't.
     """
-    claim(conn, incident_id, hypothesis_id, action_type, subject, at, planned=planned)
+    answered = claim(conn, incident_id, hypothesis_id, action_type, subject, at,
+                     planned=planned)
+
+    if not isinstance(answered, Claimed):
+        raise ValueError(
+            f"the action on [{subject}] for candidate [{hypothesis_id}] was not "
+            f"claimed: {answered!r}"
+        )
+
     complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor, performed,
              left_behind_known=left_behind_known, undone=undone)
 

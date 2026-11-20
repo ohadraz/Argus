@@ -32,7 +32,10 @@ from typing import Final
 
 from core.models import RetrievalChannel, TimelineEntry
 
-from postmortem_writing.prompting import SubmittedPostmortem, SubmittedRuledOut
+from postmortem_writing.answer import (
+    SubmittedPostmortem,
+    SubmittedRuledOut,
+)
 from postmortem_writing.sections import said_as_a_clause
 
 # The kinds of line the pairing reads, as the events name them.

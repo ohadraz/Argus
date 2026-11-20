@@ -32,6 +32,12 @@ from core.models import (
     Verdict,
 )
 from postmortem_writing import EngagementAnswer, NotPaged
+from postmortem_writing.answer import (
+    SubmittedFactor,
+    SubmittedItem,
+    SubmittedPostmortem,
+    SubmittedStep,
+)
 from postmortem_writing.estimate import ErrorRates, RuleSeriesLevels
 from postmortem_writing.figures import (
     ACCOUNTED_FOR_FIGURE,
@@ -81,12 +87,6 @@ from postmortem_writing.figures import (
     with_every_day_said,
     with_figures_written,
     with_figures_written_with_every_day,
-)
-from postmortem_writing.prompting import (
-    SubmittedFactor,
-    SubmittedItem,
-    SubmittedPostmortem,
-    SubmittedStep,
 )
 
 from postmortem_writing_test.framework.builders import (

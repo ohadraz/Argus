@@ -49,11 +49,8 @@ from repository_source.comparing import (
     SHA_FIELD,
 )
 from repository_source.headers import headers_for
-from repository_source.reading import (
-    HttpGet,
-    RepositorySourceSettings,
-    RepositoryUnreadable,
-)
+from repository_source.reading import HttpGet, RepositoryUnreadable
+from repository_source.settings import RepositorySourceSettings
 
 # The two fields of a comparison entry that `comparing.py` has no use for. The
 # status is how the API says whether the file arrived, left, moved or merely

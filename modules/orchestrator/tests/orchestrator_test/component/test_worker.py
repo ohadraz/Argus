@@ -29,7 +29,18 @@ from core import (
 )
 from core.events import StatusChanged
 from core.llm import ModelUnavailable
-from core.models import REVERT_FEATURE_FLAG, ActionProgress, Alert, IncidentStatus
+from core.models import (
+    RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
+    SCALE_OUT,
+    ActionProgress,
+    ActionType,
+    Alert,
+    Claimed,
+    FlagUndo,
+    IncidentStatus,
+    SubjectOpen,
+)
 from core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
 from incident_record.ending import EndedByAPerson, ended_by_a_person_via
 from incident_record.repository import events, hypotheses, incidents, runs, taken_actions
@@ -78,6 +89,9 @@ SOME_TRYING_AGAIN = worker.TryingAgain(attempts=3, first_wait=timedelta(minutes=
 # Long enough for everything between a run being requeued and its wait being
 # read, and far shorter than any wait it is told apart from.
 A_MOMENT_THE_TEST_TAKES = timedelta(seconds=30)
+
+# What the walks here fail with, which no case reads.
+DONT_CARE_WHAT_WENT_WRONG = "a bug in a node nobody has written yet"
 
 
 @pytest.mark.component
@@ -501,7 +515,7 @@ def test_a_withdrawn_incident_whose_walk_then_failed_is_not_announced_escalated(
 
         def walk_that_is_withdrawn_and_then_fails(withdrawn_id: str) -> None:
             _withdrawn_by_a_person(withdrawn_id)
-            raise RuntimeError("a bug in a node nobody has written yet")
+            raise RuntimeError(DONT_CARE_WHAT_WENT_WRONG)
 
         Scenario() \
             .given(
@@ -1978,6 +1992,273 @@ def _the_run_taken_from_under_it(incident_id: str) -> None:
 
         claimed = runs.claim(conn, THE_WORKER_THAT_TOOK_IT_BACK, A_GENEROUS_LEASE)
         assert claimed is not None
+
+
+@pytest.mark.component
+def test_a_withdrawn_incident_s_changes_stop_being_open_when_its_run_finishes(
+    a_clean_database: None
+) -> None:
+    # Taken back from a dead worker and found withdrawn: unwound, and whatever
+    # the unwind could not put back is left to the person who withdrew it. A
+    # withdrawn incident is neither resolved nor withdrawn again, so nothing
+    # else would ever stop its changes holding their subjects.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    the_worker_that_stopped = "worker-that-was-killed-mid-walk"
+    the_worker_that_came_after = "worker-that-started-next"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+        runs.claim(conn, the_worker_that_stopped, A_LEASE_ALREADY_OVER)
+        _a_change_made_on(conn, incident_id, REVERT_FEATURE_FLAG, SOME_FLAG)
+
+        Scenario() \
+            .given(
+                incidents.withdraw(conn, incident_id, at=utc_now())
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    the_worker_that_came_after,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_must_not_be_called(),
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _a_later_claim_on(REVERT_FEATURE_FLAG, SOME_FLAG, is_refused_for=NOBODY)
+            )
+
+
+@pytest.mark.component
+def test_a_withdrawn_incident_s_changes_stop_being_open_when_its_run_fails(
+    a_clean_database: None
+) -> None:
+    dont_care_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        def walk_that_changes_a_flag_is_withdrawn_and_then_fails(withdrawn_id: str) -> None:
+            with connect_from_env() as walking:
+                _a_change_made_on(walking, withdrawn_id, REVERT_FEATURE_FLAG, SOME_FLAG)
+
+            _withdrawn_by_a_person(withdrawn_id)
+            raise RuntimeError(DONT_CARE_WHAT_WENT_WRONG)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_changes_a_flag_is_withdrawn_and_then_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _a_later_claim_on(REVERT_FEATURE_FLAG, SOME_FLAG, is_refused_for=NOBODY)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("fails", [False, True], ids=["finished", "failed"])
+def test_a_settle_stops_only_the_changes_with_no_way_back_being_open(
+    fails: bool, a_clean_database: None
+) -> None:
+    # The incident goes on - mitigated, escalated - and its flag change stands
+    # until it is put back or a person resolves it. A restart leaves nothing
+    # standing, and no walk will finish one this run left in flight.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_changes_a_flag_and_restarts(fails=fails),
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _a_later_claim_on(REVERT_FEATURE_FLAG, SOME_FLAG, is_refused_for=incident_id),
+                _a_later_claim_on(SCALE_OUT, SOME_APPLICATION, is_refused_for=NOBODY)
+            ))
+
+
+@pytest.mark.component
+def test_a_failed_run_s_settle_reads_its_incident_withdrawn_during_the_unwind(
+    a_clean_database: None
+) -> None:
+    # A person withdraws the incident while the failed run is being unwound.
+    # The settle reads the incident's status itself, after the unwind, rather
+    # than going by what the run knew before it: it finds the incident
+    # withdrawn, and every change the run left stops holding its subject.
+    dont_care_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_changes_a_flag_and_restarts(fails=True),
+                    unwind=_an_unwind_a_person_withdraws_the_incident_during(),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_incident_is(conn, incident_id, IncidentStatus.WITHDRAWN),
+                _a_later_claim_on(REVERT_FEATURE_FLAG, SOME_FLAG, is_refused_for=NOBODY),
+                _a_later_claim_on(SCALE_OUT, SOME_APPLICATION, is_refused_for=NOBODY)
+            ))
+
+
+@pytest.mark.component
+def test_a_restart_a_failed_walk_left_made_holds_its_application_open_no_longer(
+    a_clean_database: None
+) -> None:
+    # Made and never judged: the settling moves only claims, and an unwind
+    # writes nothing for a restart, so only the settling's own write leaves
+    # the application to the next incident's claim.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_restarts_and_fails(),
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _a_later_claim_on(SCALE_OUT, SOME_APPLICATION, is_refused_for=NOBODY)
+            )
+
+
+# The flag and the application the walks here change.
+SOME_FLAG = "kuki-flag"
+SOME_APPLICATION = "io-shop"
+# No incident holds a subject open: a later claim on it is claimed.
+NOBODY = None
+
+
+def _a_change_made_on(conn: psycopg.Connection,
+                      incident_id: str,
+                      action_type: ActionType,
+                      subject: str) -> None:
+    """A change claimed for a candidate of the incident's and made, standing -
+    by the real writers, as a walk writes them."""
+    candidate = a_determined_hypothesis(incident_id)
+    hypotheses.record(conn, candidate)
+    taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                        action_type=action_type, subject=subject, at=utc_now())
+    taken_actions.advance(conn, incident_id, hypothesis_id=candidate.id,
+                          to=ActionProgress.PERFORMED,
+                          undo_descriptor=(FlagUndo(flag=subject, was_enabled=True)
+                                           if action_type == REVERT_FEATURE_FLAG else None))
+
+
+def _a_walk_that_changes_a_flag_and_restarts(fails: bool) -> Callable[[str], None]:
+    """A walk that switched a flag off and restarted the service, and stopped
+    before judging either - finishing, or failing where `fails`."""
+    def walk(incident_id: str) -> None:
+        with connect_from_env() as walking:
+            _a_change_made_on(walking, incident_id, REVERT_FEATURE_FLAG, SOME_FLAG)
+            _a_change_made_on(walking, incident_id, RESTART_SERVICE, SOME_APPLICATION)
+
+        if fails:
+            raise RuntimeError(DONT_CARE_WHAT_WENT_WRONG)
+
+    return walk
+
+
+def _a_walk_that_restarts_and_fails() -> Callable[[str], None]:
+    def walk(incident_id: str) -> None:
+        with connect_from_env() as walking:
+            _a_change_made_on(walking, incident_id, RESTART_SERVICE, SOME_APPLICATION)
+
+        raise RuntimeError(DONT_CARE_WHAT_WENT_WRONG)
+
+    return walk
+
+
+def _an_unwind_a_person_withdraws_the_incident_during() -> Callable[[str], None]:
+    """An unwind that puts nothing back, during which a person withdraws the
+    incident - after the failed run's put-back has read how it stood."""
+    def unwind(incident_id: str) -> None:
+        _withdrawn_by_a_person(incident_id)
+
+    return unwind
+
+
+def _a_later_claim_on(action_type: ActionType,
+                      subject: str,
+                      *,
+                      is_refused_for: str | None) -> Assertion[bool]:
+    """What a claim on `subject`, by an incident of its own made afterwards,
+    finds on a connection of its own: refused, naming the incident
+    `is_refused_for` - or claimed, where that is `NOBODY`."""
+    def assertion(_took_work: bool) -> bool:
+        dont_care_alert = Alert(service="nuki-service", alert_name="HighErrorRate")
+
+        with unit_of_work(connect_from_env) as conn:
+            a_later_incident = incidents.create(conn, dont_care_alert, at=utc_now())
+            candidate = a_determined_hypothesis(a_later_incident)
+            hypotheses.record(conn, candidate)
+            answered = taken_actions.claim(conn, a_later_incident, hypothesis_id=candidate.id,
+                                           action_type=action_type, subject=subject,
+                                           at=utc_now())
+
+        found = (isinstance(answered, Claimed) if is_refused_for is NOBODY
+                 else answered == SubjectOpen(open_in=is_refused_for))
+
+        if not found:
+            wanted = ("claimed" if is_refused_for is NOBODY
+                      else f"refused, naming [{is_refused_for}]")
+            raise AssertionError(
+                f"Expected a later claim on [{subject}] {wanted}, got [{answered}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _withdrawn_by_a_person(incident_id: str) -> None:

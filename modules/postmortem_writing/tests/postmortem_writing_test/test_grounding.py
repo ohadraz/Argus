@@ -30,6 +30,9 @@ from argus_testkit import (
 )
 from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
 from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript, Turn
+from postmortem_writing.answer import (
+    WENT_WRONG_FIELD,
+)
 from postmortem_writing.grounding import (
     FLAGS_FIELD,
     JUDGE_BRIEF,
@@ -45,7 +48,9 @@ from postmortem_writing.grounding import (
     is_quoted_in,
     judge_policy,
 )
-from postmortem_writing.prompting import WENT_WRONG_DESCRIPTION, WENT_WRONG_FIELD
+from postmortem_writing.prompting import (
+    WENT_WRONG_DESCRIPTION,
+)
 
 from postmortem_writing_test.framework.builders import a_model_answering_in_turn
 

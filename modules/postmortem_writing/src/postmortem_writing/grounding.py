@@ -41,7 +41,12 @@ from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
 from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript
 from pydantic import BaseModel, ValidationError
 
-from postmortem_writing.prompting import WENT_WRONG_DESCRIPTION, WENT_WRONG_FIELD
+from postmortem_writing.answer import (
+    WENT_WRONG_FIELD,
+)
+from postmortem_writing.prompting import (
+    WENT_WRONG_DESCRIPTION,
+)
 
 logger = logging.getLogger(__name__)
 

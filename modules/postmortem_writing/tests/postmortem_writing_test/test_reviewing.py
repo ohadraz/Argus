@@ -390,16 +390,18 @@ def test_a_candidate_whose_change_may_have_been_made_is_not_one_nobody_tried(
     Refusal.NOT_A_GENERIC_MITIGATION,
     Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
     Refusal.SOMEBODY_ELSES_SERVICE,
-    Refusal.NOTHING_COULD_CONFIRM_IT
+    Refusal.NOTHING_COULD_CONFIRM_IT,
+    Refusal.SUBJECT_ALREADY_OPEN
 ], ids=lambda refusal: refusal.value)
 def test_an_analysis_whose_leader_was_not_argus_s_to_test_says_why_and_is_left_for_a_person(
         refusal: Refusal) -> None:
-    # Nothing was tried because the gate held the leading candidate back at a
-    # boundary of Argus's. The analysis went as far as Argus may, and what is
-    # left is a person's - which each refusal says in its own words, since
-    # each sends a reader to a different next step. The words the timeline and
-    # the candidate's row say it in: three spellings of one reason read as
-    # three reasons.
+    # Nothing was tried because Argus held the leading candidate back at a
+    # boundary of its own - at the gate, or at the claim, where another change
+    # to the subject may still stand. The analysis went as far as Argus may,
+    # and what is left is a person's - which each refusal says in its own
+    # words, since each sends a reader to a different next step. The words the
+    # timeline and the candidate's row say it in: three spellings of one
+    # reason read as three reasons.
     Scenario() \
         .given(
             a_document_refused_its_test := _a_document(

@@ -11,6 +11,7 @@ from typing import Any, Final
 
 from core import parse_iso, utc_now, was_lost
 from core.events import (
+    ActionRefused,
     ActionTaken,
     AgentInvoked,
     MitigationResumed,
@@ -26,11 +27,14 @@ from core.models import (
     ActionProgress,
     Actor,
     AlarmClaim,
+    AlreadyClaimed,
     ChangeFound,
     IncidentStatus,
     Made,
     NotMade,
     Planned,
+    Refusal,
+    SubjectOpen,
     UndoDescriptor,
     UnreadVerdict,
     the_accelerator_of,
@@ -39,6 +43,8 @@ from core.models import (
     the_platform_of,
     the_service_addressed_by,
     the_subject_of,
+    whose_open_change,
+    why_it_was_refused,
 )
 from incident_record import IsStillWanted
 from mitigation import (
@@ -174,9 +180,11 @@ def mitigation_node(
 
     # The claim goes in before anything happens, so that a walk resumed inside
     # this node is refused by the database rather than by a check it could race
-    # with. Losing it means an earlier attempt already acted on this candidate.
-    # Its id is what every write the action makes is marked with.
-    action_id = record_action(
+    # with. Losing it means an earlier attempt already acted on this candidate -
+    # or that another change to the same subject may still stand, beside which
+    # Argus does not act. Its id is what every write the action makes is marked
+    # with.
+    answered = record_action(
         state.incident_id,
         hypothesis_id=state.hypothesis.id,
         action_type=state.proposed_action.action_type,
@@ -199,7 +207,10 @@ def mitigation_node(
         planned=planned
     )
 
-    if action_id is None:
+    if isinstance(answered, SubjectOpen):
+        return _the_subject_is_open(state, answered.open_in, record_outcome, publisher)
+
+    if isinstance(answered, AlreadyClaimed):
         return _the_earlier_attempt_resumed(
             state,
             already_taken(state.incident_id, hypothesis_id=state.hypothesis.id),
@@ -212,6 +223,7 @@ def mitigation_node(
             )
         )
 
+    action_id = answered.action_id
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
     # The announcement, once the agent says the change was made - and none for
     # an attempt that ended before its write, which its verdict says instead.
@@ -347,6 +359,48 @@ def _what_the_wait_is_handed(state: IncidentState,
             else None
         )
     }
+
+
+def _the_subject_is_open(state: IncidentState,
+                         open_in: str | None,
+                         record_outcome: RecordOutcome,
+                         publisher: Publisher) -> StateDelta:
+    """The incident handed to a person, nothing taken, where the claim was
+    refused because another change of Argus's to the same subject may still
+    stand - another incident's, or this one's own from an earlier candidate.
+
+    Two changes open on one subject undo each other, so Argus does not act
+    beside one, as it does not act beside a person's (`ChangedSince`). No
+    action row was written, so nothing is completed: the candidate is kept as
+    untested, with the reason, and the refusal is published as the gate's
+    are - Slack and the postmortem's declined step read it there. Said as the
+    attempt's outcome, escalated, so the status follows from it with that
+    sentence.
+    """
+    assert state.hypothesis is not None and state.proposed_action is not None
+
+    because = (why_it_was_refused(Refusal.SUBJECT_ALREADY_OPEN)
+               + whose_open_change(open_in, state.incident_id))
+    logger.info("action refused, another change to its subject may still stand",
+                extra={"subject": the_subject_of(state.proposed_action),
+                       "open_in": open_in})
+    record_outcome(state.hypothesis.id, tested=False, result=because)
+    publish(
+        ActionRefused(
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            candidate_number=state.hypothesis.number,
+            refusal=Refusal.SUBJECT_ALREADY_OPEN,
+            open_in=open_in
+        ),
+        publisher
+    )
+
+    return StateDelta(
+        action_outcome=Verdict.ESCALATED,
+        action_because=because,
+        narration=Narration(action="mitigation refused", detail=because)
+    )
 
 
 def _nobody_can_say_whether_it_was_carried_out(state: IncidentState,

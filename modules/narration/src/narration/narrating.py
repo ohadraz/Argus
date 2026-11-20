@@ -92,6 +92,7 @@ from core.models import (
     RetrievalChannel,
     RolloutAccount,
     Verdict,
+    whose_open_change,
     why_it_was_refused,
 )
 from pydantic import BaseModel, Field
@@ -724,6 +725,10 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                          f"{event.dependency.name}, and no code fix is looked for"
                          if event.dependency is not None else
                          " - no code fix is looked for")
+            # Whose change is open on the subject, where the claim refused it:
+            # the sentence before this has no event to name an incident from.
+            if event.refusal is Refusal.SUBJECT_ALREADY_OPEN:
+                text += whose_open_change(event.open_in, event.incident_id)
         case ActionRecommended():
             who = _ARGUS
             # The subject rather than the kind, because the kind is not
@@ -1301,12 +1306,19 @@ def _the_minute_it_names(event: IncidentEvent) -> str:
 def _the_incident_it_names(event: IncidentEvent) -> str:
     """The one other incident a line is about, where it is about one.
 
-    So far the closest match memory found: the record the line after it may
-    move a candidate on the strength of, and named by a whole id - a name a
-    reader can only use where a destination leads them to it.
+    The closest match memory found: the record the line after it may move a
+    candidate on the strength of, and named by a whole id - a name a reader can
+    only use where a destination leads them to it. And the incident whose
+    change is open on a subject the claim was refused for, where it is another
+    incident's: the page leads there, which is where a reader sees when the
+    subject frees.
     """
     if isinstance(event, SimilarIncidentsRecalled):
         return event.recalled[0].incident_id
+
+    if (isinstance(event, ActionRefused) and event.refusal is Refusal.SUBJECT_ALREADY_OPEN
+            and event.open_in is not None and event.open_in != event.incident_id):
+        return event.open_in
 
     return ""
 

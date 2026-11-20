@@ -19,7 +19,7 @@ from typing import Final
 
 from core.models import Effort, ModelPolicy
 
-from postmortem_writing.prompting import (
+from postmortem_writing.answer import (
     CAUSAL_CHAIN_FIELD,
     ROOT_CAUSE_FIELD,
     SUBMIT_TOOL_NAME,

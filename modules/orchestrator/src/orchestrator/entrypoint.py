@@ -39,7 +39,7 @@ from opentelemetry.trace import Status, StatusCode, Tracer
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 
-from orchestrator.walk.assembling import against
+from orchestrator.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.state import IncidentState
 

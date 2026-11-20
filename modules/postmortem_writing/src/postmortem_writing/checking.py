@@ -54,20 +54,7 @@ from core import A_REVISION, the_revision_named
 from core.models import CodeUse, ThreadMessage, TimelineEntry, Turn, labelled
 from pydantic import BaseModel
 
-from postmortem_writing.figure_rules import (
-    figures_nobody_gave,
-    figures_said_in_a_word,
-    figures_spelled_out,
-    numbers_in_digits,
-)
-from postmortem_writing.figures import (
-    A_FIGURE_NAME,
-    AROUND_A_WORD,
-    Figure,
-    units_against_their_figures,
-    workings_that_make_no_sense,
-)
-from postmortem_writing.prompting import (
+from postmortem_writing.answer import (
     ACTION_ITEMS_FIELD,
     ADDRESSED_BY_FIELD,
     ANSWERS_FIELD,
@@ -91,8 +78,20 @@ from postmortem_writing.prompting import (
     WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
 )
-from postmortem_writing.revisions import unknown_revisions_in
-from postmortem_writing.sections import (
+from postmortem_writing.figure_rules import (
+    figures_nobody_gave,
+    figures_said_in_a_word,
+    figures_spelled_out,
+    numbers_in_digits,
+)
+from postmortem_writing.figures import (
+    A_FIGURE_NAME,
+    AROUND_A_WORD,
+    Figure,
+    units_against_their_figures,
+    workings_that_make_no_sense,
+)
+from postmortem_writing.labels import (
     AS_IT_RAN_PREFIX,
     CODE_READING_PREFIX,
     CONTRIBUTING_FACTOR_PREFIX,
@@ -102,6 +101,7 @@ from postmortem_writing.sections import (
     is_a_code_reading,
     label_of,
 )
+from postmortem_writing.revisions import unknown_revisions_in
 
 # The words a range is opened with, and the dash a range figure is written
 # with: "between {G}" where G writes in as "21:41–22:01" opens it twice. And

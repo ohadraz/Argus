@@ -65,7 +65,9 @@ from postmortem_writing.sources import NotPaged
 from postmortem_writing.stamps import the_last_minute_logged_inside
 
 if TYPE_CHECKING:
-    from postmortem_writing.prompting import SubmittedPostmortem
+    from postmortem_writing.answer import (
+        SubmittedPostmortem,
+    )
 
 # What each figure Argus measured is named, as the model writes it between
 # braces. Named for what it is rather than numbered: a recorded answer naming

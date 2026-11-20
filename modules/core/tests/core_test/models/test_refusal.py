@@ -37,10 +37,13 @@ from core.models import Refusal, why_it_was_refused
      "the estate Argus may act on"),
     (Refusal.NOTHING_COULD_CONFIRM_IT,
      "nothing would say whether the action that would test the candidate worked "
-     "inside the time Argus waits, so it is recommended rather than taken")
+     "inside the time Argus waits, so it is recommended rather than taken"),
+    (Refusal.SUBJECT_ALREADY_OPEN,
+     "another change of Argus's to the same thing is in progress or may still be in "
+     "place, so it was left alone")
 ], ids=["no-mitigation-proposed", "named-change-not-recorded", "somebody-elses-service",
         "would-undo-a-meant-change", "not-a-generic-mitigation", "already-tried-enough",
-        "outside-what-argus-may-touch", "nothing-could-confirm-it"])
+        "outside-what-argus-may-touch", "nothing-could-confirm-it", "subject-already-open"])
 def test_each_refusal_is_said_in_its_one_sentence(refusal: Refusal, said: str) -> None:
     # Every one the review can show names what it is about - "the candidate",
     # "the action that would test the candidate" - because a review's reason

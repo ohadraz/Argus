@@ -17,7 +17,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    the_answer_was,
+)
 from core import connect_from_env, utc_now
 from core.events import (
     ActionTaken,
@@ -36,6 +43,9 @@ from core.models import (
     ActionProgress,
     Actor,
     Alert,
+    AlreadyClaimed,
+    ClaimAnswer,
+    Claimed,
     ExecutiveSynopsisDocument,
     FlagUndo,
     IncidentStatus,
@@ -43,6 +53,7 @@ from core.models import (
     Planned,
     PostmortemDocument,
     Standing,
+    SubjectOpen,
     ThreadMessage,
     UndoDescriptor,
     Undone,
@@ -432,6 +443,39 @@ def test_a_claim_lost_to_an_earlier_attempt_answers_with_no_row(
         ) \
         .then(
             _no_row_was_answered()
+        )
+
+
+@pytest.mark.component
+def test_a_claim_on_a_subject_another_incident_holds_open_answers_naming_it(
+    a_clean_database: None
+) -> None:
+    # The repository's answer reaches the walk as it was given: which incident
+    # holds the subject open is what the walk says to a person.
+    with connect_from_env() as conn:
+        holding_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        its_candidate = a_determined_hypothesis(holding_incident_id)
+        hypotheses.record(conn, its_candidate)
+        taken_actions.claim(conn, holding_incident_id, hypothesis_id=its_candidate.id,
+                            action_type=DONT_CARE_ACTION, subject=DONT_CARE_FLAG,
+                            at=utc_now())
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.claim_action(incident_id, hypothesis_id=a_candidate.id,
+                                         action_type=DONT_CARE_ACTION,
+                                         subject=DONT_CARE_FLAG, at=utc_now())
+        ) \
+        .then(
+            the_answer_was(SubjectOpen(open_in=holding_incident_id))
         )
 
 
@@ -1132,13 +1176,13 @@ def _the_row_for(incident_id: str, hypothesis_id: str) -> str:
     return row.id
 
 
-def _the_id_of_the_row_for(incident_id: str, hypothesis_id: str) -> Assertion[str | None]:
-    def assertion(answered: str | None) -> bool:
-        expected = _the_row_for(incident_id, hypothesis_id)
+def _the_id_of_the_row_for(incident_id: str, hypothesis_id: str) -> Assertion[ClaimAnswer]:
+    def assertion(answered: ClaimAnswer) -> bool:
+        expected = Claimed(action_id=_the_row_for(incident_id, hypothesis_id))
 
         if answered != expected:
             raise AssertionError(
-                f"Expected the claim answered with its row [{expected}], got [{answered}]."
+                f"Expected the claim answered [{expected}], got [{answered}]."
             )
 
         return True
@@ -1146,10 +1190,12 @@ def _the_id_of_the_row_for(incident_id: str, hypothesis_id: str) -> Assertion[st
     return assertion
 
 
-def _no_row_was_answered() -> Assertion[str | None]:
-    def assertion(answered: str | None) -> bool:
-        if answered is not None:
-            raise AssertionError(f"Expected the claim answered with no row, got [{answered}].")
+def _no_row_was_answered() -> Assertion[ClaimAnswer]:
+    def assertion(answered: ClaimAnswer) -> bool:
+        if answered != AlreadyClaimed():
+            raise AssertionError(
+                f"Expected the claim answered as already claimed, got [{answered}]."
+            )
 
         return True
 

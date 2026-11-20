@@ -27,7 +27,9 @@ from postmortem_writing.evidence import IncidentEvidence
 # short form for the document's rows, so it imports this module, and the
 # answer's type is the prompt's.
 if TYPE_CHECKING:
-    from postmortem_writing.prompting import SubmittedPostmortem
+    from postmortem_writing.answer import (
+        SubmittedPostmortem,
+    )
 
 # How many leading characters a misremembered revision has to share with a real
 # one to be read as it: one chance in sixty-five thousand by accident.

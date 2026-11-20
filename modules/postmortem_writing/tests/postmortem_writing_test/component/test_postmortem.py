@@ -38,7 +38,11 @@ from postmortem_writing import (
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
-from postmortem_writing.prompting import CITES_FIELD, ROOT_CAUSE_FIELD, STEP_FIELD
+from postmortem_writing.answer import (
+    CITES_FIELD,
+    ROOT_CAUSE_FIELD,
+    STEP_FIELD,
+)
 from postmortem_writing.sources import EngagedResponder, NotPaged, PayBand, Revenue
 
 from postmortem_writing_test.framework.assertions import (

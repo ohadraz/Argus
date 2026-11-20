@@ -21,11 +21,8 @@ import httpx2
 
 from repository_source.comparing import AHEAD, BETWEEN, IDENTICAL, RELATION_FIELD
 from repository_source.headers import headers_for
-from repository_source.reading import (
-    HttpGet,
-    RepositorySourceSettings,
-    RepositoryUnreadable,
-)
+from repository_source.reading import HttpGet, RepositoryUnreadable
+from repository_source.settings import RepositorySourceSettings
 
 CONTAINING_TIMEOUT_SECONDS: Final = 10.0
 

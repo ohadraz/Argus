@@ -640,7 +640,8 @@ class CandidateSelected(_Event):
 
 
 class ActionRefused(_Event):
-    """An action was proposed and the gate would not let it through.
+    """An action was proposed and Argus declined to take it - at the gate, or
+    at the claim, where another change to the same subject may still stand.
 
     The autonomy boundary holding is the most important thing Argus publishes
     about itself (spec §13): every other event says what it did, and this says
@@ -668,6 +669,11 @@ class ActionRefused(_Event):
     # on. Absent for every other refusal, and for one whose service the register
     # does not list.
     dependency: ServiceDependency | None = None
+    # The incident whose change is open on the subject, where the refusal is the
+    # claim's (`SUBJECT_ALREADY_OPEN`) and one was found to name - this
+    # incident's own included. Absent for every other refusal. The page links
+    # it, which is where a reader sees when the subject frees.
+    open_in: UuidStr | None = None
 
 
 class ActionRecommended(_Event):

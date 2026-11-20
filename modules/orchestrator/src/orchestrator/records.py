@@ -31,6 +31,7 @@ from core.events import (
 from core.models import (
     ActionProgress,
     ActionType,
+    ClaimAnswer,
     ExecutiveSynopsisDocument,
     Hypothesis,
     IncidentStatus,
@@ -141,7 +142,7 @@ class Records:
         at: datetime,
         *,
         planned: Planned[Any] | None = None
-    ) -> str | None:
+    ) -> ClaimAnswer:
         with unit_of_work(self._connections) as conn:
             return taken_actions.claim(
                 conn,

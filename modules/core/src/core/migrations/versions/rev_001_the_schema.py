@@ -104,6 +104,11 @@ CREATE TABLE IF NOT EXISTS action (
     -- candidate naming no subject is a real candidate.
     type TEXT NOT NULL,
     subject TEXT,
+    -- What the subject is a name in (`the_platform_of` the kind): a flag and an
+    -- application can be called alike, and only a change in the same realm is
+    -- a change to the same thing. NULL exactly where `subject` is, which the
+    -- check below holds.
+    realm TEXT,
     -- Whether an action of this kind leaves a change behind that could be
     -- put back. Not what admitted it: that is membership of the closed set
     -- of generic mitigations (§13), which is decided before the row exists
@@ -171,6 +176,33 @@ CREATE TABLE IF NOT EXISTS action (
     -- the action, not at it - a reader dating the action reads its
     -- announcement, and this only where there is none.
     taken_at TIMESTAMPTZ NOT NULL,
+    -- When the change stopped being open on its subject for a reason its own
+    -- columns cannot show: its run settled with nothing of a kind with no way
+    -- back still in flight, its incident was withdrawn and its run settled
+    -- after the unwind, or a person resolved its incident. NULL until then.
+    open_until TIMESTAMPTZ,
+    -- Whether the change may still stand on its subject - in flight, made,
+    -- owed back, unaccounted for, confirmed and left in place, left beside
+    -- somebody's change, or never performed, unless known to have left
+    -- nothing. Not where it was put back, left as found, owed nothing back, or
+    -- never performed and known to have left nothing; and a kind with no way
+    -- back (a restart, a discard) leaves nothing standing, so it is open only
+    -- while in flight. One open change per subject is what keeps two
+    -- incidents from undoing each other (the index below). The spellings are
+    -- `Undone`'s and `ActionProgress`'s.
+    open_on_subject BOOLEAN GENERATED ALWAYS AS (
+        open_until IS NULL
+        AND CASE
+            WHEN NOT has_a_way_back
+                THEN outcome IS NULL AND progress IN ('claimed', 'performed')
+            ELSE COALESCE(undone NOT IN ('restored', 'left-as-found', 'no-undo-was-owed'),
+                          true)
+                 AND NOT (progress = 'not-performed' AND left_behind_known
+                          AND undo_descriptor IS NULL)
+        END
+    ) STORED,
+    -- A subject is a name in a realm: one without the other names nothing.
+    CONSTRAINT action_subject_has_a_realm CHECK ((subject IS NULL) = (realm IS NULL)),
     -- A plan and the moment it was read at are one fact in two columns: a
     -- plan nobody can date cannot be asked whether anything landed after it,
     -- and a moment with no plan dates nothing.
@@ -192,6 +224,15 @@ CREATE TABLE IF NOT EXISTS action (
 CREATE UNIQUE INDEX IF NOT EXISTS action_once_per_candidate_idx
     ON action (incident_id, hypothesis_id)
     WHERE hypothesis_id IS NOT NULL;
+
+-- One open change per subject, across incidents. Two changes open on one
+-- subject undo each other: one's put-back takes the other's away, and one's
+-- wait measures the other's change. So the claim that would open a second is
+-- refused here, by the database, as a second claim on one candidate is above.
+-- A NULL subject names nothing, and never conflicts.
+CREATE UNIQUE INDEX IF NOT EXISTS action_open_once_per_subject_idx
+    ON action (realm, subject)
+    WHERE open_on_subject;
 
 -- What Argus did, as it did it (spec §4 principle 8) - the account beside the
 -- conclusions the other tables hold, and the only one there is. Append-only: a

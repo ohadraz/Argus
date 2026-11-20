@@ -9,8 +9,10 @@ import pytest
 from argus_testkit import Scenario, the_answer_was
 from core import parse_iso
 from core.models import Lessons, TimelineEntry
+from postmortem_writing.answer import (
+    SubmittedPostmortem,
+)
 from postmortem_writing.figures import ALERT_RAISED_FIGURE, Figure
-from postmortem_writing.prompting import SubmittedPostmortem
 from postmortem_writing.timing import with_each_moment_timed
 
 # The labels of a row of the walk after the alert, one Argus said, and a

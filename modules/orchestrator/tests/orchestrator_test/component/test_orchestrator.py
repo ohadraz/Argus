@@ -30,8 +30,10 @@ from core.events import Publisher, nobody
 from core.models import (
     ActionProgress,
     Alert,
+    AlreadyClaimed,
     Attempt,
     ChangeFound,
+    Claimed,
     EstablishedOnset,
     Evidence,
     ExecutiveSynopsisDocument,
@@ -62,7 +64,7 @@ from investigation_agent import Findings
 from langgraph.checkpoint.memory import MemorySaver
 from mitigation import Action, ChangeMade, Outcome, PutBackOwed, Verdict
 from orchestrator.walk import ports
-from orchestrator.walk.assembling import Collaborators
+from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.graph import (
     CODEFIX_NODE,
     INVESTIGATOR_NODE,
@@ -132,7 +134,9 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         attempts_per_subject=EVERY_ATTEMPT_A_WALK_MAKES,
         take=_an_action_that(Verdict.CONFIRMED),
         plan_action=lambda dont_care_action, /: None,
-        record_action=lambda *dont_care_args, **dont_care_keywords: DONT_CARE_ACTION_ID,
+        record_action=lambda *dont_care_args, **dont_care_keywords: Claimed(
+            action_id=DONT_CARE_ACTION_ID
+        ),
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
         acting_for=lambda dont_care_action_id: nullcontext(),
@@ -227,7 +231,9 @@ def test_the_action_is_taken_acting_for_the_row_its_claim_wrote(
         .given(
             a_walk_acting_for_its_claims := replace(
                 collaborators,
-                record_action=lambda *dont_care_args, **dont_care_keywords: some_action_id,
+                record_action=lambda *dont_care_args, **dont_care_keywords: Claimed(
+                    action_id=some_action_id
+                ),
                 acting_for=acting_for
             )
         ) \
@@ -811,7 +817,7 @@ def test_a_resumed_mitigation_nobody_can_account_for_leaves_the_incident_escalat
         .given(
             a_walk_resuming_a_claim_nobody_can_account_for := replace(
                 collaborators,
-                record_action=lambda *dont_care_args, **dont_care_keywords: None,
+                record_action=lambda *dont_care_args, **dont_care_keywords: AlreadyClaimed(),
                 already_taken=lambda incident_id, hypothesis_id: ports.ClaimedAction(
                     action_id=DONT_CARE_ACTION_ID, outcome=None,
                     claimed_at=SOME_MOMENT_AN_EARLIER_WORKER_CLAIMED_IT,

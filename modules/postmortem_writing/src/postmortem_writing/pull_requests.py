@@ -20,7 +20,9 @@ from core.models import OpenedPullRequest
 # For the annotations alone, as in `revisions`: the answer's type is the
 # prompt's.
 if TYPE_CHECKING:
-    from postmortem_writing.prompting import SubmittedPostmortem
+    from postmortem_writing.answer import (
+        SubmittedPostmortem,
+    )
 
 # A pull request as prose names it: by Argus's name for it, in words, or by its
 # address - each with its number, and the number whole.

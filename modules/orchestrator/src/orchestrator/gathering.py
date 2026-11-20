@@ -127,12 +127,13 @@ from postmortem_writing import (
     write_postmortem,
 )
 
-from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
+from orchestrator.asking import ASKING_THE_FLAG_PROVIDER
 
 # The kind a line telling an announcement carries: the event's own, read off
 # its type rather than spelled a second time.
 _ACTION_TAKEN: Final[str] = ActionTaken.model_fields["kind"].default
-# And the kind a line telling the gate refusing to act carries.
+# And the kind a line telling Argus refusing to act carries, at the gate or at
+# the claim.
 _ACTION_REFUSED: Final[str] = ActionRefused.model_fields["kind"].default
 # The kinds of a line telling a person's message and an incident's move.
 _PERSON_WROTE: Final[str] = PersonWrote.model_fields["kind"].default

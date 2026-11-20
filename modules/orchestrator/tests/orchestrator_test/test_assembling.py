@@ -41,12 +41,8 @@ from core import Connections, Holding, LLMSettings, get_settings
 from core.mcp_transport import McpClient
 from core.models import ModelPolicy
 from incident_memory.records import RememberedIncident
-from orchestrator.walk.assembling import (
-    Collaborators,
-    IncidentMemorySettings,
-    against,
-    the_store_for,
-)
+from orchestrator.assembling import IncidentMemorySettings, against, the_store_for
+from orchestrator.walk.collaborators import Collaborators
 from postmortem_writing import judge_policy, postmortem_policy
 
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
@@ -265,7 +261,7 @@ def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
         ) \
         .when(lambda: _what_is_held_inside(the_store_for(settings_keeping_no_memory))) \
         .then(
-            one_record_was_logged(caplog, "orchestrator.walk.assembling", logging.INFO,
+            one_record_was_logged(caplog, "orchestrator.assembling", logging.INFO,
                                   "incident memory disabled")
         )
 

@@ -117,6 +117,7 @@ from core.models import (
     a_chat_message,
     a_chat_thread,
     as_a_change,
+    why_it_was_refused,
 )
 from core.replay import CallType, Replay
 from incident_record import calls_into
@@ -131,8 +132,8 @@ from incident_record.repository import (
     taken_actions,
 )
 from narration import what_to_do
+from orchestrator.asking import ASKING_THE_FLAG_PROVIDER
 from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
-from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
 from postmortem_writing.grounding import FLAGS_FIELD
 from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD
@@ -1207,24 +1208,38 @@ def test_a_candidate_says_how_far_the_action_testing_it_got(a_clean_database: No
     # written for an attempt that changed nothing, a platform that never
     # answered among them, and for one a dead worker left with the change made
     # and no verdict, or with nobody able to say whether it was made at all.
+    #
+    # Each on a subject of its own: a change left in place keeps its subject
+    # from every later claim, this incident's own included.
+    some_flag_a_person_stopped = "monthly-spend-feature"
+    some_application_never_rolled_back = "io-shop"
+    some_flag_a_dead_worker_changed = "fx-quote-cache"
+    some_flag_nobody_can_account_for = "fraud-scorer-v2"
+    some_flag_never_answered = "checkout-retry"
+
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
         Scenario() \
             .given(
-                calling(lambda: _an_action_taken(conn, incident_id, REVERT_FEATURE_FLAG,
-                                                 Verdict.STOPPED,
-                                                 FlagUndo(flag=SOME_FLAG, was_enabled=True))),
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.STOPPED,
+                    FlagUndo(flag=some_flag_a_person_stopped, was_enabled=True),
+                    subject=some_flag_a_person_stopped)),
                 calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
                                                  Verdict.PLATFORM_UNREACHABLE, None,
                                                  summary="a rollback that never ran",
-                                                 performed=False)),
+                                                 performed=False,
+                                                 subject=some_application_never_rolled_back)),
                 calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.PERFORMED,
-                                                   summary="a change a dead worker made")),
+                                                   summary="a change a dead worker made",
+                                                   subject=some_flag_a_dead_worker_changed)),
                 calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.UNKNOWN,
-                                                   summary="a change nobody can account for")),
+                                                   summary="a change nobody can account for",
+                                                   subject=some_flag_nobody_can_account_for)),
                 calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.CLAIMED,
-                                                   summary="a claim never answered")),
+                                                   summary="a claim never answered",
+                                                   subject=some_flag_never_answered)),
                 calling(lambda: hypotheses.record(conn, Hypothesis(
                     incident_id=incident_id, summary="an untried cause",
                     failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.1,
@@ -2502,6 +2517,56 @@ def test_the_evidence_points_at_each_line_saying_the_gate_refused_to_act(
 
 
 @pytest.mark.component
+def test_a_claim_refused_for_an_open_subject_is_a_declined_step_said_in_its_own_sentence(
+        a_clean_database: None) -> None:
+    # Declined at the claim rather than at the gate, and still a decision about
+    # how the incident ended: pointed at as a refusal like the gate's, and its
+    # line says the refusal's own sentence and whose the other change is.
+    the_refusal = "2026-09-02T12:05:00Z"
+    another_incident = "7b3d5f1e-0000-4000-8000-0000000000b2"
+    another_incident_short = another_incident[:8]
+    its_sentence = (f"{why_it_was_refused(Refusal.SUBJECT_ALREADY_OPEN)} - incident "
+                    f"{another_incident_short}'s")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    ActionRefused(incident_id=incident_id, hypothesis_id=None,
+                                  refusal=Refusal.SUBJECT_ALREADY_OPEN,
+                                  open_in=another_incident,
+                                  at=parse_iso(the_refusal))]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _points_at_refusals_dated([(parse_iso(the_refusal),
+                                            Refusal.SUBJECT_ALREADY_OPEN)]),
+                _the_refusal_s_line_says(its_sentence)
+            ))
+
+
+def _the_refusal_s_line_says(sentence: str) -> Assertion[IncidentEvidence]:
+    """The one line the evidence points at as a refusal says `sentence`."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        said = [evidence.timeline[refused.line].text for refused in evidence.refusals
+                if 0 <= refused.line < len(evidence.timeline)]
+
+        if len(said) != 1 or sentence not in said[0]:
+            raise AssertionError(
+                f"Expected the one refusal's line to say [{sentence}], and the lines "
+                f"pointed at say {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_fix_that_was_proposed(a_clean_database: None) -> None:
     # Read off the event rather than left in the timeline for the model to
     # notice. The walk opened the pull request and recorded where; a document
@@ -3184,10 +3249,13 @@ def _an_action_taken(conn: psycopg.Connection,
                      performed: bool = True,
                      left_behind_known: bool = True,
                      number: int = 1,
-                     undone: Undone | None = None) -> None:
+                     undone: Undone | None = None,
+                     subject: str = SOME_FLAG) -> None:
     """One finished action, on a candidate of its own - performed, unless a
     case says the attempt ended before its write, and known to have left what
-    its descriptor says, unless a case says nobody can tell."""
+    its descriptor says, unless a case says nobody can tell. A case writing
+    several on one incident gives each its own `subject`, since a change left
+    in place keeps its subject from a second claim."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary=summary,
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
@@ -3198,7 +3266,7 @@ def _an_action_taken(conn: psycopg.Connection,
     taken_actions.record(conn, incident_id,
                          hypothesis_id=candidate.id,
                          action_type=action_type,
-                         subject=SOME_FLAG,
+                         subject=subject,
                          outcome=outcome,
                          undo_descriptor=undo_descriptor,
                          at=DONT_CARE_TAKEN_AT,
@@ -3244,10 +3312,11 @@ def _a_pin_taken(conn: psycopg.Connection,
 def _an_action_left_at(conn: psycopg.Connection,
                        incident_id: str,
                        progress: ActionProgress,
-                       summary: str = "dont care") -> None:
-    """One flag revert whose row got as far as `progress` and recorded no
-    verdict - what a worker that died mid-attempt leaves, on a candidate of its
-    own."""
+                       summary: str = "dont care",
+                       subject: str = SOME_FLAG) -> None:
+    """One revert of `subject` whose row got as far as `progress` and recorded
+    no verdict - what a worker that died mid-attempt leaves, on a candidate of
+    its own."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary=summary,
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
@@ -3257,7 +3326,7 @@ def _an_action_left_at(conn: psycopg.Connection,
     taken_actions.claim(conn, incident_id,
                         hypothesis_id=candidate.id,
                         action_type=REVERT_FEATURE_FLAG,
-                        subject=SOME_FLAG,
+                        subject=subject,
                         at=DONT_CARE_TAKEN_AT)
 
     if progress is not ActionProgress.CLAIMED:

@@ -26,7 +26,7 @@ from core.mcp_transport import McpClient
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph
-from orchestrator.walk.assembling import against
+from orchestrator.assembling import against
 from orchestrator.walk.graph import (
     CODEFIX_NODE,
     INVESTIGATOR_NODE,

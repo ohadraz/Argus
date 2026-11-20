@@ -48,6 +48,7 @@ from core.models import (
     Trigger,
     Verdict,
     WhyNoTrigger,
+    why_it_was_refused,
 )
 from narration import A_PERSON
 from postmortem_writing import (
@@ -1864,6 +1865,45 @@ def test_resolution_lists_a_refusal_to_act_in_its_place_among_the_actions() -> N
                  None, None, Refusal.WOULD_UNDO_A_MEANT_CHANGE),
                 (the_action, "dont care", True, "confirmed, still in place", "confirmed",
                  "still in place", "M1", None)
+            ])
+        )
+
+
+# A claim refused because another incident's change to the same thing is in
+# progress or may still be in place, as the timeline's line says it: the
+# refusal's own sentence, then whose the other change is.
+SOME_OTHER_INCIDENT_SHORT = "7b3d5f1e"
+THE_OPEN_SUBJECT_S_LINE = (
+    f"Refused to act - {why_it_was_refused(Refusal.SUBJECT_ALREADY_OPEN)} - incident "
+    f"{SOME_OTHER_INCIDENT_SHORT}'s"
+)
+
+
+@pytest.mark.unit
+def test_resolution_lists_a_claim_refused_for_an_open_subject_as_a_declined_step() -> None:
+    # Declined at the claim rather than at the gate, and still a step the
+    # incident ended by: listed in its place, said as its own line says it -
+    # whose the other change is - and not taken, standing as nothing. Which
+    # refusal it was is what the review reads.
+    the_refusal = STARTED_AT + timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry(THE_OPEN_SUBJECT_S_LINE, at=the_refusal)],
+                actions=[]
+            ).model_copy(update={"refusals": [
+                RefusalRecord(line=0, refusal=Refusal.SUBJECT_ALREADY_OPEN)]})
+        ) \
+        .when(
+            lambda: [(step.at, step.action, step.has_a_way_back, step.outcome, step.came_to,
+                      step.standing, step.label, step.refused)
+                     for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([
+                (the_refusal, THE_OPEN_SUBJECT_S_LINE, False, "not taken", "not taken",
+                 None, None, Refusal.SUBJECT_ALREADY_OPEN)
             ])
         )
 

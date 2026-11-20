@@ -24,11 +24,8 @@ from typing import Any, Final
 import httpx2
 
 from repository_source.headers import headers_for
-from repository_source.reading import (
-    HttpGet,
-    RepositorySourceSettings,
-    RepositoryUnreadable,
-)
+from repository_source.reading import HttpGet, RepositoryUnreadable
+from repository_source.settings import RepositorySourceSettings
 
 # GitHub's wire vocabulary for a comparison, named for the fields that carry
 # it. `PREVIOUS_FILENAME_FIELD` is the one a reader forgets: it appears only on

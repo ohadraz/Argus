@@ -14,12 +14,25 @@ from __future__ import annotations
 
 import logging
 
+import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from core import connect_from_env, utc_now
 from core.events import IncidentEvent, StatusChanged
-from core.models import Alert, IncidentStatus, Report, ReportChannel
-from incident_record.repository import incidents
+from core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionProgress,
+    Alert,
+    Claimed,
+    FailureMode,
+    FlagUndo,
+    Hypothesis,
+    IncidentStatus,
+    Report,
+    ReportChannel,
+    SubjectOpen,
+)
+from incident_record.repository import hypotheses, incidents, taken_actions
 from incident_record.resolution import resolve_incident
 
 SOME_REPORT = Report(by="some person", channel=ReportChannel.ARGUS_UI,
@@ -149,6 +162,89 @@ def test_a_resolution_ends_the_incident_at_the_moment_it_is_published(
         .then(
             _it_ended_when_it_was_said_to(published, incident_id)
         )
+
+
+@pytest.mark.component
+def test_a_resolution_leaves_its_incident_s_subjects_to_later_claims_and_no_other_s(
+    a_clean_database: None
+) -> None:
+    # A person reporting the incident over has its changes in their hands, and
+    # Argus never puts back a resolved incident's changes - so what it left
+    # standing stops holding its subjects: a later incident's claim on one is
+    # claimed. Another incident's changes are that incident's, and still hold.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        another_incident_id = incidents.create(conn, some_alert, at=utc_now())
+        _a_flag_change_made_in(conn, incident_id, SOME_FLAG)
+        _a_flag_change_made_in(conn, another_incident_id, SOME_OTHER_FLAG)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: resolve_incident(incident_id, SOME_REPORT, connect_from_env,
+                                     publisher=_nobody_is_listening)
+        ) \
+        .then(all_of(
+            _a_later_claim_on(SOME_FLAG, is_refused_for=NOBODY),
+            _a_later_claim_on(SOME_OTHER_FLAG, is_refused_for=another_incident_id)
+        ))
+
+
+# The flags the two incidents' changes were made to.
+SOME_FLAG = "kuki-flag"
+SOME_OTHER_FLAG = "buki-flag"
+# No incident holds a flag open: a later claim on it is claimed.
+NOBODY = None
+
+
+def _a_flag_change_made_in(conn: psycopg.Connection, incident_id: str, flag: str) -> None:
+    """A flag switched off for a candidate of the incident, and standing."""
+    candidate = Hypothesis(incident_id=incident_id, summary="dont care",
+                           failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.9,
+                           supporting_evidence=[], subject=flag)
+    hypotheses.record(conn, candidate)
+    taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                        action_type=REVERT_FEATURE_FLAG, subject=flag, at=utc_now())
+    taken_actions.advance(conn, incident_id, hypothesis_id=candidate.id,
+                          to=ActionProgress.PERFORMED,
+                          undo_descriptor=FlagUndo(flag=flag, was_enabled=True))
+
+
+def _a_later_claim_on(flag: str, *, is_refused_for: str | None) -> Assertion[bool]:
+    """What a claim on `flag`, by an incident of its own made afterwards,
+    finds: refused, naming the incident `is_refused_for` - or claimed, where
+    that is `NOBODY`."""
+    def assertion(_resolved: bool) -> bool:
+        dont_care_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+        with connect_from_env() as conn:
+            a_later_incident = incidents.create(conn, dont_care_alert, at=utc_now())
+            candidate = Hypothesis(incident_id=a_later_incident, summary="dont care",
+                                   failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                                   confidence=0.9, supporting_evidence=[], subject=flag)
+            hypotheses.record(conn, candidate)
+            answered = taken_actions.claim(conn, a_later_incident,
+                                           hypothesis_id=candidate.id,
+                                           action_type=REVERT_FEATURE_FLAG, subject=flag,
+                                           at=utc_now())
+
+        found = (isinstance(answered, Claimed) if is_refused_for is NOBODY
+                 else answered == SubjectOpen(open_in=is_refused_for))
+
+        if not found:
+            wanted = ("claimed" if is_refused_for is NOBODY
+                      else f"refused, naming [{is_refused_for}]")
+            raise AssertionError(
+                f"Expected a later claim on [{flag}] {wanted}, got [{answered}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_ended_when_it_was_said_to(published: list[IncidentEvent],

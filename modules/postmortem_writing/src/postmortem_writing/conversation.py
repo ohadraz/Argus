@@ -30,6 +30,18 @@ from core.models import (
 )
 from narration import the_short_forms
 
+from postmortem_writing.answer import (
+    CAUSAL_CHAIN_FIELD,
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
+    ROOT_CAUSE_FIELD,
+    RULED_OUT_FIELD,
+    STOPS_THE_HARM_FIELD,
+    SUBMIT_TOOL_NAME,
+    WENT_WELL_FIELD,
+    WENT_WRONG_FIELD,
+    WHY_IT_DID_NOT_HELP_FIELD,
+    SubmittedPostmortem,
+)
 from postmortem_writing.checking import (
     Given,
     faults_by_check,
@@ -46,20 +58,18 @@ from postmortem_writing.figures import (
     with_figures_written_with_every_day,
 )
 from postmortem_writing.grounding import Flag, faults_of, flags_on
+from postmortem_writing.labels import (
+    ACTION_PREFIX,
+    AS_IT_RAN_PREFIX,
+    CODE_READING_PREFIX,
+    DEPLOYMENT_CHANGES_PREFIX,
+    PRODUCTION_CHANGE_PREFIX,
+    USES_OUTSIDE_PREFIX,
+)
 from postmortem_writing.log_groups import LOG_GROUP_PREFIX
 from postmortem_writing.measuring import Measurements
 from postmortem_writing.ordering import ORDER_TOOL_NAME, put_in_order
 from postmortem_writing.prompting import (
-    CAUSAL_CHAIN_FIELD,
-    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
-    ROOT_CAUSE_FIELD,
-    RULED_OUT_FIELD,
-    STOPS_THE_HARM_FIELD,
-    SUBMIT_TOOL_NAME,
-    WENT_WELL_FIELD,
-    WENT_WRONG_FIELD,
-    WHY_IT_DID_NOT_HELP_FIELD,
-    SubmittedPostmortem,
     figures_shown,
     opening_ask,
     opening_ask_again,
@@ -77,12 +87,6 @@ from postmortem_writing.pull_requests import with_the_pull_request_named
 from postmortem_writing.revisions import revisions_of, with_revisions_corrected
 from postmortem_writing.ruling import is_said_by_code, with_what_the_record_rules_out
 from postmortem_writing.sections import (
-    ACTION_PREFIX,
-    AS_IT_RAN_PREFIX,
-    CODE_READING_PREFIX,
-    DEPLOYMENT_CHANGES_PREFIX,
-    PRODUCTION_CHANGE_PREFIX,
-    USES_OUTSIDE_PREFIX,
     a_put_back_left_the_harm,
     as_the_timeline_shows_it,
     labels_of_the_narration,

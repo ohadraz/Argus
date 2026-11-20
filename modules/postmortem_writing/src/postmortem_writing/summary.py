@@ -49,17 +49,19 @@ from postmortem_writing.figures import (
     the_latency_told,
     with_every_day_said,
 )
-from postmortem_writing.measuring import Measurements
-from postmortem_writing.sections import (
+from postmortem_writing.labels import (
     ACTION_ITEM_PREFIX,
     ACTION_PREFIX,
     CANDIDATE_PREFIX,
+    label_of,
+)
+from postmortem_writing.measuring import Measurements
+from postmortem_writing.sections import (
     SYNC_GOES_BACK_ON,
     TURN_SYNC_BACK_ON,
     WRITE_THE_FIX_AGAIN,
     causes_of,
     inside_a_sentence,
-    label_of,
     record_action_items_of,
     resolution_of,
     the_unproposed_fix_item,

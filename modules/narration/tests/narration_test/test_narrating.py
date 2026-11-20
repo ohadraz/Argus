@@ -1728,6 +1728,61 @@ def test_a_refusal_says_the_candidate_whose_action_it_refused() -> None:
         )
 
 
+# The incident a claim was refused in, and another incident whose change to the
+# same thing is in progress or may still be in place.
+THE_REFUSING_INCIDENT = "4a1c2e9f-0000-4000-8000-0000000000a1"
+ANOTHER_INCIDENT = "7b3d5f1e-0000-4000-8000-0000000000b2"
+NO_INCIDENT_FOUND = None
+# What a line naming no other incident carries for one.
+NO_OTHER_INCIDENT_NAMED = ""
+# How a line names an incident: the first eight characters of its id.
+ANOTHER_INCIDENT_SHORT = ANOTHER_INCIDENT[:8]
+
+# The clause a refusal for an open subject is followed by, by whose the other
+# change is - and none, where no holder was found.
+HELD_BY_ANOTHER_INCIDENT = f" - incident {ANOTHER_INCIDENT_SHORT}'s"
+HELD_BY_THIS_INCIDENT = " - this incident's own, from earlier"
+HELD_BY_NOBODY_FOUND = ""
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("open_in", "appended", "names"), [
+    pytest.param(ANOTHER_INCIDENT, HELD_BY_ANOTHER_INCIDENT, ANOTHER_INCIDENT,
+                 id="another-incident"),
+    pytest.param(THE_REFUSING_INCIDENT, HELD_BY_THIS_INCIDENT, NO_OTHER_INCIDENT_NAMED,
+                 id="this-incident"),
+    pytest.param(NO_INCIDENT_FOUND, HELD_BY_NOBODY_FOUND, NO_OTHER_INCIDENT_NAMED,
+                 id="none-found")
+])
+def test_a_claim_refused_for_an_open_subject_says_whose_the_other_change_is(
+    open_in: str | None, appended: str, names: str
+) -> None:
+    # Declined at the claim rather than at the gate: the refusal's own sentence,
+    # then whose the other change is, as a refusal of somebody else's service is
+    # followed by whom to ask. Nothing is said of when it frees - every wording
+    # for that is false somewhere. Another incident is named to the line whole,
+    # so a destination with a page per incident leads there; this incident, or
+    # none found, names no other.
+    some_refusal = ActionRefused(
+        incident_id=THE_REFUSING_INCIDENT,
+        hypothesis_id=new_id(),
+        candidate_number=SOME_CANDIDATE_NUMBER,
+        refusal=Refusal.SUBJECT_ALREADY_OPEN,
+        open_in=open_in
+    )
+
+    Scenario() \
+        .given(some_refusal) \
+        .when(lambda: build_narration([some_refusal])) \
+        .then(all_of(
+            _the_only_line_says(f"Refused to act on {SOME_CANDIDATE_SAID_AS} - "
+                                f"{why_it_was_refused(Refusal.SUBJECT_ALREADY_OPEN)}"
+                                f"{appended}"),
+            _the_only_line_names_the_incident(names),
+            _the_lines_are_credited_to([ARGUS])
+        ))
+
+
 @pytest.mark.unit
 def test_a_refusal_of_somebody_elses_service_says_whom_to_ask_and_that_no_fix_is_looked_for(
 ) -> None:

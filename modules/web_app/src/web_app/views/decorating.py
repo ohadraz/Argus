@@ -12,6 +12,7 @@ knows an event from another.
 
 from __future__ import annotations
 
+from core.models import an_incident_said_short
 from narration import NarrationLine
 from pydantic import BaseModel
 
@@ -99,12 +100,16 @@ def _the_incident_it_leads_to(line: NarrationLine) -> dict[str, str]:
     nothing, where it names none.
 
     Added to the links the shown line carries rather than in their place: a
-    revision the same line names still leads to its commit.
+    revision the same line names still leads to its commit. The word that
+    leads there is the id as the line says it - whole, or said short.
     """
     if not line.names_incident:
         return {}
 
-    return {line.names_incident: f"/incidents/{line.names_incident}"}
+    said = (line.names_incident if line.names_incident in line.text
+            else an_incident_said_short(line.names_incident))
+
+    return {said: f"/incidents/{line.names_incident}"}
 
 
 def _the_marked_word_goes_to(line: NarrationLine) -> str:

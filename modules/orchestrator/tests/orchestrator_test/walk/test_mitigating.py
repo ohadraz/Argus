@@ -42,6 +42,7 @@ from argus_testkit import (
 )
 from core import RunLost
 from core.events import (
+    ActionRefused,
     ActionTaken,
     IncidentEvent,
     MitigationResumed,
@@ -59,8 +60,10 @@ from core.models import (
     ActionProgress,
     AlarmClaim,
     Alert,
+    AlreadyClaimed,
     AutoscalerUndo,
     ChangeFound,
+    Claimed,
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     EstablishedOnset,
@@ -74,17 +77,20 @@ from core.models import (
     PinAutoscaler,
     PinToAccelerator,
     Planned,
+    Refusal,
     ReplicaUndo,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
     ScaleOut,
+    SubjectOpen,
     UndoDescriptor,
     Undone,
     UnreadVerdict,
     Verdict,
     the_actions_through,
     the_subject_of,
+    why_it_was_refused,
 )
 from incident_record import IsStillWanted
 from mitigation import ChangeMade, NobodyCanSay, Performed, PutBackOwed
@@ -169,7 +175,7 @@ class _Acting:
 def record_action() -> MagicMock:
     """A claim this walk wins, unless a case says an earlier attempt won it."""
     claimed = cast(MagicMock, create_autospec(ports.RecordAction, instance=True))
-    claimed.return_value = THE_ACTION_THIS_WALK_CLAIMED
+    claimed.return_value = Claimed(action_id=THE_ACTION_THIS_WALK_CLAIMED)
 
     return claimed
 
@@ -3046,16 +3052,190 @@ def _nobody_wants_it_any_more(still_wanted: MagicMock) -> None:
     still_wanted.return_value = False
 
 
+# ---------------------------------------------------------------------------
+# A claim refused because another change of Argus's to the subject is open
+# ---------------------------------------------------------------------------
+
+# Another incident whose change to the same thing is in progress or may still
+# be in place, and how a line names it: the first eight characters of its id.
+ANOTHER_INCIDENT_HOLDING_IT = "7b3d5f1e-0000-4000-8000-0000000000b2"
+ANOTHER_INCIDENT_SAID_AS = ANOTHER_INCIDENT_HOLDING_IT[:8]
+NO_HOLDER_FOUND = None
+
+# Why the claim was refused, in the refusal's own sentence, and the clause that
+# follows it by whose the other change is - none, where no holder was found.
+WHY_THE_SUBJECT_WAS_OPEN = why_it_was_refused(Refusal.SUBJECT_ALREADY_OPEN)
+HELD_BY_ANOTHER_INCIDENT = f" - incident {ANOTHER_INCIDENT_SAID_AS}'s"
+HELD_BY_THIS_INCIDENT = " - this incident's own, from earlier"
+HELD_BY_NOBODY_FOUND = ""
+
+# Every holder a refused claim can name - another incident, the incident the
+# claim was for, or nobody found - given the incident, with the clause each
+# is said with.
+EVERY_HOLDER_OF_AN_OPEN_SUBJECT = [
+    pytest.param(lambda dont_care_state: ANOTHER_INCIDENT_HOLDING_IT, HELD_BY_ANOTHER_INCIDENT,
+                 id="another-incident"),
+    pytest.param(lambda state: state.incident_id, HELD_BY_THIS_INCIDENT, id="this-incident"),
+    pytest.param(lambda dont_care_state: NO_HOLDER_FOUND, HELD_BY_NOBODY_FOUND,
+                 id="none-found")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("holder", "clause"), EVERY_HOLDER_OF_AN_OPEN_SUBJECT)
+def test_a_claim_refused_for_an_open_subject_escalates_saying_whose_the_change_is(
+    holder: Callable[[IncidentState], str | None],
+    clause: str,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # The database refused the claim: another change of Argus's to the same
+    # thing is in progress or may still be in place, and acting beside it is
+    # what this guards against. Nothing is taken and no action row is written;
+    # the candidate is recorded untested, the refusal is published naming the
+    # holder, and the walk escalates - in one sentence, said the same way by
+    # the candidate's row, the reason and the line.
+    published: list[IncidentEvent] = []
+    some_candidate = a_determined_hypothesis(a_random_id())
+    an_action_taking_incident = _a_mitigating_incident(
+        proposing=_an_action_with_an_undo_descriptor(),
+        about=some_candidate
+    )
+    open_in = holder(an_action_taking_incident)
+    said = f"{WHY_THE_SUBJECT_WAS_OPEN}{clause}"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_subject_is_open_in(record_action, open_in)),
+            an_action_taking_incident
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _nothing_was_completed(complete_action),
+            _the_candidate_was_left_untested_because(some_candidate, said, record_outcome),
+            _the_subject_s_refusal_was_published(published, some_candidate, open_in),
+            _the_verdict_reported_is(Verdict.ESCALATED),
+            _the_reason_reported_is(said)
+        ))
+
+
+@pytest.mark.unit
+def test_a_resumed_walk_whose_claim_is_refused_for_an_open_subject_escalates_the_same_way(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # A walk resumed after its worker died claims as any walk does, and the
+    # claim's answer decides: refused for an open subject, nothing of an
+    # earlier attempt is read - there is no claim of this walk's to resume -
+    # and it escalates as the live walk does.
+    published: list[IncidentEvent] = []
+    some_candidate = a_determined_hypothesis(a_random_id())
+    said = f"{WHY_THE_SUBJECT_WAS_OPEN}{HELD_BY_ANOTHER_INCIDENT}"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_subject_is_open_in(record_action, ANOTHER_INCIDENT_HOLDING_IT)),
+            an_action_taking_incident := _a_resumed_incident().model_copy(
+                update={"hypothesis": some_candidate}
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _nothing_was_completed(complete_action),
+            _no_earlier_attempt_was_read(already_taken),
+            _nothing_was_read_of_the_estate(resuming),
+            _the_candidate_was_left_untested_because(some_candidate, said, record_outcome),
+            _the_subject_s_refusal_was_published(published, some_candidate,
+                                                 ANOTHER_INCIDENT_HOLDING_IT),
+            _the_verdict_reported_is(Verdict.ESCALATED),
+            _the_reason_reported_is(said)
+        ))
+
+
+def _the_subject_is_open_in(record_action: MagicMock, open_in: str | None) -> None:
+    """The claim refused: another change of Argus's to the subject is open, in
+    `open_in` - `None` where none was found."""
+    record_action.return_value = SubjectOpen(open_in=open_in)
+
+
+def _the_subject_s_refusal_was_published(published: list[IncidentEvent],
+                                         candidate: Hypothesis,
+                                         open_in: str | None) -> Assertion[StateDelta]:
+    """One refusal published for an open subject, about `candidate` - by its id
+    and the number a reader knows it by - naming `open_in`."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        refusals = [(event.hypothesis_id, event.candidate_number, event.refusal, event.open_in)
+                    for event in published if isinstance(event, ActionRefused)]
+        wanted = [(candidate.id, candidate.number, Refusal.SUBJECT_ALREADY_OPEN, open_in)]
+
+        if refusals != wanted:
+            raise AssertionError(f"Expected the refusals published {wanted}, got {refusals}.")
+
+        return True
+
+    return assertion
+
+
+def _no_earlier_attempt_was_read(already_taken: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if already_taken.called:
+            raise AssertionError(
+                f"Expected no earlier attempt read, got {already_taken.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _this_walk_holds_the_claim(record_action: MagicMock) -> None:
-    record_action.return_value = THE_ACTION_THIS_WALK_CLAIMED
+    record_action.return_value = Claimed(action_id=THE_ACTION_THIS_WALK_CLAIMED)
 
 
 def _noting_when_it_is_claimed(record_action: MagicMock, happened: list[str]) -> None:
     """This walk wins the claim, noting into `happened` when it was asked."""
-    def claiming(*dont_care_args: object, **dont_care_keywords: object) -> str:
+    def claiming(*dont_care_args: object, **dont_care_keywords: object) -> Claimed:
         happened.append("claimed")
 
-        return THE_ACTION_THIS_WALK_CLAIMED
+        return Claimed(action_id=THE_ACTION_THIS_WALK_CLAIMED)
 
     record_action.side_effect = claiming
 
@@ -3165,7 +3345,7 @@ def _an_earlier_attempt_holds_the_claim(
     `put_back_because` are what the row says of a change it was told was made
     and, where it got that far, owed back.
     """
-    record_action.return_value = None
+    record_action.return_value = AlreadyClaimed()
     already_taken.return_value = ports.ClaimedAction(
         outcome=nothing_recorded, claimed_at=written_at, progress=progress,
         action_id=THE_ACTION_AN_EARLIER_ATTEMPT_CLAIMED, planned=planned,

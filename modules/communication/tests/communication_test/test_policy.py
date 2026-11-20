@@ -82,6 +82,8 @@ from core.models import (
 )
 
 AN_INCIDENT = new_id()
+# Another incident, whose change to a subject may still stand.
+ANOTHER_INCIDENT = new_id()
 
 SOME_MESSAGE = a_chat_message("some-chat", "some-channel", "some-message")
 
@@ -147,6 +149,26 @@ def test_an_incident_opening_is_announced() -> None:
         ) \
         .when(lambda: how_it_is_said(an_alert_arriving)) \
         .then(_it_is_said(Register.ANNOUNCED))
+
+
+@pytest.mark.unit
+def test_a_claim_refused_for_a_subject_already_open_is_said_in_the_incident_s_conversation(
+) -> None:
+    # Declined at the claim rather than at the gate, and still Argus declining
+    # to act - which is what a refusal is. Heard where the gate's refusals are,
+    # by whoever follows the incident: the line naming the other incident is
+    # the one thing that says why nothing was done.
+    an_open_subject_s_refusal = ActionRefused(
+        incident_id=AN_INCIDENT,
+        hypothesis_id=new_id(),
+        refusal=Refusal.SUBJECT_ALREADY_OPEN,
+        open_in=ANOTHER_INCIDENT
+    )
+
+    Scenario() \
+        .given(an_open_subject_s_refusal) \
+        .when(lambda: how_it_is_said(an_open_subject_s_refusal)) \
+        .then(_it_is_said(Register.FOLLOWED))
 
 
 @pytest.mark.unit

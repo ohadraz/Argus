@@ -25,9 +25,9 @@ from collections.abc import Callable
 from typing import Final
 
 import httpx2
-from core import SettingsSlice
 
 from repository_source.headers import headers_for
+from repository_source.settings import RepositorySourceSettings
 
 HttpGet = Callable[..., httpx2.Response]
 
@@ -35,19 +35,6 @@ HttpGet = Callable[..., httpx2.Response]
 # rather than a JSON document, and the wait is paid once for the whole of it
 # instead of once per file.
 ARCHIVE_TIMEOUT_SECONDS: Final = 30.0
-
-
-class RepositorySourceSettings(SettingsSlice):
-    """What is needed to read a repository, and nothing that could change one.
-
-    The credential here reads source and cannot push. That is the boundary
-    rather than a naming preference: it is what lets the source be read from a
-    process that must remain incapable of writing anywhere (§13).
-    """
-
-    github_api_url: str
-    github_repository: str
-    github_read_token: str
 
 
 class RepositoryUnreadable(Exception):

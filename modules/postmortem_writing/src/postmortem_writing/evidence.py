@@ -141,9 +141,9 @@ class DeploymentChangesRecord(BaseModel):
 
 
 class RefusalRecord(BaseModel):
-    """One refusal to act at the gate: where in the timeline its line sits, and
-    which refusal it was - the line says it in words, and the review reads the
-    kind to say whether the next step is a person's."""
+    """One refusal to act, at the gate or at the claim: where in the timeline
+    its line sits, and which refusal it was - the line says it in words, and
+    the review reads the kind to say whether the next step is a person's."""
 
     line: int
     refusal: Refusal
@@ -339,11 +339,11 @@ class IncidentEvidence(BaseModel):
     # register lists it: who to ask to restore it is the item that ends the
     # incident, and no code fix was looked for. Off the refusal on the account.
     whose_service_failed: ServiceDependency | None = None
-    # Each refusal to act at the gate, by where its line sits in `timeline`. A
-    # refusal is a decision about how the incident ended - an action declined,
-    # or none there to take - and the resolution lists it beside the actions
-    # taken, said and dated as its line is. Empty where the gate refused
-    # nothing.
+    # Each refusal to act, at the gate or at the claim, by where its line sits
+    # in `timeline`. A refusal is a decision about how the incident ended - an
+    # action declined, or none there to take - and the resolution lists it
+    # beside the actions taken, said and dated as its line is. Empty where
+    # Argus refused nothing.
     refusals: list[RefusalRecord] = []
     # What people told the incident in its thread, as leads, each with what the
     # investigation last made of it. Structured rather than left to the

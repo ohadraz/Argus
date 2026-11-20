@@ -9,10 +9,9 @@ leaves.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
-if TYPE_CHECKING:
-    from repository_source.reading import RepositorySourceSettings
+from repository_source.settings import RepositorySourceSettings
 
 ACCEPT_HEADER: Final = "application/vnd.github+json"
 

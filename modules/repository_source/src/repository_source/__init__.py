@@ -20,11 +20,8 @@ from repository_source.differences import (
     the_difference_between,
 )
 from repository_source.heads import the_head_of
-from repository_source.reading import (
-    RepositorySourceSettings,
-    RepositoryUnreadable,
-    the_source_at,
-)
+from repository_source.reading import RepositoryUnreadable, the_source_at
+from repository_source.settings import RepositorySourceSettings
 
 __all__ = [
     "BEHIND",

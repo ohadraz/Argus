@@ -23,7 +23,12 @@ from core.models import (
     why_it_was_refused,
 )
 
-from postmortem_writing.sections import is_a_code_reading, was_never_tried
+from postmortem_writing.labels import (
+    is_a_code_reading,
+)
+from postmortem_writing.sections import (
+    was_never_tried,
+)
 
 KEY_DATA_COLLECTED: Final = "Key incident data collected"
 IMPACT_ASSESSED: Final = "Impact assessed"
@@ -60,10 +65,11 @@ def review_of(document: PostmortemDocument,
     citing readings and nothing else.
 
     So is one that confirmed nothing only because the one test of its cause was
-    refused at the gate as not Argus's to take, and impact whose loss was
-    measured but whose end nothing could measure: a cross means the document
-    fell short where Argus could have done more, and here the next step is a
-    person's - which is what each says.
+    refused - at the gate as not Argus's to take, or at the claim because
+    another change of Argus's to the same thing was open - and impact whose
+    loss was measured but whose end nothing could measure: a cross means the
+    document fell short where Argus could have done more, and here the next
+    step is a person's - which is what each says.
     """
     short = _what_the_analysis_lacks(document, faults, reaches_a_cause=reaches_a_cause)
     unrun = (_the_readings_it_rests_on(document, rests_on_an_unrun_reading)
@@ -102,14 +108,16 @@ def review_of(document: PostmortemDocument,
 # what to undo, and undoing it without the record is a person's. Not
 # `NO_MITIGATION_PROPOSED`, which is evidence missing - an analysis short of
 # what it needed - nor `ALREADY_TRIED_ENOUGH`, which follows a test rather than
-# standing in for one.
+# standing in for one. The claim's refusal is one too: another change of
+# Argus's to the subject may still stand, and Argus does not act beside it.
 _HELD_AT_A_BOUNDARY: Final = frozenset({
     Refusal.NAMED_CHANGE_NOT_RECORDED,
     Refusal.WOULD_UNDO_A_MEANT_CHANGE,
     Refusal.NOT_A_GENERIC_MITIGATION,
     Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
     Refusal.SOMEBODY_ELSES_SERVICE,
-    Refusal.NOTHING_COULD_CONFIRM_IT
+    Refusal.NOTHING_COULD_CONFIRM_IT,
+    Refusal.SUBJECT_ALREADY_OPEN
 })
 
 NONE_TRIED: Final = "no candidate was confirmed - none was tried"

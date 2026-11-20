@@ -31,9 +31,9 @@ def test_a_walk_module_importing_the_vector_store_is_refused() -> None:
     # The import the rule exists for: the walk writing to the store itself,
     # where a write for a run another claim holds is one nothing refuses.
     Scenario() \
-        .given(a_graph := _a_graph_with(("orchestrator.walk.assembling", "qdrant_client"))) \
+        .given(a_graph := _a_graph_with(("orchestrator.assembling", "qdrant_client"))) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
-        .then(_these_are_refused([("orchestrator.walk.assembling", "qdrant_client")]))
+        .then(_these_are_refused([("orchestrator.assembling", "qdrant_client")]))
 
 
 @pytest.mark.unit
@@ -42,12 +42,12 @@ def test_a_walk_module_reaching_the_vector_store_through_the_writing_side_is_ref
     # as surely as one that holds the client.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.walk.assembling", "incident_memory.keeping"),
+            ("orchestrator.assembling", "incident_memory.keeping"),
             ("incident_memory.keeping", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([
-            ("orchestrator.walk.assembling", "incident_memory.keeping", "qdrant_client")
+            ("orchestrator.assembling", "incident_memory.keeping", "qdrant_client")
         ]))
 
 
@@ -57,7 +57,7 @@ def test_a_walk_module_recalling_through_the_reading_side_passes() -> None:
     # holds - which is why the walk keeps it.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.walk.assembling", "incident_memory.recalling"),
+            ("orchestrator.assembling", "incident_memory.recalling"),
             ("incident_memory.recalling", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
@@ -72,13 +72,13 @@ def test_a_way_to_the_writing_side_through_the_reading_side_is_refused() -> None
     # every chain passing the reading side would never say so.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.walk.assembling", "incident_memory.recalling"),
+            ("orchestrator.assembling", "incident_memory.recalling"),
             ("incident_memory.recalling", "incident_memory.keeping"),
             ("incident_memory.keeping", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([
-            ("orchestrator.walk.assembling", "incident_memory.recalling",
+            ("orchestrator.assembling", "incident_memory.recalling",
              "incident_memory.keeping", "qdrant_client")
         ]))
 
