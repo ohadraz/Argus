@@ -12,35 +12,20 @@ repos:
   
   - repo: local
     hooks:
-      - id: nox-lint
-        name: mypy (via nox)
-        entry: uv run python -m nox -s typecheck  # the actual command pre-commit executes
-        language: system  # uses the system's Python interpreter, which is already installed on the machine
-        pass_filenames: false  # no filenames - it always lints/typechecks everything.
-
-      - id: guard-layering
-        name: module layering (via nox)
-        entry: uv run python -m nox -s guard_layering  # fails if a module imports across a layer it may not
+      # The type check and the whole-repository guards, side by side: each reads
+      # the repository and writes nothing, so none waits on another, and run in
+      # turn they cost the sum of their times rather than the slowest one's.
+      # - typecheck: mypy over modules/ and tests/
+      # - guard_layering: no module imports across a layer it may not, and no cycle
+      # - guard_e2e_boundary: no module's tests/ holds an e2e-marked test
+      # - guard_module_docstrings: no module's prose sits below its imports
+      # - guard_exports: no package's __all__ offers a name nothing outside it uses
+      # - guard_written_columns: every column the schema declares is written somewhere
+      - id: checks
+        name: type check and guards, side by side (via nox)
+        entry: uv run python scripts/run_sessions_together.py typecheck guard_layering guard_e2e_boundary guard_module_docstrings guard_exports guard_written_columns
         language: system
-        pass_filenames: false  # no filenames - a contract is about the whole graph.
-
-      - id: guard-e2e-boundary
-        name: e2e test boundary (via nox)
-        entry: uv run python -m nox -s guard_e2e_boundary  # fails if a module's tests/ contains an e2e-marked test
-        language: system
-        pass_filenames: false  # no filenames - it always scans modules/*/tests/ in full.
-
-      - id: guard-module-docstrings
-        name: module docstrings (via nox)
-        entry: uv run python -m nox -s guard_module_docstrings  # fails if a module's prose sits below its imports, where __doc__ never sees it
-        language: system
-        pass_filenames: false  # no filenames - it always scans every .py in the repo.
-
-      - id: guard-exports
-        name: package exports (via nox)
-        entry: uv run python -m nox -s guard_exports  # fails if a package's __all__ offers a name nothing outside it uses
-        language: system
-        pass_filenames: false  # no filenames - an export's callers can be anywhere, so it reads the whole repo.
+        pass_filenames: false  # no filenames - every one of them reads the whole repository.
 
       - id: guard-recordings
         name: recordings are of finished walks (via nox)
@@ -48,12 +33,6 @@ repos:
         language: system
         pass_filenames: false  # no filenames - a corpus is many files, and the question is about the set.
         files: ^(test_support/anthropic_double/recordings/|test_support/anthropic_double/src/anthropic_double/recordings\.py$|scripts/guard_recordings\.py$)  # only a commit that can change the answer
-
-      - id: guard-written-columns
-        name: written columns (via nox)
-        entry: uv run python -m nox -s guard_written_columns  # fails if a column the schema declares is set by no INSERT, UPDATE or DEFAULT
-        language: system
-        pass_filenames: false  # no filenames - the schema and its writers are read together or not at all.
 
       # At push rather than at commit, alone among these. Every hook above reads
       # this repo and nothing else; this one grades recorded patches against the
