@@ -415,7 +415,7 @@ def sweep(session: nox.Session) -> None:
     """
     Registers `sweep` as a nox session, i.e., runnable via
     `uv run python -m nox -s sweep`.
-    Runs every free suite at once - `lint`, `typecheck`, the three guards,
+    Runs every free suite at once - `lint`, `typecheck`, the four guards,
     `test_all`, `integration` and `e2e_replay` - each in its own process, and
     stops the lot the moment one of them fails.
 
@@ -427,13 +427,13 @@ def sweep(session: nox.Session) -> None:
     published port is still the host's
     one address - which is what a vector store on the default 6333 in both
     `test_all` and `e2e_replay` cost before either had a port here.
-    Sequentially this is the better part of half an hour, almost all of it
-    `e2e_replay` waiting on walks.
+    Sequentially it would take as long as all of them added together, and
+    `e2e_replay` alone is almost all of that, waiting on walks.
 
     Stopping the rest on the first failure is the point rather than a
     convenience. The answer to "is this branch good" is already known once one
-    suite says no, and eighteen further minutes of e2e output would bury the
-    thing that actually broke.
+    suite says no, and the rest of `e2e_replay`'s output - most of the sweep's
+    time - would bury the thing that actually broke.
     """
     running = {name: _start_service(["-m", "nox", "-s", name, *_SWEEP_ARGUMENTS.get(name, [])])
                for name in _SWEEP}
@@ -936,8 +936,9 @@ def grade_fixes(session: nox.Session) -> None:
     Free, deterministic and modelless, which is why it is not `eval`. It reads
     recordings that are committed and a repository that is committed, so it runs
     against any past commit and needs no API key. It does need the Target
-    Service checked out beside this one with a clean tree: it grades by
-    overwriting files there and putting them back with git.
+    Service checked out beside this one, though not clean: each patch is
+    graded side by side in a throwaway worktree of the shop's HEAD, so the
+    shop's own checkout is never written.
     """
     session.run(
         "uv", "run", "python", "-m", "pytest", *_by_default(_THE_FREE_EVAL), "-v",

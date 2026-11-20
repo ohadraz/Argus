@@ -11,11 +11,14 @@ recordings in this repository and the Target Service in its own, both committed,
 which is why no result is written down - a verdict for any past commit is had by
 checking that commit out and running this again.
 
-Three runs per patch, and the first is what makes the second readable:
+Three runs per patch, and a fourth shared by all of them that makes the rest
+readable:
 
 1. The shop's own suite, before anything is written. It must pass. Everything
    after this is attributed to what was written, and that attribution is only
-   sound if the service was sound first.
+   sound if the service was sound first. Run once for the whole session: every
+   patch is graded against the same commit of the shop, so a second run would
+   be asked the same question about the same files.
 
 2. The patch's *test* files alone, against the unfixed shop. They must not pass.
    A failing assertion and an import error both count: a fix that adds a module,
@@ -37,18 +40,32 @@ run 3 still has to pass - a setting that breaks the shop's suite is graded wrong
 The suite is `tests/io_shop`, never `tests`: the harness suite beside it asserts
 the planted faults are still present, so every working fix breaks it by design.
 
-The shop is written to and put back with git. It is refused outright when that
-tree is dirty: this overwrites files there, and uncommitted work would be
-restored to the last commit along with them.
+Nothing is written into the shop's own checkout. Each patch, and the baseline,
+gets a throwaway `git worktree` of the shop's HEAD, and the patches are graded
+side by side, one worktree each, so no patch can see another's files. The shop
+need only be there: uncommitted work in it is neither graded nor touched, which
+is why a dirty tree is no longer refused.
+
+Every worktree runs in the shop's one environment, synced from HEAD's lock. A
+patch that rewrites the shop's `pyproject.toml` or `uv.lock` would be graded
+without the dependencies it asks for, so it fails on that by name, listed
+before whatever the suite then reports.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import sys
+import threading
+from collections.abc import Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of
@@ -67,6 +84,14 @@ RECORDINGS_DIR = ARGUS_REPO_ROOT / "test_support" / "anthropic_double" / "record
 # shop, and neither Argus nor the model had a hand in them.
 THE_SHOP = ARGUS_REPO_ROOT.parent / "Argus-Demo-Target-App"
 
+# The interpreter of the shop's own virtual environment, which is what runs its
+# tests. Where a virtual environment keeps it is the platform's choice, not
+# uv's.
+THE_SHOPS_INTERPRETER = (
+    THE_SHOP / ".venv" / "Scripts" / "python.exe" if sys.platform == "win32"
+    else THE_SHOP / ".venv" / "bin" / "python"
+)
+
 # The modes whose corpora are graded. `both` is what a deployment runs and what CI
 # replays, and `grep` is recorded against the same prompts; `meaning`'s recordings
 # predate this, and it is not recorded.
@@ -79,6 +104,29 @@ TOOL_USE_TYPE = "tool_use"
 # filename: a module called `test_something.py` under `src/` would be source,
 # whatever it is named.
 TESTS_DIRECTORY = "tests/"
+THE_SHOPS_SUITE = f"{TESTS_DIRECTORY}io_shop"
+
+# The files that say what the shop's environment holds. Every run uses the one
+# environment, synced from HEAD's lock, so a patch that changes either would be
+# graded without what it asks for - a new dependency would read as the fix
+# failing.
+THE_SHOPS_ENVIRONMENT_FILES = ("pyproject.toml", "uv.lock")
+
+# Where the shop keeps its packages - the directory its editable install points
+# at, and so the one each worktree has to put ahead of it.
+SOURCE_DIRECTORY = "src"
+
+# Python's own variables. The first is how a worktree's `src/` is imported ahead
+# of the editable install, which is a `.pth` line and so lands after
+# site-packages, behind anything on this. The second keeps a run from leaving
+# bytecode behind for the next run in the same worktree: a module the patch
+# rewrites within the second, at the same length, would otherwise be read from
+# the bytecode of the version it replaced.
+IMPORT_PATH_VARIABLE = "PYTHONPATH"
+NO_BYTECODE_VARIABLE = "PYTHONDONTWRITEBYTECODE"
+
+# The baseline's worktree. Not a scenario's name, which always opens with a mode.
+THE_BASELINES_CHECKOUT = "before-anything"
 
 # `-rEf` prints one `FAILED <node id>` line per failure and one `ERROR <file>`
 # per collection error, which is all of pytest's output this reads. Both are
@@ -88,6 +136,15 @@ A_FAILED_TEST = re.compile(r"^FAILED (\S+)", re.MULTILINE)
 A_COLLECTION_ERROR = re.compile(r"^ERROR (\S+)", re.MULTILINE)
 
 A_WHOLE_SUITE_SECONDS = 900
+
+# One grade per core. Each grade is a pytest process at a time, single-threaded,
+# so more than this only queues them for the processor instead of the pool.
+A_GRADE_PER_CORE = os.cpu_count() or 1
+
+# `git worktree add` and `remove` write the shop's own `.git`, and two at once
+# can find each other's lock there. They are a fraction of a grade, so they
+# take turns and the test runs between them do not.
+ONE_WORKTREE_CHANGE_AT_A_TIME = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -105,16 +162,39 @@ class Ran:
     output: str
 
 
-def _pytest_in_the_shop(*arguments: str) -> Ran:
-    """Runs the shop's suite where it lives, with its own interpreter.
+@dataclass(frozen=True)
+class Checkouts:
+    """The commit of the shop every run is graded against, and where its
+    worktrees go.
 
-    In place rather than in a copy: the shop's virtual environment is what runs
-    its tests, and the package it installed points at the real `src/`, so a copy
-    would be graded against the source it was copied from.
+    One commit, read once: a commit made in the shop while this runs would
+    otherwise leave the baseline and the grades describing different services.
     """
+
+    commit: str
+    under: Path
+
+
+def _pytest_in(checkout: Path, *arguments: str) -> Ran:
+    """Runs the shop's suite in one of its worktrees, with its own interpreter.
+
+    The shop's interpreter rather than one of the worktree's own: its virtual
+    environment is what runs its tests, and building one per worktree would cost
+    more than every test in it. That environment's editable install points at
+    the shop's real `src/`, so the worktree's `src/` is put first on the import
+    path - without it, every patch would be graded against the unpatched source.
+    """
+    inherited = os.environ.get(IMPORT_PATH_VARIABLE)
     run = subprocess.run(
-        ["uv", "run", "python", "-m", "pytest", *arguments, "-q", "--tb=no", "-rEf"],
-        cwd=THE_SHOP, capture_output=True, text=True, timeout=A_WHOLE_SUITE_SECONDS
+        [str(THE_SHOPS_INTERPRETER), "-m", "pytest", *arguments, "-q", "--tb=no", "-rEf"],
+        cwd=checkout, capture_output=True, text=True, timeout=A_WHOLE_SUITE_SECONDS,
+        env={
+            **os.environ,
+            IMPORT_PATH_VARIABLE: os.pathsep.join(
+                [str(checkout / SOURCE_DIRECTORY), *([inherited] if inherited else [])]
+            ),
+            NO_BYTECODE_VARIABLE: "1"
+        }
     )
     said = run.stdout + run.stderr
 
@@ -202,28 +282,41 @@ def the_scenarios_that_proposed_a_fix() -> list[str]:
             if _the_patch_in(corpus)]
 
 
-def _the_shop_is_clean() -> bool:
-    status = subprocess.run(
-        ["git", "-C", str(THE_SHOP), "status", "--porcelain"],
+def _git_in_the_shop(*arguments: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(THE_SHOP), *arguments],
         capture_output=True, text=True, check=True
-    )
-
-    return not status.stdout.strip()
+    ).stdout.strip()
 
 
-def _put_the_shop_back() -> None:
-    """Restores the shop to its last commit, files the patch added included.
+@contextmanager
+def _a_worktree_of(shop: Checkouts, name: str) -> Iterator[Path]:
+    """A checkout of the shop's commit of its own, gone again on the way out.
 
-    `clean -fd` and never `-fdx`: the virtual environment is ignored by git, and
-    `-x` would delete the interpreter the next run needs.
+    Detached, so no branch is made in the shop for it. Removed with `--force`
+    because a grade leaves the patch's files in it, and pruned after, so a
+    removal that failed - a file still held open on Windows - leaves no entry
+    behind in the shop's `.git` once the directory under it is cleaned up.
     """
-    subprocess.run(["git", "-C", str(THE_SHOP), "checkout", "--", "."], check=True)
-    subprocess.run(["git", "-C", str(THE_SHOP), "clean", "-fd"], check=True)
+    checkout = shop.under / name
+
+    with ONE_WORKTREE_CHANGE_AT_A_TIME:
+        _git_in_the_shop("worktree", "add", "--detach", str(checkout), shop.commit)
+
+    try:
+        yield checkout
+    finally:
+        with ONE_WORKTREE_CHANGE_AT_A_TIME:
+            subprocess.run(
+                ["git", "-C", str(THE_SHOP), "worktree", "remove", "--force", str(checkout)],
+                capture_output=True, check=False
+            )
+            _git_in_the_shop("worktree", "prune")
 
 
-def _write_into_the_shop(patch: dict[str, str]) -> None:
+def _write_into(checkout: Path, patch: dict[str, str]) -> None:
     for path, content in patch.items():
-        written = THE_SHOP / path
+        written = checkout / path
         written.parent.mkdir(parents=True, exist_ok=True)
         written.write_text(content, encoding="utf-8")
 
@@ -241,6 +334,9 @@ class Graded:
     scenario: str
     tests: tuple[str, ...]
     configuration_only: bool
+    # Which of the shop's environment files the patch rewrites, which nothing
+    # here installs.
+    environment_files: tuple[str, ...]
     before_anything: Ran
     # `None` where the patch brought no test to run.
     without_the_fix: Ran | None
@@ -248,78 +344,134 @@ class Graded:
     the_same_tests_again: Ran | None
 
 
-def _graded(scenario: str) -> Graded:
-    """One patch, put to the shop twice, with the shop's own state read first.
+def _graded(scenario: str, before_anything: Ran, shop: Checkouts) -> Graded:
+    """One patch, put to a worktree of the shop twice, read against the shop's
+    own state.
 
     The baseline is what lets the second run be read at all. A fix routinely adds
     a module, a class or a constant, so its test cannot import against the
     unfixed service - and an import error there is evidence about the patch only
-    if the service was importing cleanly a moment earlier. Establish that first,
-    and every failure and error afterwards belongs to what was written.
+    if the service was importing cleanly at the same commit. That is established
+    once, before any patch is written, and every failure and error here belongs
+    to what was written.
 
-    Restored between the runs and again on the way out, so one pass is not
-    grading the last one's leftovers and the next scenario is not grading this
-    one's.
+    The tests first and the rest of the patch over them, in the one worktree:
+    the tests are written again unchanged, so what the second run sees is the
+    whole patch and nothing else. The worktree is this patch's alone, so no
+    other grade is reading its leftovers.
     """
     patch = _the_patch_in(_every_corpus()[scenario])
     tests = tuple(path for path in patch if path.startswith(TESTS_DIRECTORY))
 
-    try:
-        # Before anything is written. Whatever this says is true of the shop
-        # rather than of the patch, which is the only reason the next run means
-        # anything.
-        before_anything = _pytest_in_the_shop(f"{TESTS_DIRECTORY}io_shop")
-
+    with _a_worktree_of(shop, scenario) as checkout:
         without_the_fix = None
         if tests:
-            _write_into_the_shop({path: patch[path] for path in tests})
+            _write_into(checkout, {path: patch[path] for path in tests})
             # The patch's own test files and nothing else. Running the whole
             # suite here would answer a different question - whether anything in
             # the shop fails - and a pre-existing failure would answer it for us.
-            without_the_fix = _pytest_in_the_shop(*tests)
-            _put_the_shop_back()
+            without_the_fix = _pytest_in(checkout, *tests)
 
-        _write_into_the_shop(patch)
+        _write_into(checkout, patch)
         # `tests/io_shop` and not `tests`: the harness suite beside it asserts
         # the faults are still there, so a fix that works fails it.
-        with_the_fix = _pytest_in_the_shop(f"{TESTS_DIRECTORY}io_shop")
+        with_the_fix = _pytest_in(checkout, THE_SHOPS_SUITE)
         # By node id, so the answer is about those tests rather than about the
         # suite. Skipped when nothing failed - there is then no claim to check,
         # and the assertion about the red pass has already said so.
         the_same_tests_again = (
-            _pytest_in_the_shop(*without_the_fix.failures)
+            _pytest_in(checkout, *without_the_fix.failures)
             if without_the_fix is not None and without_the_fix.failures else None
         )
-    finally:
-        _put_the_shop_back()
 
-    return Graded(scenario, tests, changes_only_configuration(patch), before_anything,
-                  without_the_fix, with_the_fix, the_same_tests_again)
+    environment_files = tuple(path for path in patch if path in THE_SHOPS_ENVIRONMENT_FILES)
+
+    return Graded(scenario, tests, changes_only_configuration(patch), environment_files,
+                  before_anything, without_the_fix, with_the_fix, the_same_tests_again)
+
+
+@pytest.fixture(scope="session")
+def the_shop() -> Iterator[Checkouts]:
+    """The shop's HEAD, its environment in step with its lock, and a directory
+    for the worktrees that is gone when the session is.
+
+    The environment is synced as `uv run` would have before each run - minimally,
+    keeping anything else installed there - and from the lock as it stands, so
+    the shop's tree is not written even when its lock is behind. A fresh CI
+    checkout has no environment at all, and this is what makes one.
+    """
+    if not THE_SHOP.is_dir():
+        pytest.skip(f"the Target Service is not checked out at {THE_SHOP}")
+
+    synced = subprocess.run(
+        ["uv", "sync", "--project", str(THE_SHOP), "--frozen", "--inexact"],
+        capture_output=True, text=True, check=False
+    )
+    if synced.returncode != 0:
+        pytest.fail(
+            f"Expected `uv sync` to make the shop's environment at [{THE_SHOP}]; it "
+            f"exited [{synced.returncode}]:\n{synced.stderr}"
+        )
+
+    with TemporaryDirectory(prefix="grade-fixes-", ignore_cleanup_errors=True) as under:
+        yield Checkouts(_git_in_the_shop("rev-parse", "HEAD"), Path(under))
+
+    _git_in_the_shop("worktree", "prune")
+
+
+@pytest.fixture(scope="session")
+def the_shop_before_anything(the_shop: Checkouts) -> Ran:
+    """The shop's own suite at the graded commit, before anything is written.
+
+    Whatever this says is true of the shop rather than of any patch, which is the
+    only reason the runs after it mean anything.
+    """
+    with _a_worktree_of(the_shop, THE_BASELINES_CHECKOUT) as checkout:
+        return _pytest_in(checkout, THE_SHOPS_SUITE)
+
+
+@pytest.fixture(scope="session")
+def every_grade(
+    request: pytest.FixtureRequest, the_shop: Checkouts, the_shop_before_anything: Ran
+) -> dict[str, Future[Graded]]:
+    """Every selected scenario graded, side by side, each in a worktree of its own.
+
+    The scenarios of the cases this session will run rather than every one
+    recorded, so a run narrowed to one scenario grades that one.
+
+    Futures rather than the grades, so a grade that raised - a run that timed
+    out, a worktree git would not make - fails its own scenario's case and no
+    other's. All of them are done by the time this returns: leaving the pool
+    waits for every one.
+    """
+    scenarios = sorted({
+        str(item.callspec.params["scenario"]) for item in request.session.items
+        if isinstance(item, pytest.Function)
+        and item.originalname
+        == test_a_recorded_fix_is_demonstrated_by_its_own_test_and_breaks_nothing.__name__
+    })
+
+    with ThreadPoolExecutor(max_workers=max(1, min(len(scenarios), A_GRADE_PER_CORE))) as pool:
+        return {
+            scenario: pool.submit(_graded, scenario, the_shop_before_anything, the_shop)
+            for scenario in scenarios
+        }
 
 
 @pytest.mark.eval
 @pytest.mark.parametrize("scenario", the_scenarios_that_proposed_a_fix())
 def test_a_recorded_fix_is_demonstrated_by_its_own_test_and_breaks_nothing(
-    scenario: str
+    scenario: str, every_grade: dict[str, Future[Graded]]
 ) -> None:
     # Free, and the only case in this directory that is. It reads recordings and
     # runs somebody else's test suite; no model is called and nothing is
     # recorded, because both inputs are committed and the verdict is therefore
     # recomputable at any commit.
-    if not THE_SHOP.is_dir():
-        pytest.skip(f"the Target Service is not checked out at {THE_SHOP}")
-
-    if not _the_shop_is_clean():
-        pytest.fail(
-            f"Expected a clean tree at {THE_SHOP}; it has uncommitted changes. This "
-            f"grades by overwriting files there and putting them back with git, so "
-            f"it will not run over unfinished work."
-        )
-
     Scenario() \
         .given(scenario) \
-        .when(lambda: _graded(scenario)) \
+        .when(every_grade[scenario].result) \
         .then(all_of(
+            _it_asks_for_no_environment_of_its_own(),
             _it_brought_a_test(),
             _the_service_was_sound_to_begin_with(),
             _its_test_does_not_pass_without_the_fix(),
@@ -384,6 +536,29 @@ def _every_walk_that_had_to_propose_one_is_here(
     return assertion
 
 
+def _it_asks_for_no_environment_of_its_own() -> Assertion[Graded]:
+    """That the patch leaves the shop's dependencies as they were.
+
+    Every run uses the shop's one environment, synced from HEAD's lock, and
+    nothing here installs what a patch adds to it. A patch that needs a new
+    dependency would fail the suite for want of it and read as a broken fix, so
+    this failure is listed first, naming what actually went unchecked, and the
+    suite's own failures are reported after it.
+    """
+    def assertion(graded: Graded) -> bool:
+        if graded.environment_files:
+            raise AssertionError(
+                f"Expected [{graded.scenario}]'s patch to leave the shop's "
+                f"environment alone; it rewrites {list(graded.environment_files)}. "
+                f"This grader does not install a patch's dependencies, so it "
+                f"cannot tell this fix from a broken one."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_brought_a_test() -> Assertion[Graded]:
     """That the patch carried a test at all, unless every file it changes is
     configuration.
@@ -439,7 +614,7 @@ def _its_test_does_not_pass_without_the_fix() -> Assertion[Graded]:
     What both rule out is the submission this exists to catch - a test that
     passes whether or not the fix is applied, and so demonstrates nothing. The
     baseline above is what makes an error admissible: the service was importing
-    cleanly a moment ago, so this one arrived with the test.
+    cleanly at this commit, so this one arrived with the test.
     """
     def assertion(graded: Graded) -> bool:
         if graded.without_the_fix is None:

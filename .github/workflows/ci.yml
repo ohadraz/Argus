@@ -32,9 +32,8 @@ jobs:
   # verdict is a property of the commit rather than of the day it ran.
   #
   # Two repositories for the reason `paid-suites.yml` needs two: the grader
-  # writes each patch into the service and puts it back with git, and a runner
-  # checks out only this one. A fresh checkout is also the clean tree the
-  # grader refuses to run without.
+  # writes each patch into a throwaway worktree of the service's checkout, and
+  # a runner checks out only this one.
   grade-fixes:
     runs-on: ubuntu-latest
 
