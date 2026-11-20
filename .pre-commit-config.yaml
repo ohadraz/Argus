@@ -1,3 +1,8 @@
+# Every hook runs at commit unless it says otherwise. Without this a hook with no
+# `stages` runs at every stage installed, so a push ran the whole commit set a
+# second time over commits it had already passed.
+default_stages: [pre-commit]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit  # ruff's repo of pre-commit hook definitions
     rev: v0.16.2
