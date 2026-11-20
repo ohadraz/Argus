@@ -26,8 +26,11 @@ from core import connect_from_env
 from core.schema import reset_schema
 from psycopg import sql
 
-# The compose service this suite brings up, and the only one it stops.
+# The compose service this suite brings up, and what it stops.
 _POSTGRES: Final = "postgres"
+# What postgres depends on in docker-compose.yml, so `up` starts it with
+# postgres and the stop names it too - or it outlives the suite.
+_ITS_CLOCK: Final = "sim-clock"
 
 
 @pytest.fixture(scope="session")
@@ -49,7 +52,7 @@ def postgres() -> Iterator[None]:
             reset_schema(conn)
         yield
     finally:
-        subprocess.run(["docker", "compose", "stop", _POSTGRES], check=True)
+        subprocess.run(["docker", "compose", "stop", _POSTGRES, _ITS_CLOCK], check=True)
 
 
 @pytest.fixture(autouse=True)

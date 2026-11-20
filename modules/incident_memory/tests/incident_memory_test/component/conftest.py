@@ -52,9 +52,12 @@ from qdrant_client import QdrantClient
 LONGEST_WAIT_SECONDS = 60.0
 BETWEEN_POLLS_SECONDS = 0.5
 
-# The compose services this suite brings up, and the only ones it stops.
+# The compose services this suite brings up, and what it stops.
 _QDRANT: Final = "qdrant"
 _POSTGRES: Final = "postgres"
+# What postgres depends on in docker-compose.yml, so `up` starts it with
+# postgres and the stop names it too - or it outlives the suite.
+_ITS_CLOCK: Final = "sim-clock"
 
 # The session that gives this suite a compose project of its own.
 _THIS_SUITES_SESSION: Final = "test_module(module='incident_memory')"
@@ -101,7 +104,7 @@ def postgres() -> Iterator[None]:
 
         yield
     finally:
-        subprocess.run(["docker", "compose", "stop", _POSTGRES], check=True)
+        subprocess.run(["docker", "compose", "stop", _POSTGRES, _ITS_CLOCK], check=True)
 
 
 @pytest.fixture
