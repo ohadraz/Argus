@@ -317,6 +317,9 @@ def _start_suite(module: str, output: IO[bytes]) -> _RunningSuite:
         env=_a_database_for(module) | _a_slack_double_for(module) | _a_qdrant_for(module),
         output=output
     )
+    # Said as it starts, so a suite that never ends is one a reader can name
+    # while the rest are still finishing.
+    print(f"----- {module}: started -----", flush=True)
 
     return _RunningSuite(module, process, output, time.monotonic())
 
@@ -432,7 +435,8 @@ def sweep(session: nox.Session) -> None:
     suite says no, and eighteen further minutes of e2e output would bury the
     thing that actually broke.
     """
-    running = {name: _start_service(["-m", "nox", "-s", name]) for name in _SWEEP}
+    running = {name: _start_service(["-m", "nox", "-s", name, *_SWEEP_ARGUMENTS.get(name, [])])
+               for name in _SWEEP}
 
     try:
         broke = _the_first_to_fail(running)
@@ -464,6 +468,17 @@ _E2E_REPLAY_IN_PRODUCTION_MODE: Final[str] = "e2e_replay(mode='both')"
 _SWEEP = ["lint", "typecheck", "guard_layering", "guard_e2e_boundary",
           "guard_module_docstrings", "guard_exports", "test_all", "integration",
           _E2E_REPLAY_IN_PRODUCTION_MODE]
+
+# How many module suites `test_all` runs at once inside a sweep. Few, because
+# `e2e_replay` beside it is the sweep's long pole by ten times and has
+# wall-clock waits of its own that load could push past - and `test_all` still
+# ends long before it at this width.
+_TEST_ALL_WORKERS_IN_A_SWEEP: Final = 4
+
+# What a sweep hands each session after `--`, where it hands anything.
+_SWEEP_ARGUMENTS: Final[dict[str, list[str]]] = {
+    "test_all": ["--", _WORKERS_FLAG, str(_TEST_ALL_WORKERS_IN_A_SWEEP)]
+}
 
 # How often a sweep looks at its children. Long enough that watching is free,
 # short enough that a failure stops the others while they still have most of
