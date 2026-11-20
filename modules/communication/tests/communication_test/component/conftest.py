@@ -7,7 +7,7 @@ what is exercised here is the same adapter the demo runs, reached the same way.
 
 In a thread rather than a container, because it is a Python app and not a
 service: the SDK needs a real port to talk to, and that is the whole of what
-the double requires. Reset between tests for the reason the database is -
+the double requires. Emptied after each test for the reason the database is -
 messages left by one test read back as another test's.
 """
 
@@ -46,8 +46,16 @@ def slack() -> Iterator[str]:
 
 
 @pytest.fixture(autouse=True)
-def nothing_posted_yet(slack: str) -> None:
-    """Empties the double, so each test reads back only its own messages."""
+def nothing_left_posted(slack: str) -> Iterator[None]:
+    """Empties the double after each test, so the next reads back only its own
+    messages.
+
+    After rather than before, so a test leaves the double as it found it - the
+    last test of the suite included - and what a failed test posted is still
+    there to read while the failure is.
+    """
+    yield
+
     httpx2.post(f"{slack}/double-control/reset").raise_for_status()
 
 

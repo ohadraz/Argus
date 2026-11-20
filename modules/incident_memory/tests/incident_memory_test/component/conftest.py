@@ -77,12 +77,18 @@ def _the_stores_url() -> str:
 
 @pytest.fixture(scope="session")
 def qdrant() -> Iterator[str]:
-    """The store, up for the whole suite and stopped after it."""
+    """The store, up for the whole suite and stopped after it.
+
+    Started empty rather than adopted, for the reason the schema is reset: the
+    container may be a previous run's, and a run that was killed left its points
+    behind.
+    """
     refuse_the_e2e_stacks_project(_THIS_SUITES_SESSION)
     subprocess.run(["docker", "compose", "up", "-d", "--wait", _QDRANT], check=True)
 
     try:
         _wait_until_it_answers(_the_stores_url())
+        _drop_every_collection(_the_stores_url())
         yield _the_stores_url()
     finally:
         subprocess.run(["docker", "compose", "stop", _QDRANT], check=True)
@@ -165,21 +171,31 @@ def _wait_until_it_answers(url: str) -> None:
     )
 
 
-@pytest.fixture
-def store(qdrant: str) -> Iterator[QdrantClient]:
-    """A client onto a store holding nothing.
-
-    Emptied on the way *in* rather than out, and by dropping every collection
-    rather than the one a test expects to find: a run that was killed left its
-    points behind, and a test that began by trusting its predecessor to have
-    tidied up is a test that passes alone and fails in a suite.
-    """
-    client = QdrantClient(url=qdrant)
+def _drop_every_collection(url: str) -> None:
+    """Empties the store, by dropping every collection rather than the ones a
+    test is expected to have made - so a collection nobody expected goes too."""
+    client = QdrantClient(url=url)
 
     try:
         for collection in client.get_collections().collections:
             client.delete_collection(collection.name)
+    finally:
+        client.close()
 
+
+@pytest.fixture
+def store(qdrant: str) -> Iterator[QdrantClient]:
+    """A client onto a store holding nothing, emptied again after the test.
+
+    After rather than before, as the database is: a test leaves the store as it
+    found it - the last test of the suite included - and what a failed test
+    wrote is still there to read while the failure is. The suite's own start
+    empties it once, for whatever a killed run left.
+    """
+    client = QdrantClient(url=qdrant)
+
+    try:
         yield client
     finally:
         client.close()
+        _drop_every_collection(qdrant)

@@ -12,7 +12,7 @@ import urllib.request
 from collections.abc import Iterator
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from tempfile import mkdtemp
+from tempfile import TemporaryDirectory
 from threading import Thread
 from urllib.parse import parse_qs, urlsplit
 
@@ -191,7 +191,8 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     env = os.environ.copy()
     # Somewhere of its own, so a suite never writes into the repository's
     # telemetry directory.
-    env["TELEMETRY_DIRECTORY"] = mkdtemp(prefix="argus-telemetry-")
+    telemetry = TemporaryDirectory(prefix="argus-telemetry-", ignore_cleanup_errors=True)
+    env["TELEMETRY_DIRECTORY"] = telemetry.name
     env["TARGET_SERVICE_URL"] = fake_target_service_url
     # The change source and the metrics source are separate settings from the
     # Target Service's own URL - in production they are different systems
@@ -205,6 +206,9 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     env["READ_MCP_PORT"] = str(READ_MCP_TEST_PORT)
     read_mcp_process = subprocess.Popen([sys.executable, "-m", "read_mcp_server.server"], env=env)
 
+    # Put back whole on the way out, so a variable that was set before keeps
+    # its value rather than being deleted with the ones set here.
+    the_environment_before = dict(os.environ)
     os.environ["READ_MCP_HOST"] = env["READ_MCP_HOST"]
     os.environ["READ_MCP_PORT"] = env["READ_MCP_PORT"]
     get_settings.cache_clear()
@@ -215,6 +219,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     finally:
         read_mcp_process.terminate()
         read_mcp_process.wait(timeout=10)
+        telemetry.cleanup()
         fake_target_service.shutdown()
         fake_target_service.server_close()
         server_thread.join()
@@ -226,8 +231,8 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
         FakeTargetServiceHandler.tree = {}
         FakeTargetServiceHandler.comparisons = {}
         FakeTargetServiceHandler.archive = {}
-        del os.environ["READ_MCP_HOST"]
-        del os.environ["READ_MCP_PORT"]
+        os.environ.clear()
+        os.environ.update(the_environment_before)
         get_settings.cache_clear()
 
 

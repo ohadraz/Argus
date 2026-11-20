@@ -330,13 +330,24 @@ def _not_found() -> JSONResponse:
 
 
 if __name__ == "__main__":
+    import tempfile
+    from pathlib import Path
+
     import uvicorn
 
     from pagerduty_double.certificate import a_self_signed_certificate
 
-    certificate, key = a_self_signed_certificate()
-    uvicorn.run(app,
-                host="localhost",
-                port=DEFAULT_PORT,
-                ssl_certfile=certificate,
-                ssl_keyfile=key)
+    # The certificate is read into memory by `load`, so its folder goes before
+    # the double serves: a double stopped by being killed, which is how a suite
+    # stops it, then leaves nothing behind.
+    with tempfile.TemporaryDirectory(prefix="pagerduty-double-tls-",
+                                     ignore_cleanup_errors=True) as written_to:
+        certificate, key = a_self_signed_certificate(Path(written_to))
+        config = uvicorn.Config(app,
+                                host="localhost",
+                                port=DEFAULT_PORT,
+                                ssl_certfile=certificate,
+                                ssl_keyfile=key)
+        config.load()
+
+    uvicorn.Server(config).run()

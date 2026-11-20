@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from tempfile import mkdtemp
+from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import Any
 
@@ -148,7 +148,8 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     env = os.environ.copy()
     # Somewhere of its own, so a suite never writes into the repository's
     # telemetry directory.
-    env["TELEMETRY_DIRECTORY"] = mkdtemp(prefix="argus-telemetry-")
+    telemetry = TemporaryDirectory(prefix="argus-telemetry-", ignore_cleanup_errors=True)
+    env["TELEMETRY_DIRECTORY"] = telemetry.name
     env["UNLEASH_BASE_URL"] = f"http://127.0.0.1:{FAKE_UNLEASH_PORT}"
     env["UNLEASH_ADMIN_TOKEN"] = DONT_CARE_ADMIN_TOKEN
     env["UNLEASH_FRONTEND_TOKEN"] = DONT_CARE_FRONTEND_TOKEN
@@ -163,6 +164,9 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
         [sys.executable, "-m", "write_mcp_client_test.a_write_server_holding_one_run"], env=env
     )
 
+    # Put back whole on the way out, so a variable that was set before keeps
+    # its value rather than being deleted with the ones set here.
+    the_environment_before = dict(os.environ)
     os.environ["WRITE_MCP_HOST"] = env["WRITE_MCP_HOST"]
     os.environ["WRITE_MCP_PORT"] = env["WRITE_MCP_PORT"]
     get_settings.cache_clear()
@@ -173,13 +177,14 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     finally:
         write_mcp_process.terminate()
         write_mcp_process.wait(timeout=10)
+        telemetry.cleanup()
         fake_unleash.shutdown()
         fake_unleash.server_close()
         server_thread.join()
         FakeUnleashHandler.enabled_flags = set()
         FakeUnleashHandler.events = []
-        del os.environ["WRITE_MCP_HOST"]
-        del os.environ["WRITE_MCP_PORT"]
+        os.environ.clear()
+        os.environ.update(the_environment_before)
         get_settings.cache_clear()
 
 

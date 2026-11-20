@@ -615,14 +615,13 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
     flag provider's is one: mypy identifies a module by its filename, so a
     second `conftest` anywhere under `modules/` collides with the first.
     """
-    # Cleared per run, because it is class state on a handler the process
-    # reuses: a test that staged an unavailable platform would otherwise leave
-    # every test after it asking a platform that answers nothing.
-    FakeDeploymentPlatformHandler.unavailable = False
     platform = HTTPServer(("127.0.0.1", FAKE_PLATFORM_PORT), FakeDeploymentPlatformHandler)
     platform_thread = Thread(target=platform.serve_forever, daemon=True)
     platform_thread.start()
 
+    # Put back whole on the way out, so a variable that was set before keeps
+    # its value rather than being deleted with the ones set here.
+    the_environment_before = dict(os.environ)
     address = f"http://127.0.0.1:{FAKE_PLATFORM_PORT}"
     os.environ["ARGOCD_BASE_URL"] = address
     os.environ["ARGOCD_RESOURCE_ACTION_PATH"] = RESOURCE_ACTION_PATH
@@ -657,13 +656,10 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
         FakeDeploymentPlatformHandler.deployment_annotations = {}
         FakeDeploymentPlatformHandler.autoscaler_annotations = {}
         FakeDeploymentPlatformHandler.autoscaler_floor = None
-        del os.environ["ARGOCD_BASE_URL"]
-        del os.environ["ARGOCD_RESOURCE_ACTION_PATH"]
-        del os.environ["ARGOCD_RESOURCE_PATH"]
-        del os.environ["ARGOCD_APPLICATION_PATH"]
-        del os.environ["ARGOCD_RESOURCE_TREE_PATH"]
-        del os.environ["ARGOCD_ROLLBACK_PATH"]
-        del os.environ["ARGOCD_MANIFESTS_PATH"]
-        del os.environ["ARGOCD_ACTOR"]
-        del os.environ["ARGOCD_AUTH_TOKEN"]
+        # Class state on a handler the process reuses: a test that staged an
+        # unavailable platform would otherwise leave every test after it asking
+        # a platform that answers nothing.
+        FakeDeploymentPlatformHandler.unavailable = False
+        os.environ.clear()
+        os.environ.update(the_environment_before)
         get_settings.cache_clear()

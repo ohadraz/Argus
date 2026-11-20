@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import datetime as dt
 import ipaddress
-import tempfile
 from pathlib import Path
 from typing import Final
 
@@ -32,13 +31,15 @@ _LOCALHOST: Final = "localhost"
 _LOOPBACK: Final = "127.0.0.1"
 
 
-def a_self_signed_certificate() -> tuple[Path, Path]:
-    """A fresh certificate for `localhost` and its key, written where this process can read them.
+def a_self_signed_certificate(written_to: Path) -> tuple[Path, Path]:
+    """A fresh certificate for `localhost` and its key, written into `written_to`.
 
     Minted rather than committed: a private key in a repository is a private
     key in a repository, whatever it is for, and this one is worth nothing to
     anybody who has it. Named for both `localhost` and the loopback address,
     because a client may reach the double by either.
+
+    The folder is the caller's, so the caller is the one who removes it.
     """
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, _LOCALHOST)])
@@ -62,7 +63,6 @@ def a_self_signed_certificate() -> tuple[Path, Path]:
         .sign(key, hashes.SHA256())
     )
 
-    written_to = Path(tempfile.mkdtemp(prefix="pagerduty-double-tls-"))
     certificate_file = written_to / "certificate.pem"
     key_file = written_to / "key.pem"
 

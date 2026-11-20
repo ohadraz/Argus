@@ -18,6 +18,7 @@ import pytest
 from argus_testkit import refuse_the_e2e_stacks_project
 from core import connect_from_env
 from core.schema import reset_schema
+from psycopg import sql
 
 # The compose service this suite brings up, and what it stops.
 _POSTGRES: Final = "postgres"
@@ -46,3 +47,36 @@ def postgres() -> Iterator[None]:
         yield
     finally:
         subprocess.run(["docker", "compose", "stop", _POSTGRES, _ITS_CLOCK], check=True)
+
+
+@pytest.fixture(autouse=True)
+def a_clean_database(postgres: None) -> Iterator[None]:
+    """Empties every table after each test, so no test inherits another's rows.
+
+    Every test here writes the incidents its page is read from, and a row one
+    test leaves behind is one the next test's write can collide with - an
+    action left open on a subject refuses the next test's claim on it. So every
+    test is emptied after, rather than each one remembering to ask.
+
+    After rather than before, so that a test which failed leaves nothing behind
+    for the next one to trip over - and so the rows are still there to look at
+    while the failure is being read.
+
+    What to empty is asked of the database instead of listed here. A list would
+    be a second statement of the schema, and the day a table is added the suite
+    would keep passing while quietly leaking its rows into the next test.
+    """
+    yield
+
+    with connect_from_env() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+        tables = [name for (name,) in cursor.fetchall()]
+
+        if tables:
+            cursor.execute(
+                sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(
+                    sql.SQL(", ").join(sql.Identifier(table) for table in tables)
+                )
+            )
+
+        conn.commit()
