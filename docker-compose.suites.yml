@@ -1,0 +1,30 @@
+# What a suite's database is, where it differs from the stack's: held in memory
+# rather than on a volume. Added through `COMPOSE_FILE` by the module suites
+# (`test_module`, `test_all`) and by `integration` - see `_SUITE_COMPOSE_FILES`
+# in noxfile.py - and by nothing else. The stack `e2e`, `e2e_replay`, `record`
+# and `stack` bring up keeps its volume.
+#
+# Nothing a suite writes has to outlive its run - every suite that brings
+# postgres up throws the schema away and applies it again on the way in
+# (`reset_schema`) - so a volume was only ever somewhere for a shutdown to be
+# slow. And it was: a suite's schema resets leave tens of thousands of files for
+# the shutdown checkpoint to sync, the suite's `stop` ran into Docker's ten
+# seconds doing it, the container was killed, and the next start began with
+# crash recovery syncing the whole data directory - long enough for
+# `up --wait` to give up first and every case to error at setup. On tmpfs the
+# sync costs nothing, and `stop` empties it, so every start is a fresh `initdb`
+# rather than a recovery.
+services:
+  postgres:
+    # `!override` rather than a second entry, because compose merges `volumes`
+    # by their target and has no way to turn a named volume at that target into
+    # a tmpfs - so the list is restated whole, without the data volume. The
+    # clock stays.
+    volumes: !override
+      - sim-clock:/clock:ro
+    # Owned by the image's `postgres` user (999), because the container runs as
+    # it from the start (see docker-compose.yml) and a tmpfs is mounted as root:
+    # `initdb` could not take the directory, and the server refuses a data
+    # directory it does not own or that others can read.
+    tmpfs:
+      - /var/lib/postgresql/data:uid=999,gid=999,mode=0700

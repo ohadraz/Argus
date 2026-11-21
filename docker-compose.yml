@@ -55,27 +55,32 @@ services:
       # 5432; only where it surfaces moves.
       - "${ARGUS_POSTGRES_PORT:-5432}:5432"
     volumes:
+      # The e2e stack's data directory, and only the stack's: a suite's
+      # database - a module suite's or `integration`'s - is on tmpfs instead
+      # (`docker-compose.suites.yml`), because nothing a suite writes outlives
+      # its run.
+      #
       # Named, so that the data directory belongs to the compose project rather
       # than to the container. The image declares an anonymous volume for this
-      # path either way, and an anonymous one is orphaned every time the
-      # container is replaced - which is every time the published port changes,
-      # so once per suite that has a database of its own. They are invisible,
-      # nothing ever collects them, and they had reached a hundred and
-      # twenty-seven before anyone looked.
+      # path, and an anonymous one is orphaned every time the container is
+      # replaced. They are invisible, nothing ever collects them, and they had
+      # reached a hundred and twenty-seven before anyone looked.
       #
-      # Persisting is not a change of intent: the suites that adopt a leftover
-      # container already reset the schema on the way in (`reset_schema`), and
-      # `down -v` still takes this with it, which is what an e2e run and the
-      # sweep's own cleanup both use.
+      # It persists only as long as the stack's containers do: the stack applies
+      # the schema itself on the way up, and `down -v` takes this with it, which
+      # is what an e2e run and the sweep's own cleanup both use.
       - postgres-data:/var/lib/postgresql/data
       - sim-clock:/clock:ro
     healthcheck:
-      # Over TCP, not the default Unix socket. On a fresh volume the image runs
-      # a temporary server for `initdb` that listens on the socket alone, so a
-      # socket probe reports healthy mid-initialisation - `compose up --wait`
-      # returns, the real server restarts, and the first connection is closed
-      # under the caller. Invisible wherever a volume already exists, which is
-      # every local run and no CI run.
+      # Over TCP, not the default Unix socket. On an empty data directory - a
+      # suite's tmpfs at every start, the stack's volume after `down -v` - the
+      # image runs a temporary server for `initdb` that listens on the socket
+      # alone, so a socket probe reports healthy mid-initialisation -
+      # `compose up --wait` returns, the real server restarts, and the first
+      # connection is closed under the caller.
+      #
+      # Fifteen tries two seconds apart, against an `initdb` and first start
+      # that take about five seconds on a suite's tmpfs.
       test: ["CMD-SHELL", "pg_isready -U argus -d argus -h 127.0.0.1"]
       interval: 2s
       timeout: 2s
@@ -144,8 +149,9 @@ configs:
             - targets: ["target-service:8000"]
 
 # One per compose project, which is one per suite: the name is scoped to the
-# project, so `argus-integration` and every `argus-module-<name>` get a volume
-# each without any being told about the others.
+# project, so every suite that opens a store gets a `qdrant-data` of its own
+# without any being told about the others. `postgres-data` is only ever the
+# stack's - every suite's database is on tmpfs (`docker-compose.suites.yml`).
 volumes:
   postgres-data:
   qdrant-data:

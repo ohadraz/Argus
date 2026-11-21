@@ -1673,9 +1673,20 @@ _INTEGRATION_WRITE_MCP_PORT = "8089"
 _INTEGRATION_GITHUB_DOUBLE_PORT = "8099"
 _INTEGRATION_GITHUB_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_GITHUB_DOUBLE_PORT}"
 
+# The compose files a suite's `docker compose` reads - a module suite's and
+# `integration`'s: the stack's, and the one that puts the suite's database on
+# tmpfs. A suite stopped its database with the shutdown checkpoint still
+# flushing to a volume, Docker killed it at ten seconds, and the next start's
+# crash recovery outlasted `up --wait`. Nothing a suite writes outlives its run
+# - each applies the schema afresh on the way in - so there is nothing to flush
+# and nothing to recover. Joined as `e2e_replay`'s pair is, for the reason
+# given there.
+_SUITE_COMPOSE_FILES: Final = os.pathsep.join(["docker-compose.yml", "docker-compose.suites.yml"])
+
 _INTEGRATION_STACK = _a_database_of_its_own(
     "argus-integration", _INTEGRATION_POSTGRES_PORT
 ) | {
+    "COMPOSE_FILE": _SUITE_COMPOSE_FILES,
     "ANTHROPIC_DOUBLE_PORT": _INTEGRATION_ANTHROPIC_DOUBLE_PORT,
     "WRITE_MCP_PORT": _INTEGRATION_WRITE_MCP_PORT,
     "GITHUB_DOUBLE_PORT": _INTEGRATION_GITHUB_DOUBLE_PORT
@@ -1711,11 +1722,13 @@ def _a_database_for(module: str) -> dict[str, str]:
     A module nobody discovered has no place to count from, which would silently
     become somebody else's port. Nothing can ask for one - the parametrization
     comes from `MODULES` - so this says so rather than defending against it.
+
+    Held in memory rather than on a volume - see `_SUITE_COMPOSE_FILES`.
     """
     return _a_database_of_its_own(
         f"argus-module-{module}",
         str(_MODULE_SUITE_PORT_BASE + MODULES.index(module))
-    )
+    ) | {"COMPOSE_FILE": _SUITE_COMPOSE_FILES}
 
 
 def _a_slack_double_for(module: str) -> dict[str, str]:
