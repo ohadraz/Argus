@@ -107,7 +107,7 @@ def the_deployment_was_staged(pair: DeploymentPair) -> Callable[[], bool]:
         if pair.on_main:
             httpx2.post(
                 f"{GITHUB_DOUBLE_BASE_URL}/double-control/stage-head",
-                json={"branch": get_settings().github_base_branch, "parents": [pair.after]},
+                json={"branch": get_settings().deployed_branch, "parents": [pair.after]},
                 timeout=REQUEST_TIMEOUT_SECONDS
             ).raise_for_status()
 

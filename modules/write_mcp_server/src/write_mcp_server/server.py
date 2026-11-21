@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from code_host import CodeHostWrites
+from code_host.github import GitHub, GitHubSettings
 from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings, parse_iso
 from core.models import (
     AcceleratorPinRestored,
@@ -52,12 +54,10 @@ from telemetry import start_telemetry
 
 from write_mcp_server import (
     accelerators,
-    branching,
     discarding,
     flag_state,
     marking,
     pinning,
-    pull_requests,
     restarting,
     rolling_back,
     scaling,
@@ -69,7 +69,6 @@ from write_mcp_server.fencing import (
     OpensHolds,
     holds_in_the_database,
 )
-from write_mcp_server.pull_requests import RepositoryWriteSettings
 
 # What this process is called in its telemetry, and the directory its runs are
 # written under.
@@ -78,18 +77,18 @@ _SERVICE: Final = "argus-write-mcp"
 
 def build_server(endpoint: WriteMcpEndpoint,
                  flags: FlagProviderWrites,
-                 repository_settings: RepositoryWriteSettings,
+                 code: CodeHostWrites,
                  platform: DeploymentPlatformWrites,
                  discard_settings: DiscardSettings,
                  hold_for_a_change: HoldForAChange,
                  argus_account: str) -> FencedFastMCP:
     """Registers the write tools against one deployment's configuration.
 
-    Two slices and two ports. The code tool speaks to the repository, and the
-    discard speaks to the store a service keeps its derived copies in. The flag
-    tools speak to the flag provider, and the restart, the rollback, the
-    scale-out, the autoscaler pin and the pin to a card all speak to the
-    deployment platform - and both are handed their port rather than a slice:
+    One slice and three ports. The discard speaks to the store a service keeps
+    its derived copies in. The code tools speak to the code host, the flag tools
+    to the flag provider, and the restart, the rollback, the scale-out, the
+    autoscaler pin and the pin to a card all speak to the deployment platform -
+    and all three are handed their port rather than a slice:
     where each is, under what credential and by which routes is its adapter's,
     built once in `main`. Every credential named belongs to this tier, and none
     of them belongs in another's calls. What keeps the *tiers* apart is what each
@@ -670,15 +669,9 @@ def build_server(endpoint: WriteMcpEndpoint,
 
         Every file the patch names is written, tests included - a fix that
         brings the test exposing the bug is the one a person can trust. The
-        behavior lives in `branching.commit_to_new_branch`; this is
+        behavior lives behind the code host's writes port; this is
         registration only."""
-        return branching.commit_to_new_branch(
-            branch=branch,
-            base_branch=base_branch,
-            files=files,
-            message=message,
-            settings=repository_settings
-        )
+        return code.commit_to_new_branch(branch, base_branch, files, message)
 
     @mcp.change()
     def open_pull_request(head_branch: str,
@@ -697,15 +690,9 @@ def build_server(endpoint: WriteMcpEndpoint,
 
         There is no draft parameter, because it is not the caller's choice.
         Returns the pull request's number and the address a person can read it
-        at. The behavior lives in `pull_requests.open_pull_request`; this is
+        at. The behavior lives behind the code host's writes port; this is
         registration only."""
-        return pull_requests.open_pull_request(
-            head_branch=head_branch,
-            base_branch=base_branch,
-            title=title,
-            body=body,
-            settings=repository_settings
-        )
+        return code.propose(head_branch, base_branch, title, body)
 
     return mcp
 
@@ -750,7 +737,10 @@ def main(holds: OpensHolds = holds_in_the_database) -> None:
             # The flag provider's adapter, built here and nowhere else in this
             # tier and handed on as the writes port, for the platform's reason.
             Unleash(UnleashSettings()),
-            RepositoryWriteSettings.of(settings),
+            # The code host's adapter, built here for the same reason and handed
+            # on as the writes port: it holds the credential that pushes, and no
+            # tool below names a route.
+            GitHub(GitHubSettings.of(settings)),
             # The adapter is built here and nowhere else in this tier, and handed
             # on as the writes port: no action below names a route.
             ArgoCd(ArgoCdSettings.of(settings)),

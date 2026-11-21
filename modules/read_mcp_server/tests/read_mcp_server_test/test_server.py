@@ -32,6 +32,7 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
+from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
 from core.models import CodeSearch
 from deployment_platform import DeploymentPlatformReads
@@ -72,6 +73,12 @@ SOME_OTHER_FLAG = "recommendations-v2"
 # is told before it reads anything.
 THE_BRANCH_CONTAINING = "branch_contains_revision"
 THE_FILE_READER = "read_repository_file"
+# A file read at a commit, and a revision asked after on a branch.
+SOME_PATH = "src/io_shop/spend_summary.py"
+SOME_REF = "9abaec7"
+SOME_SOURCE = "def average(account): ...\n"
+SOME_BRANCH = "release"
+SOME_REVISION = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
 # How the code a patch does not change uses what it changes, which Code-Fix's
 # submission is held to before it is asked anything.
 THE_CODE_OUTSIDE_A_PATCH = "get_code_outside_the_patch"
@@ -286,17 +293,68 @@ def test_a_provider_that_could_not_be_asked_is_an_error_rather_than_nothing_enab
         .then(the_answer_was(True))
 
 
+@pytest.mark.unit
+def test_a_file_is_read_by_the_code_host_at_the_path_and_ref_asked_for() -> None:
+    # Two strings handed on by position: swapped, the host is asked for a file
+    # named like a commit at a commit named like a path.
+    code = _a_code_host()
+    code.file_at.return_value = SOME_SOURCE
+
+    Scenario() \
+        .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, code=code)) \
+        .when(lambda: _asked(read_tier, THE_FILE_READER,
+                             path=SOME_PATH, ref=SOME_REF).structuredContent) \
+        .then(all_of(
+            the_answer_was({"result": SOME_SOURCE}),
+            lambda _: _the_code_host_was_asked(code.file_at, (SOME_PATH, SOME_REF))
+        ))
+
+
+@pytest.mark.unit
+def test_whether_a_branch_holds_a_revision_is_asked_of_the_code_host_as_named() -> None:
+    # Swapped, the host is asked whether the revision holds the branch, and
+    # Code-Fix is told what ran is not on the branch it reads - or that it is.
+    code = _a_code_host()
+    code.contains.return_value = True
+
+    Scenario() \
+        .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, code=code)) \
+        .when(lambda: _asked(read_tier, THE_BRANCH_CONTAINING,
+                             branch=SOME_BRANCH, revision=SOME_REVISION).structuredContent) \
+        .then(all_of(
+            the_answer_was({"result": True}),
+            lambda _: _the_code_host_was_asked(code.contains, (SOME_BRANCH, SOME_REVISION))
+        ))
+
+
 def _a_flag_provider() -> Mock:
     flags: Mock = create_autospec(FlagProviderReads, instance=True)
 
     return flags
 
 
-def _asked(server: FastMCP, tool: str) -> CallToolResult:
+def _a_code_host() -> Mock:
+    code: Mock = create_autospec(CodeHostReads, instance=True)
+
+    return code
+
+
+def _the_code_host_was_asked(asked: Mock, expected: tuple[object, ...]) -> bool:
+    made = [each.args for each in asked.call_args_list]
+
+    if made != [expected]:
+        raise AssertionError(
+            f"Expected the code host asked once with {expected}, and it was asked {made}"
+        )
+
+    return True
+
+
+def _asked(server: FastMCP, tool: str, **arguments: object) -> CallToolResult:
     """One call over a real MCP session held in memory."""
     async def over_a_session() -> CallToolResult:
         async with create_connected_server_and_client_session(server) as session:
-            return await session.call_tool(tool, {})
+            return await session.call_tool(tool, dict(arguments))
 
     return asyncio.run(over_a_session())
 
@@ -401,9 +459,11 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
     return [tool.name for tool in asyncio.run(_a_read_tier(mode).list_tools())]
 
 
-def _a_read_tier(mode: CodeSearch, flags: Mock | None = None) -> FastMCP:
+def _a_read_tier(mode: CodeSearch,
+                 flags: Mock | None = None,
+                 code: Mock | None = None) -> FastMCP:
     """One deployment's read tier, reaching nothing - its flags answered by
-    `flags` where a case gives one."""
+    `flags` and its repository by `code` where a case gives them."""
     return build_server(
         ReadMcpEndpoint(read_mcp_host="127.0.0.1",
                         read_mcp_port=8090,
@@ -416,14 +476,12 @@ def _a_read_tier(mode: CodeSearch, flags: Mock | None = None) -> FastMCP:
         MetricsSettings(prometheus_base_url="http://prometheus.invalid"),
         flags if flags is not None else _a_flag_provider(),
         create_autospec(DeploymentPlatformReads, instance=True),
+        code if code is not None else _a_code_host(),
         ServiceRegistrySettings(
             service_registry_base_url="http://registry.invalid",
             service_registry_service_path="/registry/services/{service}"
         ),
-        RepositoryReadSettings(github_api_url="http://github.invalid",
-                               github_repository="dont-care/repository",
-                               github_read_token="dont-care-token",
-                               github_source_paths="src"),
+        RepositoryReadSettings(github_source_paths="src"),
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           repository_index_collection="dont-care-collection",
                           code_search=mode),

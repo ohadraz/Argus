@@ -82,8 +82,9 @@ class Settings(BaseSettings):
     github_repository: str = Field(default="")
     # The branch a fix is cut from and proposed onto - the one that is actually
     # deployed, since a fix against anything else patches a repository nobody
-    # is running.
-    github_base_branch: str = Field(default="main")
+    # is running. So it is also the branch the index describes and the one a
+    # push to is a push of what is deployed.
+    deployed_branch: str = Field(default="main")
     # What one attempt at a fix may spend. Three bounds rather than one, for
     # the reason the investigation has three: they fail differently and none
     # implies the others, and this is the agent a call count alone cannot

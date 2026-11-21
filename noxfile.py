@@ -1530,7 +1530,7 @@ def _refuse_a_target_service_the_model_cannot_see() -> None:
             f"watch a model fix the wrong file."
         )
 
-    branch = os.environ.get("GITHUB_BASE_BRANCH", _THE_DEPLOYED_BRANCH)
+    branch = os.environ.get("DEPLOYED_BRANCH", _THE_DEPLOYED_BRANCH)
     here = git("rev-parse", "HEAD")
     there = git("ls-remote", "origin", f"refs/heads/{branch}").split("\t")[0]
 

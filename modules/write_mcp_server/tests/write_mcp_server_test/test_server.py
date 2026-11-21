@@ -39,6 +39,7 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from code_host import CodeHostWrites
 from core import Fence, WriteMcpEndpoint, to_iso
 from core.mcp_transport import ACTION_META_KEY, CHANGED_SINCE_MARKER, FENCE_META_KEY
 from core.models import (
@@ -49,6 +50,7 @@ from core.models import (
     FlagChange,
     FlagState,
     FlagUndo,
+    OpenedPullRequest,
     Planned,
     ReplicaUndo,
     RolloutProgress,
@@ -75,7 +77,6 @@ from write_mcp_server_test.framework.marks import (
     a_mark_found,
     marked_are,
 )
-from write_mcp_server_test.framework.settings import some_repository_settings
 
 # Every tool that changes something outside the tier: the seven mitigations,
 # the four restores that put them back, and the branch and pull request a fix
@@ -225,6 +226,16 @@ NO_SYNC_ASKED_OR_RUN = SyncOperations(requested=None, last_run=None)
 SOME_COUNT = 3
 SOME_AUTOSCALER = Autoscaler(name="io-shop-cpu", namespace="shopping")
 SOME_BOUNDS = AutoscalerBounds(floor=2, ceiling=8)
+
+# A fix as Code-Fix proposes it: the branch it is put on, the branch it is cut
+# from and proposed onto, each file's whole new content, and its words.
+SOME_FIX_BRANCH = "argus/fix-monthly-spend"
+SOME_BASE_BRANCH = "main"
+SOME_PATCH = {"src/io_shop/spend_summary.py": "def average(account): ...\n"}
+SOME_MESSAGE = "Average spend over the items bought this month"
+SOME_BODY = "The month's items, not the account's."
+SOME_PROPOSAL = OpenedPullRequest(number=7, url="https://code.invalid/pulls/7",
+                                  branch=SOME_FIX_BRANCH)
 
 
 @pytest.mark.unit
@@ -463,6 +474,48 @@ def test_a_rollback_is_put_back_only_where_the_account_it_was_handed_made_the_ne
 
 
 @pytest.mark.unit
+def test_a_fix_is_put_on_its_branch_by_the_code_host_as_the_call_named_it() -> None:
+    # Positional on the port, so the order is the whole of which branch is
+    # written and which is the base: swapped, a fix would be cut from a branch
+    # that does not exist yet and written over the one that is deployed.
+    code = create_autospec(CodeHostWrites, instance=True)
+    code.commit_to_new_branch.return_value = SOME_FIX_BRANCH
+
+    Scenario() \
+        .given(server := _a_server(code=code, hold=_a_hold_answering_held)) \
+        .when(lambda: _asked(server, "commit_to_new_branch", _acting_for(SOME_ACTION_ID),
+                             branch=SOME_FIX_BRANCH, base_branch=SOME_BASE_BRANCH,
+                             files=SOME_PATCH, message=SOME_MESSAGE).structuredContent) \
+        .then(all_of(
+            the_answer_was({"result": SOME_FIX_BRANCH}),
+            lambda _: _the_code_host_was_asked(
+                code.commit_to_new_branch,
+                (SOME_FIX_BRANCH, SOME_BASE_BRANCH, SOME_PATCH, SOME_MESSAGE)
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_a_fix_is_proposed_by_the_code_host_as_the_call_named_it() -> None:
+    code = create_autospec(CodeHostWrites, instance=True)
+    code.propose.return_value = SOME_PROPOSAL
+
+    Scenario() \
+        .given(server := _a_server(code=code, hold=_a_hold_answering_held)) \
+        .when(lambda: OpenedPullRequest.model_validate(
+            _asked(server, "open_pull_request", _acting_for(SOME_ACTION_ID),
+                   head_branch=SOME_FIX_BRANCH, base_branch=SOME_BASE_BRANCH,
+                   title=SOME_MESSAGE, body=SOME_BODY).structuredContent
+        )) \
+        .then(all_of(
+            the_answer_was(SOME_PROPOSAL),
+            lambda _: _the_code_host_was_asked(
+                code.propose, (SOME_FIX_BRANCH, SOME_BASE_BRANCH, SOME_MESSAGE, SOME_BODY)
+            )
+        ))
+
+
+@pytest.mark.unit
 def test_the_history_is_the_providers_from_the_moment_asked() -> None:
     flags = _a_provider()
     flags.changes_since.return_value = [SOME_CHANGE]
@@ -685,12 +738,13 @@ def _a_platform_argus_s_rollback_still_stands_on(by: str) -> Mock:
 def _a_server(flags: Mock | None = None,
               platform: Mock | None = None,
               hold: HoldForAChange | None = None,
-              argus_account: str = SOME_ARGUS_ACCOUNT) -> FencedFastMCP:
+              argus_account: str = SOME_ARGUS_ACCOUNT,
+              code: Mock | None = None) -> FencedFastMCP:
     return build_server(
         WriteMcpEndpoint(write_mcp_host="127.0.0.1", write_mcp_port=8199,
                          write_mcp_url="http://127.0.0.1:8199"),
         flags if flags is not None else _a_provider(),
-        some_repository_settings(),
+        code if code is not None else create_autospec(CodeHostWrites, instance=True),
         platform if platform is not None else create_autospec(DeploymentPlatformWrites,
                                                               instance=True),
         DiscardSettings(cache_url="redis://cache.invalid:6379"),
@@ -702,6 +756,17 @@ def _a_server(flags: Mock | None = None,
 def _acting_for(action_id: str) -> dict[str, Any]:
     """The `_meta` of a call a walk makes holding `SOME_FENCE`, for `action_id`."""
     return {FENCE_META_KEY: SOME_FENCE.spoken(), ACTION_META_KEY: action_id}
+
+
+def _the_code_host_was_asked(asked: Mock, expected: tuple[object, ...]) -> bool:
+    made = [each.args for each in asked.call_args_list]
+
+    if made != [expected]:
+        raise AssertionError(
+            f"Expected the code host asked once with {expected}, and it was asked {made}."
+        )
+
+    return True
 
 
 def _it_was_resumed(platform: Mock, expected: bool) -> bool:

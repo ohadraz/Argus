@@ -422,7 +422,7 @@ def some_settings(secret: str = DONT_CARE_SECRET,
     """
     return PushSettings(
         github_repository=repository,
-        github_base_branch=base_branch,
+        deployed_branch=base_branch,
         github_webhook_secret=secret,
         code_search=code_search
     )

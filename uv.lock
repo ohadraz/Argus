@@ -11,6 +11,7 @@ members = [
     "argus-anthropic-double",
     "argus-argus-testkit",
     "argus-chat-platform",
+    "argus-code-host",
     "argus-codefix-agent",
     "argus-communication",
     "argus-core",
@@ -34,7 +35,6 @@ members = [
     "argus-read-mcp-client",
     "argus-read-mcp-server",
     "argus-repository-index",
-    "argus-repository-source",
     "argus-revenue-source",
     "argus-slack-double",
     "argus-target-service-double",
@@ -175,6 +175,29 @@ dev = [
     { name = "httpx2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
+
+[[package]]
+name = "argus-code-host"
+version = "0.1.0"
+source = { editable = "modules/code_host" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "httpx2" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "httpx2" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
 name = "argus-codefix-agent"
@@ -802,12 +825,12 @@ name = "argus-read-mcp-server"
 version = "0.1.0"
 source = { editable = "modules/read_mcp_server" }
 dependencies = [
+    { name = "argus-code-host" },
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
     { name = "argus-flag-provider" },
     { name = "argus-metrics-source" },
     { name = "argus-repository-index", extra = ["store"] },
-    { name = "argus-repository-source" },
     { name = "argus-telemetry" },
     { name = "argus-vector-store-qdrant" },
     { name = "httpx2" },
@@ -821,12 +844,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argus-code-host", editable = "modules/code_host" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-flag-provider", editable = "modules/flag_provider" },
     { name = "argus-metrics-source", editable = "modules/metrics_source" },
     { name = "argus-repository-index", extras = ["store"], editable = "modules/repository_index" },
-    { name = "argus-repository-source", editable = "modules/repository_source" },
     { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "argus-vector-store-qdrant", editable = "modules/vector_store_qdrant" },
     { name = "httpx2" },
@@ -841,8 +864,8 @@ name = "argus-repository-index"
 version = "0.1.0"
 source = { editable = "modules/repository_index" }
 dependencies = [
+    { name = "argus-code-host" },
     { name = "argus-core" },
-    { name = "argus-repository-source" },
 ]
 
 [package.optional-dependencies]
@@ -861,9 +884,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argus-code-host", editable = "modules/code_host" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/core" },
-    { name = "argus-repository-source", editable = "modules/repository_source" },
     { name = "argus-telemetry", marker = "extra == 'store'", editable = "modules/telemetry" },
     { name = "argus-vector-store-qdrant", marker = "extra == 'store'", editable = "modules/vector_store_qdrant" },
 ]
@@ -875,29 +898,6 @@ dev = [
     { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
     { name = "argus-repository-index", extras = ["store"] },
 ]
-
-[[package]]
-name = "argus-repository-source"
-version = "0.1.0"
-source = { editable = "modules/repository_source" }
-dependencies = [
-    { name = "argus-core" },
-    { name = "httpx2" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "argus-argus-testkit" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "argus-core", editable = "modules/core" },
-    { name = "httpx2" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
 name = "argus-revenue-source"
@@ -1144,6 +1144,7 @@ name = "argus-write-mcp-server"
 version = "0.1.0"
 source = { editable = "modules/write_mcp_server" }
 dependencies = [
+    { name = "argus-code-host" },
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
     { name = "argus-flag-provider" },
@@ -1161,6 +1162,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argus-code-host", editable = "modules/code_host" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-flag-provider", editable = "modules/flag_provider" },

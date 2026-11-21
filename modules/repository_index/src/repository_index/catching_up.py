@@ -35,6 +35,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import Final, Protocol
 
+from code_host.github import GitHubReads, GitHubReadSettings
 from core import (
     DatabaseSettings,
     SettingsSlice,
@@ -44,11 +45,6 @@ from core import (
 )
 from core.models import CodeSearch
 from core.schema import require_schema
-from repository_source import (
-    RepositorySourceSettings,
-    paths_changed_between,
-    the_head_of,
-)
 from telemetry import start_telemetry
 from vector_store_qdrant.indexing import the_index_at
 
@@ -202,7 +198,7 @@ def _where_the_repository_is(on_record: RepositoryIndex | None,
     if on_record is not None and on_record.pending_sha is not None:
         return on_record.pending_sha
 
-    return head_of(settings.github_base_branch)
+    return head_of(settings.deployed_branch)
 
 
 def _what_to_consider(indexed: str | None,
@@ -271,16 +267,14 @@ def main(argv: list[str] | None = None) -> None:
 
             return
 
-        source_settings = RepositorySourceSettings(
-            github_api_url=index_settings.github_api_url,
-            github_repository=index_settings.github_repository,
-            github_read_token=index_settings.github_read_token
-        )
-        repository = index_settings.github_repository
+        # The code host's adapter, built here and nowhere else in this process
+        # and handed on as its reads port - the read credential alone, since
+        # building an index changes a repository in no way.
+        code = GitHubReads(GitHubReadSettings.of(settings))
+        repository = code.repository
 
-        # The adapter is built here and nowhere else in this process, and
-        # handed on as the port: a pass writes through a `VectorIndex`, and the
-        # vendor is this line's alone.
+        # The store's adapter likewise, handed on as the port: a pass writes
+        # through a `VectorIndex`, and the vendor is this line's alone.
         with (
             the_index_at(catch_up_settings.qdrant_url,
                          index_settings.repository_index_collection) as store,
@@ -303,17 +297,15 @@ def main(argv: list[str] | None = None) -> None:
                     return catch_up(
                         settings=index_settings,
                         recorded=partial(get, conn, repository),
-                        head_of=partial(the_head_of, settings=source_settings),
-                        changed_between=partial(
-                            paths_changed_between, settings=source_settings
-                        ),
+                        head_of=code.head_of,
+                        changed_between=code.paths_changed_between,
                         index=lambda sha, paths: index_repository(
-                            repository,
                             sha,
                             settings=index_settings,
                             conn=conn,
                             store=store,
                             embed=embed,
+                            code=code,
                             paths=paths
                         )
                     )

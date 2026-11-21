@@ -21,6 +21,7 @@ from argus_testkit import (
     attempting,
     the_answer_was,
 )
+from code_host import CodeHostReads
 from core import parse_iso, to_iso
 from core.models import ChangeEvent, ChangeKind, RevisionSource
 from deployment_platform import (
@@ -37,6 +38,13 @@ SOME_APPLICATION = "kukibuki-service"
 A_DEPLOY_MINUTE = "2026-08-20T11:05:00Z"
 A_WHILE = timedelta(hours=1)
 
+# Where the code host says a revision can be read - its own pages, whatever
+# they are.
+SOME_PAGES = RevisionSource(repository="kuki/k8s-configs",
+                            repository_address="https://code.invalid/kuki/k8s-configs",
+                            revision_address="https://code.invalid/kuki/k8s-configs/9f4c1e7b",
+                            files_address="https://code.invalid/kuki/k8s-configs/9f4c1e7b/files")
+
 
 @pytest.mark.unit
 def test_a_recorded_deployment_becomes_a_deploy_event() -> None:
@@ -50,7 +58,8 @@ def test_a_recorded_deployment_becomes_a_deploy_event() -> None:
             SOME_APPLICATION,
             window_start=a_while_before(A_DEPLOY_MINUTE),
             window_end=a_while_after(A_DEPLOY_MINUTE),
-            platform=platform
+            platform=platform,
+            code=a_code_host()
         )) \
         .then(all_of(
             _the_deploys_are(some_revision),
@@ -60,29 +69,25 @@ def test_a_recorded_deployment_becomes_a_deploy_event() -> None:
 
 
 @pytest.mark.unit
-def test_a_deploy_event_carries_who_deployed_it_and_from_where() -> None:
+def test_a_deploy_event_carries_who_deployed_it() -> None:
     some_username = "kuki"
-    some_repo_url = "https://github.com/kuki/k8s-configs"
 
     Scenario() \
         .given(platform := _a_platform_that_recorded(
             a_deployment_of(
                 "dont-care-revision",
                 at=A_DEPLOY_MINUTE,
-                initiated_by=some_username,
-                repo_url=some_repo_url
+                initiated_by=some_username
             )
         )) \
         .when(lambda: fetch_deploys(
             SOME_APPLICATION,
             window_start=a_while_before(A_DEPLOY_MINUTE),
             window_end=a_while_after(A_DEPLOY_MINUTE),
-            platform=platform
+            platform=platform,
+            code=a_code_host()
         )) \
-        .then(all_of(
-            _the_first_deploy_was_made_by(some_username),
-            _the_first_deploy_came_from(some_repo_url)
-        ))
+        .then(_the_first_deploy_was_made_by(some_username))
 
 
 @pytest.mark.unit
@@ -109,7 +114,8 @@ def test_a_deploy_says_what_it_shipped_and_not_only_that_it_happened() -> None:
             SOME_APPLICATION,
             window_start=a_while_before(A_DEPLOY_MINUTE),
             window_end=a_while_after(A_DEPLOY_MINUTE),
-            platform=platform
+            platform=platform,
+            code=a_code_host()
         )) \
         .then(_the_first_deploy_says_it_shipped(some_path))
 
@@ -142,39 +148,57 @@ def test_a_deploy_says_its_revision_and_which_repository_and_directory_it_came_f
             SOME_APPLICATION,
             window_start=a_while_before(A_DEPLOY_MINUTE),
             window_end=a_while_after(A_DEPLOY_MINUTE),
-            platform=platform
+            platform=platform,
+            code=a_code_host()
         )[0].summary) \
         .then(the_answer_was(said))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("repo_url", "source"), [
-    ("https://github.com/kuki/k8s-configs",
-     RevisionSource(repository="kuki/k8s-configs",
-                    repository_address="https://github.com/kuki/k8s-configs",
-                    revision_address="https://github.com/kuki/k8s-configs/commit/9f4c1e7b",
-                    files_address="https://github.com/kuki/k8s-configs/blob/9f4c1e7b",
-                    directory="deploy",
-                    directory_address="https://github.com/kuki/k8s-configs/tree/9f4c1e7b/deploy")),
-    (None, None)
-], ids=["a repository on github", "no repository"])
-def test_a_deploy_carries_where_its_revision_can_be_opened(
-    repo_url: str | None, source: RevisionSource | None
-) -> None:
+def test_a_deploy_carries_where_the_code_host_says_its_revision_can_be_opened() -> None:
     # The summary says where a deploy came from in words, and a reader of the
     # document wants to open it. Worked out here, where the repository is
-    # read, so nothing that draws a page has to know whose pages they are.
+    # read, so nothing that draws a page has to know whose pages they are -
+    # and asked of the code host, which is the one that knows them.
+    some_repo_url = "https://github.com/kuki/k8s-configs"
+    some_revision = "9f4c1e7b"
+    some_path = "deploy"
+    code = a_code_host(where_to_read=SOME_PAGES)
+
     Scenario() \
         .given(platform := _a_platform_that_recorded(
-            a_deployment_of("9f4c1e7b", at=A_DEPLOY_MINUTE, repo_url=repo_url, path="deploy")
+            a_deployment_of(some_revision, at=A_DEPLOY_MINUTE, repo_url=some_repo_url,
+                            path=some_path)
         )) \
         .when(lambda: fetch_deploys(
             SOME_APPLICATION,
             window_start=a_while_before(A_DEPLOY_MINUTE),
             window_end=a_while_after(A_DEPLOY_MINUTE),
-            platform=platform
+            platform=platform,
+            code=code
         )[0].revision_source) \
-        .then(the_answer_was(source))
+        .then(all_of(
+            the_answer_was(SOME_PAGES),
+            _the_pages_were_asked_for(code, some_repo_url, some_revision, some_path)
+        ))
+
+
+@pytest.mark.unit
+def test_a_deploy_from_no_repository_said_has_no_revision_to_open() -> None:
+    code = a_code_host(where_to_read=SOME_PAGES)
+
+    Scenario() \
+        .given(platform := _a_platform_that_recorded(
+            a_deployment_of("9f4c1e7b", at=A_DEPLOY_MINUTE, repo_url=None)
+        )) \
+        .when(lambda: fetch_deploys(
+            SOME_APPLICATION,
+            window_start=a_while_before(A_DEPLOY_MINUTE),
+            window_end=a_while_after(A_DEPLOY_MINUTE),
+            platform=platform,
+            code=code
+        )[0].revision_source) \
+        .then(the_answer_was(None))
 
 
 @pytest.mark.unit
@@ -195,7 +219,8 @@ def test_deploys_outside_the_window_are_discarded() -> None:
             SOME_APPLICATION,
             window_start=window_start,
             window_end=window_end,
-            platform=platform
+            platform=platform,
+            code=a_code_host()
         )) \
         .then(_the_deploys_are(the_revision_deployed_inside_the_window))
 
@@ -208,7 +233,8 @@ def test_an_application_that_never_deployed_yields_no_events() -> None:
             SOME_APPLICATION,
             window_start=a_while_before(A_DEPLOY_MINUTE),
             window_end=a_while_after(A_DEPLOY_MINUTE),
-            platform=platform
+            platform=platform,
+            code=a_code_host()
         )) \
         .then(_no_deploys_were_returned())
 
@@ -230,7 +256,8 @@ def test_a_platform_that_did_not_answer_raises_rather_than_reporting_no_changes(
             SOME_APPLICATION,
             window_start=a_while_before(A_DEPLOY_MINUTE),
             window_end=a_while_after(A_DEPLOY_MINUTE),
-            platform=platform
+            platform=platform,
+            code=a_code_host()
         ))) \
         .then(an_error_was_raised(ChangeSourceUnavailable))
 
@@ -247,7 +274,8 @@ def test_every_revision_deployed_comes_back_with_no_window_applied() -> None:
             a_deployment_of("long-ago", at=a_while_before(A_DEPLOY_MINUTE)),
             a_deployment_of("just-now", at=A_DEPLOY_MINUTE)
         )) \
-        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform)) \
+        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform,
+                                                   code=a_code_host())) \
         .then(_the_deploys_are("long-ago", "just-now"))
 
 
@@ -261,7 +289,8 @@ def test_the_revisions_deployed_are_answered_oldest_first() -> None:
             a_deployment_of("second", at=A_DEPLOY_MINUTE),
             a_deployment_of("first", at=a_while_before(A_DEPLOY_MINUTE))
         )) \
-        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform)) \
+        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform,
+                                                   code=a_code_host())) \
         .then(_the_deploys_are("first", "second"))
 
 
@@ -269,7 +298,8 @@ def test_the_revisions_deployed_are_answered_oldest_first() -> None:
 def test_an_application_that_never_deployed_has_no_revisions_to_answer_with() -> None:
     Scenario() \
         .given(platform := _a_platform_that_recorded()) \
-        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform)) \
+        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform,
+                                                   code=a_code_host())) \
         .then(_no_deploys_were_returned())
 
 
@@ -277,7 +307,8 @@ def test_an_application_that_never_deployed_has_no_revisions_to_answer_with() ->
 def test_the_history_is_asked_of_the_application_named() -> None:
     Scenario() \
         .given(platform := _a_platform_that_recorded()) \
-        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform)) \
+        .when(lambda: the_revisions_deployed(SOME_APPLICATION, platform=platform,
+                                                   code=a_code_host())) \
         .then(lambda _: _the_history_was_asked_of(platform, SOME_APPLICATION))
 
 
@@ -303,6 +334,32 @@ def a_deployment_of(revision: str,
         path=path,
         initiated_by=initiated_by
     )
+
+
+def a_code_host(where_to_read: RevisionSource | None = None) -> Any:
+    """The code host's reads port, saying a revision is read at
+    `where_to_read` - nowhere, unless a test says otherwise."""
+    code = create_autospec(CodeHostReads, instance=True)
+    code.where_to_read.return_value = where_to_read
+    return code
+
+
+def _the_pages_were_asked_for(code: Any,
+                              repo_url: str,
+                              revision: str,
+                              path: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        asked = [call.args for call in code.where_to_read.call_args_list]
+
+        if asked != [(repo_url, revision, path)]:
+            raise AssertionError(
+                f"Expected the code host asked once where [{revision}] of [{repo_url}] "
+                f"at [{path}] is read, and it was asked {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_platform_that_recorded(*deployments: DeploymentRecord) -> Any:
@@ -384,22 +441,6 @@ def _the_first_deploy_was_made_by(expected_actor: str) -> Assertion[list[ChangeE
             raise AssertionError(
                 f"Expected the deploy to be made by [{expected_actor}], got "
                 f"[{deploys[0].actor}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_first_deploy_came_from(expected_repo_url: str) -> Assertion[list[ChangeEvent]]:
-    def assertion(deploys: list[ChangeEvent]) -> bool:
-        source = deploys[0].revision_source
-        repository = source.repository_address if source is not None else None
-
-        if repository != expected_repo_url:
-            raise AssertionError(
-                f"Expected the deploy to come from [{expected_repo_url}], got "
-                f"[{repository}]."
             )
 
         return True

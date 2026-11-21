@@ -337,7 +337,7 @@ def _the_listing(settings: FixSettings, list_files: FileLister) -> list[str]:
     model that reads it.
     """
     try:
-        return list_files(settings.github_base_branch)
+        return list_files(settings.deployed_branch)
     except Exception:
         logger.warning("repository could not be listed", exc_info=True)
 
@@ -383,7 +383,7 @@ def whether_it_holds_what_ran(settings: FixSettings,
         return None
 
     try:
-        return contains(settings.github_base_branch, deployed)
+        return contains(settings.deployed_branch, deployed)
     except Exception:
         logger.warning("could not tell whether the branch contains what ran", exc_info=True)
 
@@ -408,7 +408,7 @@ def _whether_it_contains_what_ran(settings: FixSettings,
     if deployed is None or holds_what_ran is not False:
         return []
 
-    branch = settings.github_base_branch
+    branch = settings.deployed_branch
 
     return [
         "",
@@ -434,6 +434,6 @@ def _what_is_known_about_the_index(settings: FixSettings,
     if settings.code_search is CodeSearch.GREP:
         return []
 
-    notice = index_notice(settings.github_base_branch)
+    notice = index_notice(settings.deployed_branch)
 
     return ["", notice] if notice else []

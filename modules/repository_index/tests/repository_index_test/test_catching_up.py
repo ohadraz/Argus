@@ -29,6 +29,7 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
+from code_host import RepositoryUnreadable
 from repository_index.building import IndexSettings
 from repository_index.catching_up import (
     BranchHead,
@@ -40,7 +41,6 @@ from repository_index.catching_up import (
     catch_up_forever,
 )
 from repository_index.records import RepositoryIndex
-from repository_source import RepositoryUnreadable
 
 THE_REPOSITORY = "ohadraz/Argus-Demo-Target-App"
 THE_DEPLOYED_BRANCH = "main"
@@ -460,15 +460,11 @@ def a_sleep_that_ends_the_loop() -> Any:
     return sleep
 
 
-def some_settings(repository: str = THE_REPOSITORY,
-                  base_branch: str = THE_DEPLOYED_BRANCH) -> IndexSettings:
-    """What a pass is aimed at - the repository, and the branch that is running."""
+def some_settings(base_branch: str = THE_DEPLOYED_BRANCH) -> IndexSettings:
+    """What a pass is aimed at - the branch that is running."""
     return IndexSettings(
-        github_api_url="https://api.github.invalid",
-        github_repository=repository,
-        github_read_token="ghp_dont-care-read-token",
         github_source_paths="",
-        github_base_branch=base_branch,
+        deployed_branch=base_branch,
         repository_index_collection="dont-care-collection",
         repository_index_max_lines=DONT_CARE_MAX_LINES,
         repository_index_chunk_overlap=DONT_CARE_OVERLAP

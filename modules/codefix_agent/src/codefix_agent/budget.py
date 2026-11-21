@@ -17,12 +17,12 @@ from core.models import CodeSearch, Effort
 class FixSettings(SettingsSlice):
     """What the fix loop is aimed and bounded by.
 
-    `github_base_branch` is what a fix is cut from and proposed onto - the
+    `deployed_branch` is what a fix is cut from and proposed onto - the
     branch that is actually deployed, since a fix against anything else patches
     a repository nobody is running.
     """
 
-    github_base_branch: str
+    deployed_branch: str
     # Three bounds rather than one, for the reason the investigation has
     # three: they fail differently and none implies the others. This
     # agent is the case a call count alone cannot see - it reads whole

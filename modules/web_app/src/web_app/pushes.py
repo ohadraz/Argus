@@ -69,7 +69,7 @@ class PushSettings(SettingsSlice):
     """
 
     github_repository: str
-    github_base_branch: str
+    deployed_branch: str
     # The shared secret GitHub signs each delivery with. Empty is not a
     # deployment that accepts anything: with no secret configured no signature
     # can match, so every delivery is refused, which is the right way round for
@@ -166,7 +166,7 @@ def _is_the_deployed_branch(ref: str, settings: PushSettings) -> bool:
     recorded it would have the index chase a commit running nowhere while
     reporting itself current.
     """
-    return ref == f"{BRANCH_REF_PREFIX}{settings.github_base_branch}"
+    return ref == f"{BRANCH_REF_PREFIX}{settings.deployed_branch}"
 
 
 def _the_repository_of(push: dict[str, Any]) -> str:

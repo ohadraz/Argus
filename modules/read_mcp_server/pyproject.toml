@@ -9,7 +9,7 @@ dependencies = [
     "argus-deployment_platform",
     "argus-flag_provider",
     "argus-metrics_source",
-    "argus-repository_source",
+    "argus-code_host",
     # The vector store's adapter, built in `server.py` and handed on as the port.
     "argus-vector_store_qdrant",
     "httpx2",
@@ -28,7 +28,7 @@ argus-repository_index = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-flag_provider = { workspace = true }
 argus-metrics_source = { workspace = true }
-argus-repository_source = { workspace = true }
+argus-code_host = { workspace = true }
 argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

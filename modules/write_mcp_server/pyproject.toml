@@ -10,6 +10,7 @@ dependencies = [
     "argus-telemetry",
     "argus-deployment_platform",
     "argus-flag_provider",
+    "argus-code_host",
     "httpx2",
     "mcp>=1.29.0",
     # The store the cache lives in, for the one action that reaches a datastore
@@ -29,6 +30,7 @@ argus-incident_record = { workspace = true }
 argus-telemetry = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-flag_provider = { workspace = true }
+argus-code_host = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 [build-system]

@@ -409,12 +409,12 @@ def propose_fix(hypothesis: Hypothesis | None,
     # Read once the model has answered, and only read: no request it is sent
     # changes, and the write-up can show what ran.
     as_it_ran = the_files_as_they_ran(submitted.explanation,
-                                      branch=settings.github_base_branch,
+                                      branch=settings.deployed_branch,
                                       deployed=deployed,
                                       list_files=list_files,
                                       read_file=read_file)
     uses_outside = the_uses_as_they_ran(uses_outside,
-                                        branch=settings.github_base_branch,
+                                        branch=settings.deployed_branch,
                                         deployed=deployed,
                                         read_file=read_file)
 
@@ -427,7 +427,7 @@ def propose_fix(hypothesis: Hypothesis | None,
                            explanation=submitted.explanation,
                            needs_code_outside=True,
                            holds_what_ran=holds_what_ran,
-                           branch_read=settings.github_base_branch,
+                           branch_read=settings.deployed_branch,
                            as_it_ran=as_it_ran,
                            uses_outside=uses_outside)
 
@@ -436,7 +436,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     if not patch:
         return ProposedFix(pull_request=None, explanation=submitted.explanation,
                            holds_what_ran=holds_what_ran,
-                           branch_read=settings.github_base_branch,
+                           branch_read=settings.deployed_branch,
                            as_it_ran=as_it_ran)
 
     # The branch and the pull request are changes to the world, and the turn
@@ -450,7 +450,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     reading = ProposedFix(pull_request=None,
                           explanation=submitted.explanation,
                           holds_what_ran=holds_what_ran,
-                          branch_read=settings.github_base_branch,
+                          branch_read=settings.deployed_branch,
                           as_it_ran=as_it_ran,
                           uses_outside=uses_outside)
     written: str | None = None
@@ -458,7 +458,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     try:
         write_branch(
             branch=branch,
-            base_branch=settings.github_base_branch,
+            base_branch=settings.deployed_branch,
             files=patch,
             message=title
         )
@@ -466,7 +466,7 @@ def propose_fix(hypothesis: Hypothesis | None,
 
         opened = open_pull_request(
             head_branch=branch,
-            base_branch=settings.github_base_branch,
+            base_branch=settings.deployed_branch,
             title=title,
             body=_the_case_for(submitted, hypothesis, incident_id, uses_outside)
         )
@@ -905,8 +905,8 @@ def _the_code_outside(submitted: SubmittedFix,
     is said to have been skipped."""
     try:
         return _OutsideRead(
-            read=code_outside(submitted.patch(), settings.github_base_branch),
-            listing=list_files(settings.github_base_branch)
+            read=code_outside(submitted.patch(), settings.deployed_branch),
+            listing=list_files(settings.deployed_branch)
         )
     except Exception:
         logger.warning("code outside the patch could not be read", exc_info=True)

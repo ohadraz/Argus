@@ -18,6 +18,7 @@ import asyncio
 from collections.abc import Collection, Mapping
 from unittest.mock import create_autospec
 
+from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
 from core.mcp_transport import McpClient
 from core.models import CodeSearch, ToolDefinition
@@ -71,14 +72,12 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
         MetricsSettings(prometheus_base_url="http://prometheus.invalid"),
         create_autospec(FlagProviderReads, instance=True),
         create_autospec(DeploymentPlatformReads, instance=True),
+        create_autospec(CodeHostReads, instance=True),
         ServiceRegistrySettings(
             service_registry_base_url="http://registry.invalid",
             service_registry_service_path="/registry/services/{service}"
         ),
-        RepositoryReadSettings(github_api_url="http://github.invalid",
-                               github_repository="dont-care/repository",
-                               github_read_token="dont-care-token",
-                               github_source_paths="src"),
+        RepositoryReadSettings(github_source_paths="src"),
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           repository_index_collection="dont-care-collection",
                           code_search=mode),

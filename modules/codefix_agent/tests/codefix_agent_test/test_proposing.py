@@ -4438,7 +4438,7 @@ def some_settings(base_branch: str = "main",
     code would have reached for anyway.
     """
     return FixSettings(
-        github_base_branch=base_branch,
+        deployed_branch=base_branch,
         codefix_max_tool_calls=max_tool_calls,
         codefix_max_tokens=max_tokens,
         codefix_max_seconds=max_seconds,

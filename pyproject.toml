@@ -135,6 +135,7 @@ markers = [
 [tool.importlinter]
 root_packages = [
     "chat_platform",
+    "code_host",
     "codefix_agent",
     "communication",
     "core",
@@ -156,7 +157,6 @@ root_packages = [
     "read_mcp_client",
     "read_mcp_server",
     "repository_index",
-    "repository_source",
     "revenue_source",
     "telemetry",
     "vector_store_qdrant",
@@ -520,6 +520,27 @@ ignore_imports = [
     "read_mcp_server.server -> vector_store_qdrant",
     "incident_memory.delivering -> vector_store_qdrant.indexing",
     "repository_index.catching_up -> vector_store_qdrant.indexing",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "Argus knows the code host by its ports, and only each process's wiring knows the vendor"
+type = "forbidden"
+source_modules = ["*"]
+forbidden_modules = ["code_host.github"]
+# Where the adapter is built and handed out, typed as the port that process
+# uses: the read server's and the index's holding the read credential alone, as
+# `CodeHostReads`, and the write server's the one that pushes, as
+# `CodeHostWrites`. Everything else - the read tier's channels, the index's
+# passes, the write tier's two code tools - reaches the repository through what
+# it was handed, so a route, a media type or a field of GitHub's answer spelled
+# anywhere else is a contract broken here rather than a second copy of GitHub's
+# wire shape found in review. The adapter's own modules reach each other.
+ignore_imports = [
+    "code_host.github.** -> code_host.github.**",
+    "read_mcp_server.server -> code_host.github",
+    "write_mcp_server.server -> code_host.github",
+    "repository_index.catching_up -> code_host.github",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

@@ -34,6 +34,8 @@ import sys
 from typing import Any, Final
 
 import httpx2
+from code_host.github import GitHubSettings
+from code_host.github.headers import write_headers_for
 from core import get_settings
 
 # What Argus names a branch it cuts, and the only thing this deletes. Kept in
@@ -52,8 +54,6 @@ _TITLE_FIELD: Final = "title"
 _OPEN_STATE: Final = "open"
 _CLOSED_STATE: Final = "closed"
 
-_ACCEPT_HEADER: Final = "application/vnd.github+json"
-
 
 def main() -> int:
     """Says what it removed, and answers zero whatever happened.
@@ -70,10 +70,9 @@ def main() -> int:
         return 0
 
     base = f"{settings.github_api_url}/repos/{settings.github_repository}"
-    headers = {
-        **({"Authorization": f"Bearer {settings.github_token}"} if settings.github_token else {}),
-        "Accept": _ACCEPT_HEADER
-    }
+    # Sent as the write tier sends its own: the same credential and media type,
+    # spelled once in the code host's adapter.
+    headers = write_headers_for(GitHubSettings.of(settings))
 
     try:
         with httpx2.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers=headers) as github:

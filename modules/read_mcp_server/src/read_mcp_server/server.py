@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from functools import partial
 from typing import Annotated, Any, Final
 
+from code_host import CodeHostReads
+from code_host.github import GitHubReads, GitHubReadSettings
 from core import (
     Connections,
     DatabaseSettings,
@@ -46,7 +47,6 @@ from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 from pydantic import Field
 from repository_index.embedding import an_embedder
-from repository_source import the_branch_contains, the_head_of
 from telemetry import start_telemetry
 from vector_store_qdrant import SearchOpenedOnFirstUse
 
@@ -86,6 +86,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  metrics_settings: MetricsSettings,
                  flags: FlagProviderReads,
                  platform: DeploymentPlatformReads,
+                 code: CodeHostReads,
                  registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
@@ -124,7 +125,8 @@ def build_server(endpoint: ReadMcpEndpoint,
 
     # The deploy history for a window, as the change channel asks for it. The
     # deployment channel and the rollout channel are handed the platform itself,
-    # so one object decides where the platform is for all three.
+    # so one object decides where the platform is for all three - and the code
+    # host likewise, which says where each revision can be read.
     def deploys(application: str,
                 *,
                 window_start: str,
@@ -133,7 +135,8 @@ def build_server(endpoint: ReadMcpEndpoint,
             application,
             window_start=window_start,
             window_end=window_end,
-            platform=platform
+            platform=platform,
+            code=code
         )
 
     changes: ChangeSource = deploys
@@ -264,7 +267,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         "no matches" and "could not look" must not arrive looking alike. What a
         model is told of it is `descriptions.SEARCH_REPOSITORY`. The behavior
         lives in `repository.search_repository`; this is registration only."""
-        return repository.search_repository(query, ref, repository_settings)
+        return repository.search_repository(query, ref, repository_settings, code=code)
 
     @mcp.tool(description=descriptions.LIST_REPOSITORY_FILES)
     def list_repository_files(
@@ -279,7 +282,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         is told of it is `descriptions.LIST_REPOSITORY_FILES`. The behavior
         lives in `repository.list_repository_files`; this is registration
         only."""
-        return repository.list_repository_files(ref, repository_settings)
+        return repository.list_repository_files(ref, repository_settings, code=code)
 
     @mcp.tool(description=descriptions.READ_REPOSITORY_FILE)
     def read_repository_file(
@@ -293,8 +296,8 @@ def build_server(endpoint: ReadMcpEndpoint,
         change what it reads (§13). Raises for a path that is not there rather
         than answering emptily - an empty file is a real thing. What a model is
         told of it is `descriptions.READ_REPOSITORY_FILE`. The behavior lives
-        in `repository.read_repository_file`; this is registration only."""
-        return repository.read_repository_file(path, ref, repository_settings)
+        behind the code host's reads port; this is registration only."""
+        return code.file_at(path, ref)
 
     @mcp.tool(description=descriptions.WHAT_A_DEPLOYMENT_CHANGED)
     def get_what_a_deployment_changed(
@@ -320,7 +323,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         `descriptions.WHAT_A_DEPLOYMENT_CHANGED`. The behavior lives in
         `deployments.what_a_deployment_changed`; this is registration only."""
         return deployments.what_a_deployment_changed(
-            service, revision, repository_settings, platform=platform
+            service, revision, platform=platform, code=code
         )
 
     @mcp.tool()
@@ -363,7 +366,8 @@ def build_server(endpoint: ReadMcpEndpoint,
         read raises rather than answering that nothing uses what changed. The
         behavior lives in `repository.read_code_outside_the_patch`; this is
         registration only."""
-        return repository.read_code_outside_the_patch(files, ref, repository_settings)
+        return repository.read_code_outside_the_patch(files, ref, repository_settings,
+                                                      code=code)
 
     @mcp.tool()
     def get_alert_rule(rule: str) -> AlertRuleStanding:
@@ -400,7 +404,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         `descriptions.ROLLOUT_STATE`. The behavior lives in
         `rollouts.how_the_rollout_is_going`; this is registration only."""
         return rollouts.how_the_rollout_is_going(
-            service, platform=platform
+            service, platform=platform, code=code
         )
 
     @mcp.tool(description=descriptions.SERVICE_DEPENDENCIES)
@@ -448,11 +452,9 @@ def build_server(endpoint: ReadMcpEndpoint,
         files that ran. Asked by code, never offered to a model.
 
         A repository that could not be reached raises rather than answering
-        that the branch does not contain it. The behavior lives in
-        `repository_source.the_branch_contains`; this is registration only."""
-        return the_branch_contains(
-            branch, revision, repository.the_source_settings(repository_settings)
-        )
+        that the branch does not contain it. The behavior lives behind the
+        code host's reads port; this is registration only."""
+        return code.contains(branch, revision)
 
     # Everything below this line exists only where the deployment keeps an
     # index. Not a tool that answers "no" when asked: a tool that is offered
@@ -475,10 +477,8 @@ def build_server(endpoint: ReadMcpEndpoint,
         SearchOpenedOnFirstUse(index_settings.qdrant_url,
                                index_settings.repository_index_collection)
     )
-    indexed_sha = meaning.the_commit_indexed_for(
-        repository_settings.github_repository, connections
-    )
-    head_of = partial(the_head_of, settings=repository.the_source_settings(repository_settings))
+    indexed_sha = meaning.the_commit_indexed_for(code.repository, connections)
+    head_of = code.head_of
 
     @mcp.tool()
     def get_repository_index_freshness(ref: str) -> str:
@@ -565,6 +565,10 @@ def main() -> None:
             # type-check, which is the tier split held in the code this process
             # runs as well as in the process boundary.
             ArgoCd(ArgoCdSettings.of(settings)),
+            # The code host's adapter, built here for the same reason and handed
+            # on as its reads port - holding the read credential alone, since
+            # its settings have nowhere to put the one that pushes.
+            GitHubReads(GitHubReadSettings.of(settings)),
             ServiceRegistrySettings.of(settings),
             RepositoryReadSettings.of(settings),
             IndexReadSettings.of(settings),

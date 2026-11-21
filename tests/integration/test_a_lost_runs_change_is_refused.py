@@ -96,7 +96,7 @@ def _writing_a_branch_holding(holding: Holding, held: Fence, write: McpClient) -
     with holding.of(held):
         return commit_to_new_branch(
             branch=SOME_BRANCH,
-            base_branch=settings.github_base_branch,
+            base_branch=settings.deployed_branch,
             files={"io_shop/dont_care.py": "dont care\n"},
             message="dont care",
             client=write

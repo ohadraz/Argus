@@ -293,7 +293,7 @@ def _what_the_branch_changed(branch: str) -> set[str]:
     says what the branch holds, which is the whole repository, and every file on
     it is present whether the fix touched it or not.
     """
-    deployed = get_settings().github_base_branch
+    deployed = get_settings().deployed_branch
     response = httpx2.get(
         f"{get_settings().github_api_url}/repos/"
         f"{get_settings().github_repository}/compare/{deployed}...{branch}",

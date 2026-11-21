@@ -3,8 +3,8 @@
 Every e2e and replay walk reads a deployment's diff from `github_double` and
 believes what it says. That belief is checked here the one way it can be: ask
 GitHub for a comparison in the Target Service's own repository, ask the double
-for one of its own, read both through `the_difference_between` - the reader the
-read tier uses - and require the two to read alike.
+for one of its own, read both through the code host's GitHub adapter - the
+reader the read tier uses - and require the two to read alike.
 
 Alike as that reader reads them, not field by field. The two comparisons are of
 different commits and name different files; what every caller depends on is
@@ -31,14 +31,12 @@ from uuid import uuid4
 import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
+from code_host import SourceDifference
+from code_host.github import GitHubReads, GitHubReadSettings
+from code_host.github.headers import AUTHORIZATION_HEADER, BEARER_SCHEME
 from core import get_settings
 from github_double.repository import DEFAULT_BASE_BRANCH, DEFAULT_FILES
 from github_double.server import DEFAULT_BASE_URL
-from repository_source import (
-    RepositorySourceSettings,
-    SourceDifference,
-    the_difference_between,
-)
 
 from tests.e2e.framework.deployments import (
     EVERY_PAIR,
@@ -74,12 +72,12 @@ def test_a_comparison_reads_the_same_from_the_double_as_from_github() -> None:
     # what tells them code moved rather than configuration - so a double
     # without either has every walk reading evidence GitHub would never send.
     Scenario() \
-        .given(at_github := _settings_for(
+        .given(at_github := _the_code_host_at(
             get_settings().github_api_url,
             get_settings().github_repository,
             get_settings().github_read_token
         )) \
-        .when(lambda: the_difference_between(THE_COMMIT_BEFORE_MAIN, MAIN, at_github)) \
+        .when(lambda: at_github.difference_between(THE_COMMIT_BEFORE_MAIN, MAIN)) \
         .then(all_of(_it_names_some_file(), _it_reads_as(_the_double_compared())))
 
 
@@ -142,7 +140,7 @@ def _github_compares(base: str, head: str) -> dict[str, Any]:
         get_settings().github_repository,
         base,
         head,
-        {"Authorization": f"Bearer {get_settings().github_read_token}"}
+        {AUTHORIZATION_HEADER: f"{BEARER_SCHEME} {get_settings().github_read_token}"}
     )
 
 
@@ -212,11 +210,9 @@ def _the_double_compared() -> SourceDifference:
         timeout=10.0
     ).raise_for_status()
 
-    return the_difference_between(
-        DEFAULT_BASE_BRANCH,
-        some_commit,
-        _settings_for(DEFAULT_BASE_URL, "some-owner/some-repository", "the-double-never-reads-this")
-    )
+    return _the_code_host_at(
+        DEFAULT_BASE_URL, "some-owner/some-repository", "the-double-never-reads-this"
+    ).difference_between(DEFAULT_BASE_BRANCH, some_commit)
 
 
 def _it_names_some_file() -> Assertion[SourceDifference]:
@@ -272,9 +268,11 @@ def _as_read(difference: SourceDifference) -> set[tuple[str, str]]:
     }
 
 
-def _settings_for(api_url: str, repository: str, token: str) -> RepositorySourceSettings:
-    return RepositorySourceSettings(
+def _the_code_host_at(api_url: str, repository: str, token: str) -> GitHubReads:
+    """The code host's adapter as the read tier builds it, reading `repository`
+    at `api_url` - GitHub's, or the double's."""
+    return GitHubReads(GitHubReadSettings(
         github_api_url=api_url,
         github_repository=repository,
         github_read_token=token
-    )
+    ))

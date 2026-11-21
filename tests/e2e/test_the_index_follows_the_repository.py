@@ -256,7 +256,7 @@ def _a_push_naming(sha: str) -> bytes:
     settings = get_settings()
 
     return json.dumps({
-        REF_FIELD: f"{BRANCH_REF_PREFIX}{settings.github_base_branch}",
+        REF_FIELD: f"{BRANCH_REF_PREFIX}{settings.deployed_branch}",
         AFTER_FIELD: sha,
         REPOSITORY_FIELD: {FULL_NAME_FIELD: settings.github_repository}
     }).encode()
@@ -291,7 +291,7 @@ def _a_commit_the_deployed_branch_does_not_point_at() -> str:
 def _the_commit_the_deployed_branch_points_at() -> str:
     return str(
         _the_repository_answered(
-            "get", f"/git/ref/heads/{get_settings().github_base_branch}"
+            "get", f"/git/ref/heads/{get_settings().deployed_branch}"
         )["object"]["sha"]
     )
 

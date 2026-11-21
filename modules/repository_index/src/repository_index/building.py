@@ -18,50 +18,32 @@ remembers the work is owed.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Protocol
 
 import psycopg
+from code_host import CodeHostReads
 from core import SettingsSlice
 from core.vector_store import VectorIndex
-from repository_source import RepositorySourceSettings, the_source_at
 
 from repository_index.indexing import Candidate, Embedder, candidates_for, points_of
 from repository_index.records import record_indexed
 from repository_index.store import forget, ids_held_for, store_points
 
 
-class SourceReader(Protocol):
-    """How a pass gets hold of the repository's source.
-
-    A seam rather than the call itself, because a test of this module has no
-    business building a tarball: fetching an archive and unwrapping it belongs
-    to `repository_source` and is asserted there.
-    """
-
-    def __call__(self,
-                 ref: str,
-                 settings: RepositorySourceSettings,
-                 /) -> dict[str, str]: ...
-
-
 class IndexSettings(SettingsSlice):
     """What a pass is aimed at.
 
-    The repository and the credential that reads it, which directories of it are
-    the service, and where the passages are kept. No write credential: building
-    an index changes a repository in no way, and a slice that named one would be
-    handing this process a capability it has no use for.
+    Which directories of the repository are the service, which branch is
+    deployed, and where the passages are kept. Where the repository is and the
+    credential that reads it are the code host's adapter's - a read credential
+    alone, since building an index changes a repository in no way.
     """
 
-    github_api_url: str
-    github_repository: str
-    github_read_token: str
     github_source_paths: str
     # The branch that is actually deployed, and so the one the index is meant
     # to describe. A pass aimed at anything else builds an index of code
     # nobody is running, which every later search answers from without ever
     # saying so.
-    github_base_branch: str
+    deployed_branch: str
     repository_index_collection: str
     # How a file this cannot parse is cut into passages. Here rather than left
     # to the chunker's own defaults because a pass has to cut the way every
@@ -72,28 +54,28 @@ class IndexSettings(SettingsSlice):
     repository_index_chunk_overlap: int
 
 
-def index_repository(repository: str,
-                     sha: str,
+def index_repository(sha: str,
                      *,
                      settings: IndexSettings,
                      conn: psycopg.Connection,
                      store: VectorIndex,
                      embed: Embedder,
-                     read_source: SourceReader = the_source_at,
+                     code: CodeHostReads,
                      paths: list[str] | None = None) -> None:
-    """Brings the index up to `sha`, for the whole repository or named paths.
+    """Brings the index up to `sha`, for the whole repository or named paths,
+    and records it under the repository the code host reads.
 
-    Raises whatever the reader raised. A repository that could not be fetched
-    leaves the mark where it was, so the next pass finds the same work waiting -
-    where swallowing it would record an index as current over passages nobody
-    updated.
+    Raises whatever the code host raised. A repository that could not be
+    fetched leaves the mark where it was, so the next pass finds the same work
+    waiting - where swallowing it would record an index as current over
+    passages nobody updated.
     """
-    source = read_source(sha, _the_source_settings(settings))
+    source = code.source_at(sha)
 
     for path in paths if paths is not None else list(source):
         _bring_one_file_up_to_date(path, source, settings, store, embed)
 
-    record_indexed(conn, repository, sha)
+    record_indexed(conn, code.repository, sha)
 
 
 def _bring_one_file_up_to_date(path: str,
@@ -153,12 +135,3 @@ def _put_in_what_is_missing(wanted: list[Candidate],
         return
 
     store_points(store, points, width=len(points[0].vector))
-
-
-def _the_source_settings(settings: IndexSettings) -> RepositorySourceSettings:
-    """The reader's view: a repository and a credential, and nothing else."""
-    return RepositorySourceSettings(
-        github_api_url=settings.github_api_url,
-        github_repository=settings.github_repository,
-        github_read_token=settings.github_read_token
-    )

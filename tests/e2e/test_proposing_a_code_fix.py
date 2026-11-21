@@ -181,7 +181,7 @@ def _it_is_a_draft_onto_the_deployed_branch() -> Assertion[httpx2.Response]:
             raise AssertionError("Code-Fix named no pull request to look for.")
 
         held = _the_proposal_numbered(proposal.number) or {}
-        deployed = get_settings().github_base_branch
+        deployed = get_settings().deployed_branch
 
         if not held.get("draft"):
             raise AssertionError(

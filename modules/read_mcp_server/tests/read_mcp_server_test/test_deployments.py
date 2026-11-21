@@ -36,6 +36,13 @@ from unittest.mock import create_autospec
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.scenario import Scenario, attempting
+from code_host import (
+    ChangedFile,
+    CodeHostReads,
+    Relation,
+    RepositoryUnreadable,
+    SourceDifference,
+)
 from core.models import DeploymentChanges, DeploymentComparison
 from deployment_platform import DeploymentPlatformReads, DeploymentRecord
 from read_mcp_server.deployments import (
@@ -43,8 +50,6 @@ from read_mcp_server.deployments import (
     MOST_PATCH_LINES_ALL_TOLD,
     what_a_deployment_changed,
 )
-from read_mcp_server.repository import RepositoryReadSettings, RepositoryUnreadable
-from repository_source import ChangedFile, SourceDifference
 
 SOME_SERVICE = "io-shop"
 
@@ -99,7 +104,7 @@ def test_what_a_deployment_changed_names_the_file_and_shows_the_change_in_it() -
     # The patch is the point. A path alone leaves a reader inferring
     # configuration from a directory name, which is the inference that failed;
     # `port: 6379` becoming `port: 6380` is evidence instead of a cue.
-    compare = a_comparison_finding(
+    code = a_code_host_finding(
         a_changed_file(THE_CONFIGURATION_FILE, patch=THE_PORT_THAT_MOVED)
     )
 
@@ -108,9 +113,8 @@ def test_what_a_deployment_changed_names_the_file_and_shows_the_change_in_it() -
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -125,20 +129,19 @@ def test_the_deployment_is_compared_against_the_revision_deployed_before_it() ->
     # commit's own parent, the oldest entry in some window - the answer describes
     # a change that was never deployed, and describes it in exactly the shape a
     # correct answer has. Nothing downstream could tell.
-    compare = a_comparison_finding()
+    code = a_code_host_finding()
 
     Scenario() \
         .when(
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(_the_comparison_made_was(
-            compare,
+            code,
             base=THE_REVISION_DEPLOYED_BEFORE,
             head=THE_REVISION_DEPLOYED
         ))
@@ -150,20 +153,19 @@ def test_the_revision_before_is_the_one_immediately_before_and_not_the_earliest(
     # A history of three, asked about the last: the base is the middle entry. An
     # implementation reaching for the first entry passes the test above and fails
     # here, and what it would report is every change of every deployment since.
-    compare = a_comparison_finding()
+    code = a_code_host_finding()
 
     Scenario() \
         .when(
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_three_times(),
-                compare=compare
+                code=code
             )
         ) \
         .then(_the_comparison_made_was(
-            compare,
+            code,
             base=THE_REVISION_DEPLOYED_BEFORE,
             head=THE_REVISION_DEPLOYED
         ))
@@ -175,21 +177,20 @@ def test_a_deployment_with_nothing_before_it_says_there_is_nothing_to_compare()\
     # A first deployment, and a real answer rather than a failure: there is no
     # earlier revision, so there is no diff, and that is a fact about the history
     # rather than about the attempt to read it.
-    compare = a_comparison_finding()
+    code = a_code_host_finding()
 
     Scenario() \
         .when(
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED_BEFORE,
-                some_settings(),
                 platform=an_application_deployed_once(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
             _the_answer_mentions("no earlier deployment"),
-            _no_comparison_was_made(compare)
+            _no_comparison_was_made(code)
         ))
 
 
@@ -198,22 +199,21 @@ def test_a_revision_no_deployment_has_says_so_and_names_the_flag_channel() -> No
     # How a flag's name arrives here: it is the `reference` of a change event,
     # exactly as a revision is, and a caller that read one channel's answer into
     # the other's argument has made a cheap mistake - cheap only if it is told.
-    compare = a_comparison_finding()
+    code = a_code_host_finding()
 
     Scenario() \
         .when(
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 A_FLAG_NAME,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
             _the_answer_mentions(A_FLAG_NAME),
             _the_answer_mentions(THE_CHANNEL_THAT_REPORTS_FLAG_CHANGES),
-            _no_comparison_was_made(compare)
+            _no_comparison_was_made(code)
         ))
 
 
@@ -221,16 +221,15 @@ def test_a_revision_no_deployment_has_says_so_and_names_the_flag_channel() -> No
 def test_a_deployment_that_changed_nothing_says_so() -> None:
     # A conclusion something acts on: this deployment did not cause this, so look
     # elsewhere. It has to be said, not left as an answer with no files in it.
-    compare = a_comparison_finding()
+    code = a_code_host_finding()
 
     Scenario() \
         .when(
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(_the_answer_mentions("changed no file"))
@@ -240,11 +239,13 @@ def test_a_deployment_that_changed_nothing_says_so() -> None:
 def test_a_file_outside_the_service_s_own_source_is_reported_like_any_other() -> None:
     # THE ONE THAT INVERTS THE ANSWER IF IT IS EVER GOT WRONG. This tier narrows
     # what it searches and what it indexes to `github_source_paths`, and every
-    # deployment's configuration is outside them. Narrowed here, the cache
-    # scenario's entire diagnosis disappears - and it disappears as a deployment
-    # that changed nothing, which is not a weaker answer than the truth but its
-    # opposite.
-    compare = a_comparison_finding(
+    # deployment's configuration is outside them. `what_a_deployment_changed`
+    # takes no scope at all - its signature is what holds this now - so what is
+    # pinned here is that the comparison's every file reaches the answer: were
+    # one dropped, the cache scenario's entire diagnosis would disappear, as a
+    # deployment that changed nothing, which is not a weaker answer than the
+    # truth but its opposite.
+    code = a_code_host_finding(
         a_changed_file(THE_CONFIGURATION_FILE, patch=THE_PORT_THAT_MOVED)
     )
 
@@ -253,9 +254,8 @@ def test_a_file_outside_the_service_s_own_source_is_reported_like_any_other() ->
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                only_the_services_own_source(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -270,16 +270,15 @@ def test_a_file_with_no_diff_is_named_with_the_reason_it_has_none() -> None:
     # named and empty. Shown as a file with no change, it says the deployment
     # touched it and nothing happened - and a reader weighing whether any source
     # changed would count it as a no.
-    compare = a_comparison_finding(a_changed_file(SOME_IMAGE, patch=None))
+    code = a_code_host_finding(a_changed_file(SOME_IMAGE, patch=None))
 
     Scenario() \
         .when(
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -293,7 +292,7 @@ def test_a_comparison_that_listed_only_part_of_the_change_says_so() -> None:
     # The comparison itself reports a ceiling, and the answer has to carry that
     # forward. Left out, a deployment that rewrote a repository reads as one that
     # touched the handful of files the comparison happened to list.
-    compare = a_comparison_finding(
+    code = a_code_host_finding(
         a_changed_file(THE_SOURCE_FILE, patch=A_ONE_LINE_PATCH),
         more_files_than_listed=True
     )
@@ -303,9 +302,8 @@ def test_a_comparison_that_listed_only_part_of_the_change_says_so() -> None:
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(_the_answer_mentions("not all of it"))
@@ -316,7 +314,7 @@ def test_more_files_than_can_be_named_are_counted_rather_than_listed() -> None:
     # The first bound. Every changed file gets a line, which is cheap and is what
     # tells code from configuration - but a repository-wide sweep would make that
     # line the answer, so there is a ceiling on it and the ceiling is said.
-    compare = a_comparison_finding(*(
+    code = a_code_host_finding(*(
         a_changed_file(A_NUMBERED_MODULE.format(number=number), patch=None)
         for number in range(MOST_FILES_NAMED + 1)
     ))
@@ -326,9 +324,8 @@ def test_more_files_than_can_be_named_are_counted_rather_than_listed() -> None:
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -343,7 +340,7 @@ def test_changes_past_the_line_budget_are_named_without_being_shown() -> None:
     # cheap and diffs are not, so the diffs stop and the names go on - a reader
     # still learns which files changed, which is the whole of the distinction
     # this channel exists for.
-    compare = a_comparison_finding(*(
+    code = a_code_host_finding(*(
         a_changed_file(
             A_NUMBERED_MODULE.format(number=number), patch=A_ONE_LINE_PATCH
         )
@@ -355,9 +352,8 @@ def test_changes_past_the_line_budget_are_named_without_being_shown() -> None:
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(_the_answer_mentions("not shown"))
@@ -368,8 +364,8 @@ def test_a_repository_that_could_not_be_compared_raises() -> None:
     # Not an answer saying nothing changed. That answer rules the deployment out
     # as a cause, and a repository nobody could reach supports no such
     # conclusion - it must not arrive looking like one that does.
-    refused = create_autospec(_a_comparison_signature)
-    refused.side_effect = RepositoryUnreadable("no route to host")
+    refused = create_autospec(CodeHostReads, instance=True)
+    refused.difference_between.side_effect = RepositoryUnreadable("no route to host")
 
     Scenario() \
         .when(
@@ -377,9 +373,8 @@ def test_a_repository_that_could_not_be_compared_raises() -> None:
                 lambda: what_a_deployment_changed(
                     SOME_SERVICE,
                     THE_REVISION_DEPLOYED,
-                    some_settings(),
                     platform=an_application_deployed_twice(),
-                    compare=refused
+                    code=refused
                 )
             )
         ) \
@@ -390,7 +385,7 @@ def test_a_repository_that_could_not_be_compared_raises() -> None:
 def test_a_deploy_ahead_of_the_one_before_it_is_said_as_it_always_was() -> None:
     # The ordinary deploy, and every recording's: nothing in what the model is
     # shown of it moves.
-    compare = a_comparison_finding(
+    code = a_code_host_finding(
         a_changed_file(THE_CONFIGURATION_FILE, patch=THE_PORT_THAT_MOVED)
     )
 
@@ -399,9 +394,8 @@ def test_a_deploy_ahead_of_the_one_before_it_is_said_as_it_always_was() -> None:
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             ).said
         ) \
         .then(the_answer_was([
@@ -420,8 +414,8 @@ def test_a_deploy_back_to_an_earlier_revision_says_it_went_back_and_what_it_took
 ) -> None:
     # Listed by what it brought, a deploy back to an ancestor brought nothing,
     # and read as a deploy that changed no file at all - which rules it out.
-    compare = a_comparison_finding(
-        relation="behind",
+    code = a_code_host_finding(
+        relation=Relation.BEHIND,
         taken_away=(a_changed_file(THE_SCRAPE_CONFIGURATION, patch=THE_SCRAPE_REMOVED,
                                    status="removed"),)
     )
@@ -431,9 +425,8 @@ def test_a_deploy_back_to_an_earlier_revision_says_it_went_back_and_what_it_took
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -452,9 +445,9 @@ def test_a_deploy_from_another_line_says_what_it_brought_and_what_it_took_away()
     # changed. What it took away first: a file both sides changed is listed
     # twice, and its two patches compose only in the deploy's own order - back
     # to where the lines part, then on to what it deployed.
-    compare = a_comparison_finding(
+    code = a_code_host_finding(
         a_changed_file(THE_SOURCE_FILE, patch=A_ONE_LINE_PATCH),
-        relation="diverged",
+        relation=Relation.DIVERGED,
         merge_base=THE_MERGE_BASE,
         taken_away=(a_changed_file(THE_CONFIGURATION_FILE, patch=THE_PORT_THAT_MOVED),)
     )
@@ -464,9 +457,8 @@ def test_a_deploy_from_another_line_says_what_it_brought_and_what_it_took_away()
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -483,9 +475,9 @@ def test_a_deploy_from_another_line_says_what_it_brought_and_what_it_took_away()
 def test_a_deploy_from_another_line_with_no_merge_base_named_says_the_lines_parted() -> None:
     # Where the comparison names none, the model is told the lines parted - and
     # never that they part at "None", a commit it would go looking for.
-    compare = a_comparison_finding(
+    code = a_code_host_finding(
         a_changed_file(THE_SOURCE_FILE, patch=A_ONE_LINE_PATCH),
-        relation="diverged",
+        relation=Relation.DIVERGED,
         merge_base=None
     )
 
@@ -494,9 +486,8 @@ def test_a_deploy_from_another_line_with_no_merge_base_named_says_the_lines_part
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -510,8 +501,8 @@ def test_a_copy_taken_away_says_why_it_has_no_diff() -> None:
     # Not the generic reason: the copy is text, and the comparison does carry a
     # diff for it - one against its source, which is not what removing it took
     # out. A wrong reason handed to a model is worse than none.
-    compare = a_comparison_finding(
-        relation="behind",
+    code = a_code_host_finding(
+        relation=Relation.BEHIND,
         taken_away=(ChangedFile(path=SOME_IMAGE, status="removed",
                                 copied_from=THE_SOURCE_FILE),)
     )
@@ -521,9 +512,8 @@ def test_a_copy_taken_away_says_why_it_has_no_diff() -> None:
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
@@ -536,16 +526,15 @@ def test_a_copy_taken_away_says_why_it_has_no_diff() -> None:
 def test_a_deploy_back_to_a_revision_holding_the_same_files_changed_no_file() -> None:
     # Neither side lists a file: the two revisions hold the same files, however
     # they stand in history.
-    compare = a_comparison_finding(relation="behind")
+    code = a_code_host_finding(relation=Relation.BEHIND)
 
     Scenario() \
         .when(
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(_the_answer_mentions("changed no file"))
@@ -563,10 +552,10 @@ def test_the_answer_says_whether_it_lists_every_file_the_two_revisions_differ_in
         brought: int, taken_away: int, cut_off: bool, lists_every_file: bool) -> None:
     # Where it does, a file it does not name is as it was at the revision it
     # compares against - which the write-up says, and may only say there.
-    compare = a_comparison_finding(
+    code = a_code_host_finding(
         *_numbered_files(brought),
         more_files_than_listed=cut_off,
-        relation="diverged" if taken_away else "ahead",
+        relation=Relation.DIVERGED if taken_away else Relation.AHEAD,
         merge_base=THE_MERGE_BASE if taken_away else None,
         taken_away=_numbered_files(taken_away, from_number=brought)
     )
@@ -576,9 +565,8 @@ def test_the_answer_says_whether_it_lists_every_file_the_two_revisions_differ_in
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             ).lists_every_file
         ) \
         .then(the_answer_was(lists_every_file))
@@ -592,9 +580,8 @@ def test_a_deployment_with_nothing_before_it_lists_no_file() -> None:
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED_BEFORE,
-                some_settings(),
                 platform=an_application_deployed_once(),
-                compare=a_comparison_finding()
+                code=a_code_host_finding()
             ).lists_every_file
         ) \
         .then(the_answer_was(False))
@@ -619,9 +606,8 @@ def test_the_answer_says_whether_a_comparison_was_made_and_why_not_where_none_wa
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 revision,
-                some_settings(),
                 platform=platform(),
-                compare=a_comparison_finding()
+                code=a_code_host_finding()
             ).comparison
         ) \
         .then(the_answer_was(comparison))
@@ -632,7 +618,7 @@ def test_the_answer_says_which_two_revisions_it_is_about() -> None:
     # What reads this is a model rather than the caller that asked. A diff that
     # does not say what it is a diff of is one the reader has to trust it was
     # handed correctly, and a rollback is addressed to one of the two.
-    compare = a_comparison_finding(
+    code = a_code_host_finding(
         a_changed_file(THE_CONFIGURATION_FILE, patch=THE_PORT_THAT_MOVED)
     )
 
@@ -641,36 +627,14 @@ def test_the_answer_says_which_two_revisions_it_is_about() -> None:
             lambda: what_a_deployment_changed(
                 SOME_SERVICE,
                 THE_REVISION_DEPLOYED,
-                some_settings(),
                 platform=an_application_deployed_twice(),
-                compare=compare
+                code=code
             )
         ) \
         .then(all_of(
             _the_answer_mentions(THE_REVISION_DEPLOYED),
             _the_answer_mentions(THE_REVISION_DEPLOYED_BEFORE)
         ))
-
-
-def some_settings(source_paths: str = "") -> RepositoryReadSettings:
-    """One repository and the credential that may only read it.
-
-    The source paths are empty by default, which is this channel's own answer to
-    the question: it compares a whole deployment, and the scope belongs to the
-    channels that read code. One test sets them deliberately, to pin that setting
-    them changes nothing here.
-    """
-    return RepositoryReadSettings(
-        github_api_url="https://api.github.invalid",
-        github_repository="dont-care/dont-care",
-        github_read_token="ghp_dont-care-token",
-        github_source_paths=source_paths
-    )
-
-
-def only_the_services_own_source() -> RepositoryReadSettings:
-    """The scope as every deployment of the demo actually configures it."""
-    return some_settings(source_paths="src/io_shop,tests/io_shop")
 
 
 def a_changed_file(path: str,
@@ -680,20 +644,21 @@ def a_changed_file(path: str,
     return ChangedFile(path=path, status=status, patch=patch)
 
 
-def a_comparison_finding(*files: ChangedFile,
-                         more_files_than_listed: bool = False,
-                         relation: str = "ahead",
-                         merge_base: str | None = None,
-                         taken_away: tuple[ChangedFile, ...] = ()) -> Any:
-    """The repository comparison, answering with the files named - and, for a
-    deploy that is not ahead of the one before it, with what it took away.
+def a_code_host_finding(*files: ChangedFile,
+                        more_files_than_listed: bool = False,
+                        relation: Relation = Relation.AHEAD,
+                        merge_base: str | None = None,
+                        taken_away: tuple[ChangedFile, ...] = ()) -> Any:
+    """The code host, comparing two revisions and answering with the files
+    named - and, for a deploy that is not ahead of the one before it, with what
+    it took away.
 
-    A double rather than the real reader: what belongs here is what this module
-    does with a difference once it has one, and reading a repository is
-    `repository_source`'s subject and tested there.
+    A double rather than the real adapter: what belongs here is what this module
+    does with a difference once it has one, and reading a repository is the
+    code host's subject and tested there.
     """
-    compare = create_autospec(_a_comparison_signature)
-    compare.return_value = SourceDifference(
+    code = create_autospec(CodeHostReads, instance=True)
+    code.difference_between.return_value = SourceDifference(
         base=THE_REVISION_DEPLOYED_BEFORE,
         head=THE_REVISION_DEPLOYED,
         files=tuple(files),
@@ -703,19 +668,7 @@ def a_comparison_finding(*files: ChangedFile,
         taken_away=taken_away
     )
 
-    return compare
-
-
-def _a_comparison_signature(base: str,
-                            head: str,
-                            settings: Any) -> SourceDifference:
-    """The shape this module asks a comparison in, for `create_autospec`.
-
-    Specing against the real reader would spec against the wrong shape - it takes
-    the repository's own settings slice and a transport, where this module asks
-    about two revisions.
-    """
-    raise NotImplementedError
+    return code
 
 
 def an_application_deployed_once() -> Any:
@@ -832,10 +785,12 @@ def _numbered_files(count: int, from_number: int = 0) -> tuple[ChangedFile, ...]
                  for number in range(from_number, from_number + count))
 
 
-def _the_comparison_made_was(compare: Any,
+def _the_comparison_made_was(code: Any,
                              base: str,
                              head: str) -> Assertion[DeploymentChanges]:
     """Which two revisions the repository was actually asked about."""
+    compare = code.difference_between
+
     def assertion(dont_care_answer: DeploymentChanges) -> bool:
         if not compare.call_args_list:
             raise AssertionError(
@@ -857,7 +812,7 @@ def _the_comparison_made_was(compare: Any,
     return assertion
 
 
-def _no_comparison_was_made(compare: Any) -> Assertion[DeploymentChanges]:
+def _no_comparison_was_made(code: Any) -> Assertion[DeploymentChanges]:
     """That the repository was left alone.
 
     Asserted rather than assumed: there is nothing to compare in either of the
@@ -865,6 +820,8 @@ def _no_comparison_was_made(compare: Any) -> Assertion[DeploymentChanges]:
     revision the history does not hold - answered by the API with a failure that
     reads as a repository problem.
     """
+    compare = code.difference_between
+
     def assertion(dont_care_answer: DeploymentChanges) -> bool:
         if compare.call_args_list:
             raise AssertionError(

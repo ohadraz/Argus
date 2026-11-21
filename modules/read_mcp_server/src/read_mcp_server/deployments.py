@@ -31,22 +31,14 @@ nothing, which is not a weaker answer than the truth but its opposite.
 
 from __future__ import annotations
 
-from typing import Final, Protocol
+from typing import Final
 
+from code_host import ChangedFile, CodeHostReads, Relation, SourceDifference
 from core.events import PATCH_LINE_INDENT, a_changed_file_line
 from core.models import ChangeEvent, DeploymentChanges, DeploymentComparison
 from deployment_platform import DeploymentPlatformReads
-from repository_source import (
-    BEHIND,
-    DIVERGED,
-    ChangedFile,
-    RepositorySourceSettings,
-    SourceDifference,
-    the_difference_between,
-)
 
 from read_mcp_server.deploy_history import the_revisions_deployed
-from read_mcp_server.repository import RepositoryReadSettings, the_source_settings
 
 # How many changed files one answer names. A name is one short line and is what
 # tells code from configuration, so this is deliberately generous - and it lands
@@ -66,29 +58,11 @@ MOST_PATCH_LINES_ALL_TOLD: Final = 200
 THE_CHANNEL_THAT_REPORTS_FLAG_CHANGES: Final = "get_change_events"
 
 
-class SourceComparer(Protocol):
-    """How this module asks what differs between two commits.
-
-    A `Protocol` rather than a `Callable` alias for the reason `FetchApplication`
-    is one: a test stands it in with `create_autospec`, which needs something
-    introspectable. Positional throughout, because the order of the two revisions
-    is the whole of what distinguishes making a deployment from undoing it, and a
-    keyword would let a caller swap them without looking wrong.
-    """
-
-    def __call__(self,
-                 base: str,
-                 head: str,
-                 settings: RepositorySourceSettings, /) -> SourceDifference: ...
-
-
 def what_a_deployment_changed(service: str,
                               revision: str,
-                              settings: RepositoryReadSettings,
                               *,
                               platform: DeploymentPlatformReads,
-                              compare: SourceComparer = the_difference_between
-                              ) -> DeploymentChanges:
+                              code: CodeHostReads) -> DeploymentChanges:
     """What the deployment of `revision` changed, as lines a model reads - and
     whether they name every file it changed, which only a comparison can say.
 
@@ -105,7 +79,7 @@ def what_a_deployment_changed(service: str,
     last of those is a conclusion something acts on - it rules the deployment out -
     which is exactly why a repository that could not be compared raises instead.
     """
-    deployed = the_revisions_deployed(service, platform=platform)
+    deployed = the_revisions_deployed(service, platform=platform, code=code)
     landed = _where_in_the_history(revision, deployed)
 
     if landed is None:
@@ -128,7 +102,7 @@ def what_a_deployment_changed(service: str,
         ], lists_every_file=False, comparison=DeploymentComparison.NOTHING_BEFORE_IT)
 
     before = deployed[landed - 1].reference
-    difference = compare(before, revision, the_source_settings(settings))
+    difference = code.difference_between(before, revision)
 
     return _said(service, difference)
 
@@ -235,12 +209,12 @@ def _the_sides(difference: SourceDifference) -> list[tuple[str | None, tuple[Cha
     """
     base, head = difference.base, difference.head
 
-    if difference.relation == BEHIND:
+    if difference.relation is Relation.BEHIND:
         return [(f"It went back: {head} is in the history of {base}, so it brought nothing "
                  f"{base} did not have, and took away what {base} had changed since {head}:",
                  difference.taken_away)]
 
-    if difference.relation != DIVERGED:
+    if difference.relation is not Relation.DIVERGED:
         return [(None, difference.files)]
 
     # Never "part at None": a model told that goes looking for the commit.

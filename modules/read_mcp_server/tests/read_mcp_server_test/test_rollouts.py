@@ -28,6 +28,7 @@ from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from code_host import CodeHostReads
 from core.models import RolloutAccount, RolloutProgress
 from deployment_platform import (
     DeploymentPlatformError,
@@ -66,7 +67,8 @@ def test_the_account_carries_the_platform_s_counts_unchanged() -> None:
 
     Scenario() \
         .given(platform := _a_platform(the_fleet, deployed_twice())) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform,
+                                                       code=a_code_host())) \
         .then(_it_counts(the_fleet))
 
 
@@ -77,7 +79,8 @@ def test_the_account_names_the_revision_going_out_and_the_one_before_it() -> Non
     # a reader holding an onset can do the arithmetic.
     Scenario() \
         .given(platform := _a_platform(a_fleet_half_updated(), deployed_twice())) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform,
+                                                       code=a_code_host())) \
         .then(all_of(
             _the_one_going_out_is(THE_REVISION_BEING_ROLLED_OUT, deployed_at=WHEN_IT_LANDED),
             _the_one_before_it_is(THE_REVISION_STILL_SERVING,
@@ -92,7 +95,8 @@ def test_a_history_with_one_deployment_names_nothing_before_it() -> None:
     # can say it is unknown.
     Scenario() \
         .given(platform := _a_platform(a_fleet_half_updated(), deployed_once())) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform,
+                                                       code=a_code_host())) \
         .then(all_of(
             _the_one_going_out_is(THE_REVISION_BEING_ROLLED_OUT, deployed_at=WHEN_IT_LANDED),
             _nothing_is_named_before_it()
@@ -105,7 +109,8 @@ def test_a_history_with_nothing_in_it_names_no_revision() -> None:
     # lost, or never held - and the counts are still the platform's answer.
     Scenario() \
         .given(platform := _a_platform(a_converged_fleet(), [])) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform,
+                                                       code=a_code_host())) \
         .then(all_of(
             _it_counts(a_converged_fleet()),
             _nothing_is_named_going_out(),
@@ -120,7 +125,8 @@ def test_the_live_deployment_is_read_and_not_only_the_history() -> None:
     # event and call it the present one.
     Scenario() \
         .given(platform := _a_platform(a_fleet_half_updated(), deployed_twice())) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform,
+                                                       code=a_code_host())) \
         .then(lambda _: _the_live_deployment_was_read(platform))
 
 
@@ -139,7 +145,8 @@ def test_a_platform_that_did_not_answer_is_not_reported_as_converged(
     Scenario() \
         .given(platform := _a_platform_failing_with(failure)) \
         .when(attempting(
-            lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)
+            lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform,
+                                                       code=a_code_host())
         )) \
         .then(an_error_was_raised(RolloutUnreadable))
 
@@ -236,6 +243,12 @@ def _a_deployment_of(revision: str, at: str) -> DeploymentRecord:
         path=None,
         initiated_by=None
     )
+
+
+def a_code_host() -> Any:
+    """The code host, which says where a revision is read - and is never asked
+    here, since no deployment in this suite names a repository."""
+    return create_autospec(CodeHostReads, instance=True)
 
 
 def _a_platform(rollout: RolloutProgress, deployed: list[DeploymentRecord]) -> Any:

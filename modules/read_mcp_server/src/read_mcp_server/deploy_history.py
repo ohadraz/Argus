@@ -12,6 +12,7 @@ existed.
 
 from __future__ import annotations
 
+from code_host import CodeHostReads, owner_and_name
 from core import parse_iso
 from core.models import ChangeEvent, ChangeKind
 from deployment_platform import (
@@ -19,14 +20,14 @@ from deployment_platform import (
     DeploymentPlatformReads,
     DeploymentRecord,
 )
-from repository_source import owner_and_name, where_to_read
 
 from read_mcp_server.change_source import ChangeSourceUnavailable
 
 
 def the_revisions_deployed(application: str,
                            *,
-                           platform: DeploymentPlatformReads) -> list[ChangeEvent]:
+                           platform: DeploymentPlatformReads,
+                           code: CodeHostReads) -> list[ChangeEvent]:
     """Every deploy of one application, oldest first, with no window applied.
 
     The whole history, because what one deployment is compared against is the
@@ -41,6 +42,9 @@ def the_revisions_deployed(application: str,
 
     A platform that did not answer becomes `ChangeSourceUnavailable`, whichever
     way it failed. Neither may become "no changes".
+
+    The code host says where each revision can be read, as pages a person
+    opens; it reads nothing to say so.
     """
     try:
         recorded = platform.deployments_of(application)
@@ -50,7 +54,7 @@ def the_revisions_deployed(application: str,
         ) from error
 
     return sorted(
-        (_a_deploy_from(record) for record in recorded),
+        (_a_deploy_from(record, code) for record in recorded),
         key=lambda deploy: parse_iso(deploy.occurred_at)
     )
 
@@ -61,6 +65,7 @@ def fetch_deploys(
     window_start: str,
     window_end: str,
     platform: DeploymentPlatformReads,
+    code: CodeHostReads
 ) -> list[ChangeEvent]:
     """The deploys of one application within one window, as `ChangeEvent`s.
 
@@ -79,12 +84,12 @@ def fetch_deploys(
 
     return [
         deploy
-        for deploy in the_revisions_deployed(application, platform=platform)
+        for deploy in the_revisions_deployed(application, platform=platform, code=code)
         if window_opened <= parse_iso(deploy.occurred_at) <= window_closed
     ]
 
 
-def _a_deploy_from(record: DeploymentRecord) -> ChangeEvent:
+def _a_deploy_from(record: DeploymentRecord, code: CodeHostReads) -> ChangeEvent:
     """`deployed_at` anchors the event: a deploy is "at" the moment it landed,
     which is the moment the symptoms could start."""
     return ChangeEvent(
@@ -93,7 +98,7 @@ def _a_deploy_from(record: DeploymentRecord) -> ChangeEvent:
         reference=record.revision,
         summary=_what_it_shipped(record.revision, record.repo_url, record.path),
         actor=record.initiated_by,
-        revision_source=(where_to_read(record.repo_url, record.revision, record.path)
+        revision_source=(code.where_to_read(record.repo_url, record.revision, record.path)
                          if record.repo_url else None)
     )
 

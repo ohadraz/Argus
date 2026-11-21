@@ -27,11 +27,11 @@ from unittest.mock import create_autospec
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting, calling
-from repository_index.building import IndexSettings, SourceReader, index_repository
+from code_host import CodeHostReads, RepositoryUnreadable
+from repository_index.building import IndexSettings, index_repository
 from repository_index.indexing import Embedder
 from repository_index.records import get
 from repository_index.store import chunks_held_for, ids_held_for
-from repository_source import RepositoryUnreadable
 from vector_store_qdrant.indexing import QdrantIndex
 
 # What a file this cannot parse is cut by. The fixtures here are Python and are
@@ -212,18 +212,17 @@ def _indexed(store: QdrantIndex,
              unreadable: bool = False) -> None:
     """One pass, with the source handed over rather than fetched.
 
-    The reader is the seam: fetching an archive belongs to `repository_source`
-    and is tested there, and a pass that had to build a tarball to be exercised
-    would be testing somebody else's unpacking to reach its own subject.
+    The code host is the seam: fetching an archive belongs to its adapter and is
+    tested there, and a pass that had to build a tarball to be exercised would
+    be testing somebody else's unpacking to reach its own subject.
     """
     index_repository(
-        SOME_REPOSITORY,
         sha,
         settings=_some_settings(),
         conn=records,
         store=store,
         embed=embed or _an_embedder(),
-        read_source=_a_source_reader(files, unreadable),
+        code=_a_code_host_whose_source_is(files, unreadable),
         paths=paths
     )
 
@@ -240,32 +239,26 @@ def _indexed_then_read(store: QdrantIndex,
 
 def _some_settings() -> IndexSettings:
     return IndexSettings(
-        github_api_url="https://api.github.invalid",
-        github_repository=SOME_REPOSITORY,
-        github_read_token="ghp_dont-care-read-token",
         github_source_paths=SOME_DIRECTORY,
-        github_base_branch=DONT_CARE_BRANCH,
+        deployed_branch=DONT_CARE_BRANCH,
         repository_index_collection=DONT_CARE_COLLECTION,
         repository_index_max_lines=SOME_MAX_LINES,
         repository_index_chunk_overlap=SOME_OVERLAP
     )
 
 
-def _a_source_reader(files: dict[str, str], unreadable: bool) -> Any:
-    """A stand-in for `repository_source.the_source_at`.
-
-    Spec'd against the `Protocol` the pass asks by rather than against the real
-    function, for the reason the fix loop's ports are: the pass is asked about a
-    repository, where the function takes the settings to reach one with.
-    """
-    reader = create_autospec(SourceReader, instance=True)
+def _a_code_host_whose_source_is(files: dict[str, str], unreadable: bool) -> Any:
+    """The code host's reads port, for `SOME_REPOSITORY`, answering the whole
+    source with `files` - or refusing to."""
+    code = create_autospec(CodeHostReads, instance=True)
+    code.repository = SOME_REPOSITORY
 
     if unreadable:
-        reader.side_effect = RepositoryUnreadable("no route to host")
+        code.source_at.side_effect = RepositoryUnreadable("no route to host")
     else:
-        reader.return_value = files
+        code.source_at.return_value = files
 
-    return reader
+    return code
 
 
 def _an_embedder() -> Any:

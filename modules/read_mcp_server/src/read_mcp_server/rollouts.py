@@ -40,6 +40,7 @@ a revision and a moment.
 
 from __future__ import annotations
 
+from code_host import CodeHostReads
 from core.models import RolloutAccount, RolloutProgress
 from deployment_platform import DeploymentPlatformError, DeploymentPlatformReads
 
@@ -59,17 +60,18 @@ class RolloutUnreadable(Exception):
 
 def how_the_rollout_is_going(service: str,
                              *,
-                             platform: DeploymentPlatformReads) -> RolloutAccount:
+                             platform: DeploymentPlatformReads,
+                             code: CodeHostReads) -> RolloutAccount:
     """Whether the deployment of `service` finished arriving, and the revisions
     it is between - as a value, for each reader to say in its own words.
 
     The service is the only subject. Which revisions are involved is found here,
     in the deployment history, rather than asked of the caller: a caller naming
     the revision it believes is going out would be naming the thing this channel
-    exists to check.
+    exists to check. The code host says where each revision can be read.
     """
     progress = _the_rollout_of(service, platform)
-    deployed = the_revisions_deployed(service, platform=platform)
+    deployed = the_revisions_deployed(service, platform=platform, code=code)
 
     return RolloutAccount(progress=progress,
                           going_out=deployed[-1] if deployed else None,

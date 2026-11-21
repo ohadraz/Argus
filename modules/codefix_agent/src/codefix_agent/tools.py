@@ -119,7 +119,7 @@ def _ran(call: ToolCall,
     if call.name == SEARCH_BY_MEANING_TOOL:
         near = search_by_meaning(
             str(call.arguments.get(DESCRIPTION_ARGUMENT, "")),
-            settings.github_base_branch
+            settings.deployed_branch
         )
 
         # Answered in words for the reason the substring channel is, and with
@@ -133,7 +133,7 @@ def _ran(call: ToolCall,
 
     if call.name == SEARCH_TOOL:
         found = search(
-            str(call.arguments.get(QUERY_ARGUMENT, "")), settings.github_base_branch
+            str(call.arguments.get(QUERY_ARGUMENT, "")), settings.deployed_branch
         )
 
         # Said rather than left as an empty answer. A model handed nothing
@@ -143,11 +143,11 @@ def _ran(call: ToolCall,
         return "\n".join(found) if found else "no line in the repository matches that"
 
     if call.name == LIST_FILES_TOOL:
-        return "\n".join(list_files(settings.github_base_branch))
+        return "\n".join(list_files(settings.deployed_branch))
 
     if call.name == READ_FILE_TOOL:
         return read_file(
-            str(call.arguments.get(PATH_ARGUMENT, "")), settings.github_base_branch
+            str(call.arguments.get(PATH_ARGUMENT, "")), settings.deployed_branch
         )
 
     return f"there is no tool called {call.name}"

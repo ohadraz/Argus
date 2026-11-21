@@ -1,0 +1,1046 @@
+"""Putting a proposed fix on a branch of its own (spec §7.4, §13).
+
+The half of Code-Fix's outward act that touches code. It writes to a branch and
+only ever to a branch: `main` is not reachable from here, so the worst a wrong
+patch can do is exist somewhere nobody is running.
+
+The fix arrives as **one commit**. Every file it names goes into a single tree
+written on top of the base, and the branch is created last, pointing at the
+finished commit - so a reviewer reads one change rather than one commit per
+file, and a patch is on a branch whole or not there at all.
+
+It writes whatever the fix names, tests included. A fix that comes with the test
+that exposes the bug is the fix a person can trust, so nothing here second-
+guesses which paths a patch may touch - what stops a bad change is that it lands
+on a branch nobody runs, and that a person has to merge it.
+
+And it can be asked twice. A call whose answer was lost on its way back to the
+walk is asked again over a new session, and by then the branch is there - at a
+commit of its own, since GitHub dates a commit as it writes it and the second
+asking writes another. So the branch is looked for before it is created, and
+told apart by what it holds: at the tree this call wrote, it is the fix already
+written; at any other, it is somebody else's work under the name, and is left
+alone.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from collections.abc import Callable
+from typing import Any
+from unittest.mock import create_autospec
+
+import httpx2
+import pytest
+from argus_testkit.assertions import (
+    Assertion,
+    all_of,
+    an_error_was_raised,
+    the_answer_was,
+    the_error_mentioned,
+)
+from argus_testkit.logs import one_record_was_logged
+from argus_testkit.scenario import Scenario, attempting, calling
+from code_host import BranchNotWritten
+from code_host.github.branching import commit_to_new_branch
+from code_host.github.headers import AUTHORIZATION_HEADER
+
+from code_host_test.framework.assertions import the_error_did_not_mention
+from code_host_test.framework.github import A_BRANCH_THAT_EXISTS_STATUS
+from code_host_test.framework.settings import some_repository_settings
+
+DONT_CARE_BRANCH = "argus/dont-care"
+DONT_CARE_BASE = "main"
+DONT_CARE_MESSAGE = "dont care message"
+DONT_CARE_FILES = {"src/io_shop/spend_summary.py": "dont care content"}
+
+SOME_BASE_HEAD = "9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a3f1d8c6e"
+SOME_BASE_TREE = "1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4"
+SOME_WRITTEN_TREE = "7e6d5c4b3a291807f6e5d4c3b2a190817263f5e4"
+SOME_WRITTEN_COMMIT = "3f1d8c6e9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b5a"
+# The commit an earlier asking of the same call wrote - another sha for the same
+# fix, since a commit is dated as it is written - and a tree that is not the fix.
+SOME_EARLIER_COMMIT = "5a3f1d8c6e9f4c1e7b2a3d5c8e1f0b6a4d2c9e7b"
+SOME_OTHER_TREE = "0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3"
+
+# What a branch holding somebody else's work is refused with, in the tier's words.
+OTHER_WORK_UNDER_THE_NAME = (
+    "the branch already exists, at a commit whose tree is not the one this call wrote"
+)
+
+TREES = "/git/trees"
+COMMITS = "/git/commits"
+REFS = "/git/refs"
+
+# What GitHub says refusing a request to create a branch that already exists -
+# whose status is the framework's, shared with the retry's suite.
+A_BRANCH_THAT_EXISTS_SAID = "Reference already exists"
+# And what it answers a request for a ref or a commit it does not have.
+NOTHING_THERE_STATUS = 404
+NOTHING_THERE_SAID = "Not Found"
+
+# Retries - tries after the first - for the cases where a write is made again.
+SOME_RETRIES = 2
+# A write GitHub failed once is made twice: the try it failed, and the next.
+THE_FAILED_TRY_AND_THE_NEXT = 2
+
+# What the two doubles are: a call answered by the URL it was given. Spelled out
+# rather than left as `Any`, because the wrappers below hand one answer straight
+# back - and `Any` returned from a function promising a `Response` is the one
+# thing mypy cannot check for you.
+_Answering = Callable[..., httpx2.Response]
+
+
+@pytest.mark.unit
+def test_the_whole_fix_arrives_as_one_commit() -> None:
+    # A reviewer reads a fix, not a file at a time. Writing each path on its own
+    # made a commit per file - three files, three commits, all carrying the same
+    # message - so the change had to be read as a diff against a base rather
+    # than as the thing it is.
+    some_files = {
+        "src/io_shop/spend_summary.py": "the patched module",
+        "tests/io_shop/test_spend_summary.py": "the regression test it brings",
+        "tests/io_shop/test_account_page.py": "the page test it touched"
+    }
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                files=some_files,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _exactly_one_commit_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_written_with_no_credential_configured_carries_none() -> None:
+    # GitHub then refuses it in its own words. "Bearer" with nothing after it
+    # is refused before the request leaves, in words that name no credential.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(token=""),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _no_request_carried_a_credential(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_gets_a_branch_of_its_own_pointing_at_the_commit_it_became() -> None:
+    some_branch = "argus/fix-monthly-spend-divisor"
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=some_branch,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _a_branch_was_created(repository, some_branch, at=SOME_WRITTEN_COMMIT)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_head_it_branches_from_is_read_from_the_base_branch() -> None:
+    some_base = "main"
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=some_base,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _a_request_was_made_to(
+                    repository.get, f"/git/ref/heads/{some_base}"
+                )
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_commit_sits_on_top_of_the_code_it_fixes() -> None:
+    # On top of the base rather than beside it, in both halves: the tree is
+    # written over the base's own tree, so files the fix did not name survive,
+    # and the commit names the base as its parent. A commit with no parent is a
+    # root commit, which shares no history with the branch it is proposed
+    # against and cannot be merged into it.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _the_tree_was_written_over(repository, SOME_BASE_TREE),
+                _the_commit_was_a_child_of(repository, SOME_BASE_HEAD),
+                _the_commit_points_at_the_tree(repository, SOME_WRITTEN_TREE)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_every_file_in_the_fix_is_in_the_tree_the_commit_points_at() -> None:
+    some_files = {
+        "src/io_shop/spend_summary.py": "the patched module",
+        "tests/io_shop/test_regression.py": "the regression test it brings"
+    }
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                files=some_files,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _a_file_was_written(
+                    repository,
+                    "src/io_shop/spend_summary.py",
+                    content="the patched module"
+                ),
+                _a_file_was_written(
+                    repository,
+                    "tests/io_shop/test_regression.py",
+                    content="the regression test it brings"
+                )
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_fix_is_committed_under_the_message_it_was_given() -> None:
+    some_message = "fix: the monthly figure divides by an empty month"
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=some_message,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _the_commit_was_written_as(repository, some_message)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_branch_appears_only_once_the_commit_is_whole() -> None:
+    # Nothing anyone can reach exists until the last call: a tree and a commit
+    # are unreachable objects until a ref points at one. A branch created first
+    # and written to file by file can be found half-patched, and a pull request
+    # opened from it proposes a change nobody wrote.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=DONT_CARE_BRANCH,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            all_of(
+                _the_branch_was_created_last(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_tree_the_repository_refuses_leaves_no_branch_behind() -> None:
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _refusing(
+        TREES, status_code=422, saying="tree entry is not valid"
+    )
+
+    Scenario() \
+        .when(attempting(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        ))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten),
+                _no_branch_was_created(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_commit_the_repository_refuses_leaves_no_branch_behind() -> None:
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _refusing(
+        COMMITS, status_code=422, saying="parents are not valid"
+    )
+
+    Scenario() \
+        .when(attempting(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        ))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten),
+                _no_branch_was_created(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_repository_that_refuses_the_branch_is_not_reported_as_written() -> None:
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _refusing_a_branch_that_exists()
+
+    Scenario() \
+        .when(attempting(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        ))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_unreachable_repository_is_not_reported_as_written() -> None:
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.get.side_effect = httpx2.ConnectError("connection refused")
+
+    Scenario() \
+        .when(attempting(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        ))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_base_whose_commit_cannot_be_read_is_not_reported_as_written() -> None:
+    # The tree has to be written over the base's own, so a base commit that
+    # cannot be read is not a detail to work around: a tree written over
+    # nothing would propose a repository containing only the patched files.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.get.side_effect = _reading_but_refusing_the_commit(SOME_BASE_HEAD)
+
+    Scenario() \
+        .when(attempting(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        ))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten),
+                _no_branch_was_created(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_write_github_failed_for_a_moment_is_made_on_the_next_try() -> None:
+    # A tree and a commit are objects nothing points at until the branch does,
+    # so one written twice is one more object nobody reads.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _failing_once(TREES, status_code=502)
+
+    Scenario() \
+        .when(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(retries=SOME_RETRIES),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        )) \
+        .then(
+            all_of(
+                _a_branch_was_created(repository, DONT_CARE_BRANCH, at=SOME_WRITTEN_COMMIT),
+                _written_times(repository, TREES, THE_FAILED_TRY_AND_THE_NEXT)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_github_created_while_answering_500_is_not_created_again() -> None:
+    # A 500 can come back for a ref the server created. Asked for again, it is
+    # refused as one that already exists - so the branch is looked for first,
+    # and one holding the tree this call wrote is the branch written.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _failing_once(REFS, status_code=500)
+    repository.get.side_effect = _reading_and_finding_once_created(
+        repository, DONT_CARE_BRANCH, at=SOME_WRITTEN_COMMIT
+    )
+
+    Scenario() \
+        .when(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(retries=SOME_RETRIES),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        )) \
+        .then(
+            all_of(
+                the_answer_was(DONT_CARE_BRANCH),
+                _written_times(repository, REFS, 1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_an_earlier_asking_wrote_with_this_fix_is_answered_as_written() -> None:
+    # The second asking of a call whose answer was lost on its way back. Its
+    # tree is this one's - the same files over the same base - though its
+    # commit is not. Asked to create the branch, GitHub refuses one that
+    # exists, and a fix that is on its branch is reported as one that is not.
+    some_branch = "argus/fix-monthly-spend-divisor"
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    _refused_as_existing_and_found_already(repository, some_branch,
+                                           at=SOME_EARLIER_COMMIT, whose_tree=SOME_WRITTEN_TREE)
+
+    Scenario() \
+        .when(lambda: commit_to_new_branch(
+            branch=some_branch,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        )) \
+        .then(
+            all_of(
+                the_answer_was(some_branch),
+                _written_times(repository, REFS, 0)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_an_earlier_asking_wrote_is_logged_as_written_at_that_asking_s_commit(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # What the branch points at is the earlier asking's commit, not the one
+    # this asking wrote and nothing points at - so that is the commit said.
+    some_branch = "argus/fix-monthly-spend-divisor"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            repository := a_repository_whose_head_is(SOME_BASE_HEAD),
+            calling(lambda: _refused_as_existing_and_found_already(
+                repository, some_branch, at=SOME_EARLIER_COMMIT, whose_tree=SOME_WRITTEN_TREE
+            ))
+        ) \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=some_branch,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post,
+                sleep=repository.sleep
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "code_host.github.branching", logging.INFO,
+                                  "branch written",
+                                  values={"branch": some_branch,
+                                          "commit": SOME_EARLIER_COMMIT})
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_holding_other_work_under_the_name_is_refused_plainly_and_left_alone() -> None:
+    # The base moved between the two askings, or the name was somebody else's
+    # first: either way the branch holds a tree this call did not write, and
+    # proposing it would propose work nobody reviewed as this fix. Refused in
+    # words that say so, naming the branch a person has to look at.
+    some_branch = "argus/fix-monthly-spend-divisor"
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    _refused_as_existing_and_found_already(repository, some_branch,
+                                           at=SOME_EARLIER_COMMIT, whose_tree=SOME_OTHER_TREE)
+
+    Scenario() \
+        .when(attempting(lambda: commit_to_new_branch(
+            branch=some_branch,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        ))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten),
+                the_error_mentioned(OTHER_WORK_UNDER_THE_NAME),
+                the_error_mentioned(some_branch),
+                _written_times(repository, REFS, 0)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_write_github_failed_is_said_in_github_s_own_terms() -> None:
+    # The HTTP library's own sentence named the address a second time and sent
+    # a reader to a Mozilla page about status codes. What failed is GitHub's
+    # answer, and that is what the error says.
+    repository = a_repository_whose_head_is(SOME_BASE_HEAD)
+    repository.post.side_effect = _refusing(TREES, status_code=500, saying="")
+
+    Scenario() \
+        .when(attempting(lambda: commit_to_new_branch(
+            branch=DONT_CARE_BRANCH,
+            base_branch=DONT_CARE_BASE,
+            files=DONT_CARE_FILES,
+            message=DONT_CARE_MESSAGE,
+            settings=some_repository_settings(),
+            get=repository.get,
+            post=repository.post,
+            sleep=repository.sleep
+        ))) \
+        .then(
+            all_of(
+                an_error_was_raised(BranchNotWritten),
+                the_error_mentioned("GitHub answered 500 Internal Server Error"),
+                the_error_did_not_mention("for url"),
+                the_error_did_not_mention("developer.mozilla.org")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_written_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    # Not a change to anything running, but the one thing this tier leaves in
+    # somebody else's repository - so where it is, and what it points at.
+    some_branch = "argus/fix-monthly-spend-divisor"
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            repository := a_repository_whose_head_is(SOME_BASE_HEAD)
+        ) \
+        .when(
+            lambda: commit_to_new_branch(
+                branch=some_branch,
+                base_branch=DONT_CARE_BASE,
+                files=DONT_CARE_FILES,
+                message=DONT_CARE_MESSAGE,
+                settings=some_repository_settings(),
+                get=repository.get,
+                post=repository.post
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "code_host.github.branching", logging.INFO,
+                                  "branch written",
+                                  values={"branch": some_branch,
+                                          "commit": SOME_WRITTEN_COMMIT})
+        )
+
+
+def _exactly_one_commit_was_written(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        written = _posted(repository, COMMITS)
+
+        if len(written) != 1:
+            raise AssertionError(
+                f"Expected the fix to arrive as one commit, got {len(written)}: "
+                f"{[said.get('message') for said in written]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_branch_was_created(repository: _Repository,
+                          branch: str,
+                          *,
+                          at: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        body = _the_one(_posted(repository, REFS), "branch")
+        expected_ref = f"refs/heads/{branch}"
+
+        if body.get("ref") != expected_ref:
+            raise AssertionError(
+                f"Expected a branch created as [{expected_ref}], "
+                f"got [{body.get('ref')}]."
+            )
+
+        if body.get("sha") != at:
+            raise AssertionError(
+                f"Expected the branch pointing at [{at}], got [{body.get('sha')}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_request_was_made_to(call: Any, path: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        addressed = [made.args[0] for made in call.call_args_list]
+
+        if not any(url.endswith(path) for url in addressed):
+            raise AssertionError(
+                f"Expected a request ending [{path}], got {addressed}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tree_was_written_over(repository: _Repository, base_tree: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        body = _the_one(_posted(repository, TREES), "tree")
+
+        if body.get("base_tree") != base_tree:
+            raise AssertionError(
+                f"Expected the tree written over [{base_tree}], "
+                f"got [{body.get('base_tree')}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_commit_was_a_child_of(repository: _Repository, parent: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        body = _the_one(_posted(repository, COMMITS), "commit")
+
+        if body.get("parents") != [parent]:
+            raise AssertionError(
+                f"Expected the commit's parents [{[parent]}], got {body.get('parents')}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_commit_points_at_the_tree(repository: _Repository, tree: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        body = _the_one(_posted(repository, COMMITS), "commit")
+
+        if body.get("tree") != tree:
+            raise AssertionError(
+                f"Expected the commit pointing at tree [{tree}], got [{body.get('tree')}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_file_was_written(repository: _Repository,
+                        path: str,
+                        *,
+                        content: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        body = _the_one(_posted(repository, TREES), "tree")
+        entries = body.get("tree", [])
+
+        for entry in entries:
+            if entry.get("path") != path:
+                continue
+
+            if entry.get("content") != content:
+                raise AssertionError(
+                    f"Expected [{path}] written as [{content!r}], "
+                    f"got [{entry.get('content')!r}]."
+                )
+
+            if entry.get("mode") != "100644":
+                raise AssertionError(
+                    f"Expected [{path}] written as an ordinary file [100644], "
+                    f"got mode [{entry.get('mode')}]."
+                )
+
+            return True
+
+        raise AssertionError(
+            f"Expected [{path}] in the tree, got {[said.get('path') for said in entries]}."
+        )
+
+    return assertion
+
+
+def _the_commit_was_written_as(repository: _Repository, message: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        body = _the_one(_posted(repository, COMMITS), "commit")
+
+        if body.get("message") != message:
+            raise AssertionError(
+                f"Expected the commit message [{message!r}], "
+                f"got [{body.get('message')!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_branch_was_created_last(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        addressed = [made.args[0] for made in repository.post.call_args_list]
+
+        if not addressed or not addressed[-1].endswith(REFS):
+            raise AssertionError(
+                f"Expected the branch created last, the writes were {addressed}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_branch_was_created(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        created = _posted(repository, REFS)
+
+        if created:
+            raise AssertionError(
+                f"Expected no branch to be created, {len(created)} was: {created}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _posted(repository: _Repository, to: str) -> list[dict[str, Any]]:
+    """Every body sent to one endpoint, in the order it was sent."""
+    return [
+        made.kwargs["json"]
+        for made in repository.post.call_args_list
+        if made.args[0].endswith(to)
+    ]
+
+
+def _the_one(written: list[dict[str, Any]], what: str) -> dict[str, Any]:
+    """The single body an endpoint was sent, or a failure naming how many it got.
+
+    Most of what this module does happens exactly once, so "which one did you
+    mean" is never the right question - a second tree or a second commit is the
+    defect itself, and reading `[0]` would hide it.
+    """
+    if len(written) != 1:
+        raise AssertionError(f"Expected one {what} to be written, got {len(written)}.")
+
+    return written[0]
+
+
+def _an_answer(body: dict[str, Any], status_code: int = 200) -> httpx2.Response:
+    return httpx2.Response(
+        status_code=status_code,
+        json=body,
+        request=httpx2.Request("GET", "http://github.invalid/")
+    )
+
+
+def _reading(head: str) -> _Answering:
+    """Answers the two reads by the URL asked for rather than by their order.
+
+    A list of canned responses has to be re-counted every time the module reads
+    one more thing, and re-counted wrongly it passes a ref answer off as a
+    commit - which is a green test for code that cannot work.
+
+    The base is the one branch there is: any other is answered as GitHub
+    answers a branch that does not exist, since the branch a fix is written to
+    is looked for before it is created.
+    """
+    def answer(url: str, **_: Any) -> httpx2.Response:
+        if url.endswith(f"/git/ref/heads/{DONT_CARE_BASE}"):
+            return _an_answer({"object": {"sha": head}})
+
+        if "/git/ref/heads/" in url:
+            return _an_answer({"message": NOTHING_THERE_SAID}, status_code=NOTHING_THERE_STATUS)
+
+        if f"/git/commits/{head}" in url:
+            return _an_answer({"sha": head, "tree": {"sha": SOME_BASE_TREE}})
+
+        raise AssertionError(f"Nothing here reads [{url}].")
+
+    return answer
+
+
+def _reading_but_refusing_the_commit(head: str) -> _Answering:
+    answering = _reading(head)
+
+    def answer(url: str, **called: Any) -> httpx2.Response:
+        if f"/git/commits/{head}" in url:
+            return _an_answer({"message": NOTHING_THERE_SAID}, status_code=NOTHING_THERE_STATUS)
+
+        return answering(url, **called)
+
+    return answer
+
+
+def _writing() -> _Answering:
+    """Answers the three writes by the URL written to, for the same reason."""
+    def answer(url: str, **_: Any) -> httpx2.Response:
+        if url.endswith(TREES):
+            return _an_answer({"sha": SOME_WRITTEN_TREE}, status_code=201)
+
+        if url.endswith(COMMITS):
+            return _an_answer({"sha": SOME_WRITTEN_COMMIT}, status_code=201)
+
+        if url.endswith(REFS):
+            return _an_answer(
+                {"ref": f"refs/heads/{DONT_CARE_BRANCH}"}, status_code=201
+            )
+
+        raise AssertionError(f"Nothing here writes to [{url}].")
+
+    return answer
+
+
+def _refusing(endpoint: str, *, status_code: int, saying: str) -> _Answering:
+    """A repository that answers every write but the one endpoint named."""
+    answering = _writing()
+
+    def answer(url: str, **called: Any) -> httpx2.Response:
+        if url.endswith(endpoint):
+            return _an_answer({"message": saying}, status_code=status_code)
+
+        return answering(url, **called)
+
+    return answer
+
+
+def _refusing_a_branch_that_exists() -> _Answering:
+    """A repository that answers every write but the branch, which it refuses
+    as GitHub refuses a branch already there."""
+    return _refusing(REFS, status_code=A_BRANCH_THAT_EXISTS_STATUS,
+                     saying=A_BRANCH_THAT_EXISTS_SAID)
+
+
+def _refused_as_existing_and_found_already(repository: _Repository,
+                                           branch: str,
+                                           *,
+                                           at: str,
+                                           whose_tree: str) -> None:
+    """`branch` there before anything was asked, at `at`, a commit whose tree
+    is `whose_tree` - and a request to create it refused as one that exists."""
+    repository.post.side_effect = _refusing_a_branch_that_exists()
+    repository.get.side_effect = _reading_and_finding_already(branch, at=at,
+                                                              whose_tree=whose_tree)
+
+
+def _failing_once(endpoint: str, *, status_code: int) -> _Answering:
+    """A repository whose first write to the endpoint named fails, and which
+    answers every write after it."""
+    answering = _writing()
+    failed: list[str] = []
+
+    def answer(url: str, **called: Any) -> httpx2.Response:
+        if url.endswith(endpoint) and not failed:
+            failed.append(url)
+            return _an_answer({}, status_code=status_code)
+
+        return answering(url, **called)
+
+    return answer
+
+
+def _reading_and_finding_once_created(repository: _Repository,
+                                      branch: str,
+                                      *,
+                                      at: str) -> _Answering:
+    """The two reads, and the branch named not there until it was asked for -
+    and then found pointing at `at`, the commit this call wrote."""
+    answering = _reading(SOME_BASE_HEAD)
+
+    def answer(url: str, **called: Any) -> httpx2.Response:
+        if url.endswith(f"/git/ref/heads/{branch}") and _posted(repository, REFS):
+            return _an_answer({"object": {"sha": at}})
+
+        if url.endswith(f"/git/commits/{at}"):
+            return _an_answer({"sha": at, "tree": {"sha": SOME_WRITTEN_TREE}})
+
+        return answering(url, **called)
+
+    return answer
+
+
+def _reading_and_finding_already(branch: str, *, at: str, whose_tree: str) -> _Answering:
+    """The two reads, and the branch named there before anything was asked -
+    pointing at `at`, a commit whose tree is `whose_tree`."""
+    answering = _reading(SOME_BASE_HEAD)
+
+    def answer(url: str, **called: Any) -> httpx2.Response:
+        if url.endswith(f"/git/ref/heads/{branch}"):
+            return _an_answer({"object": {"sha": at}})
+
+        if url.endswith(f"/git/commits/{at}"):
+            return _an_answer({"sha": at, "tree": {"sha": whose_tree}})
+
+        return answering(url, **called)
+
+    return answer
+
+
+def _written_times(repository: _Repository, to: str, times: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        written = _posted(repository, to)
+
+        if len(written) != times:
+            raise AssertionError(
+                f"Expected [{to}] written {times} times, it was written {len(written)}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_request_carried_a_credential(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        carried = [
+            made.kwargs["headers"][AUTHORIZATION_HEADER]
+            for made in [*repository.get.call_args_list, *repository.post.call_args_list]
+            if AUTHORIZATION_HEADER in made.kwargs.get("headers", {})
+        ]
+
+        if carried:
+            raise AssertionError(
+                f"Expected no request to carry a credential, {len(carried)} carried {carried}."
+            )
+
+        return True
+
+    return assertion
+
+
+class _Repository:
+    def __init__(self) -> None:
+        self.get: Any = create_autospec(httpx2.get)
+        self.post: Any = create_autospec(httpx2.post)
+        self.sleep: Any = create_autospec(time.sleep)
+
+
+def a_repository_whose_head_is(head: str) -> _Repository:
+    """A repository that answers every call successfully."""
+    repository = _Repository()
+    repository.get.side_effect = _reading(head)
+    repository.post.side_effect = _writing()
+
+    return repository
