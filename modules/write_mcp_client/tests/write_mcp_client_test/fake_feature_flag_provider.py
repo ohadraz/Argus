@@ -15,18 +15,50 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import Any
+from typing import Any, Final
 
+from argus_testkit import a_free_port
 from core import get_settings
+from mcp.server.streamable_http import CONTENT_TYPE_JSON, CONTENT_TYPE_SSE
+from mcp.types import (
+    LATEST_PROTOCOL_VERSION,
+    ClientCapabilities,
+    Implementation,
+    InitializeRequest,
+    InitializeRequestParams,
+    InitializeResult,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 
-FAKE_UNLEASH_PORT = 8181
-WRITE_MCP_TEST_PORT = 8192
+# Where the fakes listen: loopback, on whatever port the operating system hands
+# out. A port written here is shared by every copy of this suite running at
+# once - a second checkout's, or a WSL run's, whose listeners `wslrelay.exe`
+# forwards to this machine's loopback - and one copy's client then talks to the
+# other's server.
+LOOPBACK = "127.0.0.1"
+ANY_FREE_PORT = 0
 # How long a started server has to answer before it is taken to hang. A guard
 # against a hang and nothing tighter: a server that fails to start is seen
 # exiting and said at once, and with every suite running at once a start that
 # takes three seconds idle has been measured at over fifteen.
 LONG_PAST_ANY_START_SECONDS = 180.0
 A_MOMENT_BETWEEN_KNOCKS_SECONDS = 0.2
+# How long one knock on a starting server waits for its answer.
+A_KNOCK_SECONDS = 1.0
+
+# Who the write tier says it is when a session is opened over MCP: the name its
+# server is built with. What a knock is answered with before the server counts
+# as up - any other answer on the port is somebody else's.
+THE_WRITE_TIER = "argus-write-mcp"
+# Where it serves MCP, and the parts of the protocol a knock speaks: JSON-RPC's
+# version, the one request's id, who is knocking, and the field of a
+# server-sent event that carries the answer.
+MCP_PATH: Final = "/mcp"
+JSONRPC_VERSION: Final = "2.0"
+A_KNOCK_ID = 1
+THE_KNOCKER = Implementation(name="write-mcp-client-suite", version="0")
+SSE_DATA_FIELD: Final = "data:"
 
 DONT_CARE_ADMIN_TOKEN = "*:*.dont-care-admin-token"
 DONT_CARE_FRONTEND_TOKEN = "default:production.dont-care-frontend-token"
@@ -146,23 +178,28 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     module by its filename, so a second `conftest` anywhere under `modules/`
     collides with the first and aborts the whole type-check run. This file's
     name is its own, and the test wraps it in a one-line fixture.
+
+    The fake binds whatever port it is given and is asked which; the server
+    is handed one the operating system just said was free, and counts as up
+    only once it answers as the write tier on it.
     """
-    fake_unleash = HTTPServer(("127.0.0.1", FAKE_UNLEASH_PORT), FakeUnleashHandler)
+    fake_unleash = HTTPServer((LOOPBACK, ANY_FREE_PORT), FakeUnleashHandler)
     server_thread = Thread(target=fake_unleash.serve_forever, daemon=True)
     server_thread.start()
 
+    write_mcp_port = a_free_port()
     env = os.environ.copy()
     # Somewhere of its own, so a suite never writes into the repository's
     # telemetry directory.
     telemetry = TemporaryDirectory(prefix="argus-telemetry-", ignore_cleanup_errors=True)
     env["TELEMETRY_DIRECTORY"] = telemetry.name
-    env["UNLEASH_BASE_URL"] = f"http://127.0.0.1:{FAKE_UNLEASH_PORT}"
+    env["UNLEASH_BASE_URL"] = f"http://{LOOPBACK}:{fake_unleash.server_address[1]}"
     env["UNLEASH_ADMIN_TOKEN"] = DONT_CARE_ADMIN_TOKEN
     env["UNLEASH_FRONTEND_TOKEN"] = DONT_CARE_FRONTEND_TOKEN
     env["UNLEASH_ACTOR"] = THE_ARGUS_ACTOR
     env["UNLEASH_ENVIRONMENT"] = THE_ENVIRONMENT
-    env["WRITE_MCP_HOST"] = "127.0.0.1"
-    env["WRITE_MCP_PORT"] = str(WRITE_MCP_TEST_PORT)
+    env["WRITE_MCP_HOST"] = LOOPBACK
+    env["WRITE_MCP_PORT"] = str(write_mcp_port)
     # The suite is a package tree rather than an installed distribution, so a
     # subprocess told to run one of its modules is told where the tree is.
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
@@ -178,7 +215,7 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     get_settings.cache_clear()
 
     try:
-        _wait_for_write_mcp(write_mcp_process)
+        _wait_for_write_mcp(write_mcp_process, f"http://{LOOPBACK}:{write_mcp_port}{MCP_PATH}")
         yield FakeUnleashHandler
     finally:
         write_mcp_process.terminate()
@@ -217,9 +254,14 @@ def _flag_and_state_in(path: str) -> tuple[str | None, str]:
     return segments[5], segments[-1]
 
 
-def _wait_for_write_mcp(process: subprocess.Popen[bytes]) -> None:
-    """Waits until the server answers, and says at once that it never will
-    where its process has ended."""
+def _wait_for_write_mcp(process: subprocess.Popen[bytes], url: str) -> None:
+    """Waits until the server at `url` answers as the write tier, and says at
+    once that it never will where its process has ended.
+
+    As the write tier rather than at all: any other answer on the port says
+    only that something is listening there - another copy of this suite's
+    server, or one a killed run left behind - while this one may have failed to
+    take the port, and will then be seen ending."""
     deadline = time.monotonic() + LONG_PAST_ANY_START_SECONDS
     while time.monotonic() < deadline:
         ended_with = process.poll()
@@ -228,14 +270,49 @@ def _wait_for_write_mcp(process: subprocess.Popen[bytes]) -> None:
                 f"write_mcp test server ended with [{ended_with}] before it answered"
             )
         try:
-            urllib.request.urlopen(f"http://127.0.0.1:{WRITE_MCP_TEST_PORT}/mcp", timeout=1.0)
-            return
-        except urllib.error.HTTPError:
-            return  # a real HTTP response (even an error one) means the server is up
+            if _who_answers_at(url) == THE_WRITE_TIER:
+                return
+        except (urllib.error.HTTPError, ValueError):
+            # Something that is no MCP server answered - refusing the knock,
+            # or with something that is not an answer to it.
+            pass
         except OSError:
             # Not answering yet: refused, or taken and not answered within the
             # knock's second - which `urlopen` raises bare, not as a `URLError`.
-            time.sleep(A_MOMENT_BETWEEN_KNOCKS_SECONDS)
+            pass
+        time.sleep(A_MOMENT_BETWEEN_KNOCKS_SECONDS)
     raise TimeoutError(
         f"write_mcp test server did not answer within {LONG_PAST_ANY_START_SECONDS:.0f}s"
     )
+
+
+def _who_answers_at(url: str) -> str:
+    """The name the MCP server at `url` gives when a session is opened with it
+    (`initialize`), answered as a server-sent event or as JSON - whichever the
+    server chooses."""
+    knock = InitializeRequest(params=InitializeRequestParams(
+        protocolVersion=LATEST_PROTOCOL_VERSION,
+        capabilities=ClientCapabilities(),
+        clientInfo=THE_KNOCKER
+    ))
+    asked = JSONRPCRequest(jsonrpc=JSONRPC_VERSION, id=A_KNOCK_ID,
+                           **knock.model_dump(by_alias=True, mode="json", exclude_none=True))
+    request = urllib.request.Request(
+        url,
+        data=asked.model_dump_json(by_alias=True, exclude_none=True).encode(),
+        headers={"Content-Type": CONTENT_TYPE_JSON,
+                 "Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_SSE}"},
+        method="POST"
+    )
+
+    with urllib.request.urlopen(request, timeout=A_KNOCK_SECONDS) as answered:
+        said = answered.read().decode()
+        as_an_event = answered.headers.get_content_type() == CONTENT_TYPE_SSE
+
+    if as_an_event:
+        said = next((line.removeprefix(SSE_DATA_FIELD) for line in said.splitlines()
+                     if line.startswith(SSE_DATA_FIELD)), "")
+
+    response = JSONRPCResponse.model_validate_json(said)
+
+    return InitializeResult.model_validate(response.result).serverInfo.name

@@ -22,6 +22,7 @@ import json
 import os
 import re
 import time
+import uuid
 from collections import deque
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -42,7 +43,15 @@ UPSTREAM_BASE_URL = os.environ.get("ANTHROPIC_DOUBLE_UPSTREAM", "https://api.ant
 # test fixture. Callers that need to point at it - the harness that starts it,
 # the tests that seed it - import these.
 DEFAULT_PORT = int(os.environ.get("ANTHROPIC_DOUBLE_PORT", "8091"))
-DEFAULT_BASE_URL = f"http://localhost:{DEFAULT_PORT}"
+# By address rather than by name: `localhost` resolves to IPv6 first, and a
+# listener on `[::1]` at this number - which a port found free on `127.0.0.1`
+# says nothing about - would answer before this one.
+DEFAULT_BASE_URL = f"http://127.0.0.1:{DEFAULT_PORT}"
+# What this process answers `/health` with, so whoever started it can tell its
+# answer from any other on the port - another run's double, a WSL run's that
+# `wslrelay.exe` forwards to this machine's loopback, or one a killed run left
+# behind. Handed in by the starter; a process nobody handed one makes its own.
+TOKEN: Final = os.environ.get("DOUBLE_TOKEN") or uuid.uuid4().hex
 
 # The `error.type` Anthropic returns for each status the double can be asked to
 # produce. Seeding a status without a body gets the canonical shape for it, so
@@ -285,8 +294,9 @@ app = FastAPI(title="anthropic-double")
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """Readiness probe, so a test harness can wait for the port to answer."""
-    return {"status": "ok"}
+    """Readiness probe, so a test harness can wait for the port to answer - and
+    know it was this process that answered, by the token it was started with."""
+    return {"status": "ok", "token": TOKEN}
 
 
 @app.post("/double-control/seed")

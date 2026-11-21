@@ -88,8 +88,9 @@ _SERVED_ONCE: Final = 1
 # Where the grounding judge's model double listens: a double of its own, since
 # one queue serving the writer and its judge would hand each the other's
 # answers. Kept in step with the noxfile's `_JUDGE_ANTHROPIC_DOUBLE_PORT` by
-# hand, as the other addresses here are.
-JUDGE_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://localhost:8088"
+# hand, as the other addresses here are - and by address rather than by
+# `localhost`, as the noxfile addresses it.
+JUDGE_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://127.0.0.1:8088"
 # What a set's judge answers are stored under, ahead of the set's own name.
 _JUDGED: Final = "judge-"
 

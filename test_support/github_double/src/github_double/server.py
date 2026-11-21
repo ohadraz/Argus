@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import os
+import uuid
 from typing import Any, Final
 
 from fastapi import FastAPI, Request, Response
@@ -39,7 +40,15 @@ from github_double.repository import (
 # other doubles' ports are not: the double is not part of Argus, and Argus's own
 # config should not grow a field describing a test fixture.
 DEFAULT_PORT: Final = int(os.environ.get("GITHUB_DOUBLE_PORT", "8096"))
-DEFAULT_BASE_URL: Final = f"http://localhost:{DEFAULT_PORT}"
+# By address rather than by name: `localhost` resolves to IPv6 first, and a
+# listener on `[::1]` at this number - which a port found free on `127.0.0.1`
+# says nothing about - would answer before this one.
+DEFAULT_BASE_URL: Final = f"http://127.0.0.1:{DEFAULT_PORT}"
+# What this process answers `/health` with, so whoever started it can tell its
+# answer from any other on the port - another run's double, a WSL run's that
+# `wslrelay.exe` forwards to this machine's loopback, or one a killed run left
+# behind. Handed in by the starter; a process nobody handed one makes its own.
+TOKEN: Final = os.environ.get("DOUBLE_TOKEN") or uuid.uuid4().hex
 
 # GitHub's own vocabulary, named here because this is the module that writes it.
 _SHA_FIELD: Final = "sha"
@@ -414,8 +423,9 @@ async def open_the_pull_request(owner: str, repo: str, request: Request) -> JSON
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """Readiness probe, so a test harness can wait for the port to answer."""
-    return {"status": "ok"}
+    """Readiness probe, so a test harness can wait for the port to answer - and
+    know it was this process that answered, by the token it was started with."""
+    return {"status": "ok", "token": TOKEN}
 
 
 @app.post("/double-control/reset")

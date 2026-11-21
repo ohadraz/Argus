@@ -36,6 +36,7 @@ from types import TracebackType
 from typing import Any, Final, Self
 
 import uvicorn
+from argus_testkit import a_free_port
 from core import Fence
 from core.mcp_transport import (
     ACTION_META_KEY,
@@ -55,8 +56,6 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-
-TRANSPORT_DOUBLE_PORT = 8194
 
 # How long a started double has to answer before it is taken to hang. A guard
 # against a hang and nothing tighter: a process that fails to start is seen
@@ -691,9 +690,12 @@ class RunningDouble:
 
 
 @contextmanager
-def a_running_double(port: int = TRANSPORT_DOUBLE_PORT) -> Generator[RunningDouble]:
-    """One double, running for the length of one test."""
-    with RunningDouble(port) as double:
+def a_running_double() -> Generator[RunningDouble]:
+    """One double, running for the length of one test, on a port the operating
+    system handed out rather than one written here - a written one is shared by
+    every copy of this suite running at once, a second checkout's or a WSL
+    run's, and one copy's client then talks to the other's double."""
+    with RunningDouble(a_free_port()) as double:
         yield double
 
 

@@ -65,7 +65,8 @@ from tests.e2e.framework.argus import (
 # Where the intent reader's model double listens. Kept in step with the noxfile's
 # `_INTENT_ANTHROPIC_DOUBLE_PORT` by hand, as the other addresses here are:
 # the noxfile is read before anything is installed, and is imported by nothing.
-INTENT_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://localhost:8098"
+# By address rather than by `localhost`, as the noxfile addresses it.
+INTENT_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://127.0.0.1:8098"
 
 # The intent reader's recorded readings: a person saying the incident is over,
 # a person telling Argus to stand down, a person telling Argus something, and a

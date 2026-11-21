@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -175,15 +176,15 @@ def test_module(session: nox.Session, module: str) -> None:
     filter rather than left to `test_all`: a marker a session does not select is a
     marker whose tests quietly never run.
 
-    Runs against a database of this module's own, and a Slack double port of its
-    own, so it can run beside `e2e_replay` - or beside another module's suite -
-    rather than stop the database either of them is using or lose the bind to
-    the double either of them is talking to. The conftests that bring postgres
-    and the double up inherit this environment; none of them is handed one.
+    Runs against a database and a vector store of this module's own, so it can
+    run beside `e2e_replay` - or beside another module's suite - rather than
+    stop the database either of them is using or lose the bind to the store
+    either of them is talking to. The conftests that bring postgres and the
+    store up inherit this environment; none of them is handed one. A server a
+    suite runs itself - a double, a fake, an MCP tier - takes a port the
+    operating system hands it, and is given none here.
     """
-    os.environ.update(
-        _a_database_for(module) | _a_slack_double_for(module) | _a_qdrant_for(module)
-    )
+    os.environ.update(_a_database_for(module) | _a_qdrant_for(module))
     session.run(
         # Its own declared dependencies, and deliberately not `--all-extras`.
         # Installing every optional dependency would make this pass for the one
@@ -218,8 +219,9 @@ def test_all(session: nox.Session) -> None:
     full-picture visibility, intended for CI.
 
     Concurrent because no two suites share anything: each runs with the
-    database, Slack double port and vector store port `test_module` gives that
-    module, so none binds another's port or stops another's containers. Which
+    database and vector store port `test_module` gives that module, and every
+    server it runs itself on a port the operating system hands it, so none
+    binds another's port or stops another's containers. Which
     is also why `test_all` and `test_module` for the same module cannot run at
     once - they are the same suite in the same places.
     """
@@ -314,7 +316,7 @@ def _start_suite(module: str, output: IO[bytes]) -> _RunningSuite:
     process = _start_process(
         ["uv", "run", "--package", f"argus-{module}",
          "python", "-m", "pytest", _SUITES[module], "-v"],
-        env=_a_database_for(module) | _a_slack_double_for(module) | _a_qdrant_for(module),
+        env=_a_database_for(module) | _a_qdrant_for(module),
         output=output
     )
     # Said as it starts, so a suite that never ends is one a reader can name
@@ -420,9 +422,10 @@ def sweep(session: nox.Session) -> None:
     stops the lot the moment one of them fails.
 
     They can share a machine because none of them shares infrastructure: each
-    brings up a database under a compose project of its own, and the doubles and
-    stores they publish bind ports of their own (`_INTEGRATION_STACK`, and
-    `_a_database_for` and its two siblings per module). A project is not
+    brings up a database under a compose project of its own, the stores they
+    publish bind ports of their own (`_INTEGRATION_STACK`, and `_a_database_for`
+    and its sibling per module), and every server a suite starts itself listens
+    on a port the operating system hands it. A project is not
     enough on its own - it decides whose container a container is, and the
     published port is still the host's
     one address - which is what a vector store on the default 6333 in both
@@ -824,11 +827,30 @@ def _contract_against(session: nox.Session,
     which parties are being checked. `compose_services` is for a real party
     that runs here rather than across the internet. Anything after `--` goes to
     pytest, as everywhere else here.
+
+    Each double listens on a port the operating system hands this run
+    (`_free_ports`) rather than on the one the stack gives it, which is the
+    port a stack already up - or another copy of this session, a second
+    checkout's or a WSL run's - is listening on. Told to the double and to the
+    tests through the setting both read it from (`_PORT_SETTING_OF_DOUBLE`).
+    And each is started with a token of its own, so it counts as up only once
+    it answers with that token rather than once anything answers there.
     """
-    double_processes = [_start_service(module_args) for _, module_args, _ in doubles]
+    ports = _free_ports(len(doubles))
+    where_the_doubles_are = {
+        _PORT_SETTING_OF_DOUBLE[name]: port
+        for (name, _, _), port in zip(doubles, ports, strict=True)
+    }
+    started = [_started_with_a_token(where_the_doubles_are) for _ in doubles]
+    double_processes = [
+        _start_service(module_args, env=env)
+        for (_, module_args, _), (env, _) in zip(doubles, started, strict=True)
+    ]
     try:
-        for name, _, ready_url in doubles:
-            _wait_for_http(name, ready_url)
+        # Asked by address, as the tests address it (the double's
+        # `DEFAULT_BASE_URL`): the port was found free on that address alone.
+        for (name, _, _), port, (_, token) in zip(doubles, ports, started, strict=True):
+            _wait_for_http(name, f"http://{_LOOPBACK}:{port}/health", token=token)
         if compose_services:
             session.run(
                 "docker", "compose", *_CONTRACT_PROJECT, "up", "-d", "--wait", "--build",
@@ -836,7 +858,7 @@ def _contract_against(session: nox.Session,
             )
         session.run(
             "uv", "run", "python", "-m", "pytest", *_by_default(*tests), "-v",
-            *session.posargs, external=True
+            *session.posargs, external=True, env=where_the_doubles_are
         )
     finally:
         for double_process in double_processes:
@@ -871,35 +893,48 @@ def integration(session: nox.Session) -> None:
     each other here and at nothing real - a pull request opened against GitHub
     is numbered out of a counter that never goes back.
 
-    Its database and its doubles are its own (`_INTEGRATION_STACK`), so this can
-    run beside an `e2e` or `e2e_replay` session rather than behind it. Set on
-    this process's environment rather than passed to each call, because the
-    `conftest` that starts postgres is the one thing here that cannot be handed
-    an environment of its own - it inherits this one.
+    Its database is its own (`_INTEGRATION_STACK`), and its doubles and its
+    write tier listen on ports the operating system hands this run
+    (`_free_ports`), so this can run beside an `e2e` or `e2e_replay` session
+    rather than behind it - and beside another copy of itself, a second
+    checkout's or a WSL run's, without either suite reaching the other's
+    servers. Set on this process's environment rather than passed to each
+    call, because the `conftest` that starts postgres, and the doubles' own
+    modules that the tests read their addresses from, cannot be handed an
+    environment of their own - they inherit this one.
     """
-    os.environ.update(_INTEGRATION_STACK)
-    github_at_the_double = _GITHUB_AT_THE_DOUBLE | {
-        "GITHUB_API_URL": _INTEGRATION_GITHUB_DOUBLE_BASE_URL
-    }
+    anthropic_double_port, github_double_port, write_mcp_port = _free_ports(3)
+    anthropic_double_at = f"http://{_LOOPBACK}:{anthropic_double_port}"
+    github_double_at = f"http://{_LOOPBACK}:{github_double_port}"
+    os.environ.update(_INTEGRATION_STACK | {
+        "ANTHROPIC_DOUBLE_PORT": anthropic_double_port,
+        # By address, as every port here is addressed: found free on it, and a
+        # name resolving to IPv6 first would reach whatever holds the number on
+        # `[::1]` before it reached the tier.
+        "WRITE_MCP_HOST": _LOOPBACK,
+        "WRITE_MCP_PORT": write_mcp_port,
+        "GITHUB_DOUBLE_PORT": github_double_port
+    })
+    github_at_the_double = _GITHUB_AT_THE_DOUBLE | {"GITHUB_API_URL": github_double_at}
     # Started in order and stopped in reverse, every one of them whatever the
-    # suite did: a host process outliving its run holds its port, and the next
-    # run refuses to start on it.
+    # suite did: a host process outliving its run holds its port.
     services: list[subprocess.Popen[bytes]] = []
     try:
         name, _, _ = _ANTHROPIC_DOUBLE
+        env, token = _started_with_a_token()
         services.append(_start_service(
             ["-m", "uvicorn", "anthropic_double.server:app",
-             "--port", _INTEGRATION_ANTHROPIC_DOUBLE_PORT]))
-        _wait_for_http(name, f"{_INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL}/health")
+             "--port", anthropic_double_port], env=env))
+        _wait_for_http(name, f"{anthropic_double_at}/health", token=token)
 
         name, module_args, _ = _GITHUB_DOUBLE
-        services.append(_start_service(module_args))
-        _wait_for_http(name, f"{_INTEGRATION_GITHUB_DOUBLE_BASE_URL}/health")
+        env, token = _started_with_a_token()
+        services.append(_start_service(module_args, env=env))
+        _wait_for_http(name, f"{github_double_at}/health", token=token)
 
         services.append(_start_service(["-m", "write_mcp_server.server"],
                                        env=github_at_the_double))
-        _wait_for_http("write_mcp",
-                       f"http://localhost:{_INTEGRATION_WRITE_MCP_PORT}/mcp")
+        _wait_for_http("write_mcp", f"http://{_LOOPBACK}:{write_mcp_port}/mcp")
 
         session.run(
             "uv", "run", "python", "-m", "pytest", "tests/integration", "-v",
@@ -915,7 +950,7 @@ def integration(session: nox.Session) -> None:
             # the write server's own, so a case reading the branch back
             # addresses the repository the fix was written to.
             env={
-                "ANTHROPIC_BASE_URL": _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL,
+                "ANTHROPIC_BASE_URL": anthropic_double_at,
                 "ANTHROPIC_API_KEY": "the-double-never-reads-this",
                 **github_at_the_double
             }
@@ -1552,12 +1587,19 @@ def _how_to_free(port: int) -> str:
     return f"lsof -ti tcp:{port} | xargs kill -9"
 
 
-def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
-    """Blocks until `url` answers at all, or `timeout` elapses.
+def _wait_for_http(name: str, url: str, timeout: float = 30.0, token: str | None = None) -> None:
+    """Blocks until `url` answers - as the process holding `token`, where one
+    is given - or `timeout` elapses.
 
-    Any HTTP response counts as ready, including an error one - `read_mcp`'s
-    `/mcp` rejects a bare GET, and that rejection is itself proof the server is
-    listening. Only a connection-level failure means "not up yet".
+    With a token, only an answer carrying it counts: a double started with one
+    (`_DOUBLE_TOKEN_SETTING`) says it on `/health`, and any other answer on the
+    port is somebody else's - another run's double, a WSL run's that
+    `wslrelay.exe` forwards to this machine's loopback, or one a killed run left
+    behind - while this one may have died on the bind.
+
+    Without one, any HTTP response counts as ready, including an error one -
+    `read_mcp`'s `/mcp` rejects a bare GET, and that rejection is itself proof
+    the server is listening. Only a connection-level failure means "not up yet".
 
     A certificate is not checked. The one service answering TLS is the
     PagerDuty double, whose certificate is minted at startup and trusted by
@@ -1570,13 +1612,70 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            urllib.request.urlopen(url, timeout=1.0, context=unverified)
-            return
+            with urllib.request.urlopen(url, timeout=1.0, context=unverified) as answered:
+                said = answered.read()
+            if token is None or _the_token_in(said) == token:
+                return
         except urllib.error.HTTPError:
-            return
-        except (urllib.error.URLError, ConnectionError):
-            time.sleep(0.5)
+            if token is None:
+                return
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            pass
+        time.sleep(0.5)
     raise TimeoutError(f"{name} did not become ready within the timeout")
+
+
+def _the_token_in(said: bytes) -> str | None:
+    """The token a double's `/health` answer carries, or `None` where the
+    answer is not one."""
+    try:
+        answer = json.loads(said)
+    except ValueError:
+        return None
+
+    token = answer.get(_HEALTH_TOKEN_FIELD) if isinstance(answer, dict) else None
+
+    return token if isinstance(token, str) else None
+
+
+def _started_with_a_token(env: dict[str, str] | None = None) -> tuple[dict[str, str], str]:
+    """`env` with a token of this start's own added under the setting a double
+    answers `/health` with, and the token - for `_wait_for_http` to wait for."""
+    token = uuid.uuid4().hex
+
+    return {**(env or {}), _DOUBLE_TOKEN_SETTING: token}, token
+
+
+def _free_ports(how_many: int) -> list[str]:
+    """`how_many` loopback ports nothing was listening on a moment ago, no two
+    the same, for services a session starts that no stack shares.
+
+    Asked of the operating system rather than written here. A written port is
+    shared by every copy of a session running at once - a second checkout's,
+    or a WSL run's, whose listeners `wslrelay.exe` forwards to this machine's
+    loopback - and `_wait_for_http`, which takes any answer as ready, then
+    hands one copy's suite the other's server while its own died on the bind.
+    Held together until all are found, so none is handed out twice, and let go
+    before they are returned, so the services can bind them.
+
+    Written here rather than imported from the testkit's `a_free_port`, which
+    is not necessarily installed when this file is read.
+    """
+    asking = [socket.socket(socket.AF_INET, socket.SOCK_STREAM) for _ in range(how_many)]
+    try:
+        for one in asking:
+            one.bind((_LOOPBACK, 0))
+
+        return [str(one.getsockname()[1]) for one in asking]
+    finally:
+        for one in asking:
+            one.close()
+
+
+# Where a port from `_free_ports` is found free, and so where it is addressed:
+# by address rather than by `localhost`, which resolves to IPv6 first and would
+# reach a listener holding the same number on `[::1]` before this run's own.
+_LOOPBACK: Final = "127.0.0.1"
 
 
 # The services `e2e` runs locally rather than in docker-compose (design.md's
@@ -1590,15 +1689,18 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 # Kept in step with `anthropic_double.server.DEFAULT_BASE_URL` by hand rather
 # than imported: this file is read by nox before anything is necessarily
 # installed, and a noxfile that fails to import takes every session with it.
+# Every double is addressed by `_LOOPBACK`, as each double's own
+# `DEFAULT_BASE_URL` addresses it.
 _ANTHROPIC_DOUBLE_PORT = "8091"
-_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_ANTHROPIC_DOUBLE_PORT}"
+_ANTHROPIC_DOUBLE_BASE_URL = f"http://{_LOOPBACK}:{_ANTHROPIC_DOUBLE_PORT}"
 _SLACK_DOUBLE_PORT = "8094"
-_SLACK_DOUBLE_BASE_URL = f"http://localhost:{_SLACK_DOUBLE_PORT}"
+_SLACK_DOUBLE_BASE_URL = f"http://{_LOOPBACK}:{_SLACK_DOUBLE_PORT}"
 _GITHUB_DOUBLE_PORT = "8096"
-_GITHUB_DOUBLE_BASE_URL = f"http://localhost:{_GITHUB_DOUBLE_PORT}"
-# HTTPS, the one double that is: PagerDuty's SDK refuses any other scheme.
+_GITHUB_DOUBLE_BASE_URL = f"http://{_LOOPBACK}:{_GITHUB_DOUBLE_PORT}"
+# HTTPS, the one double that is: PagerDuty's SDK refuses any other scheme. Its
+# certificate names the address as well as `localhost`.
 _PAGERDUTY_DOUBLE_PORT = "8097"
-_PAGERDUTY_DOUBLE_BASE_URL = f"https://localhost:{_PAGERDUTY_DOUBLE_PORT}"
+_PAGERDUTY_DOUBLE_BASE_URL = f"https://{_LOOPBACK}:{_PAGERDUTY_DOUBLE_PORT}"
 # The two tiers, the stack's database and its vector store, at the ports the
 # stack states for them (`_THE_STACKS_OWN_PLACES`).
 _READ_MCP_PORT = "8090"
@@ -1610,12 +1712,12 @@ _STACK_QDRANT_PORT = "6333"
 # seeded, and a person's message classified between two of a walk's turns would hand
 # the walk the intent reader's answer and the intent reader the walk's.
 _INTENT_ANTHROPIC_DOUBLE_PORT = "8098"
-_INTENT_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTENT_ANTHROPIC_DOUBLE_PORT}"
+_INTENT_ANTHROPIC_DOUBLE_BASE_URL = f"http://{_LOOPBACK}:{_INTENT_ANTHROPIC_DOUBLE_PORT}"
 # The grounding judge's model double, for the intent reader's reason: the judge
 # reads each write-up between the writer's own calls, and one queue serving
 # both would hand each the other's answers.
 _JUDGE_ANTHROPIC_DOUBLE_PORT = "8088"
-_JUDGE_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_JUDGE_ANTHROPIC_DOUBLE_PORT}"
+_JUDGE_ANTHROPIC_DOUBLE_BASE_URL = f"http://{_LOOPBACK}:{_JUDGE_ANTHROPIC_DOUBLE_PORT}"
 
 # Where the sessions that can run beside an e2e stack put the things that would
 # otherwise collide with it. Every collision is a port or a database: a second
@@ -1632,18 +1734,10 @@ _INTEGRATION_POSTGRES_PORT = "5544"
 # it to. Adding a module shifts the numbers after it, which costs nothing: no
 # port here outlives the session that publishes it.
 _MODULE_SUITE_PORT_BASE = 5546
-_INTEGRATION_ANTHROPIC_DOUBLE_PORT = "8093"
-_INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_ANTHROPIC_DOUBLE_PORT}"
-# Where a module suite's own Slack double listens, for the reason its database
-# has a port of its own: `communication`'s component conftest runs the
-# double in-process, and the e2e stack runs one on 8094. Two of those at once -
-# which is exactly what a sweep is - and the second dies on the bind, so a suite
-# that had nothing to do with Slack takes down the run that did.
-_MODULE_SUITE_SLACK_PORT_BASE = 8100
-# Where a suite's own vector store listens, for the reason its database and its
-# Slack double have ports of their own. Three module suites want one - the code
-# index, long-term memory and the store's own adapter - and the e2e stack runs a
-# fourth on 6333, so a sweep is four stores at once and the second to bind dies. A compose project
+# Where a suite's own vector store listens, for the reason its database has a
+# port of its own. Three module suites want one - the code index, long-term
+# memory and the store's own adapter - and the e2e stack runs a fourth on 6333,
+# so a sweep is four stores at once and the second to bind dies. A compose project
 # of one's own is not enough here: it makes the *container* somebody else's, and
 # the published port is still the host's one address.
 _MODULE_SUITE_QDRANT_PORT_BASE = 6350
@@ -1670,13 +1764,6 @@ def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
     }
 
 
-# The write tier and the repository it writes to, for the one case that follows
-# a fix all the way onto a branch. Ports of their own for the reason the double
-# above has one: the e2e stack runs both, on 8092 and 8096.
-_INTEGRATION_WRITE_MCP_PORT = "8089"
-_INTEGRATION_GITHUB_DOUBLE_PORT = "8099"
-_INTEGRATION_GITHUB_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_GITHUB_DOUBLE_PORT}"
-
 # The compose files a suite's `docker compose` reads - a module suite's and
 # `integration`'s: the stack's, and the one that puts the suite's database on
 # tmpfs. A suite stopped its database with the shutdown checkpoint still
@@ -1689,12 +1776,7 @@ _SUITE_COMPOSE_FILES: Final = os.pathsep.join(["docker-compose.yml", "docker-com
 
 _INTEGRATION_STACK = _a_database_of_its_own(
     "argus-integration", _INTEGRATION_POSTGRES_PORT
-) | {
-    "COMPOSE_FILE": _SUITE_COMPOSE_FILES,
-    "ANTHROPIC_DOUBLE_PORT": _INTEGRATION_ANTHROPIC_DOUBLE_PORT,
-    "WRITE_MCP_PORT": _INTEGRATION_WRITE_MCP_PORT,
-    "GITHUB_DOUBLE_PORT": _INTEGRATION_GITHUB_DOUBLE_PORT
-}
+) | {"COMPOSE_FILE": _SUITE_COMPOSE_FILES}
 
 # Where the stack `e2e`, `e2e_replay`, `record` and `stack` bring up lives: its
 # compose project, its database, its store, and the port of every process of it
@@ -1735,24 +1817,12 @@ def _a_database_for(module: str) -> dict[str, str]:
     ) | {"COMPOSE_FILE": _SUITE_COMPOSE_FILES}
 
 
-def _a_slack_double_for(module: str) -> dict[str, str]:
-    """One module's own Slack double, counted the way its database is.
-
-    Set for every module rather than for the one that runs a double, because
-    which module that is is a fact about a conftest rather than about this file,
-    and a port nobody listens on costs nothing.
-    """
-    return {
-        "SLACK_DOUBLE_PORT": str(_MODULE_SUITE_SLACK_PORT_BASE + MODULES.index(module))
-    }
-
-
 def _a_qdrant_for(module: str) -> dict[str, str]:
     """One module's own vector store, counted the way its database is.
 
-    Set for every module rather than for the three that open one, for the reason
-    the Slack double is: which modules those are is a fact about their conftests
-    rather than about this file, and a port nobody binds costs nothing.
+    Set for every module rather than for the three that open one, because which
+    modules those are is a fact about their conftests rather than about this
+    file, and a port nobody binds costs nothing.
 
     The port alone. Every conftest that wants a store derives its URL from this
     and falls back to 6333, so a port published here and not read there would
@@ -2028,6 +2098,25 @@ _GITHUB_DOUBLE: tuple[str, list[str], str] = (
     f"{_GITHUB_DOUBLE_BASE_URL}/health"
 )
 
+# The setting each double a contract session starts reads its port from - on
+# import, in the double's own process and in every suite that addresses it by
+# the double's `DEFAULT_BASE_URL` - so a session that moves a double off the
+# stack's port moves both ends with one value.
+_PORT_SETTING_OF_DOUBLE: Final = {
+    "anthropic_double": "ANTHROPIC_DOUBLE_PORT",
+    "slack_double": "SLACK_DOUBLE_PORT",
+    "github_double": "GITHUB_DOUBLE_PORT"
+}
+
+# The setting every double reads the token it answers `/health` with from, and
+# the field of that answer it is said in - spelled as each double's `server`
+# spells them, rather than imported, for the reason the ports are: this file is
+# read before anything is necessarily installed. A token of each start's own
+# (`_started_with_a_token`) is what lets `_wait_for_http` tell the double it
+# started from anything else answering on the port.
+_DOUBLE_TOKEN_SETTING: Final = "DOUBLE_TOKEN"
+_HEALTH_TOKEN_FIELD: Final = "token"
+
 _PAGERDUTY_DOUBLE: tuple[str, list[str], str] = (
     "pagerduty_double",
     ["-m", "pagerduty_double.server"],
@@ -2219,9 +2308,17 @@ def _start_each_of(services: list[tuple[str, list[str], str | None]],
     Appends to the caller's list rather than answering with its own, because
     what has to be torn down is everything started so far - including the half
     that was up when the next one failed.
+
+    A stand-in (`_THE_STAND_INS`) is started with a token of its own, and
+    counts as up only once its `/health` says it.
     """
+    stand_ins = {name for name, _, _ in _THE_STAND_INS}
     for name, module_args, ready_url in services:
-        started.append(_start_service(module_args, env=service_env.get(name)))
+        env: dict[str, str] | None = service_env.get(name)
+        token: str | None = None
+        if name in stand_ins:
+            env, token = _started_with_a_token(env)
+        started.append(_start_service(module_args, env=env))
         # On the session's environment, so the pytest process started after it
         # inherits it, as it inherits the settings.
         if name == "worker":
@@ -2229,7 +2326,7 @@ def _start_each_of(services: list[tuple[str, list[str], str | None]],
         # A service that listens on nothing is waited for by nothing: the
         # worker's readiness shows up in the queue it drains, not on a port.
         if ready_url is not None:
-            _wait_for_http(name, ready_url)
+            _wait_for_http(name, ready_url, token=token)
 
 
 # Given after `--` to `e2e` or `e2e_replay`, holds each case's world open once

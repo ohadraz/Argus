@@ -14,21 +14,54 @@ from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from tempfile import TemporaryDirectory
 from threading import Thread
+from typing import Final
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from argus_testkit import a_free_port
 from core import get_settings, parse_iso
+from mcp.server.streamable_http import CONTENT_TYPE_JSON, CONTENT_TYPE_SSE
+from mcp.types import (
+    LATEST_PROTOCOL_VERSION,
+    ClientCapabilities,
+    Implementation,
+    InitializeRequest,
+    InitializeRequestParams,
+    InitializeResult,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 from metrics_source.prometheus_adapter import QUERIES
 from read_mcp_server.alert_rules import RULE_DEFINITION_PATH
 
-FAKE_TARGET_SERVICE_PORT = 8180
-READ_MCP_TEST_PORT = 8190
+# Where the fakes listen: loopback, on whatever port the operating system hands
+# out. A port written here is shared by every copy of this suite running at
+# once - a second checkout's, or a WSL run's, whose listeners `wslrelay.exe`
+# forwards to this machine's loopback - and one copy's client then talks to the
+# other's server.
+LOOPBACK = "127.0.0.1"
+ANY_FREE_PORT = 0
 # How long a started server has to answer before it is taken to hang. A guard
 # against a hang and nothing tighter: a server that fails to start is seen
 # exiting and said at once, and with every suite running at once a start that
 # takes three seconds idle has been measured at over fifteen.
 LONG_PAST_ANY_START_SECONDS = 180.0
 A_MOMENT_BETWEEN_KNOCKS_SECONDS = 0.2
+# How long one knock on a starting server waits for its answer.
+A_KNOCK_SECONDS = 1.0
+
+# Who the read tier says it is when a session is opened over MCP: the name its
+# server is built with. What a knock is answered with before the server counts
+# as up - any other answer on the port is somebody else's.
+THE_READ_TIER = "argus-read-mcp"
+# Where it serves MCP, and the parts of the protocol a knock speaks: JSON-RPC's
+# version, the one request's id, who is knocking, and the field of a
+# server-sent event that carries the answer.
+MCP_PATH: Final = "/mcp"
+JSONRPC_VERSION: Final = "2.0"
+A_KNOCK_ID = 1
+THE_KNOCKER = Implementation(name="read-mcp-client-suite", version="0")
+SSE_DATA_FIELD: Final = "data:"
 
 # Where the fake answers as Prometheus: under a prefix, the way the Target
 # Environment's own stand-in does, so the setting carries a path and the
@@ -186,14 +219,17 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     reaches a real server without Docker or a real Target Service. Yields the
     handler class so a test can set `.logs`, `.metrics`, `.deploys`, `.rules`,
     `.rule_queries`, `.tree`, `.comparisons` and `.archive` before calling
-    through the client."""
-    fake_target_service = HTTPServer(
-        ("127.0.0.1", FAKE_TARGET_SERVICE_PORT), FakeTargetServiceHandler
-    )
+    through the client.
+
+    The fake binds whatever port it is given and is asked which; the server
+    is handed one the operating system just said was free, and counts as up
+    only once it answers as the read tier on it."""
+    fake_target_service = HTTPServer((LOOPBACK, ANY_FREE_PORT), FakeTargetServiceHandler)
     server_thread = Thread(target=fake_target_service.serve_forever, daemon=True)
     server_thread.start()
 
-    fake_target_service_url = f"http://127.0.0.1:{FAKE_TARGET_SERVICE_PORT}"
+    fake_target_service_url = f"http://{LOOPBACK}:{fake_target_service.server_address[1]}"
+    read_mcp_port = a_free_port()
     env = os.environ.copy()
     # Somewhere of its own, so a suite never writes into the repository's
     # telemetry directory.
@@ -208,8 +244,8 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     env["PROMETHEUS_BASE_URL"] = f"{fake_target_service_url}{PROMETHEUS_PREFIX}"
     env["GRAFANA_BASE_URL"] = f"{fake_target_service_url}{GRAFANA_PREFIX}"
     env["GITHUB_API_URL"] = f"{fake_target_service_url}{GITHUB_PREFIX}"
-    env["READ_MCP_HOST"] = "127.0.0.1"
-    env["READ_MCP_PORT"] = str(READ_MCP_TEST_PORT)
+    env["READ_MCP_HOST"] = LOOPBACK
+    env["READ_MCP_PORT"] = str(read_mcp_port)
     read_mcp_process = subprocess.Popen([sys.executable, "-m", "read_mcp_server.server"], env=env)
 
     # Put back whole on the way out, so a variable that was set before keeps
@@ -220,7 +256,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     get_settings.cache_clear()
 
     try:
-        _wait_for_read_mcp(read_mcp_process)
+        _wait_for_read_mcp(read_mcp_process, f"http://{LOOPBACK}:{read_mcp_port}{MCP_PATH}")
         yield FakeTargetServiceHandler
     finally:
         read_mcp_process.terminate()
@@ -242,9 +278,14 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
         get_settings.cache_clear()
 
 
-def _wait_for_read_mcp(process: subprocess.Popen[bytes]) -> None:
-    """Waits until the server answers, and says at once that it never will
-    where its process has ended."""
+def _wait_for_read_mcp(process: subprocess.Popen[bytes], url: str) -> None:
+    """Waits until the server at `url` answers as the read tier, and says at
+    once that it never will where its process has ended.
+
+    As the read tier rather than at all: any other answer on the port says
+    only that something is listening there - another copy of this suite's
+    server, or one a killed run left behind - while this one may have failed to
+    take the port, and will then be seen ending."""
     deadline = time.monotonic() + LONG_PAST_ANY_START_SECONDS
     while time.monotonic() < deadline:
         ended_with = process.poll()
@@ -253,14 +294,49 @@ def _wait_for_read_mcp(process: subprocess.Popen[bytes]) -> None:
                 f"read_mcp test server ended with [{ended_with}] before it answered"
             )
         try:
-            urllib.request.urlopen(f"http://127.0.0.1:{READ_MCP_TEST_PORT}/mcp", timeout=1.0)
-            return
-        except urllib.error.HTTPError:
-            return  # a real HTTP response (even an error one) means the server is up
+            if _who_answers_at(url) == THE_READ_TIER:
+                return
+        except (urllib.error.HTTPError, ValueError):
+            # Something that is no MCP server answered - refusing the knock,
+            # or with something that is not an answer to it.
+            pass
         except OSError:
             # Not answering yet: refused, or taken and not answered within the
             # knock's second - which `urlopen` raises bare, not as a `URLError`.
-            time.sleep(A_MOMENT_BETWEEN_KNOCKS_SECONDS)
+            pass
+        time.sleep(A_MOMENT_BETWEEN_KNOCKS_SECONDS)
     raise TimeoutError(
         f"read_mcp test server did not answer within {LONG_PAST_ANY_START_SECONDS:.0f}s"
     )
+
+
+def _who_answers_at(url: str) -> str:
+    """The name the MCP server at `url` gives when a session is opened with it
+    (`initialize`), answered as a server-sent event or as JSON - whichever the
+    server chooses."""
+    knock = InitializeRequest(params=InitializeRequestParams(
+        protocolVersion=LATEST_PROTOCOL_VERSION,
+        capabilities=ClientCapabilities(),
+        clientInfo=THE_KNOCKER
+    ))
+    asked = JSONRPCRequest(jsonrpc=JSONRPC_VERSION, id=A_KNOCK_ID,
+                           **knock.model_dump(by_alias=True, mode="json", exclude_none=True))
+    request = urllib.request.Request(
+        url,
+        data=asked.model_dump_json(by_alias=True, exclude_none=True).encode(),
+        headers={"Content-Type": CONTENT_TYPE_JSON,
+                 "Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_SSE}"},
+        method="POST"
+    )
+
+    with urllib.request.urlopen(request, timeout=A_KNOCK_SECONDS) as answered:
+        said = answered.read().decode()
+        as_an_event = answered.headers.get_content_type() == CONTENT_TYPE_SSE
+
+    if as_an_event:
+        said = next((line.removeprefix(SSE_DATA_FIELD) for line in said.splitlines()
+                     if line.startswith(SSE_DATA_FIELD)), "")
+
+    response = JSONRPCResponse.model_validate_json(said)
+
+    return InitializeResult.model_validate(response.result).serverInfo.name

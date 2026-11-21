@@ -18,6 +18,7 @@ from argus_testkit.doubles import (
     returning,
 )
 from argus_testkit.logs import Captured, one_record_was_logged
+from argus_testkit.ports import a_free_port
 from argus_testkit.scenario import Scenario, attempting, calling
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "Kept",
     "Scenario",
     "a_factory_that_must_not_be_called",
+    "a_free_port",
     "all_of",
     "an_error_was_raised",
     "at_least",

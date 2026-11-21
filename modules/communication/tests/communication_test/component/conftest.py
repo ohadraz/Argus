@@ -13,6 +13,7 @@ messages left by one test read back as another test's.
 
 from __future__ import annotations
 
+import socket
 import threading
 import time
 from collections.abc import Iterator
@@ -20,7 +21,6 @@ from collections.abc import Iterator
 import httpx2
 import pytest
 import uvicorn
-from slack_double import DEFAULT_BASE_URL, DEFAULT_PORT
 from slack_double import app as slack_double_app
 
 _A_MOMENT = 0.05
@@ -30,24 +30,35 @@ _A_MOMENT = 0.05
 # many times what it takes on an idle one.
 _LONG_PAST_ANY_START = 180.0
 _LONG_ENOUGH_TO_STOP = 10.0
+# Where the double listens: loopback, by address rather than by name, on
+# whatever port the operating system hands out.
+_LOOPBACK = "127.0.0.1"
+_ANY_FREE_PORT = 0
 
 
 @pytest.fixture(scope="session", autouse=True)
 def slack() -> Iterator[str]:
-    """The double, listening for the whole suite and stopped after it."""
-    server = uvicorn.Server(
-        uvicorn.Config(
-            slack_double_app, host="localhost", port=DEFAULT_PORT, log_level="warning"
-        )
-    )
-    serving = threading.Thread(target=server.run, daemon=True)
+    """The double, listening for the whole suite and stopped after it.
+
+    On a socket bound here, to a port the operating system hands out, and handed
+    to the server whole. A port written down - or read from the environment,
+    where every copy of this suite reads the same one - is shared by a second
+    checkout's run or a WSL one, and one copy's adapter then posts to the
+    other's double. Held from the bind on, so whatever answers on it is this
+    suite's own double.
+    """
+    listening = socket.create_server((_LOOPBACK, _ANY_FREE_PORT))
+    base_url = f"http://{_LOOPBACK}:{listening.getsockname()[1]}"
+    server = uvicorn.Server(uvicorn.Config(slack_double_app, log_level="warning"))
+    serving = threading.Thread(target=server.run, kwargs={"sockets": [listening]}, daemon=True)
     serving.start()
     try:
-        _once_it_answers(serving)
-        yield DEFAULT_BASE_URL
+        _once_it_answers(serving, base_url)
+        yield base_url
     finally:
         server.should_exit = True
         serving.join(timeout=_LONG_ENOUGH_TO_STOP)
+        listening.close()
 
 
 @pytest.fixture(autouse=True)
@@ -64,9 +75,10 @@ def nothing_left_posted(slack: str) -> Iterator[None]:
     httpx2.post(f"{slack}/double-control/reset").raise_for_status()
 
 
-def _once_it_answers(serving: threading.Thread) -> None:
-    """Waits for the port, rather than guessing at how long a thread takes -
-    and says at once that it will never answer where `serving` has ended.
+def _once_it_answers(serving: threading.Thread, base_url: str) -> None:
+    """Waits for the double at `base_url`, rather than guessing at how long a
+    thread takes - and says at once that it will never answer where `serving`
+    has ended.
 
     A fixed sleep is either too short on a loaded machine - where the first
     test fails on a connection refused that says nothing about the code - or
@@ -76,15 +88,15 @@ def _once_it_answers(serving: threading.Thread) -> None:
     while time.monotonic() < giving_up_at:
         if not serving.is_alive():
             raise RuntimeError(
-                f"the slack double stopped before it answered on {DEFAULT_BASE_URL}"
+                f"the slack double stopped before it answered on {base_url}"
             )
         try:
-            httpx2.get(f"{DEFAULT_BASE_URL}/health", timeout=_A_MOMENT).raise_for_status()
+            httpx2.get(f"{base_url}/health", timeout=_A_MOMENT).raise_for_status()
             return
         except (httpx2.HTTPError, OSError):
             time.sleep(_A_MOMENT)
 
     raise RuntimeError(
-        f"the slack double did not answer on {DEFAULT_BASE_URL} within "
+        f"the slack double did not answer on {base_url} within "
         f"{_LONG_PAST_ANY_START:.0f}s"
     )

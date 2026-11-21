@@ -30,7 +30,11 @@ from deployment_platform.argocd import (
     TEMPLATE,
 )
 
-FAKE_PLATFORM_PORT = 8184
+# Where the fake listens: loopback, on whatever port the operating system hands
+# out, for the reason the flag provider's fake does - a port written here is
+# shared by every copy of this suite running at once.
+LOOPBACK = "127.0.0.1"
+ANY_FREE_PORT = 0
 
 RESOURCE_ACTION_PATH = "/argocd/{application}/resource/actions/v2"
 RESOURCE_PATH = "/argocd/{application}/resource"
@@ -599,7 +603,8 @@ def _is_syncing(policy: dict[str, Any]) -> bool:
 
 @contextmanager
 def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
-    """Runs a fake deployment platform and points the platform settings at it.
+    """Runs a fake deployment platform and points the platform settings at it,
+    on a port it binds and is then asked for.
 
     Entered *around* `a_running_write_mcp` rather than inside it: that manager
     copies the environment to launch the server subprocess, so the settings set
@@ -615,14 +620,14 @@ def a_running_platform() -> Generator[type[FakeDeploymentPlatformHandler]]:
     flag provider's is one: mypy identifies a module by its filename, so a
     second `conftest` anywhere under `modules/` collides with the first.
     """
-    platform = HTTPServer(("127.0.0.1", FAKE_PLATFORM_PORT), FakeDeploymentPlatformHandler)
+    platform = HTTPServer((LOOPBACK, ANY_FREE_PORT), FakeDeploymentPlatformHandler)
     platform_thread = Thread(target=platform.serve_forever, daemon=True)
     platform_thread.start()
 
     # Put back whole on the way out, so a variable that was set before keeps
     # its value rather than being deleted with the ones set here.
     the_environment_before = dict(os.environ)
-    address = f"http://127.0.0.1:{FAKE_PLATFORM_PORT}"
+    address = f"http://{LOOPBACK}:{platform.server_address[1]}"
     os.environ["ARGOCD_BASE_URL"] = address
     os.environ["ARGOCD_RESOURCE_ACTION_PATH"] = RESOURCE_ACTION_PATH
     os.environ["ARGOCD_RESOURCE_PATH"] = RESOURCE_PATH
