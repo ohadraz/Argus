@@ -159,7 +159,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         deciding_status(
             partial(tier_gate_node,
                     record_outcome=collaborators.record_outcome,
-                    admitted=collaborators.admitted,
+                    admit=collaborators.admit,
                     attempts_per_subject=collaborators.attempts_per_subject,
                     publisher=collaborators.publisher)
         )

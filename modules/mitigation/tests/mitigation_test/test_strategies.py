@@ -2,7 +2,7 @@
 
 A strategy says what would help. Whether Argus may then do it unasked is a
 different question with a different answer, asked of the closed set in
-`admitting` - so nothing here has an opinion about autonomy, and a strategy
+`core.autonomy` - so nothing here has an opinion about autonomy, and a strategy
 cannot earn its action a way past the gate by being registered.
 """
 

@@ -28,6 +28,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from core.autonomy import admit
 from core.events import ActionRecommended, ActionRefused, IncidentEvent
 from core.models import (
     RESTART_SERVICE,
@@ -86,7 +87,7 @@ def test_the_gate_lets_an_action_of_a_kind_it_can_put_back_through(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -111,7 +112,7 @@ def test_the_gate_rejects_an_action_of_a_kind_argus_may_not_take(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_not_take(),
+                                     admit=_a_kind_argus_may_not_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
@@ -135,7 +136,7 @@ def test_an_action_the_gate_refused_is_logged_with_why(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_not_take(),
+                                     admit=_a_kind_argus_may_not_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.gating", logging.INFO,
@@ -151,15 +152,15 @@ def test_the_gate_rejects_an_incident_with_no_proposed_action(
     # The walk reaches the gate whether or not a proposal was made: with no
     # candidate there is nothing to answer, and the refusal is still the only
     # account of why this attempt ended. Admissibility is not what stops this
-    # one, so the stand-in admits everything - a refusal here has to come from
-    # the absence and nothing else.
+    # one, so the gate is handed the policy itself - a refusal here has to come
+    # from the absence and nothing else.
     published: list[IncidentEvent] = []
 
     Scenario() \
         .given(a_gated_incident := _a_mitigating_incident()) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
@@ -185,7 +186,7 @@ def test_a_candidate_the_gate_refused_is_recorded_as_never_having_been_tried(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_not_take(),
+                                     admit=_a_kind_argus_may_not_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(_the_candidate_was_recorded_as_untried(
             some_candidate,
@@ -277,7 +278,7 @@ def test_a_mitigation_already_tried_on_this_subject_as_often_as_allowed_is_refus
         ) \
         .when(lambda: tier_gate_node(an_incident_that_already_restarted_it,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=1,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
@@ -304,7 +305,7 @@ def test_an_allowance_of_two_lets_the_second_attempt_through(
         ) \
         .when(lambda: tier_gate_node(an_incident_that_already_restarted_it,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=2)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -329,7 +330,7 @@ def test_restarting_one_service_does_not_spend_another_services_allowance(
         ) \
         .when(lambda: tier_gate_node(an_incident_that_restarted_something_else,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=1)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -355,7 +356,7 @@ def test_a_mitigation_of_another_kind_on_the_same_subject_does_not_spend_it(
         ) \
         .when(lambda: tier_gate_node(an_incident_that_already_moved_a_flag,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=1)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -381,7 +382,7 @@ def test_a_candidate_refused_for_having_been_tried_enough_says_so_in_its_row(
         ) \
         .when(lambda: tier_gate_node(an_incident_that_already_restarted_it,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=1)) \
         .then(_the_candidate_was_recorded_as_untried(
             some_candidate,
@@ -416,7 +417,7 @@ def test_a_mode_argus_takes_nothing_for_is_refused_for_its_own_reason(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
@@ -452,7 +453,7 @@ def test_a_mode_argus_takes_nothing_for_ends_the_mitigation_phase(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_it_was_recorded_that_the_mode_has_no_mitigation(),
                      _the_end_of_mitigation_was_narrated(refusal)))
@@ -472,7 +473,7 @@ def test_a_cause_nobody_could_act_on_is_still_refused_as_unproposed(
         .given(a_gated_incident := _a_mitigating_incident(whose_flag_record_reads=[])) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(_the_refusal_was_published(Refusal.NO_MITIGATION_PROPOSED, published))
@@ -497,7 +498,7 @@ def test_a_candidate_naming_a_flag_the_provider_never_recorded_is_left_to_a_pers
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(
@@ -532,7 +533,7 @@ def test_the_candidate_row_says_why_argus_takes_nothing_for_this_kind_of_failure
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(_the_candidate_was_recorded_as_untried(some_candidate,
                                                      why_it_was_refused(refusal),
@@ -555,7 +556,7 @@ def test_a_candidate_that_named_no_mode_is_refused_as_unproposed(
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(_the_refusal_was_published(Refusal.NO_MITIGATION_PROPOSED, published))
@@ -580,7 +581,7 @@ def test_an_action_addressed_outside_the_estate_is_refused(
         ) \
         .when(lambda: tier_gate_node(an_incident_aimed_elsewhere,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
@@ -606,7 +607,7 @@ def test_a_restart_of_a_dependency_the_register_calls_ours_is_let_through(
         ) \
         .when(lambda: tier_gate_node(an_incident_blaming_a_dependency,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -637,7 +638,7 @@ def test_an_action_nothing_could_confirm_is_refused(
         ) \
         .when(lambda: tier_gate_node(an_incident_no_series_carries,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
@@ -667,7 +668,7 @@ def test_a_refusal_and_its_recommendation_say_the_number_of_the_candidate_they_a
         ) \
         .when(lambda: tier_gate_node(an_incident_no_series_carries,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(
@@ -690,7 +691,7 @@ def test_an_action_on_an_incident_its_own_series_measured_is_let_through(
         ) \
         .when(lambda: tier_gate_node(an_ordinary_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -725,7 +726,7 @@ def test_an_action_that_answers_for_itself_is_let_through_on_a_stated_onset(
         ) \
         .when(lambda: tier_gate_node(an_incident_no_series_carries,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -755,7 +756,7 @@ def test_an_action_on_an_incident_nobody_could_read_is_let_through(
         ) \
         .when(lambda: tier_gate_node(an_incident_nobody_could_read,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_gate_changed_nothing(),
                      _no_outcome_was_recorded(record_outcome)))
@@ -779,7 +780,7 @@ def test_an_action_nothing_could_confirm_is_kept_as_the_recommendation(
         ) \
         .when(lambda: tier_gate_node(an_incident_no_series_carries,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_action_was_cleared(),
                      _it_was_kept_as_the_recommendation(some_action)))
@@ -800,7 +801,7 @@ def test_an_action_argus_may_not_take_is_not_recommended_to_anybody(
         ) \
         .when(lambda: tier_gate_node(an_incident_proposing_the_unauthorised,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_not_take(),
+                                     admit=_a_kind_argus_may_not_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_the_action_was_cleared(),
                      _nothing_was_recommended()))
@@ -824,7 +825,7 @@ def test_a_candidate_refused_for_where_it_was_aimed_says_so_in_its_row(
         ) \
         .when(lambda: tier_gate_node(an_incident_aimed_elsewhere,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(_the_candidate_was_recorded_as_untried(
             some_candidate,
@@ -850,7 +851,7 @@ def test_the_recommendation_is_published_beside_the_refusal(
         ) \
         .when(lambda: tier_gate_node(an_incident_no_series_carries,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(
@@ -875,7 +876,7 @@ def test_a_refusal_about_the_action_itself_recommends_nothing_to_anybody(
         ) \
         .when(lambda: tier_gate_node(an_incident_proposing_the_unauthorised,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_not_take(),
+                                     admit=_a_kind_argus_may_not_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(_nothing_was_published_recommending_anything(published))
@@ -904,7 +905,7 @@ def test_a_failure_in_somebody_elses_service_names_whoever_the_register_says_run
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(
@@ -930,7 +931,7 @@ def test_a_failure_in_a_service_the_register_does_not_list_is_still_not_fixed_he
         ) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
-                                     admitted=_a_kind_argus_may_take(),
+                                     admit=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(all_of(
@@ -1019,25 +1020,26 @@ def _an_attempt_to(action_type: ActionType, subject: str) -> Attempt:
     )
 
 
-def _a_kind_argus_may_take() -> ports.Admitted:
-    def admitted(dont_care_action: Action) -> bool:
-        return True
+def _a_kind_argus_may_take() -> ports.Admit:
+    """The autonomy policy itself. Every kind Argus has is in the declared set,
+    so what it still refuses is an action aimed outside the estate - which a
+    case says with the register it hands the incident, not with a stand-in."""
+    return admit
 
-    return admitted
 
-
-def _a_kind_argus_may_not_take() -> ports.Admitted:
+def _a_kind_argus_may_not_take() -> ports.Admit:
     """An action of a kind nobody has pre-authorised.
 
     The one shape §13's gate exists for. It cannot be expressed as an action
     any more - every action type Argus has is in the declared set - so it is
-    expressed where the truth about it actually lives, which is the set the
-    gate is asked about.
+    expressed where the truth about it actually lives, which is the policy the
+    gate is asked. A stand-in can say no; it cannot say yes, since only the
+    policy builds an admission.
     """
-    def admitted(dont_care_action: Action) -> bool:
-        return False
+    def refusing(dont_care_action: Action, /, **dont_care_where_it_is_aimed: object) -> Refusal:
+        return Refusal.NOT_A_GENERIC_MITIGATION
 
-    return admitted
+    return refusing
 
 
 def _the_gate_changed_nothing() -> Assertion[StateDelta]:

@@ -10,9 +10,9 @@ machinery bought before the second action type.
 
 One question is asked of a strategy: `propose_action` holds a cause and asks
 what to do about it. Whether Argus may then take that action unasked is a
-different question with a different answer, and it lives in `admitting` - a
-strategy says what would help, and has no business also saying what is
-permitted.
+different question with a different answer, and it lives in `core.autonomy`,
+outside the Mitigator altogether - a strategy says what would help, and has no
+business also saying what is permitted.
 
 A second question is asked of the registry rather than of any strategy, and
 `why_nothing_was_proposed` is it: why a candidate reached the gate with no
@@ -263,7 +263,7 @@ class RestartDependencyStrategy:
 
     Whether Argus may then touch the service named is a different question with a
     different answer, and it is not asked here: a strategy says what would help,
-    and `admitting` says what is permitted. That separation is why this one can
+    and `core.autonomy` says what is permitted. That separation is why this one can
     propose a restart of anything the investigation blamed without also being the
     thing that decides how far Argus's authority reaches.
     """
@@ -576,8 +576,8 @@ Reasons = Mapping[FailureMode, Refusal]
 # supply: where the service comes from. A leak is in the service that alerted, so
 # that strategy is handed the name; a neighbour's fault is somewhere the alert
 # never mentioned, so that one reads the address the investigation wrote down.
-# Both produce the same kind of action, which is why `GENERIC_MITIGATIONS` is
-# unaffected by this mode arriving.
+# Both produce the same kind of action, which is why the declared set of generic
+# mitigations (`core.autonomy`) is unaffected by this mode arriving.
 #
 # The two halves of resource exhaustion are the one place the mapping's own
 # distinctions are load-bearing in the other direction: a leak and a saturated

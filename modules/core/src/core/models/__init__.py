@@ -30,6 +30,7 @@ from core.models.action import (
     CapacityRestored,
     DeploymentRestored,
     DiscardCacheEntries,
+    Leaves,
     Outcome,
     PinAutoscaler,
     PinToAccelerator,
@@ -53,6 +54,7 @@ from core.models.action import (
     the_platform_of,
     the_service_addressed_by,
     the_subject_of,
+    what_it_leaves,
 )
 from core.models.actor import Actor
 from core.models.alert import AlarmClaim, Alert
@@ -254,6 +256,7 @@ __all__ = [
     "the_identity_recorded",
     "the_service_addressed_by",
     "the_subject_of",
+    "what_it_leaves",
     "SET_FEATURE_FLAG_TOOL",
     "Action",
     "ActionIdentity",
@@ -301,6 +304,7 @@ __all__ = [
     "Incident",
     "IncidentStatus",
     "Leads",
+    "Leaves",
     "Lifespan",
     "Meaning",
     "MetricBucket",

@@ -24,11 +24,11 @@ from core.models import (
     the_subject_of,
     why_it_was_refused,
 )
-from mitigation import is_within_reach, why_nothing_was_proposed
+from mitigation import why_nothing_was_proposed
 
 from orchestrator.walk.candidates import the_circumstances
 from orchestrator.walk.deltas import Narration, StateDelta
-from orchestrator.walk.ports import Admitted, RecordOutcome
+from orchestrator.walk.ports import Admit, RecordOutcome
 from orchestrator.walk.routes import (
     FIXING_ROUTE,
     MITIGATING_ROUTE,
@@ -50,20 +50,27 @@ _THE_MODE_HAS_NO_MITIGATION = frozenset({
 def tier_gate_node(
     state: IncidentState,
     record_outcome: RecordOutcome,
-    admitted: Admitted,
+    admit: Admit,
     attempts_per_subject: int,
     publisher: Publisher = nobody
 ) -> StateDelta:
     """Refuses to let an action reach its call unless it is pre-authorised, aimed
     within the estate, inside the cap, and confirmable (spec §13).
 
-    Four questions rather than one, and the reason they live here rather than
-    inside the agent that performs the write: a guarantee enforced by the code
-    it constrains is a convention, not a guarantee. What admits an action is
-    membership of the closed set of generic mitigations - a kind somebody
-    declared and defended - and not any property of the particular action,
-    however it is labelled. An incident with no action at all has nothing for
-    this stage to admit.
+    Four questions rather than one, and the reason none of them lives inside the
+    agent that performs the write: a guarantee enforced by the code it
+    constrains is a convention, not a guarantee. The first two are the autonomy
+    policy's (`core.autonomy.admit`): what admits an action is membership of the
+    closed set of generic mitigations - a kind somebody declared and defended -
+    and not any property of the particular action, however it is labelled, and
+    then that it is aimed within the estate. The other two are this walk's. An
+    incident with no action at all has nothing for this stage to admit.
+
+    What this returns for an admitted action is nothing. The proof the policy
+    builds is not carried on to the action's node, because a walk's state is
+    checkpointed as data and a proof read back from a checkpoint is one anybody
+    could have written there: the node that takes the action asks the policy
+    again, of the same action, alert and register, and is answered as this was.
 
     Five of the eight rejections are recorded and the walk moves on, rather than
     ending the incident. The gate is judging *this* action, and the explanations
@@ -114,7 +121,7 @@ def tier_gate_node(
     """
     refusal = _why_the_action_cannot_proceed(
         state.proposed_action,
-        admitted,
+        admit,
         state.alert.service,
         state.dependencies,
         state.attempts,
@@ -247,7 +254,7 @@ def _the_entry_blamed(hypothesis: Hypothesis | None,
 
 
 def _why_the_action_cannot_proceed(action: Action | None,
-                                   admitted: Admitted,
+                                   admit: Admit,
                                    alerting_service: str,
                                    dependencies: Sequence[ServiceDependency],
                                    attempts: Sequence[Attempt],
@@ -274,23 +281,20 @@ def _why_the_action_cannot_proceed(action: Action | None,
     than worked out locally: a gate keeping its own copy of what Argus can do
     is a second copy to fall out of step with the first.
 
-    Admission is asked of the set of declared mitigations rather than read off
-    the action. Nothing about an instance can put its kind in or out of that
-    set, and an action that could answer for its own admissibility would be one
-    that admits itself.
-
-    Where it is aimed is asked after its kind and before the cap, which is the
-    order the questions actually narrow in: whether Argus does this sort of
+    Admission is asked of the autonomy policy rather than read off the action.
+    Nothing about an instance can put its kind in or out of the declared set,
+    and an action that could answer for its own admissibility would be one that
+    admits itself. The policy asks the kind and then where it is aimed, in the
+    order the questions narrow, and answers with whichever refused - and that is
+    asked before the cap, which narrows further: whether Argus does this sort of
     thing at all, then whether it may do it *there*, then whether it has done it
-    there often enough already. Asked before the kind it would report an address
-    as the problem with an action nobody pre-authorised anywhere.
+    there often enough already.
 
-    Reach is asked of the agent that holds the rule, the way admissibility and
-    the mapping of modes to mitigations are - and unlike those two it is not a
-    seam a test replaces, because being out of reach is expressible as data. An
-    action addressed elsewhere and a register that does not vouch for it is the
-    whole of the case, where a kind nobody pre-authorised cannot be built at all
-    now that every action type Argus has is in the declared set.
+    The policy is a seam a test replaces, because one of its refusals cannot be
+    reached any other way: every action type Argus has is in the declared set,
+    so a kind nobody pre-authorised cannot be built. A stand-in can only refuse
+    - an admission is built by the policy alone - so replacing it never lets
+    through what the real one would stop.
 
     The cap is asked last of the questions about the action, because it is the
     narrowest: it presumes an action that is admitted in general and asks only
@@ -328,11 +332,10 @@ def _why_the_action_cannot_proceed(action: Action | None,
     if action is None:
         return why_nothing_was_proposed(hypothesis, circumstances)
 
-    if not admitted(action):
-        return Refusal.NOT_A_GENERIC_MITIGATION
+    admission = admit(action, alerting_service=alerting_service, dependencies=dependencies)
 
-    if not is_within_reach(action, alerting_service, dependencies):
-        return Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH
+    if isinstance(admission, Refusal):
+        return admission
 
     if _times_already_tried(action, attempts) >= attempts_per_subject:
         return Refusal.ALREADY_TRIED_ENOUGH

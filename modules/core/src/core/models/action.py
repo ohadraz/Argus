@@ -582,40 +582,38 @@ class AutoscalingRestored(BaseModel):
     sync_still_suspended: bool = False
 
 
-# The kinds of action that leave a change behind somebody could put back. A
-# frozen set rather than a `match` over the union, because the question is
-# asked of the *tag* - the row records a kind, and the walk that reads it back
-# hours later has the column and not the action it came from.
-_LEAVE_SOMETHING_TO_PUT_BACK: Final[frozenset[ActionType]] = frozenset(
-    {
-        REVERT_FEATURE_FLAG, ROLL_BACK_DEPLOYMENT, SCALE_OUT, PIN_AUTOSCALER,
-        PIN_TO_ACCELERATOR
-    }
-)
+class Leaves(StrEnum):
+    """What an action of a kind leaves behind it, once it has been taken.
 
-# The kinds of action that change something outliving the action itself. Every
-# kind but the restart: a process that came back up carries nothing forward,
-# and every other kind leaves the estate or a store different afterwards.
-#
-# A superset of the one above, and the gap between them is the whole reason
-# both exist. The four there changed something *and* it can be put back. The
-# discard is the one kind that changed something and cannot - what it removed
-# was derived from records it never touched, so writing those figures back
-# would recreate the incident rather than undo it. A row with no descriptor
-# against it therefore means one of three things, and it takes both predicates
-# to say which: a change nobody accounted for, figures that were never owed
-# back, or an action that left nothing behind at all.
-#
-# Derived from that set rather than listed beside it, which is what makes the
-# relation between them unbreakable rather than merely true. "Leaves something
-# to put back" and "changes nothing that outlives it" is a contradiction - a
-# kind entered that way would be reported as both unaccounted for and inert -
-# and two literals maintained by hand is exactly how one gets entered. There is
-# no assertion anywhere that the one is a superset of the other, because the
-# union below is the only way either set can be written.
-_CHANGE_SOMETHING_PERSISTENT: Final[frozenset[ActionType]] = (
-    _LEAVE_SOMETHING_TO_PUT_BACK.union({DISCARD_CACHE_ENTRIES})
-)
+    One answer per kind rather than one set per question, because the questions
+    asked of it overlap and two literals maintained by hand is exactly how a
+    kind gets entered in one and forgotten in the other. Whether a kind leaves
+    something to put back, whether it changes anything that outlives it, and
+    whether Argus may ever take it unasked are all read off this one word, so a
+    kind cannot be reported as both unaccounted for and inert.
+
+    `SOMETHING_TO_PUT_BACK` - a value, a revision, a count, a floor or a
+    selector, recorded so a refuted change can be restored. `NOTHING_THAT_OUTLIVES_IT`
+    - the restart: a process that came back up carries nothing forward.
+    `NOTHING_OWED_BACK` - the discard, the one kind that changes something real
+    and owes nothing back: what it removes was derived from records it never
+    touches, so writing those figures in again would recreate the incident
+    rather than undo it. A row with no descriptor against it means one of three
+    things, and only the kind says which.
+
+    `IRREVERSIBLE` - a change that cannot be put back and is not recomputed
+    either: a stored record rewritten, a fleet rolled forward that cannot be
+    returned to half-deployed. No kind Argus has today leaves this, and the
+    declared set of generic mitigations (`core.autonomy`) is held by its own
+    test to hold none. It is the one place reversibility decides anything about
+    autonomy (spec §13): membership admits an action, and a kind like this is
+    never a member.
+    """
+
+    SOMETHING_TO_PUT_BACK = "something-to-put-back"
+    NOTHING_THAT_OUTLIVES_IT = "nothing-that-outlives-it"
+    NOTHING_OWED_BACK = "nothing-owed-back"
+    IRREVERSIBLE = "irreversible"
 
 
 class ActionIdentity(BaseModel, frozen=True):
@@ -831,18 +829,40 @@ def the_accelerator_of(action: Action) -> str | None:
             assert_never(action)
 
 
+def what_it_leaves(action_type: ActionType) -> Leaves:
+    """What an action of this kind leaves behind it (`Leaves`).
+
+    Asked of the tag rather than of an action - the row records a kind, and the
+    walk that reads it back hours later has the column and not the action it
+    came from. A `match` rather than a mapping, for `the_platform_of`'s reason:
+    a kind nobody has placed is a type error here, before anything runs, where
+    a mapping would answer it with a `KeyError` at walk time or a default that
+    quietly said it left nothing.
+    """
+    match action_type:
+        case "revert-feature-flag" | "roll-back-deployment" | "scale-out" \
+                | "pin-autoscaler" | "pin-to-accelerator":
+            return Leaves.SOMETHING_TO_PUT_BACK
+        case "restart-service":
+            return Leaves.NOTHING_THAT_OUTLIVES_IT
+        case "discard-cache-entries":
+            return Leaves.NOTHING_OWED_BACK
+
+    assert_never(action_type)
+
+
 def leaves_something_to_put_back(action_type: ActionType) -> bool:
     """Whether an action of this kind changes state somebody could restore.
 
     Not what admits an action - that is membership of the set of generic
-    mitigations, and lives with the agent that holds it (spec §13). This is the
-    narrower question the record has to answer afterwards: a row with no undo
-    descriptor against it means one of two very different things, and only the
-    kind can say which. An action of a kind that leaves nothing behind has
-    nothing to put back; one of a kind that does, and carries no descriptor, is
-    a change nobody has accounted for.
+    mitigations, declared in `core.autonomy` (spec §13). This is the narrower
+    question the record has to answer afterwards: a row with no undo descriptor
+    against it means one of two very different things, and only the kind can
+    say which. An action of a kind that leaves nothing behind has nothing to put
+    back; one of a kind that does, and carries no descriptor, is a change nobody
+    has accounted for.
     """
-    return action_type in _LEAVE_SOMETHING_TO_PUT_BACK
+    return what_it_leaves(action_type) is Leaves.SOMETHING_TO_PUT_BACK
 
 
 def changes_something_persistent(action_type: ActionType) -> bool:
@@ -858,11 +878,11 @@ def changes_something_persistent(action_type: ActionType) -> bool:
     whether to go and look at the store is told Argus was never in it.
 
     Named for the restart, because the restart is the only kind that makes it
-    false. Spelled as owing an undo it would be the neighbouring set with the
-    restart flipped - a synonym for the predicate beside it, whose one
-    distinguishing answer would be the wrong one.
+    false. Spelled as owing an undo it would be `leaves_something_to_put_back`
+    with the restart's answer flipped - a synonym for the predicate beside it,
+    whose one distinguishing answer would be the wrong one.
     """
-    return action_type in _CHANGE_SOMETHING_PERSISTENT
+    return what_it_leaves(action_type) is not Leaves.NOTHING_THAT_OUTLIVES_IT
 
 
 def the_platform_of(action_type: ActionType) -> Platform:
@@ -900,10 +920,9 @@ def the_platform_of(action_type: ActionType) -> Platform:
 
 
 # The kinds of action whose own answer states what they changed, rather than that
-# a request was accepted. A frozen set over the tag for the reason the set above
-# is one: the gate asks this before anything has been performed, so there is no
-# answer yet to inspect and the question has to be answerable about a kind nobody
-# has called.
+# a request was accepted. A frozen set over the tag, because the gate asks this
+# before anything has been performed: there is no answer yet to inspect, and the
+# question has to be answerable about a kind nobody has called.
 #
 # What it decides is which confirmation an attempt gets. A count of entries
 # removed is the store saying they are gone, and that is the whole of what the
@@ -923,10 +942,9 @@ def reports_what_it_changed(action_type: ActionType) -> bool:
     action is taken: the gate decides whether a confirmation could ever arrive
     while there is still nothing to inspect.
 
-    Declared beside what admits an action unasked rather than inside
-    `mitigation`, because both are properties of the kind and a reader
-    weighing one wants the other in front of them - and because a second copy
-    kept where it is used is a second copy that comes to disagree.
+    Declared in the kernel rather than inside `mitigation`, because the gate
+    asks it as well as the agent - and a second copy kept where it is used is a
+    second copy that comes to disagree.
     """
     return action_type in _REPORT_WHAT_THEY_CHANGED
 

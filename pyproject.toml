@@ -341,6 +341,14 @@ ignore_imports = [
     # `httpx2` itself.
     "deployment_platform.** -> core.applying",
     "flag_provider.** -> core.applying",
+    # The autonomy policy (spec §13), and narrow for a reason of its own rather
+    # than an extra's: the walk asks it, and the Mitigator names the admission
+    # its write accepts. Nobody else has any business with it. A door opens the
+    # whole module, so this one would let the Mitigator call `admit` as well -
+    # and `admit` judges reach by what its caller hands it. The layering script
+    # holds that half: outside the walk and the kernel, nothing names `admit`.
+    "orchestrator.** -> core.autonomy",
+    "mitigation.** -> core.autonomy",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

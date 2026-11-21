@@ -45,6 +45,7 @@ from core.models import (
     ActionType,
     DiscardCacheEntries,
     FlagUndo,
+    Leaves,
     PinToAccelerator,
     RestartService,
     RevertFeatureFlag,
@@ -61,6 +62,7 @@ from core.models import (
     the_identity_of,
     the_identity_recorded,
     the_platform_of,
+    what_it_leaves,
 )
 from pydantic import ValidationError
 
@@ -542,6 +544,29 @@ def test_every_action_but_the_restart_changes_something_persistent() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("kind", "leaves"), [
+    pytest.param(REVERT_FEATURE_FLAG, Leaves.SOMETHING_TO_PUT_BACK, id="flag"),
+    pytest.param(RESTART_SERVICE, Leaves.NOTHING_THAT_OUTLIVES_IT, id="restart"),
+    pytest.param(ROLL_BACK_DEPLOYMENT, Leaves.SOMETHING_TO_PUT_BACK, id="rollback"),
+    pytest.param(SCALE_OUT, Leaves.SOMETHING_TO_PUT_BACK, id="scale-out"),
+    pytest.param(PIN_AUTOSCALER, Leaves.SOMETHING_TO_PUT_BACK, id="autoscaler-pin"),
+    pytest.param(DISCARD_CACHE_ENTRIES, Leaves.NOTHING_OWED_BACK, id="discard"),
+    pytest.param(PIN_TO_ACCELERATOR, Leaves.SOMETHING_TO_PUT_BACK, id="card-pin")
+])
+def test_each_kind_says_what_it_leaves_behind(kind: ActionType, leaves: Leaves) -> None:
+    # One answer per kind, which the two predicates above are read off and the
+    # declared set of generic mitigations is held to. Stated kind by kind rather than
+    # read from the code, so a kind whose account changes - a restart said to
+    # leave something to put back, a discard said to be irreversible - fails
+    # here naming which, rather than quietly moving it across the line between
+    # what Argus may take unasked and what a person must approve.
+    Scenario() \
+        .given(kind) \
+        .when(lambda: what_it_leaves(kind)) \
+        .then(_it_leaves(leaves))
+
+
+@pytest.mark.unit
 def test_the_identity_of_a_pin_to_an_accelerator_is_its_kind_and_its_application() -> None:
     # The card is deliberately not part of it, for the reason a discard's keys
     # are not: it is what this attempt was worked out to be, from a placement a
@@ -621,6 +646,19 @@ def _the_kinds_are(description: str, expected: list[str]) -> Assertion[list[str]
             raise AssertionError(
                 f"Expected the kinds that {description} to be {expected}, and "
                 f"they are {named}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_leaves(expected: Leaves) -> Assertion[Leaves]:
+    def assertion(leaves: Leaves) -> bool:
+        if leaves is not expected:
+            raise AssertionError(
+                f"Expected the kind to leave [{expected}] behind it, and it leaves "
+                f"[{leaves}]."
             )
 
         return True

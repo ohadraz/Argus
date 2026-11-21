@@ -117,6 +117,7 @@ from mitigation_test.framework.builders import (
     a_window_whose_readings_return_at,
     an_action_restarting,
     an_action_setting,
+    an_admission_of,
     an_undo_descriptor_for,
     an_undo_nobody_calls,
     an_undo_putting_flags_back,
@@ -277,7 +278,7 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -300,6 +301,35 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_nobody_admitted_is_never_written() -> None:
+    # §13's gate as the Mitigator meets it: what it writes is what the autonomy
+    # policy admitted, and a bare action is not that, however well formed. The
+    # type checker refuses the call - which is why it carries an ignore, and why
+    # that ignore is reported as unused, and the typecheck fails, the day
+    # `take_action` accepts an action again - and a caller nothing type-checked
+    # is refused before anything reaches the tier.
+    Scenario() \
+        .given(writes := the_writes()) \
+        .when(attempting(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),  # type: ignore[arg-type]
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                writes=writes,
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        )) \
+        .then(all_of(
+            an_error_was_raised(TypeError),
+            _nothing_was_written_by(writes)
+        ))
+
+
+@pytest.mark.unit
 def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -> None:
     # An expired verification is refuted rather than an error: the action was
     # taken and the service was still at the incident's level when the wait
@@ -314,7 +344,7 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -349,7 +379,7 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -390,7 +420,7 @@ def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -434,7 +464,7 @@ def test_the_change_is_told_as_made_before_the_service_is_first_looked_at() -> N
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -497,7 +527,7 @@ def test_an_attempt_that_ended_before_its_write_tells_of_no_change(
         ) \
         .when(
             lambda: take_action(
-                the_attempt[0],
+                an_admission_of(the_attempt[0]),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -526,7 +556,7 @@ def test_an_action_refused_because_the_run_was_lost_is_raised_rather_than_escala
         ) \
         .when(attempting(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -577,7 +607,7 @@ def test_an_action_lost_after_it_was_sent_is_raised_to_the_walk_and_tells_of_no_
         ) \
         .when(attempting(
             lambda: take_action(
-                the_attempt[0],
+                an_admission_of(the_attempt[0]),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=the_attempt[1],
@@ -607,7 +637,7 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -640,7 +670,7 @@ def test_a_wait_withdrawn_before_its_first_look_announces_nothing_and_looks_at_n
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -677,7 +707,7 @@ def test_a_wait_withdrawn_while_the_service_is_being_read_says_nothing_about_the
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -710,7 +740,7 @@ def test_a_wait_withdrawn_while_the_rule_is_being_read_says_nothing_about_the_wa
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -752,7 +782,7 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
@@ -782,7 +812,7 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -813,7 +843,7 @@ def test_a_look_with_no_minute_since_the_action_says_it_saw_none() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -849,7 +879,7 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -875,7 +905,7 @@ def test_a_confirmed_action_is_left_in_place() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -906,7 +936,7 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=False),
+                an_admission_of(an_action_setting(some_flag, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -940,7 +970,7 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
@@ -970,7 +1000,7 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1012,7 +1042,7 @@ def test_a_change_left_standing_escalates_carrying_what_the_undo_said() -> None:
         .given(undo) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1046,7 +1076,7 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1075,7 +1105,7 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1107,7 +1137,7 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
             undo := _an_undo_that_restores(some_flag)
         ) \
         .when(lambda: take_action(
-            an_action_setting(some_flag, enabled=(not some_old_state)),
+            an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
@@ -1147,7 +1177,7 @@ def test_a_confirmed_action_is_said_as_its_kind_said_it() -> None:
         ) \
         .when(
             lambda: take_action(
-                some_action,
+                an_admission_of(some_action),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
@@ -1181,7 +1211,7 @@ def test_a_refuted_change_put_back_ends_as_its_kind_says_it_was_put_back() -> No
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1218,7 +1248,7 @@ def test_a_refuted_change_put_back_as_its_undo_told_it_ends_as_the_undo_said() -
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1283,7 +1313,7 @@ def test_the_change_s_way_back_travels_on_the_outcome_whatever_the_verdict(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1388,7 +1418,7 @@ def test_a_read_that_could_not_be_answered_costs_one_pass_and_not_the_incident()
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -1445,7 +1475,7 @@ def test_a_wait_that_never_read_the_service_reaches_no_verdict() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1497,7 +1527,7 @@ def test_a_change_the_platform_stopped_applying_reaches_no_verdict() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(some_flag, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(some_flag, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1541,7 +1571,7 @@ def test_a_change_still_arriving_is_not_judged_until_it_has() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -1596,7 +1626,7 @@ def test_the_wait_lasts_as_long_as_the_recovery_it_waits_for_must_hold() -> None
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -1646,7 +1676,7 @@ def test_an_incident_with_no_rhythm_is_given_the_one_clear_minute_it_needs() -> 
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -1688,7 +1718,7 @@ def test_a_source_that_reports_a_minute_late_is_waited_for_a_minute_longer() -> 
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(reporting_lag_minutes=a_source_a_minute_late),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -1730,7 +1760,7 @@ def test_the_minute_a_verdict_is_read_from_follows_the_change_arriving() -> None
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -1776,7 +1806,7 @@ def test_the_wait_is_announced_once_the_service_has_been_read() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -1864,7 +1894,7 @@ def test_a_recovery_is_recorded_after_the_minute_the_incident_began() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -1903,7 +1933,7 @@ def test_a_recovery_the_rule_confirmed_is_recorded_after_the_minute_the_incident
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -2005,7 +2035,7 @@ def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(some_leaking_service),
+                an_admission_of(an_action_restarting(some_leaking_service)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -2037,7 +2067,7 @@ def test_a_restart_whose_memory_never_fell_is_refuted_though_the_symptoms_eased(
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(some_leaking_service),
+                an_admission_of(an_action_restarting(some_leaking_service)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -2073,7 +2103,7 @@ def test_a_restart_that_could_not_be_taken_escalates_without_a_verdict() -> None
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(SOME_APPLICATION),
+                an_admission_of(an_action_restarting(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -2106,7 +2136,7 @@ def test_a_refuted_restart_puts_nothing_back_and_says_so() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(some_leaking_service),
+                an_admission_of(an_action_restarting(some_leaking_service)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -2136,7 +2166,7 @@ def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
         .given(_a_roller_returning(SOME_APPLICATION)) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2172,7 +2202,7 @@ def test_a_scale_out_at_the_ceiling_reaches_the_walk_as_the_refusal_it_is() -> N
         ) \
         .when(
             lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
+                an_admission_of(_a_scale_out_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2216,7 +2246,7 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
         ) \
         .when(
             lambda: take_action(
-                _a_pin_of(SOME_APPLICATION),
+                an_admission_of(_a_pin_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2264,7 +2294,7 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
         ) \
         .when(
             lambda: take_action(
-                _a_pin_of(SOME_APPLICATION),
+                an_admission_of(_a_pin_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2308,7 +2338,7 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2346,7 +2376,7 @@ def test_a_rollback_refused_by_a_platform_that_answered_still_escalates() -> Non
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2378,7 +2408,7 @@ def test_a_rollback_refused_before_anything_changed_says_nothing_was_changed() -
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2412,7 +2442,7 @@ def test_a_rollback_refused_after_the_suspension_carries_what_it_left() -> None:
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2445,7 +2475,7 @@ def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_is_not_know
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2476,7 +2506,7 @@ def test_a_write_that_failed_outside_the_tier_is_not_known_to_have_changed_nothi
         .given(roll_back) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2509,7 +2539,7 @@ def test_a_pin_whose_platform_was_not_there_is_reported_the_same_way() -> None:
         ) \
         .when(
             lambda: take_action(
-                _a_pin_of(SOME_APPLICATION),
+                an_admission_of(_a_pin_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2547,7 +2577,7 @@ def test_a_platform_lost_after_the_suspension_still_narrows_and_says_what_it_lef
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2578,7 +2608,7 @@ def test_what_a_person_reads_of_a_lost_platform_is_not_the_payload() -> None:
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2611,7 +2641,7 @@ def test_a_planned_action_is_written_from_the_plan_it_was_handed() -> None:
         ) \
         .when(
             lambda: take_action(
-                _a_rollback_of(SOME_APPLICATION),
+                an_admission_of(_a_rollback_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
@@ -2644,7 +2674,7 @@ def test_a_change_made_since_the_plan_escalates_without_a_verdict() -> None:
         ) \
         .when(
             lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
+                an_admission_of(_a_scale_out_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2688,7 +2718,7 @@ def test_what_a_person_reads_of_a_change_made_since_carries_none_of_the_markers(
         ) \
         .when(
             lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
+                an_admission_of(_a_scale_out_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2726,7 +2756,7 @@ def test_a_change_made_since_with_only_this_claims_suspension_standing_carries_i
         ) \
         .when(
             lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
+                an_admission_of(_a_scale_out_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2768,7 +2798,7 @@ def test_a_change_made_since_this_claims_own_change_landed_is_recorded_as_perfor
         ) \
         .when(
             lambda: take_action(
-                _a_scale_out_of(SOME_APPLICATION),
+                an_admission_of(_a_scale_out_of(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -2950,7 +2980,7 @@ def test_a_service_nobody_could_see_is_refuted_when_the_readings_never_return() 
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -2998,7 +3028,7 @@ def test_a_blind_spot_is_not_refuted_before_the_readings_have_had_a_chance() -> 
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3041,7 +3071,7 @@ def test_a_look_answering_after_the_deadline_it_was_asked_before_is_not_the_last
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3082,7 +3112,7 @@ def test_a_read_failing_after_the_deadline_it_was_asked_before_is_not_the_last_l
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -3127,7 +3157,7 @@ def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there()
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3169,7 +3199,7 @@ def test_the_look_that_sees_a_blind_spot_read_again_is_said_with_when_its_rows_r
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3206,7 +3236,7 @@ def test_the_wait_on_a_blind_spot_waits_for_its_metrics_to_be_read_again() -> No
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3258,7 +3288,7 @@ def test_readings_returning_confirms_the_action_that_restored_them() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3295,7 +3325,7 @@ def test_readings_that_return_unwell_still_confirm_the_sight_was_restored() -> N
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3330,7 +3360,7 @@ def test_an_onset_whose_minutes_were_all_read_is_judged_on_the_levels_as_before(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
@@ -3400,7 +3430,7 @@ def _an_action_is_taken(metrics: list[MetricBucket],
     keywords = {"publisher": publisher} if publisher is not None else {}
 
     return take_action(
-        an_action_setting(DONT_CARE_FLAG, enabled=False),
+        an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
         settings=_some_mitigation_settings(),
         thresholds=_some_thresholds(),
         incident_id=incident_id,
@@ -3621,7 +3651,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_no_series_ever_moved() -> N
         ) \
         .when(
             lambda: take_action(
-                _a_discard_of(SOME_APPLICATION, some_keys),
+                an_admission_of(_a_discard_of(SOME_APPLICATION, some_keys)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -3661,7 +3691,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_nothing_is_published() -> N
         ) \
         .when(
             lambda: take_action(
-                _a_discard_of(SOME_APPLICATION, some_keys),
+                an_admission_of(_a_discard_of(SOME_APPLICATION, some_keys)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -3703,7 +3733,7 @@ def test_a_restart_is_not_confirmed_by_a_window_nobody_published() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(SOME_APPLICATION),
+                an_admission_of(an_action_restarting(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -3748,7 +3778,7 @@ def test_a_refuted_discard_puts_nothing_back_and_says_no_undo_was_owed() -> None
         ) \
         .when(
             lambda: take_action(
-                _a_discard_of(SOME_APPLICATION, (SOME_CACHE_KEY,)),
+                an_admission_of(_a_discard_of(SOME_APPLICATION, (SOME_CACHE_KEY,))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -3783,7 +3813,7 @@ def test_a_restart_is_not_confirmed_by_a_window_that_never_departed() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(SOME_APPLICATION),
+                an_admission_of(an_action_restarting(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -3815,7 +3845,7 @@ def test_a_verdict_reached_on_the_actions_own_receipt_announces_no_wait() -> Non
         ) \
         .when(
             lambda: take_action(
-                _a_discard_of(SOME_APPLICATION, (SOME_CACHE_KEY,)),
+                an_admission_of(_a_discard_of(SOME_APPLICATION, (SOME_CACHE_KEY,))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -3845,7 +3875,7 @@ def test_a_verdict_on_a_window_that_never_departed_announces_no_wait() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(SOME_APPLICATION),
+                an_admission_of(an_action_restarting(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -3876,7 +3906,7 @@ def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_restarting(SOME_APPLICATION),
+                an_admission_of(an_action_restarting(SOME_APPLICATION)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
@@ -5269,7 +5299,7 @@ def test_metrics_that_cannot_be_read_do_not_keep_the_rule_from_judging() -> None
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -5308,7 +5338,7 @@ def test_the_service_is_re_read_for_the_rule_that_paged() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -5626,7 +5656,7 @@ def test_an_incident_withdrawn_while_its_rule_is_watched_is_withdrawn() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -5658,7 +5688,7 @@ def test_an_action_on_an_alert_naming_no_rule_reads_no_rule() -> None:
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
@@ -5746,7 +5776,7 @@ def _an_action_judged_by_the_rule(read_rule: RuleReader,
     keywords = {"publisher": publisher} if publisher is not None else {}
 
     return take_action(
-        an_action_setting(DONT_CARE_FLAG, enabled=False),
+        an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
         settings=_some_mitigation_settings(reporting_lag_minutes),
         thresholds=_some_thresholds(),
         incident_id=_SOME_INCIDENT_ID,
@@ -5866,7 +5896,7 @@ def test_an_action_withheld_because_nobody_wanted_it_is_logged(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -5898,7 +5928,7 @@ def test_a_platform_that_was_not_there_is_logged_as_a_warning(
         ) \
         .when(
             lambda: take_action(
-                a_rollback,
+                an_admission_of(a_rollback),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -5932,7 +5962,7 @@ def test_an_action_that_could_not_be_taken_is_logged_as_a_warning(
         ) \
         .when(
             lambda: take_action(
-                an_action,
+                an_admission_of(an_action),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -5963,7 +5993,7 @@ def test_a_read_that_could_not_be_answered_is_logged_as_a_warning(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -5994,7 +6024,7 @@ def test_a_wait_that_never_read_the_service_is_logged_as_a_warning(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -6069,7 +6099,7 @@ def test_a_change_the_platform_stopped_applying_is_logged_as_a_warning(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -6101,7 +6131,7 @@ def test_a_change_that_had_not_arrived_by_the_deadline_is_logged_as_a_warning(
         ) \
         .when(
             lambda: take_action(
-                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -6135,7 +6165,7 @@ def test_an_undo_that_failed_is_logged_as_an_error(caplog: pytest.LogCaptureFixt
         ) \
         .when(
             lambda: take_action(
-                an_action,
+                an_admission_of(an_action),
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
@@ -6166,7 +6196,7 @@ def test_a_refuted_change_is_told_as_owed_back_with_what_the_watch_found_before_
             undo := _an_undo_noting_in(happened)
         ) \
         .when(lambda: take_action(
-            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
@@ -6208,7 +6238,7 @@ def test_a_refuted_change_the_incident_ended_before_it_was_put_back_stays_owed_a
             undo := _an_undo_noting_in(happened)
         ) \
         .when(lambda: take_action(
-            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
@@ -6260,7 +6290,7 @@ def test_a_change_the_watch_did_not_refute_is_owed_back_by_nobody(
             a_listener := _each_put_back_owed_kept_in(happened)
         ) \
         .when(lambda: take_action(
-            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
@@ -6294,7 +6324,7 @@ def test_a_refuted_change_that_left_nothing_to_put_back_is_owed_back_by_nobody()
             a_listener := _each_put_back_owed_kept_in(happened)
         ) \
         .when(lambda: take_action(
-            an_action_restarting(SOME_APPLICATION),
+            an_admission_of(an_action_restarting(SOME_APPLICATION)),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=None,
@@ -6472,7 +6502,7 @@ def test_a_put_back_owed_on_the_claim_of_a_lost_run_stops_the_attempt_before_it_
             undo := an_undo_nobody_calls()
         ) \
         .when(attempting(lambda: take_action(
-            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
@@ -6613,7 +6643,7 @@ def test_a_claim_s_change_made_since_is_answered_as_the_live_write_s_refusal_is(
     the_plan = a_plan_of(what_an_earlier_asking_left)
     happened: list[tuple[str, UndoDescriptor | None]] = []
     the_live_walk_s_answer = take_action(
-        _a_scale_out_of(SOME_APPLICATION),
+        an_admission_of(_a_scale_out_of(SOME_APPLICATION)),
         settings=_some_mitigation_settings(),
         thresholds=_some_thresholds(),
         plan=the_plan,

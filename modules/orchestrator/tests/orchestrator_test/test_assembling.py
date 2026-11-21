@@ -49,11 +49,12 @@ NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
 # How long a client to it would wait for an answer, which no case here asks for.
 DONT_CARE_ANSWERED_WITHIN = 60.0
 
-# What the mitigation node passes when it performs an action: the action itself,
-# the plan its claim carries, and three arguments that carry their own defaults.
-# Everything else `take_action` declares has to have been bound at assembly, so
-# anything still required beyond this is a collaborator the walk was never given.
-WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"action", "plan"})
+# What the mitigation node passes when it performs an action: the policy's
+# admission of it, the plan its claim carries, and three arguments that carry
+# their own defaults. Everything else `take_action` declares has to have been
+# bound at assembly, so anything still required beyond this is a collaborator the
+# walk was never given.
+WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"admitted", "plan"})
 
 # What puts one change back: the descriptor recording it, and nothing else. Which
 # changes to undo and in what order belong to whoever holds the records.

@@ -884,6 +884,25 @@ happen to be implemented. Deriving it would let an action acquire autonomy by
 being written, which is the one way a guardrail can be removed by an
 implementation detail.
 
+The set, and the reach rule below, are a policy of their own (`core.autonomy`),
+kept apart from the Mitigator they constrain: a guarantee enforced by the code it
+constrains is a convention. The policy answers with a refusal or with an
+*admission* of the action, and the Mitigator's write accepts nothing else. Only
+the policy can make an admission, and only the walk may ask it for one: the
+Mitigator names the admission it accepts and never the function that makes it,
+and the layering guard fails the build where anything but the walk does. So an
+action reaches production only by having been put to both questions by the walk,
+against the alert it was paged with and the register it read, and a Mitigator
+that reached for the policy itself would be a build that fails rather than an
+autonomy that widens. An admission is never stored, nor copied. A walk resumed
+after its worker died asks again, of the same action, alert and register, and is
+answered as the gate was. Where it is refused - the set or the register narrowed
+while the walk was down - the walk still watches a change the earlier attempt
+made, and puts it back where it is owed back, and refuses only to make one anew.
+And a kind whose change is irreversible, one that loses something nothing
+recomputes, may not be in the set at all: each kind says what it leaves behind,
+and a set holding such a kind fails the set's own test, so it never ships.
+
 Membership settles what Argus may do; it does not settle *where*. A mitigation
 addressed to something other than the service that was paged raises a second
 question, and the kind cannot answer it: an address that comes from an

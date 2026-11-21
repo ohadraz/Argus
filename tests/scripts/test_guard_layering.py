@@ -1,15 +1,18 @@
-"""The layering guard's own rule about the walk, asked of graphs built here.
+"""The layering guard's own rules about the walk, asked of graphs and sources
+built here.
 
-The rule is the one import-linter cannot hold: no package that walks an
-incident may reach a store the fence cannot reach - a vector store, a chat
-platform's SDK - except recall's one read. Its failure is silent, like every
-guard's: a rule that stopped matching passes every build while the import it
-was written against comes back. So each case builds the import graph it is
-about, and asks the rule what it makes of it.
+Two rules import-linter cannot hold. No package that walks an incident may
+reach a store the fence cannot reach - a vector store, a chat platform's SDK -
+except recall's one read. And no module outside the walk and the kernel may
+make an admission: the Mitigator imports the autonomy policy for the type its
+write accepts, and import-linter cannot allow the type and forbid `admit`
+beside it. Their failure is silent, like every guard's: a rule that stopped
+matching passes every build while the import it was written against comes
+back. So each case builds the graph or the source it is about, and asks the
+rule what it makes of it.
 
-Graphs built by hand rather than from the workspace, because grimp builds only
-from importable packages and the cases are about imports the workspace must not
-have.
+Built by hand rather than read from the workspace, because the cases are about
+imports the workspace must not have.
 """
 
 from __future__ import annotations
@@ -18,7 +21,10 @@ import pytest
 from argus_testkit import Assertion, Scenario
 from grimp import ImportGraph
 
-from scripts.guard_layering import the_chains_to_a_store_the_fence_cannot_reach
+from scripts.guard_layering import (
+    the_admissions_made_outside_the_walk,
+    the_chains_to_a_store_the_fence_cannot_reach,
+)
 
 THE_WALK = {"orchestrator"}
 
@@ -101,6 +107,92 @@ def test_a_module_that_walks_nothing_may_import_the_vector_store() -> None:
         .given(a_graph := _a_graph_with(("incident_memory.delivering", "qdrant_client"))) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([]))
+
+
+# The Mitigator's write, which accepts an admission and must never make one.
+THE_MITIGATOR_S_WRITE = "mitigation.trying"
+
+
+@pytest.mark.unit
+def test_the_mitigator_naming_the_admission_it_accepts_passes() -> None:
+    # The import the policy's narrow door exists for: the write names the type
+    # it accepts, which is what makes an action nobody admitted a type error.
+    Scenario() \
+        .given(sources := {THE_MITIGATOR_S_WRITE: _a_module_reading(
+            "from core.autonomy import Admitted")}) \
+        .when(lambda: the_admissions_made_outside_the_walk(sources)) \
+        .then(_these_admissions_are_refused([]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reaching", [
+    pytest.param(["from core.autonomy import admit"], id="imported"),
+    pytest.param(["from core.autonomy import Admitted, admit as allowed"], id="renamed"),
+    pytest.param(["from core.autonomy import *"], id="everything"),
+    pytest.param(["from core.autonomy import _ADMISSION"], id="the-key"),
+    pytest.param(["def taking() -> None:", "    from core.autonomy import admit"],
+                 id="deferred")
+])
+def test_the_mitigator_importing_what_makes_an_admission_is_refused(reaching: list[str]) -> None:
+    # `admit` takes the reach it judges by from its caller, so a Mitigator that
+    # could call it would admit any declared kind wherever its action was
+    # aimed. Refused however it is spelled, and at the line that spells it.
+    Scenario() \
+        .given(sources := {THE_MITIGATOR_S_WRITE: _a_module_reading(*reaching)}) \
+        .when(lambda: the_admissions_made_outside_the_walk(sources)) \
+        .then(_these_admissions_are_refused([(THE_MITIGATOR_S_WRITE, len(reaching))]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("binding", [
+    pytest.param(("import core.autonomy", "core.autonomy"), id="by-path"),
+    pytest.param(("import core.autonomy as policy", "policy"), id="aliased"),
+    pytest.param(("from core import autonomy", "autonomy"), id="from-the-kernel"),
+    pytest.param(("import core", "core.autonomy"), id="through-the-kernel"),
+    # Any `import core.<x>` binds `core` itself, and the policy is reachable
+    # through it once anything has loaded it - which the worker always has.
+    pytest.param(("import core.models", "core.autonomy"), id="through-another-door")
+])
+def test_the_mitigator_referring_to_admit_on_the_policy_module_is_refused(
+    binding: tuple[str, str]
+) -> None:
+    # The import alone names no `admit`; a reference to it does, on the line
+    # after it - called or not, since a reference is what a call is made with.
+    imported, referred_to_as = binding
+    lines = [imported, f"{referred_to_as}.admit"]
+
+    Scenario() \
+        .given(sources := {THE_MITIGATOR_S_WRITE: _a_module_reading(*lines)}) \
+        .when(lambda: the_admissions_made_outside_the_walk(sources)) \
+        .then(_these_admissions_are_refused([(THE_MITIGATOR_S_WRITE, len(lines))]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module", ["orchestrator.walk.mitigating", "core.autonomy"])
+def test_the_walk_and_the_kernel_may_make_an_admission(module: str) -> None:
+    # The walk asks the policy, at the gate and again as the action is taken;
+    # the kernel is where `admit` is written.
+    Scenario() \
+        .given(sources := {module: _a_module_reading("from core.autonomy import admit")}) \
+        .when(lambda: the_admissions_made_outside_the_walk(sources)) \
+        .then(_these_admissions_are_refused([]))
+
+
+def _a_module_reading(*lines: str) -> str:
+    return "\n".join(lines) + "\n"
+
+
+def _these_admissions_are_refused(expected: list[tuple[str, int]]
+                                  ) -> Assertion[list[tuple[str, int]]]:
+    def assertion(refused: list[tuple[str, int]]) -> bool:
+        if refused != expected:
+            raise AssertionError(
+                f"Expected the admissions at {expected} refused, got {refused}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_graph_with(*imports: tuple[str, str]) -> ImportGraph:

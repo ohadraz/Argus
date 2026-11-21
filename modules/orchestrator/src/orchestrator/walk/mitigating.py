@@ -10,6 +10,7 @@ from functools import partial
 from typing import Any, Final
 
 from core import parse_iso, utc_now, was_lost
+from core.autonomy import Admitted, admit
 from core.events import (
     ActionRefused,
     ActionTaken,
@@ -161,6 +162,21 @@ def mitigation_node(
     make: the claim carries it from the moment it is written, and the action is
     taken on it. A plan the tier refused is the attempt's outcome, recorded on
     the claim as the same refusal from the write was - and nothing is taken.
+
+    The action is admitted here again, by the policy the gate asked
+    (`core.autonomy.admit`), before anything is planned or claimed. Not because
+    the gate's answer is doubted: `take` accepts only an admission, and an
+    admission is never carried in the walk's state - a checkpoint is data, and a
+    proof that could be read back from one could be written into one. Asked of
+    the same action, alert and register, it answers as the gate did, on the
+    live walk and on one resumed after its worker died alike. Where it does not
+    - an edge into this node that bypassed the gate, or a declared set or
+    register narrowed between the gate and a resume - nothing new is written.
+    With no earlier claim on the candidate, nothing is planned, claimed or
+    taken, and the incident is handed to a person. With one, the earlier
+    attempt is picked up as any resumed walk picks it up - a change it made is
+    still watched, and still put back where it is owed back, since neither is a
+    new change - and only taking the action again is refused.
     """
     # Both, because an action is taken *for* a candidate: one without the other
     # is not an attempt this node can account for, and recording it would leave
@@ -168,6 +184,32 @@ def mitigation_node(
     # so in a way the type checker can read.
     if state.proposed_action is None or state.hypothesis is None:
         return _nothing_to_act_on()
+
+    admission = admit(state.proposed_action,
+                      alerting_service=state.alert.service,
+                      dependencies=state.dependencies)
+
+    if isinstance(admission, Refusal):
+        # The claim is read before anything is refused, since a refusal is about
+        # writing anew and an earlier attempt may have written already: what it
+        # made is still watched or put back, refused or not. Read rather than
+        # claimed, because a claim is a new attempt and this is not one.
+        claimed = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
+
+        if claimed is None:
+            return _not_admitted(state, admission, record_outcome, publisher)
+
+        return _the_earlier_attempt_resumed(
+            state,
+            claimed,
+            _Resumption(
+                admission=admission, planned=None, refused=None, resuming=resuming,
+                take=take, complete_action=complete_action, advance_action=advance_action,
+                owe_a_put_back=owe_a_put_back, record_outcome=record_outcome,
+                still_wanted=still_wanted, acting_for=acting_for, publisher=publisher,
+                now=now
+            )
+        )
 
     # Before the claim, so the claim carries what the write will compare the
     # estate with from the moment it exists: a plan made after it leaves a claim
@@ -215,8 +257,8 @@ def mitigation_node(
             state,
             already_taken(state.incident_id, hypothesis_id=state.hypothesis.id),
             _Resumption(
-                planned=planned, refused=refused, resuming=resuming, take=take,
-                complete_action=complete_action, advance_action=advance_action,
+                admission=admission, planned=planned, refused=refused, resuming=resuming,
+                take=take, complete_action=complete_action, advance_action=advance_action,
                 owe_a_put_back=owe_a_put_back, record_outcome=record_outcome,
                 still_wanted=still_wanted, acting_for=acting_for, publisher=publisher,
                 now=now
@@ -242,8 +284,8 @@ def mitigation_node(
     else:
         try:
             result = _take_on_the_claim(
-                state, take, planned, action_id, acting_for, still_wanted, advance_action,
-                owe_a_put_back, announced, publisher, now
+                state, take, admission, planned, action_id, acting_for, still_wanted,
+                advance_action, owe_a_put_back, announced, publisher, now
             )
         except LostAfterSending:
             logger.warning("the action was asked for and its answer was lost",
@@ -266,6 +308,7 @@ def mitigation_node(
 
 def _take_on_the_claim(state: IncidentState,
                        take: TakeAction,
+                       admitted: Admitted[Action],
                        planned: Planned[Any] | None,
                        action_id: str,
                        acting_for: ActingFor,
@@ -280,12 +323,13 @@ def _take_on_the_claim(state: IncidentState,
     # Inside the claim's action, put-back of a refuted change included, so that
     # every write the tier makes for it carries its mark.
     with acting_for(action_id):
-        return _taken(state, take, planned, still_wanted, advance_action, owe_a_put_back,
-                      announced, publisher, now)
+        return _taken(state, take, admitted, planned, still_wanted, advance_action,
+                      owe_a_put_back, announced, publisher, now)
 
 
 def _taken(state: IncidentState,
            take: TakeAction,
+           admitted: Admitted[Action],
            planned: Planned[Any] | None,
            still_wanted: IsStillWanted,
            advance_action: AdvanceAction,
@@ -293,12 +337,12 @@ def _taken(state: IncidentState,
            announced: list[ActionTaken],
            publisher: Publisher,
            now: Callable[[], datetime]) -> Outcome:
-    """Takes the action on its plan, for whichever claim its caller acts for,
-    and answers with what came of it."""
-    assert state.proposed_action is not None and state.hypothesis is not None
+    """Takes the admitted action on its plan, for whichever claim its caller
+    acts for, and answers with what came of it."""
+    assert state.hypothesis is not None
 
     return take(
-        state.proposed_action,
+        admitted,
         # The plan the claim carries - this walk's, or on a resume the
         # earlier claim's - and not one worked out again: the write
         # compares the estate with what the claim recorded.
@@ -313,7 +357,7 @@ def _taken(state: IncidentState,
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
             candidate_number=state.hypothesis.number,
-            action=state.proposed_action,
+            action=admitted.action,
             alerting_service=state.alert.service
         ),
         put_back_owed=partial(
@@ -392,6 +436,50 @@ def _the_subject_is_open(state: IncidentState,
             candidate_number=state.hypothesis.number,
             refusal=Refusal.SUBJECT_ALREADY_OPEN,
             open_in=open_in
+        ),
+        publisher
+    )
+
+    return StateDelta(
+        action_outcome=Verdict.ESCALATED,
+        action_because=because,
+        narration=Narration(action="mitigation refused", detail=because)
+    )
+
+
+def _not_admitted(state: IncidentState,
+                  refusal: Refusal,
+                  record_outcome: RecordOutcome,
+                  publisher: Publisher) -> StateDelta:
+    """The incident handed to a person, nothing planned, claimed or taken,
+    where the autonomy policy refused the action at the moment it came to be
+    taken.
+
+    The gate asked the same policy of the same action and was told yes, so this
+    is reached only by a walk that came here some other way - an edge into this
+    node that bypassed the gate - or by one resumed after the declared set or
+    the register was narrowed under it, before it claimed anything. Neither is
+    a judgement on this candidate alone, and the walk does not go on to the
+    next: it stops, as `_the_subject_is_open` stops, with the refusal published
+    as the gate's are and the candidate kept as untested, with the reason.
+    Reached only where no earlier attempt holds a claim on the candidate: one
+    that does is picked up as any resumed walk picks it up, and only taking the
+    action again is refused (`_the_retake_refused`).
+    """
+    assert state.hypothesis is not None and state.proposed_action is not None
+
+    because = why_it_was_refused(refusal)
+    logger.warning("action not admitted when it came to be taken",
+                   extra={"refusal": refusal,
+                          "action_type": state.proposed_action.action_type,
+                          "subject": the_subject_of(state.proposed_action)})
+    record_outcome(state.hypothesis.id, tested=False, result=because)
+    publish(
+        ActionRefused(
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            candidate_number=state.hypothesis.number,
+            refusal=refusal
         ),
         publisher
     )
@@ -694,9 +782,18 @@ def _the_put_back_is_owed(owe_a_put_back: OweAPutBack,
 @dataclass(frozen=True)
 class _Resumption:
     """What a walk refused the claim carries into picking the earlier attempt
-    up: this walk's own plan, or the refusal of it, and every collaborator the
-    node was handed that a resumed attempt can reach."""
+    up: the policy's answer for the action, this walk's own plan or the
+    refusal of it, and every collaborator the node was handed that a resumed
+    attempt can reach.
 
+    The answer is an admission or a refusal, and it is asked for only where the
+    action would be taken anew (`_the_claim_taken`). Everything else a resumed
+    walk does - reading whether the change was made, watching one that was,
+    putting back one owed back - is about a change already made, and goes on
+    whichever it is. A walk the policy refused has no plan of its own: a plan
+    is the first step of a new write, and none follows."""
+
+    admission: Admitted[Action] | Refusal
     planned: Planned[Any] | None
     refused: Outcome | None
     resuming: Resuming
@@ -821,7 +918,10 @@ def _the_claim_resumed(state: IncidentState,
     over with nothing completed.
 
     A claim written with no plan is taken on this walk's, written onto the claim
-    first: the plan lives on the claim, and the write compares with it.
+    first: the plan lives on the claim, and the write compares with it. A walk
+    the autonomy policy refused made no plan, so a claim written with none is
+    handed over as nobody can say, as a restart's is - nothing can be asked of
+    the estate without a plan, and nothing will be taken.
     """
     assert state.hypothesis is not None and state.proposed_action is not None
     action = state.proposed_action
@@ -893,12 +993,17 @@ def _the_claim_taken(state: IncidentState,
                      not_made: NotMade[Any],
                      resumption: _Resumption) -> StateDelta:
     """A claimed change found not made, taken on its plan as the live walk takes
-    it - unless the metrics can no longer judge it, when a change nobody can
-    judge is not made. Either way, what the read said of the claim's is out
-    there all the same is recorded as left behind where the attempt ends before
-    its own change, and known: nothing else of the claim's was made."""
+    it - unless the autonomy policy now refuses it, when it is a new write
+    nobody admitted (`_the_retake_refused`), or the metrics can no longer judge
+    it, when a change nobody can judge is not made. Either way, what the read
+    said of the claim's is out there all the same is recorded as left behind
+    where the attempt ends before its own change, and known: nothing else of
+    the claim's was made."""
     assert state.hypothesis is not None and state.proposed_action is not None
     left_behind = not_made.left_behind
+
+    if isinstance(resumption.admission, Refusal):
+        return _the_retake_refused(state, resumption.admission, left_behind, resumption)
 
     if not _the_metrics_reach_back(state, resumption):
         _the_attempt_recorded(
@@ -917,9 +1022,10 @@ def _the_claim_taken(state: IncidentState,
     announced: list[ActionTaken] = []
 
     try:
-        result = _taken(state, resumption.take, planned, resumption.still_wanted,
-                        resumption.advance_action, resumption.owe_a_put_back, announced,
-                        resumption.publisher, resumption.now)
+        result = _taken(state, resumption.take, resumption.admission, planned,
+                        resumption.still_wanted, resumption.advance_action,
+                        resumption.owe_a_put_back, announced, resumption.publisher,
+                        resumption.now)
     except LostAfterSending:
         # As the live walk handles it: nobody can say whether it was carried out.
         logger.warning("the action was asked for and its answer was lost",
@@ -934,6 +1040,39 @@ def _the_claim_taken(state: IncidentState,
     return _the_attempt_recorded(state, result, announced[0].at if announced else None,
                                  resumption.complete_action, resumption.record_outcome,
                                  resumption.publisher)
+
+
+def _the_retake_refused(state: IncidentState,
+                        refusal: Refusal,
+                        left_behind: UndoDescriptor | None,
+                        resumption: _Resumption) -> StateDelta:
+    """A claimed change found not made, on a walk the autonomy policy now
+    refuses: not taken, and the incident handed to a person.
+
+    Taking it now would be a new write, and nothing admitted it - the declared
+    set or the register narrowed while the walk was down. The claim is
+    completed rather than left open, as a tier's refusal of the write completes
+    it: not performed, with the refusal's sentence as the reason, and what the
+    read said of the claim's is out there all the same as left behind - known,
+    since nothing else of it was made. An open claim would keep its subject
+    closed to every incident after this one for a change nobody made.
+    """
+    assert state.hypothesis is not None and state.proposed_action is not None
+
+    because = why_it_was_refused(refusal)
+    logger.warning("a claimed action not admitted when it came to be taken again",
+                   extra={"refusal": refusal,
+                          "action_type": state.proposed_action.action_type,
+                          "subject": the_subject_of(state.proposed_action)})
+    _the_attempt_recorded(
+        state,
+        Outcome(verdict=Verdict.ESCALATED, detail=because, undo_descriptor=left_behind,
+                left_behind_known=True, judged=False, performed=False,
+                not_performed_because=because),
+        None, resumption.complete_action, resumption.record_outcome, resumption.publisher
+    )
+
+    return _the_resumed_walk_stops(because)
 
 
 def _the_change_made_resumed(state: IncidentState,

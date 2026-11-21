@@ -1,13 +1,20 @@
 """The Mitigator: what to do about a cause, and doing it (spec §7.3).
 
-Five modules carry the Mitigator behind one public name. `strategies.py` says which
-action answers which cause, `admitting.py` says which kinds Argus may take
-unasked, `actions.py` chooses one without touching anything, `trying.py`
-performs one and judges what the service did, and `kinds.py` holds what differs
-between kinds of action - the write, the words, the wait and the way back. The
-split follows §13's gate: the Orchestrator has to be able to reach the choice,
-and the question of admission, without reaching the write.
-`accelerators.py`, `attribution.py` and `binding.py` are what those five work
+Four modules carry the Mitigator behind one public name. `strategies.py` says which
+action answers which cause, `actions.py` chooses one without touching anything,
+`trying.py` performs one and judges what the service did, and `kinds.py` holds
+what differs between kinds of action - the write, the words, the wait and the
+way back. The split follows §13's gate: the Orchestrator has to be able to reach
+the choice without reaching the write.
+
+Which kinds Argus may take unasked is not the Mitigator's to say. It lives in
+`core.autonomy`, the policy the gate applies, and `take_action` accepts only
+what that policy admitted (`Admitted`). Only the walk asks the policy for an
+admission - the layering guard refuses `admit` named anywhere here - so nothing
+changed here can widen what Argus does on its own authority without failing
+the build.
+
+`accelerators.py`, `attribution.py` and `binding.py` are what those four work
 with - which card a pin holds a deployment to, how Argus tells its own
 deployments from everybody else's, and where those capabilities are bound to the
 tier they run over.
@@ -36,12 +43,6 @@ from mitigation.actions import (
     Undone,
     Verdict,
     propose_action,
-)
-from mitigation.admitting import (
-    GENERIC_MITIGATIONS,
-    AdmittedMitigations,
-    is_a_generic_mitigation,
-    is_within_reach,
 )
 from mitigation.binding import an_undo_over
 from mitigation.kinds import Performed, arrival_of, performed_as_recorded, still_argus_s
@@ -88,10 +89,8 @@ from mitigation.trying import (
 )
 
 __all__ = [
-    "GENERIC_MITIGATIONS",
     "REVERT_FEATURE_FLAG",
     "Action",
-    "AdmittedMitigations",
     "ChangeMade",
     "DeploymentsBetween",
     "FlagChangesSince",
@@ -124,8 +123,6 @@ __all__ = [
     "fetch_recent_flag_changes",
     "flag_changes_over",
     "flag_setter_over",
-    "is_a_generic_mitigation",
-    "is_within_reach",
     "performed_as_recorded",
     "performing_writes_over",
     "plan_action",

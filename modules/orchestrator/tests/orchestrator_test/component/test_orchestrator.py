@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core import RunLost, get_settings
+from core.autonomy import Admitted, admit
 from core.budget import StillWanted, wanted_throughout
 from core.events import Publisher, nobody
 from core.models import (
@@ -130,7 +131,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         fetch_deployments=lambda **dont_care_question: [],
         fetch_dependencies=lambda dont_care_service: [],
         record_outcome=lambda *dont_care_args, **dont_care_keywords: None,
-        admitted=lambda dont_care_action: True,
+        admit=admit,
         attempts_per_subject=EVERY_ATTEMPT_A_WALK_MAKES,
         take=_an_action_that(Verdict.CONFIRMED),
         plan_action=lambda dont_care_action, /: None,
@@ -1016,7 +1017,7 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
     last = verdicts[-1]
     dont_care_detail = "dont care"
 
-    def take(action: Action,
+    def take(admitted: Admitted[Action],
              /,
              *,
              plan: Any = None,
@@ -1032,7 +1033,8 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
         # hands back exactly what the real one would - and tells of it as the
         # change is made, as the real one does.
         the_way_back = (
-            action.undo_descriptor if isinstance(action, RevertFeatureFlag) else None
+            admitted.action.undo_descriptor if isinstance(admitted.action, RevertFeatureFlag)
+            else None
         )
         change_made(the_way_back)
 
@@ -1332,9 +1334,9 @@ def _an_action_noting_it_landed(acted: list[bool], verdict: Verdict) -> ports.Ta
     """`verdict`, and a note that the action was taken."""
     take = _an_action_that(verdict)
 
-    def taken(action: Action, /, **keywords: Any) -> Outcome:
+    def taken(admitted: Admitted[Action], /, **keywords: Any) -> Outcome:
         acted.append(True)
-        return take(action, **keywords)
+        return take(admitted, **keywords)
 
     return taken
 

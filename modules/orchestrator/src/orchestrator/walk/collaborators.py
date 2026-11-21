@@ -24,7 +24,7 @@ from orchestrator.walk.ports import (
     ActingFor,
     ActionAlreadyTaken,
     ActionsTaken,
-    Admitted,
+    Admit,
     AdvanceAction,
     CompleteAction,
     FetchDependencies,
@@ -69,7 +69,10 @@ class Collaborators:
     fetch_deployments: FetchDeployments
     fetch_dependencies: FetchDependencies
     record_outcome: RecordOutcome
-    admitted: Admitted
+    # The autonomy policy the gate asks. A record field because one of its
+    # refusals - a kind nobody declared - cannot be reached with any action
+    # Argus has; a stand-in can refuse, and can never admit.
+    admit: Admit
     # How often one incident may apply one kind of mitigation to one
     # subject. Configuration rather than a constant, because how many
     # restarts a deployment will tolerate is a deployment's judgement.

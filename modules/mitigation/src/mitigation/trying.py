@@ -23,6 +23,7 @@ from core.anomaly import (
     has_recovered_since,
     minutes_a_recovery_must_hold,
 )
+from core.autonomy import Admitted
 from core.budget import StillWanted, wanted_throughout
 from core.events import (
     AwaitingRecovery,
@@ -149,7 +150,7 @@ def _nobody_owed(because: str) -> None:
     """A put-back owed with nobody to tell, for a caller recording nothing."""
 
 
-def take_action(action: Action,
+def take_action(admitted: Admitted[Action],
                 settings: MitigationSettings,
                 thresholds: AnomalyThresholds,
                 fetch_metrics: MetricsFetcher,
@@ -171,7 +172,15 @@ def take_action(action: Action,
                 put_back_owed: PutBackOwed = _nobody_owed,
                 kinds: KindOf = kind_of,
                 undoing_kinds: UndoingKindOf = kind_undoing) -> Outcome:
-    """Performs `action` and answers with what the service then did (spec §7.3).
+    """Performs the admitted action and answers with what the service then did
+    (spec §7.3).
+
+    `admitted` rather than an action, and that is the whole of §13's gate as far
+    as this function is concerned. Only `core.autonomy.admit` builds one, so an
+    action reaching the write here was put to the declared set and to the
+    estate's register first - by whoever called, however they came to call. A
+    bare `Action` does not type-check, and an `Admitted` nobody admitted cannot
+    be built.
 
     `rule` is the alert rule that paged, where the alert is about a series and
     named one, and `read_rule` is how its standing is read. Given both, the
@@ -275,6 +284,13 @@ def take_action(action: Action,
     answer production has, and are here so that a case can say what a kind did
     without performing it.
     """
+    # The type says so already; this says so to a caller nothing type-checked,
+    # before anything is written.
+    if not isinstance(admitted, Admitted):
+        raise TypeError("only an admitted action is taken - ask core.autonomy.admit")
+
+    action = admitted.action
+
     if not still_wanted():
         logger.info("action not taken, incident no longer wanted")
 

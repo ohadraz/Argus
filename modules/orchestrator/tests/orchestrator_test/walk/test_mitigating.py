@@ -41,6 +41,7 @@ from argus_testkit import (
     one_record_was_logged,
 )
 from core import RunLost
+from core.autonomy import Admitted
 from core.events import (
     ActionRefused,
     ActionTaken,
@@ -74,6 +75,7 @@ from core.models import (
     Made,
     NotMade,
     Outcome,
+    Ownership,
     PinAutoscaler,
     PinToAccelerator,
     Planned,
@@ -83,12 +85,14 @@ from core.models import (
     RevertFeatureFlag,
     RollBackDeployment,
     ScaleOut,
+    ServiceDependency,
     SubjectOpen,
     UndoDescriptor,
     Undone,
     UnreadVerdict,
     Verdict,
     the_actions_through,
+    the_service_addressed_by,
     the_subject_of,
     why_it_was_refused,
 )
@@ -2965,14 +2969,47 @@ def _an_incident_in(status: IncidentStatus) -> IncidentState:
 
 
 def _a_mitigating_incident(proposing: Action | None = None,
-                           about: Hypothesis | None = None) -> IncidentState:
+                           about: Hypothesis | None = None,
+                           listing: list[ServiceDependency] | None = None) -> IncidentState:
+    """An incident whose action the gate let through.
+
+    So the register is the one the gate admitted it against: where the action
+    is aimed somewhere other than the service that alerted, the register lists
+    that service as the organisation's own - unless a case hands a register of
+    its own in `listing`, which is how it says the policy should refuse.
+    """
     state = _an_incident_in(IncidentStatus.MITIGATING)
 
     return state.model_copy(
         update={
             "hypothesis": about or a_determined_hypothesis(state.incident_id),
-            "proposed_action": proposing
+            "proposed_action": proposing,
+            "dependencies": (listing if listing is not None
+                             else _a_register_vouching_for(proposing, state.alert.service))
         }
+    )
+
+
+def _a_register_vouching_for(action: Action | None,
+                             alerting_service: str) -> list[ServiceDependency]:
+    """The register the gate admitted `action` against: empty where it is aimed
+    at the service that alerted or at no service, and otherwise listing the
+    service it is aimed at as the organisation's own."""
+    addressed_to = the_service_addressed_by(action) if action is not None else None
+
+    if addressed_to is None or addressed_to == alerting_service:
+        return []
+
+    return [_a_dependency_of_ours(addressed_to)]
+
+
+def _a_dependency_of_ours(name: str) -> ServiceDependency:
+    return ServiceDependency(
+        name=name,
+        purpose="something the alerting service calls while it serves a request",
+        host=f"{name}.example",
+        owner="some-team",
+        ownership=Ownership.INTERNAL
     )
 
 
@@ -3014,7 +3051,7 @@ def _the_action_came_back(take: MagicMock,
                       undone=undone,
                       undone_detail=undone_detail)
 
-    def taking(dont_care_action: Action, /, **keywords: object) -> Outcome:
+    def taking(dont_care_admitted: Admitted[Action], /, **keywords: object) -> Outcome:
         change_made = cast(ChangeMade, keywords["change_made"])
         if performed:
             change_made(undo_descriptor)
@@ -3029,10 +3066,10 @@ def _noting_when_it_is_taken(take: MagicMock, happened: list[str]) -> None:
     was asked - so a case can say what was in force around it."""
     answering = take.side_effect
 
-    def taking(action: Action, /, **keywords: object) -> Outcome:
+    def taking(admitted: Admitted[Action], /, **keywords: object) -> Outcome:
         happened.append("taken")
 
-        return cast(Outcome, answering(action, **keywords))
+        return cast(Outcome, answering(admitted, **keywords))
 
     take.side_effect = taking
 
@@ -3188,6 +3225,439 @@ def test_a_resumed_walk_whose_claim_is_refused_for_an_open_subject_escalates_the
             _the_verdict_reported_is(Verdict.ESCALATED),
             _the_reason_reported_is(said)
         ))
+
+
+# Somewhere the register does not list, so the autonomy policy refuses an action
+# aimed at it - and the sentence that refusal is said in.
+SOME_SERVICE_NOBODY_LISTED = "kuki-billing"
+WHY_IT_WAS_OUT_OF_REACH = why_it_was_refused(Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH)
+# An action aimed there that has a plan, for the resumed cases: a claim's change
+# is asked after on its plan, and one with none is never asked after at all.
+A_ROLLBACK_NOBODY_LISTED = RollBackDeployment(application=SOME_SERVICE_NOBODY_LISTED)
+
+
+@pytest.mark.unit
+def test_the_action_is_taken_as_the_autonomy_policy_admitted_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # What the agent is handed is the policy's admission of the action, not the
+    # action: the write accepts nothing else, so a node that handed over the
+    # bare proposal could not be type-checked, and one that handed over an
+    # admission of something else would have taken a different action.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=(the_proposal := _an_action_with_an_undo_descriptor())
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(_it_was_taken_as_the_admission_of(the_proposal, take))
+
+
+@pytest.mark.unit
+def test_a_resumed_walk_takes_the_claimed_action_as_the_autonomy_policy_admits_it_again(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # An admission is never kept in the walk's state - a checkpoint is data, and
+    # a proof that could be read back from one could be written into one. So a
+    # walk resumed after its worker died, finding the claim's change not made,
+    # takes the action as the policy admits it now, asked of the same action,
+    # alert and register the gate asked.
+    the_plan_the_claim_carries = _a_plan_of(_an_action_with_an_undo_descriptor())
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=the_plan_the_claim_carries)),
+            calling(lambda: _nothing_of_it_landed(resuming)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_resumed_incident(
+                proposing=(the_proposal := _an_action_with_an_undo_descriptor())
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=_Acting(),
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(_it_was_taken_as_the_admission_of(the_proposal, take))
+
+
+@pytest.mark.unit
+def test_an_action_the_autonomy_policy_refuses_when_it_comes_to_be_taken_is_never_taken(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # The gate asked the same policy and was told yes, so an action reaching
+    # here that the policy refuses came some way the gate did not stand on - an
+    # edge into the node past it, or a declared set narrowed under a resumed
+    # walk. With no earlier attempt holding a claim, nothing is planned, claimed
+    # or taken; the candidate is kept as untested and the refusal published as
+    # the gate's are; and the incident goes to a person rather than to the next
+    # candidate, since whatever let this through is not a judgement on this
+    # candidate alone.
+    published: list[IncidentEvent] = []
+    plan_action = _a_plan_nobody_checks()
+    some_candidate = a_determined_hypothesis(a_random_id())
+
+    Scenario() \
+        .given(
+            calling(lambda: _no_earlier_attempt_holds_a_claim(already_taken)),
+            # Answering as an agent would, so a node that took it anyway says
+            # so in the assertions rather than in a crash on a stand-in's reply.
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_aimed_outside_the_estate := _a_mitigating_incident(
+                proposing=RestartService(service=SOME_SERVICE_NOBODY_LISTED),
+                about=some_candidate,
+                listing=[]
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_aimed_outside_the_estate,
+                                      take=take,
+                                      plan_action=plan_action,
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _nothing_was_planned_or_claimed(plan_action, record_action),
+            _the_candidate_was_left_untested_because(some_candidate, WHY_IT_WAS_OUT_OF_REACH,
+                                                     record_outcome),
+            _the_refusal_published_was(Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH, some_candidate,
+                                       published),
+            _the_verdict_reported_is(Verdict.ESCALATED),
+            _the_reason_reported_is(WHY_IT_WAS_OUT_OF_REACH)
+        ))
+
+
+@pytest.mark.unit
+def test_a_resumed_walk_the_autonomy_policy_now_refuses_does_not_take_the_claimed_action_again(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Asked again on a resume and refused - the declared set or the register
+    # narrowed while the walk was down. The claim is read and the estate asked
+    # whether its change was made, as any resumed walk asks; found not made,
+    # taking it now would be a new write nothing admitted. So it is not taken.
+    # The claim is completed as not performed, saying why, rather than left
+    # open to close its subject to every incident after this one, the
+    # candidate is kept as untested with that reason, and the incident goes to
+    # a person.
+    some_candidate = a_determined_hypothesis(a_random_id())
+    its_plan = _a_plan_of(A_ROLLBACK_NOBODY_LISTED)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=its_plan)),
+            calling(lambda: _nothing_of_it_landed(resuming)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_aimed_outside_the_estate := _a_resumed_incident(
+                proposing=A_ROLLBACK_NOBODY_LISTED, about=some_candidate, listing=[])
+        ) \
+        .when(lambda: mitigation_node(an_incident_aimed_outside_the_estate,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _it_was_asked_whether_made_on(A_ROLLBACK_NOBODY_LISTED, its_plan, resuming),
+            _the_action_was_not_taken(take),
+            _the_action_row_records_whether_it_was_performed(False, complete_action),
+            _the_verdict_s_line_says_why_it_was_not_performed(WHY_IT_WAS_OUT_OF_REACH,
+                                                              complete_action),
+            _the_candidate_was_left_untested_because(some_candidate, WHY_IT_WAS_OUT_OF_REACH,
+                                                     record_outcome),
+            _the_verdict_reported_is(Verdict.ESCALATED),
+            _the_reason_reported_is(WHY_IT_WAS_OUT_OF_REACH)
+        ))
+
+
+@pytest.mark.unit
+def test_a_claimed_change_found_made_is_still_watched_when_the_autonomy_policy_now_refuses_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The policy refuses a new write, and watching a change the earlier worker
+    # already made is not one. Left unwatched, a change Argus made would stand
+    # with nobody judging whether it helped, and nobody putting it back if it
+    # did not - the refusal would have made the incident worse, not safer.
+    its_plan = _a_plan_of(A_ROLLBACK_NOBODY_LISTED)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=its_plan)),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=its_plan.descriptor,
+                made_at=SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE))),
+            calling(lambda: _the_watch_came_back(resuming, _an_outcome(Verdict.CONFIRMED))),
+            an_incident_aimed_outside_the_estate := _a_resumed_incident(
+                proposing=A_ROLLBACK_NOBODY_LISTED, listing=[])
+        ) \
+        .when(lambda: mitigation_node(an_incident_aimed_outside_the_estate,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_change_made_earlier_was_watched(A_ROLLBACK_NOBODY_LISTED, resuming),
+            _the_action_was_not_taken(take),
+            _the_action_row_records_the_outcome(Verdict.CONFIRMED, complete_action),
+            _the_verdict_reported_is(Verdict.CONFIRMED)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_is_still_watched_when_the_autonomy_policy_now_refuses_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The worker died in the wait: the change is out there, and watching it is
+    # no new write. Refused or not, it is watched and recorded as any change
+    # told as made is.
+    its_plan = _a_plan_of(A_ROLLBACK_NOBODY_LISTED)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=its_plan,
+                progress=ActionProgress.PERFORMED, undo_descriptor=its_plan.descriptor,
+                performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _it_was_found(resuming, ChangeFound(still_argus_s=True))),
+            calling(lambda: _the_watch_came_back(resuming, _an_outcome(Verdict.REFUTED))),
+            an_incident_aimed_outside_the_estate := _a_resumed_incident(
+                proposing=A_ROLLBACK_NOBODY_LISTED, listing=[])
+        ) \
+        .when(lambda: mitigation_node(an_incident_aimed_outside_the_estate,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_change_made_earlier_was_watched(A_ROLLBACK_NOBODY_LISTED, resuming),
+            _the_action_was_not_taken(take),
+            _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action),
+            _the_verdict_reported_is(Verdict.REFUTED)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_owed_back_is_still_put_back_when_the_autonomy_policy_now_refuses_it(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The watch refuted the change and the worker died before putting it back.
+    # Putting back what Argus itself made is the one write the refusal must not
+    # stop: refusing it would leave a refuted change standing on a service the
+    # policy now says Argus may not touch.
+    its_plan = _a_plan_of(A_ROLLBACK_NOBODY_LISTED)
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PUTTING_BACK, undo_descriptor=its_plan.descriptor,
+                performed_at=SOME_MOMENT_IT_WAS_MADE, put_back_because=SOME_FINDING)),
+            an_incident_aimed_outside_the_estate := _a_resumed_incident(
+                proposing=A_ROLLBACK_NOBODY_LISTED, listing=[])
+        ) \
+        .when(lambda: mitigation_node(an_incident_aimed_outside_the_estate,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_change_made_earlier_was_put_back(A_ROLLBACK_NOBODY_LISTED, resuming),
+            _it_was_not_watched(resuming),
+            _the_action_was_not_taken(take)
+        ))
+
+
+def _no_earlier_attempt_holds_a_claim(already_taken: MagicMock) -> None:
+    already_taken.return_value = None
+
+
+def _the_change_made_earlier_was_watched(action: Action,
+                                         resuming: ports.Resuming) -> Assertion[StateDelta]:
+    """Watched once, as `action` - in whatever words its kind says it in, which
+    the cases about the words assert on their own."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        watched = [call.args[0] for call in _mocked(resuming.watch).call_args_list]
+
+        if watched != [action]:
+            raise AssertionError(f"Expected [{action}] watched once, got {watched}.")
+
+        return True
+
+    return assertion
+
+
+def _the_change_made_earlier_was_put_back(action: Action,
+                                          resuming: ports.Resuming) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        settled = [call.args[0] for call in _mocked(resuming.settle).call_args_list]
+
+        if settled != [action.action_type]:
+            raise AssertionError(
+                f"Expected a [{action.action_type}] put back once, got {settled}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_taken_as_the_admission_of(action: Action, take: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if not take.called:
+            raise AssertionError(f"Expected [{action}] to be taken, nothing was.")
+
+        handed = take.call_args.args[0]
+
+        if not isinstance(handed, Admitted) or handed.action != action:
+            raise AssertionError(
+                f"Expected the agent to be handed the admission of [{action}], it was "
+                f"handed a [{type(handed).__name__}]: [{handed}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_planned_or_claimed(plan_action: MagicMock,
+                                    record_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        asked = {name: called.call_args_list
+                 for name, called in (("planned", plan_action), ("claimed", record_action))
+                 if called.called}
+
+        if asked:
+            raise AssertionError(f"Expected nothing planned or claimed, got {asked}.")
+
+        return True
+
+    return assertion
+
+
+def _the_refusal_published_was(refusal: Refusal,
+                               candidate: Hypothesis,
+                               published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """One refusal published, about `candidate` - by its id and the number a
+    reader knows it by - saying `refusal`."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        refusals = [(event.hypothesis_id, event.candidate_number, event.refusal)
+                    for event in published if isinstance(event, ActionRefused)]
+        wanted = [(candidate.id, candidate.number, refusal)]
+
+        if refusals != wanted:
+            raise AssertionError(f"Expected the refusals published {wanted}, got {refusals}.")
+
+        return True
+
+    return assertion
 
 
 def _the_subject_is_open_in(record_action: MagicMock, open_in: str | None) -> None:
@@ -3457,7 +3927,7 @@ def _the_verdict_names(state: IncidentState,
     says what was reached for."""
     def assertion(dont_care_result: StateDelta) -> bool:
         assert state.proposed_action is not None
-        narrating = complete_action.call_args.kwargs["narrating"]
+        narrating = _the_completion(complete_action)["narrating"]
         said = (narrating.action_type, narrating.subject, narrating.performed)
         wanted = (state.proposed_action.action_type,
                   the_subject_of(state.proposed_action), performed)
@@ -3472,7 +3942,7 @@ def _the_verdict_names(state: IncidentState,
 def _the_verdict_says_it_was_judged(expected: bool,
                                       complete_action: MagicMock) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        said = complete_action.call_args.kwargs["narrating"].judged
+        said = _the_completion(complete_action)["narrating"].judged
         if said is not expected:
             raise AssertionError(f"Expected the verdict to say judged is {expected}, "
                                  f"it said {said}.")
@@ -3642,7 +4112,7 @@ def _the_action_row_records_whether_it_was_performed(expected: bool,
                                                      complete_action: MagicMock
                                                      ) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        recorded = complete_action.call_args.kwargs["performed"]
+        recorded = _the_completion(complete_action)["performed"]
         if recorded is not expected:
             raise AssertionError(
                 f"Expected the action row to record performed as {expected}, it "
@@ -3658,7 +4128,7 @@ def _the_action_row_records_whether_what_it_left_is_known(expected: bool,
                                                          complete_action: MagicMock
                                                          ) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        recorded = complete_action.call_args.kwargs["left_behind_known"]
+        recorded = _the_completion(complete_action)["left_behind_known"]
         if recorded is not expected:
             raise AssertionError(
                 f"Expected the action row to record what the attempt left behind as "
@@ -3675,7 +4145,7 @@ def _the_action_row_records_the_way_back(expected: UndoDescriptor | None,
                                          complete_action: MagicMock
                                          ) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        recorded = complete_action.call_args.kwargs["undo_descriptor"]
+        recorded = _the_completion(complete_action)["undo_descriptor"]
         if recorded != expected:
             raise AssertionError(
                 f"Expected the action row to record {expected}, it recorded "
@@ -3691,7 +4161,7 @@ def _the_action_row_records_the_outcome(expected: str,
                                         complete_action: MagicMock
                                         ) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        recorded = complete_action.call_args.kwargs["outcome"]
+        recorded = _the_completion(complete_action)["outcome"]
         if recorded != expected:
             raise AssertionError(
                 f"Expected the action row to record [{expected}], it recorded "
@@ -3726,7 +4196,7 @@ def _the_verdict_s_line_says_why_it_was_not_performed(reason: str,
                                                       complete_action: MagicMock
                                                       ) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        said = complete_action.call_args.kwargs["narrating"].not_performed_because
+        said = _the_completion(complete_action)["narrating"].not_performed_because
 
         if said != reason:
             raise AssertionError(
@@ -3743,7 +4213,7 @@ def _putting_it_back_was_kept_as(expected: Undone,
                                  said: str,
                                  complete_action: MagicMock) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        kept = complete_action.call_args.kwargs
+        kept = _the_completion(complete_action)
         narrating = kept["narrating"]
         found = (kept["undone"], narrating.undone, narrating.undone_detail)
 
@@ -3822,6 +4292,16 @@ def _the_action_was_not_taken(take: MagicMock) -> Assertion[object]:
         return True
 
     return assertion
+
+
+def _the_completion(complete_action: MagicMock) -> dict[str, Any]:
+    """What the action row was completed with - a failed expectation, rather than
+    an `AttributeError` that stops every assertion after it, where it never
+    was."""
+    if complete_action.call_args is None:
+        raise AssertionError("Expected the action row to be completed, it never was.")
+
+    return dict(complete_action.call_args.kwargs)
 
 
 def _nothing_was_completed(complete_action: MagicMock) -> Assertion[StateDelta]:
@@ -3951,7 +4431,7 @@ def _the_action_announced_was_for_candidate(number: int,
 def _the_verdict_was_for_candidate(number: int,
                                    complete_action: MagicMock) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        said = complete_action.call_args.kwargs["narrating"].candidate_number
+        said = _the_completion(complete_action)["narrating"].candidate_number
         if said != number:
             raise AssertionError(
                 f"Expected the verdict's line to be for candidate {number}, and it was "
@@ -3999,7 +4479,7 @@ def _the_announced_action_held_it_to(expected: str,
 def _the_verdict_was_narrated(expected: str,
                               complete_action: MagicMock) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        narrating = complete_action.call_args.kwargs["narrating"]
+        narrating = _the_completion(complete_action)["narrating"]
         if not isinstance(narrating, VerdictReached):
             raise AssertionError(
                 f"Expected the verdict to be narrated as one, it was narrated as "
@@ -4556,9 +5036,14 @@ def _a_minute(instant: datetime) -> str:
 
 
 def _a_resumed_incident(began: datetime = SOME_RECENT_ONSET,
-                        proposing: Action | None = None) -> IncidentState:
-    """A mitigating incident the investigation dated from `began`."""
-    state = _a_mitigating_incident(proposing=proposing or _an_action_with_an_undo_descriptor())
+                        proposing: Action | None = None,
+                        about: Hypothesis | None = None,
+                        listing: list[ServiceDependency] | None = None) -> IncidentState:
+    """A mitigating incident the investigation dated from `began` - about
+    `about` and with the register `listing` where a case gives them, as
+    `_a_mitigating_incident` takes them."""
+    state = _a_mitigating_incident(proposing=proposing or _an_action_with_an_undo_descriptor(),
+                                   about=about, listing=listing)
 
     return state.model_copy(update={"onset": EstablishedOnset(
         minute=_a_minute(began), how_known=HowTheMinuteIsKnown.MEASURED
@@ -5949,6 +6434,58 @@ def test_a_claim_s_suspension_left_out_there_is_recorded_when_taking_it_ends_unm
                                       now=_the_clock_at(SOME_NOW))) \
         .then(all_of(
             _the_action_row_records_the_way_back(ITS_PLAN.descriptor, complete_action),
+            _the_action_row_records_whether_what_it_left_is_known(True, complete_action)
+        ))
+
+
+# The same kind of change aimed somewhere the register does not list, so the
+# autonomy policy refuses to take it again - and the plan its claim was written
+# with.
+A_CHANGE_THAT_SUSPENDS_FIRST_NOBODY_LISTED = ScaleOut(application=SOME_SERVICE_NOBODY_LISTED)
+ITS_CLAIM_S_PLAN = _a_plan_of(A_CHANGE_THAT_SUSPENDS_FIRST_NOBODY_LISTED)
+
+
+@pytest.mark.unit
+def test_a_claim_s_suspension_left_out_there_is_recorded_when_taking_it_again_is_refused(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # Not made, and the autonomy policy now refuses to take it: the walk stops
+    # before it writes, as it stops when the metrics cannot judge the change.
+    # What the read carried still stands out there all the same, and the row
+    # records it - the one record of it a withdrawal can put back from.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=ITS_CLAIM_S_PLAN)),
+            calling(lambda: _nothing_of_it_landed(resuming,
+                                                  left_behind=ITS_CLAIM_S_PLAN.descriptor)),
+            an_incident_aimed_outside_the_estate := _a_resumed_incident(
+                proposing=A_CHANGE_THAT_SUSPENDS_FIRST_NOBODY_LISTED, listing=[])
+        ) \
+        .when(lambda: mitigation_node(an_incident_aimed_outside_the_estate,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(all_of(
+            _the_action_was_not_taken(take),
+            _the_action_row_records_the_way_back(ITS_CLAIM_S_PLAN.descriptor, complete_action),
             _the_action_row_records_whether_what_it_left_is_known(True, complete_action)
         ))
 

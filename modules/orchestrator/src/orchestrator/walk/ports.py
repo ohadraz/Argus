@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
+from core.autonomy import Admitted
 from core.budget import StillWanted
 from core.events import IncidentEvent, Publisher, nobody
 from core.models import (
@@ -37,6 +38,7 @@ from core.models import (
     PostmortemDocument,
     ProposedFix,
     Reading,
+    Refusal,
     ServiceDependency,
     TakenAction,
     ThreadMessage,
@@ -175,8 +177,11 @@ class FetchDependencies(Protocol):
 
 
 class TakeAction(Protocol):
-    # The action is positional, so any callable naming it whatever it likes is
-    # one. The rest are keyword-only and defaulted: the incident and the
+    # The admitted action is positional, so any callable naming it whatever it
+    # likes is one - and an admission rather than an action, so nothing reaches
+    # the write that `core.autonomy.admit` did not build a proof for. A double
+    # standing in for the agent is handed the real proof, since no other can be
+    # made. The rest are keyword-only and defaulted: the incident and the
     # publisher are what the action narrates itself against, and `still_wanted`
     # is how the verification wait hears that somebody stopped the
     # walk. A caller with none of the three takes the same action, tells nobody,
@@ -220,7 +225,7 @@ class TakeAction(Protocol):
     # plan nobody chose would be compared against a state nothing wrote down.
     def __call__(
         self,
-        action: Action,
+        admitted: Admitted[Action],
         /,
         *,
         plan: Planned[Any] | None,
@@ -350,20 +355,23 @@ class OweAPutBack(Protocol):
     def __call__(self, incident_id: str, hypothesis_id: str, because: str) -> None: ...
 
 
-class Admitted(Protocol):
-    """Whether Argus may take an action of this kind unasked (spec §13).
+class Admit(Protocol):
+    """Whether Argus may take this action unasked, and aimed where it is
+    (spec §13): the action admitted, or the refusal saying which of the two
+    questions it failed.
 
-    A question about the kind, not the instance: what admits an action is
-    membership of the closed set of generic mitigations somebody declared and
-    defended, and no property of the particular action can put it in or out.
-    The real answer comes from `mitigation`, which holds the set; the gate
-    names the question as a type so that the one check standing between a
-    proposal and production is asked of something a test can replace with an
-    answer of no.
+    The real answer is `core.autonomy.admit`, the policy the gate applies; the
+    gate names the question as a type so that it is asked of something a test
+    can replace with an answer of no. Only of no: a stand-in cannot build an
+    `Admitted`, so replacing this can narrow what Argus does and never widen it.
     """
 
-    # Positional-only: the action is the whole question.
-    def __call__(self, action: Action, /) -> bool: ...
+    def __call__(self,
+                 action: Action,
+                 /,
+                 *,
+                 alerting_service: str,
+                 dependencies: Sequence[ServiceDependency]) -> Admitted[Action] | Refusal: ...
 
 
 class WhetherItWasMade(Protocol):

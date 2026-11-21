@@ -6,6 +6,7 @@ from functools import partial
 from unittest.mock import MagicMock, create_autospec
 
 from core import to_iso_minute
+from core.autonomy import Admitted, admit
 from core.models import (
     CacheEntriesDiscarded,
     ChangeEvent,
@@ -16,11 +17,13 @@ from core.models import (
     Hypothesis,
     MetricBucket,
     Planned,
+    Refusal,
     RestartedService,
     RestartService,
     Undone,
+    the_service_addressed_by,
 )
-from mitigation import Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
+from mitigation import Action, Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
 from mitigation.kinds import undo_change
 from mitigation.tools import (
     AcceleratorPinner,
@@ -60,6 +63,9 @@ from mitigation.trying import UndoChange
 DONT_CARE_FLAG = "dont-care-flag"
 DONT_CARE_INCIDENT_ID = "3f0c6a8e-6f1e-4a9a-8c3d-2b7f9d1e5a44"
 DONT_CARE_ACTOR = "dont-care-actor"
+# The service that alerted, for an action that names none - a flag - and so is
+# within reach whichever service it is.
+DONT_CARE_ALERTING_SERVICE = "dont-care-service"
 
 WINDOW_START = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 CALM_MINUTES = 6
@@ -167,6 +173,28 @@ def an_action_setting(flag: str, enabled: bool) -> RevertFeatureFlag:
 def an_action_restarting(service: str) -> RestartService:
     """The other kind, which carries no way back and has no field for one."""
     return RestartService(service=service)
+
+
+def an_admission_of[A: Action](action: A) -> Admitted[A]:
+    """`action` as the autonomy policy admits it, for the service it is aimed at.
+
+    What `take_action` is handed, and made the one way one can be: by asking
+    `admit`. The service the action is addressed to is taken as the one that
+    alerted, which is always within reach - so every kind Argus has is admitted
+    this way, and a case about what the Mitigator does with an admitted action
+    is not also a case about the register. A flag is addressed to nothing, and
+    any alerting service admits it.
+    """
+    admission = admit(
+        action,
+        alerting_service=the_service_addressed_by(action) or DONT_CARE_ALERTING_SERVICE,
+        dependencies=[]
+    )
+
+    if isinstance(admission, Refusal):
+        raise AssertionError(f"Expected [{action}] to be admitted, it was refused: [{admission}].")
+
+    return admission
 
 
 def an_outcome_reaching(verdict: Verdict) -> Outcome:

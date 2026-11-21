@@ -31,6 +31,14 @@ fence cannot reach. import-linter sees a third party only with
 against the standard library - so the graph with third parties in it is built
 here, for this rule alone.
 
+And it holds who may make an admission, which import-linter cannot say either.
+The Mitigator imports the autonomy policy (`core.autonomy`) because its write
+accepts only an `Admitted`, and import-linter allows a module or forbids it -
+it cannot allow the type and forbid `admit` beside it. A Mitigator that could
+call `admit` could hand it any reach it liked, and admit any declared kind
+anywhere; so outside the walk and the kernel, nothing names `admit`, imports
+everything from the policy, or reaches a private name of it.
+
 A script rather than the `lint-imports` shim, for the reason every other tool
 here is invoked as a module: going through the interpreter avoids the
 locally-generated `.exe` stubs in `.venv/Scripts/`, which Windows Smart App
@@ -39,7 +47,7 @@ Control has blocked before. See the `smart-app-control-blocks` skill.
 import ast
 import sys
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from io import TextIOWrapper
 from pathlib import Path
 
@@ -107,6 +115,18 @@ THE_KERNELS_OWN_SUITE = "modules/core/tests"
 # suite does. An entry here is a claim that the importer exists to exercise the
 # thing rather than to use it.
 BEHIND_THE_DOOR = frozenset({"core.llm.adapters.anthropic_adapter"})
+
+# The autonomy policy, and the one name in it that makes an admission.
+AUTONOMY = "core.autonomy"
+ADMIT = "admit"
+
+# Who may make one: the walk, whose gate and mitigation node ask the policy, and
+# the kernel, where it is written. Everybody else may name `Admitted` - the
+# Mitigator's write accepts nothing else - and never `admit`, since `admit`
+# takes the reach it judges by from its caller: a Mitigator that called it with
+# the address its own action names would admit that action wherever it was
+# aimed.
+WHO_MAY_ADMIT = frozenset({"orchestrator", KERNEL})
 
 
 def _the_modules_on_disk() -> set[str]:
@@ -503,9 +523,132 @@ def _no_repository_commits() -> None:
         sys.exit(1)
 
 
+def the_admissions_made_outside_the_walk(sources: Mapping[str, str]) -> list[tuple[str, int]]:
+    """Every place a module outside the walk and the kernel reaches `admit`, as
+    the module and the line.
+
+    `sources` is each module's source, keyed by its dotted name - which is what
+    says whose it is. Reaching is any spelling that gets `admit` called: importing
+    it from the policy under any name, importing everything from it, or naming it
+    as an attribute of the policy however the policy was bound - `import
+    core.autonomy`, `import core.autonomy as x`, `from core import autonomy`. A
+    private name of the policy counts too, since the key is how an admission is
+    built without `admit`. Every import is walked, deferred ones included, as
+    the front-door rule walks them.
+
+    Empty where only the walk admits, which is the whole of what passing means.
+    """
+    return sorted(
+        (module, lineno)
+        for module, source in sources.items()
+        if module.partition(".")[0] not in WHO_MAY_ADMIT
+        for lineno in _the_admissions_in(source)
+    )
+
+
+def _makes_an_admission(name: str) -> bool:
+    """Whether naming `name` of the policy reaches what makes an admission."""
+    return name in (ADMIT, "*") or name.startswith("_")
+
+
+def _the_dotted_name_of(node: ast.expr) -> str | None:
+    """`a.b.c` for the expression `a.b.c`, and `None` for anything that is not a
+    plain chain of names."""
+    if isinstance(node, ast.Name):
+        return node.id
+
+    if isinstance(node, ast.Attribute):
+        within = _the_dotted_name_of(node.value)
+
+        return f"{within}.{node.attr}" if within is not None else None
+
+    return None
+
+
+def _the_admissions_in(source: str) -> list[int]:
+    """The line of every place this source reaches `admit`."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []  # not this guard's complaint; ruff and mypy both say so first
+
+    kernel, _, policy = AUTONOMY.rpartition(".")
+    # The names the policy module itself is bound to here.
+    bound: set[str] = set()
+    lines: list[int] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and not node.level:
+            if node.module == AUTONOMY:
+                lines.extend(node.lineno for alias in node.names
+                             if _makes_an_admission(alias.name))
+            elif node.module == kernel:
+                bound.update(alias.asname or alias.name for alias in node.names
+                             if alias.name == policy)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname is not None:
+                    # `import core.autonomy as x` binds the policy to `x`, and
+                    # `import core as x` the kernel; `import core.models as x`
+                    # binds neither.
+                    if alias.name == AUTONOMY:
+                        bound.add(alias.asname)
+                    elif alias.name == kernel:
+                        bound.add(f"{alias.asname}.{policy}")
+                elif alias.name == kernel or alias.name.startswith(f"{kernel}."):
+                    # Any `import core...` without `as` binds `core` itself, so
+                    # `core.autonomy` is reachable through it - `import
+                    # core.models` included, once anything has loaded the policy.
+                    bound.add(AUTONOMY)
+
+    lines.extend(
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and _makes_an_admission(node.attr)
+        and _the_dotted_name_of(node.value) in bound
+    )
+
+    return sorted(lines)
+
+
+def _the_shipped_modules() -> dict[str, Path]:
+    """Every module that ships, by its dotted name: the source trees under
+    `modules/`, and not their suites - a suite builds admissions to hand the
+    code it tests, and ships nothing."""
+    return {
+        ".".join(path.relative_to(MODULES / path.relative_to(MODULES).parts[0] / "src")
+                 .with_suffix("").parts): path
+        for path in sorted(MODULES.glob("*/src/**/*.py"))
+    }
+
+
+def _only_the_walk_admits() -> None:
+    """Refuses a module outside the walk and the kernel that can make an
+    admission."""
+    modules = _the_shipped_modules()
+    reached = the_admissions_made_outside_the_walk(
+        {module: path.read_text(encoding="utf-8") for module, path in modules.items()}
+    )
+
+    if reached:
+        print(
+            "these make an admission outside the walk:\n"
+            + "\n".join(
+                f"  {modules[module].relative_to(REPOSITORY).as_posix()}:{lineno}"
+                for module, lineno in reached
+            )
+            + f"\nOnly {', '.join(sorted(WHO_MAY_ADMIT))} call `{AUTONOMY}.{ADMIT}`; "
+              f"everybody else may name `Admitted` and nothing more of it.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
 def main() -> None:
-    """Checks the graph is whole, the suites behave, no repository commits and
-    the walk reaches no unfenced store, then runs every contract.
+    """Checks the graph is whole, the suites behave, no repository commits,
+    the walk reaches no unfenced store and only the walk admits, then runs
+    every contract.
 
     Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
@@ -521,6 +664,7 @@ def main() -> None:
     _the_suites_keep_the_agents_apart(_the_independent_modules())
     _no_repository_commits()
     _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
+    _only_the_walk_admits()
     sys.exit(lint_imports_command())
 
 

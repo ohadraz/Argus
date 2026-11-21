@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from codefix_agent import FixSettings, fixes_over
 from core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
 from core.anomaly import AnomalyThresholds
+from core.autonomy import admit
 from core.embedding import an_embedder
 from core.llm import build_llm_client
 from core.mcp_transport import McpClient
@@ -54,7 +55,6 @@ from mitigation import (
     fetch_recent_deployments,
     fetch_recent_flag_changes,
     flag_changes_over,
-    is_a_generic_mitigation,
     performing_writes_over,
     plan_action,
     recent_metrics_over,
@@ -261,11 +261,12 @@ def against(connections: Connections,
             fetch_recent_deployments, mitigation, deployments_over(read)
         ),
         record_outcome=records.outcome,
-        # The gate's question, answered by the agent that holds the set of
-        # mitigations Argus is pre-authorised to take. Bound here rather than
-        # imported by the gate, so that the one check standing between a
-        # proposal and production is asked of something a test can replace.
-        admitted=is_a_generic_mitigation,
+        # The gate's question, answered by the autonomy policy rather than by
+        # any agent - the Mitigator least of all, being the one it constrains.
+        # Bound here rather than imported by the gate, so that the one check
+        # standing between a proposal and production is asked of something a
+        # test can replace with a refusal.
+        admit=admit,
         attempts_per_subject=mitigation.mitigation_attempts_per_subject,
         take=partial(
             take_action,
