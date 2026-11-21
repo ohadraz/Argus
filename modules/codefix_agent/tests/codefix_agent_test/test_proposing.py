@@ -27,10 +27,12 @@ from codefix_agent.budget import FixSettings
 from codefix_agent.proposing import (
     BranchWriter,
     FixDeclined,
+    Fixer,
     FixNotAnswered,
     FixNotProposed,
     FixStopped,
     PullRequestOpener,
+    fixes_over,
     propose_fix,
 )
 from codefix_agent.retrieval import (
@@ -85,6 +87,8 @@ from core.models import (
 )
 from core.replay import Recorder
 from narration import what_was_done
+from read_mcp_client import ReadTier
+from write_mcp_client import WriteTier
 
 DONT_CARE_INCIDENT = "incident-41"
 
@@ -4270,11 +4274,10 @@ def a_model_that_is_cut_short() -> _Model:
 class _Repository:
     """The ports the loop reaches the repository through.
 
-    Spec'd against the `Protocol`s rather than against the client functions
-    those are implemented by: a client function takes the connection it is asked
-    over, and the loop is asked about a repository. The same reasoning that puts
-    `Protocol`s in the investigator's `retrieval` instead of specing against
-    `get_log_lines`.
+    Spec'd against the `Protocol`s, which are what the loop is asked through:
+    the read tier's methods satisfy them where the process is assembled, and
+    the loop is asked about a repository and never learns there is a tier. The
+    same reasoning that puts `Protocol`s in the investigator's `retrieval`.
     """
 
     def __init__(self,
@@ -4418,6 +4421,60 @@ def some_settings(base_branch: str = "main",
         codefix_effort=effort,
         codefix_max_output_tokens=max_output_tokens
     )
+
+
+# ---- what it is bound over ----
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("seam", "tool"), [
+    pytest.param("search", "search_repository", id="by-name"),
+    pytest.param("search_by_meaning", "search_repository_by_meaning", id="by-meaning")
+])
+def test_each_search_is_bound_to_its_own_tool(seam: str, tool: str) -> None:
+    # The two searches have one shape, so either tool satisfies either seam and
+    # the type checker cannot tell a swap. Swapped, a deployment searching by
+    # name alone asks for the index on every search and is refused every time.
+    some_query = "monthly_spend"
+    some_ref = "main"
+
+    Scenario() \
+        .given(
+            read := create_autospec(ReadTier, instance=True)
+        ) \
+        .when(
+            lambda: _the_bound(seam, fixes_over(read,
+                                                create_autospec(WriteTier, instance=True),
+                                                some_settings(),
+                                                create_autospec(Conversations, instance=True)))(
+                some_query, some_ref
+            )
+        ) \
+        .then(
+            _only_the_tier_s_tool_was_asked(read, tool)
+        )
+
+
+def _the_bound(seam: str, fixer: Fixer) -> Any:
+    """What `fixes_over` bound for one seam, read off the binding - the only
+    place a swap can be seen, since both tools answer in the same shape."""
+    return getattr(fixer, "keywords", {})[seam]
+
+
+def _only_the_tier_s_tool_was_asked(read: Any, tool: str) -> Assertion[object]:
+    searches = ("search_repository", "search_repository_by_meaning")
+
+    def assertion(dont_care_found: object) -> bool:
+        asked = [name for name in searches if getattr(read, name).called]
+
+        if asked != [tool]:
+            raise AssertionError(
+                f"Expected the read tier to be asked [{tool}] alone, and it was asked {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 # ---- what it logs ----

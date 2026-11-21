@@ -22,10 +22,10 @@ from typing import Any, Final
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core import Fence, Holding, WriteMcpEndpoint, connect_from_env, get_settings, utc_now
-from core.mcp_transport import ChangedSince, McpClient
+from core.mcp_transport import ChangedSince
 from core.models import Alert, FlagUndo, Made, NotMade, Planned
 from incident_record.repository import incidents, runs
-from write_mcp_client import plan_flag, set_feature_flag, whether_flag_was_made, write_mcp
+from write_mcp_client import WriteTier, write_mcp
 
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG
 from tests.e2e.framework.worker import the_worker_is_paused, the_worker_resumes
@@ -63,21 +63,21 @@ def claimed_run() -> Iterator[runs.Run]:
 
 
 @pytest.fixture
-def write_tier(claimed_run: runs.Run) -> Iterator[McpClient]:
+def write_tier(claimed_run: runs.Run) -> Iterator[WriteTier]:
     """One session to `argus-write-mcp`, holding `claimed_run`, for the length
     of one test."""
     holding = Holding()
 
     with (
-        write_mcp(WriteMcpEndpoint.of(get_settings()), holding=holding) as client,
+        write_mcp(WriteMcpEndpoint.of(get_settings()), holding=holding) as tier,
         holding.of(Fence(run_id=claimed_run.id, epoch=claimed_run.epoch))
     ):
-        yield client
+        yield tier
 
 
 @pytest.mark.e2e
 def test_argus_recognises_the_change_it_made_and_no_other(
-    write_tier: McpClient
+    write_tier: WriteTier
 ) -> None:
     # The demo flag boots off and the fallback boots on: each is planned into
     # the other state, so neither plan is refused as already done. The fallback
@@ -85,12 +85,12 @@ def test_argus_recognises_the_change_it_made_and_no_other(
     # change to the demo flag - and only the demo flag is then set.
     Scenario() \
         .given(
-            the_fallback_s_plan := plan_flag(THE_FALLBACK_FLAG, False, client=write_tier),
+            the_fallback_s_plan := write_tier.plan_flag(THE_FALLBACK_FLAG, False),
             the_demo_flag_s_plan := _planned_and_set_by_argus(THE_DEMO_FLAG, True, write_tier)
         ) \
         .when(
             _answered_or_refused(
-                lambda: whether_flag_was_made(the_demo_flag_s_plan, client=write_tier)
+                lambda: write_tier.whether_flag_was_made(the_demo_flag_s_plan)
             )
         ) \
         .then(all_of(
@@ -113,12 +113,12 @@ def _answered_or_refused(step: Callable[[], object]) -> Callable[[], object]:
 
 def _planned_and_set_by_argus(flag: str,
                               enabled: bool,
-                              client: McpClient) -> Planned[FlagUndo]:
+                              tier: WriteTier) -> Planned[FlagUndo]:
     """A change made through Argus's own write path from its plan, so the
     provider attributes it exactly as it would during an incident - and the
     plan, as the claim carries it."""
-    planned = plan_flag(flag, enabled, client=client)
-    set_feature_flag(planned, enabled, client=client)
+    planned = tier.plan_flag(flag, enabled)
+    tier.set_feature_flag(planned, enabled)
 
     return planned
 
@@ -150,9 +150,9 @@ def _it_was_found_made() -> Assertion[Any]:
 
 
 def _a_plan_argus_did_not_act_on_finds_nothing_landed(planned: Planned[FlagUndo],
-                                                     client: McpClient) -> Assertion[Any]:
+                                                     tier: WriteTier) -> Assertion[Any]:
     def assertion(dont_care_answered: Any) -> bool:
-        answered = whether_flag_was_made(planned, client=client)
+        answered = tier.whether_flag_was_made(planned)
 
         # A flag has no suspension before its change, so nothing of the
         # claim's is out there to carry.

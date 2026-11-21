@@ -33,7 +33,6 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from core import new_id
 from core.events import DeploymentChangesRead, IncidentEvent, Narrator
-from core.mcp_transport import McpToolError
 from core.models import DeploymentChanges, DeploymentComparison, ToolCall
 from investigation_agent.retrieval import DeploymentDiffFetcher
 from investigation_agent.tools.deployments import (
@@ -42,6 +41,8 @@ from investigation_agent.tools.deployments import (
     read_what_a_deployment_changed,
 )
 from investigation_agent.tools.results import DeploymentRead
+
+from investigation_agent_test.framework.failures import ChannelFailed
 
 SOME_SERVICE = "io-shop"
 
@@ -374,7 +375,7 @@ def a_deployment_that_changed(lines: list[str], lists_every_file: bool = True,
 
 def a_repository_that_could_not_be_compared() -> Any:
     the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
-    the_read_tier.side_effect = McpToolError("the repository could not be compared")
+    the_read_tier.side_effect = ChannelFailed("the repository could not be compared")
 
     return the_read_tier
 

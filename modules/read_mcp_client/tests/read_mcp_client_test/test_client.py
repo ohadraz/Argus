@@ -37,28 +37,11 @@ from core.models import (
     RuleLine,
     RuleReading,
 )
-from read_mcp_client import (
-    branch_contains_revision,
-    get_alert_rule,
-    get_change_events,
-    get_code_outside_the_patch,
-    get_enabled_flags,
-    get_log_lines,
-    get_metrics_summary,
-    get_placements,
-    get_repository_index_freshness,
-    get_rollout_progress,
-    get_rollout_state,
-    get_service_dependencies,
-    get_what_a_deployment_changed,
-    list_repository_files,
-    read_mcp,
-    read_repository_file,
-    search_repository,
-    search_repository_by_meaning,
-)
+from mcp.types import Tool
+from read_mcp_client import ReadTier, read_mcp
 
 from read_mcp_client_test.conftest import FakeTargetServiceHandler
+from read_mcp_client_test.framework.assertions import the_tools_offered_are
 from read_mcp_client_test.framework.builders import (
     a_cause_line_at,
     a_failure_line_at,
@@ -91,41 +74,38 @@ DONT_CARE_PATH = "src/dont_care.py"
 
 # Every read the read tier serves, asked as a caller asks it.
 EVERY_READ = [
-    pytest.param(lambda client: get_log_lines(client=client), id="log-lines"),
-    pytest.param(lambda client: get_metrics_summary(client=client), id="metrics-summary"),
-    pytest.param(lambda client: get_change_events(DONT_CARE_SERVICE, DONT_CARE_TEXT,
-                                                  DONT_CARE_TEXT, client=client),
+    pytest.param(lambda read: read.get_log_lines(), id="log-lines"),
+    pytest.param(lambda read: read.get_metrics_summary(), id="metrics-summary"),
+    pytest.param(lambda read: read.get_change_events(DONT_CARE_SERVICE, DONT_CARE_TEXT,
+                                                     DONT_CARE_TEXT),
                  id="change-events"),
-    pytest.param(lambda client: get_what_a_deployment_changed(DONT_CARE_SERVICE, SOME_REVISION,
-                                                              client=client),
+    pytest.param(lambda read: read.get_what_a_deployment_changed(DONT_CARE_SERVICE,
+                                                                 SOME_REVISION),
                  id="what-a-deployment-changed"),
-    pytest.param(lambda client: get_rollout_state(DONT_CARE_SERVICE, client=client),
+    pytest.param(lambda read: read.get_rollout_state(DONT_CARE_SERVICE),
                  id="rollout-state"),
-    pytest.param(lambda client: get_rollout_progress(DONT_CARE_SERVICE, client=client),
+    pytest.param(lambda read: read.get_rollout_progress(DONT_CARE_SERVICE),
                  id="rollout-progress"),
-    pytest.param(lambda client: get_alert_rule(DONT_CARE_RULE, client=client), id="alert-rule"),
-    pytest.param(lambda client: get_placements(DONT_CARE_SERVICE, client=client),
+    pytest.param(lambda read: read.get_alert_rule(DONT_CARE_RULE), id="alert-rule"),
+    pytest.param(lambda read: read.get_placements(DONT_CARE_SERVICE),
                  id="placements"),
-    pytest.param(lambda client: branch_contains_revision(SOME_BRANCH, SOME_REVISION,
-                                                         client=client),
+    pytest.param(lambda read: read.branch_contains_revision(SOME_BRANCH, SOME_REVISION),
                  id="branch-contains-revision"),
-    pytest.param(lambda client: get_enabled_flags(client=client), id="enabled-flags"),
-    pytest.param(lambda client: get_service_dependencies(DONT_CARE_SERVICE, client=client),
+    pytest.param(lambda read: read.get_enabled_flags(), id="enabled-flags"),
+    pytest.param(lambda read: read.get_service_dependencies(DONT_CARE_SERVICE),
                  id="service-dependencies"),
-    pytest.param(lambda client: search_repository(DONT_CARE_TEXT, SOME_BRANCH, client=client),
+    pytest.param(lambda read: read.search_repository(DONT_CARE_TEXT, SOME_BRANCH),
                  id="search-repository"),
-    pytest.param(lambda client: get_repository_index_freshness(SOME_BRANCH, client=client),
+    pytest.param(lambda read: read.get_repository_index_freshness(SOME_BRANCH),
                  id="index-freshness"),
-    pytest.param(lambda client: search_repository_by_meaning(DONT_CARE_TEXT, SOME_BRANCH,
-                                                             client=client),
+    pytest.param(lambda read: read.search_repository_by_meaning(DONT_CARE_TEXT, SOME_BRANCH),
                  id="search-by-meaning"),
-    pytest.param(lambda client: get_code_outside_the_patch({DONT_CARE_PATH: DONT_CARE_TEXT},
-                                                           SOME_BRANCH, client=client),
+    pytest.param(lambda read: read.get_code_outside_the_patch({DONT_CARE_PATH: DONT_CARE_TEXT},
+                                                              SOME_BRANCH),
                  id="code-outside-the-patch"),
-    pytest.param(lambda client: list_repository_files(SOME_BRANCH, client=client),
+    pytest.param(lambda read: read.list_repository_files(SOME_BRANCH),
                  id="list-files"),
-    pytest.param(lambda client: read_repository_file(DONT_CARE_PATH, SOME_BRANCH,
-                                                     client=client),
+    pytest.param(lambda read: read.read_repository_file(DONT_CARE_PATH, SOME_BRANCH),
                  id="read-file")
 ]
 
@@ -142,7 +122,7 @@ def test_get_log_lines_reaches_the_real_read_mcp_server(
             calling(the_target_service_has_logs(some_logs))
         ) \
         .when(
-            _asking_the_server(lambda client: get_log_lines(client=client))
+            _asking_the_server(lambda read: read.get_log_lines())
         ) \
         .then(
             _the_returned_lines_are(some_logs)
@@ -210,11 +190,10 @@ def test_get_change_events_reaches_the_real_read_mcp_server(
             ))
         ) \
         .when(
-            _asking_the_server(lambda client: get_change_events(
+            _asking_the_server(lambda read: read.get_change_events(
                 "kukibuki-service",
                 window_start=an_iso_minute(some_deploy_time - timedelta(hours=1)),
-                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1)),
-                client=client
+                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1))
             ))
         ) \
         .then(
@@ -273,11 +252,10 @@ def test_the_paging_rules_series_reaches_the_caller_through_the_client(
             ))
         ) \
         .when(
-            _asking_the_server(lambda client: get_metrics_summary(
+            _asking_the_server(lambda read: read.get_metrics_summary(
                 window_start=an_iso_minute(some_minute),
                 window_end=an_iso_minute(some_minute + timedelta(minutes=1)),
-                rule=some_rule,
-                client=client
+                rule=some_rule
             ))
         ) \
         .then(
@@ -310,8 +288,8 @@ def test_where_the_replicas_run_reaches_the_caller_through_the_client(
             }))
         ) \
         .when(
-            _asking_the_server(lambda client: get_placements(
-                "io-shop", client=client
+            _asking_the_server(lambda read: read.get_placements(
+                "io-shop"
             ))
         ) \
         .then(
@@ -337,8 +315,8 @@ def test_whether_the_branch_contains_a_revision_reaches_the_caller_through_the_c
             }))
         ) \
         .when(
-            _asking_the_server(lambda client: branch_contains_revision(
-                SOME_BRANCH, SOME_REVISION, client=client
+            _asking_the_server(lambda read: read.branch_contains_revision(
+                SOME_BRANCH, SOME_REVISION
             ))
         ) \
         .then(
@@ -366,12 +344,11 @@ def test_the_code_outside_a_patch_reaches_the_caller_through_the_client(
             }))
         ) \
         .when(
-            _asking_the_server(lambda client: get_code_outside_the_patch(
+            _asking_the_server(lambda read: read.get_code_outside_the_patch(
                 {some_ledger: "def record(account, price):\n"
                               "    return replace(account, total=account.total + price, "
                               "month=account.month + price)\n"},
-                SOME_BRANCH,
-                client=client
+                SOME_BRANCH
             ))
         ) \
         .then(
@@ -403,7 +380,7 @@ def test_a_read_client_waits_for_an_answer_as_long_as_its_endpoint_says() -> Non
 
 @pytest.mark.unit
 @pytest.mark.parametrize("asking", EVERY_READ)
-def test_every_read_is_asked_as_a_read(asking: Callable[[McpClient], object]) -> None:
+def test_every_read_is_asked_as_a_read(asking: Callable[[ReadTier], object]) -> None:
     # A read changes nothing, so one whose answer was lost is asked again and
     # fails as that asking failed - never as a change nobody can account for.
     # Said outright on every call, rather than left to whatever the transport
@@ -413,11 +390,75 @@ def test_every_read_is_asked_as_a_read(asking: Callable[[McpClient], object]) ->
             client := create_autospec(McpClient, instance=True)
         ) \
         .when(
-            attempting(lambda: asking(client))
+            attempting(lambda: asking(ReadTier(client)))
         ) \
         .then(
             _it_was_asked_as_a_read(client)
         )
+
+
+@pytest.mark.unit
+def test_the_tier_offers_what_its_own_session_lists() -> None:
+    # The offer is read off the tier the agent will ask, never a listing kept
+    # anywhere else: that would be a second definition of every tool.
+    some_tool = "get_rollout_state"
+
+    Scenario() \
+        .given(
+            session := _a_session_listing(some_tool)
+        ) \
+        .when(
+            lambda: ReadTier(session).offered({some_tool: frozenset()})
+        ) \
+        .then(
+            the_tools_offered_are([some_tool])
+        )
+
+
+@pytest.mark.unit
+def test_leaving_the_tier_closes_its_session() -> None:
+    # A process holds the tier for its life and leaves it on the way out; a
+    # session left open is a thread and a socket nobody owns.
+    Scenario() \
+        .given(
+            session := create_autospec(McpClient, instance=True)
+        ) \
+        .when(
+            lambda: _held_and_left(ReadTier(session))
+        ) \
+        .then(
+            _the_session_was_closed(session)
+        )
+
+
+def _a_session_listing(*names: str) -> Any:
+    """A session to a read tier listing these tools, each taking nothing."""
+    session = create_autospec(McpClient, instance=True)
+    session.list_tools.return_value = [
+        Tool(name=name, description="dont care what it does",
+             inputSchema={"type": "object", "properties": {}, "required": []})
+        for name in names
+    ]
+
+    return session
+
+
+def _held_and_left(tier: ReadTier) -> None:
+    with tier:
+        pass
+
+
+def _the_session_was_closed(session: Any) -> Assertion[None]:
+    def assertion(dont_care_left: None) -> bool:
+        if session.close.call_count != 1:
+            raise AssertionError(
+                f"Expected leaving the tier to close its session once, and it was closed "
+                f"{session.close.call_count} time(s)."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_was_asked_as_a_read(client: Any) -> Assertion[object]:
@@ -517,17 +558,16 @@ class _ThreeAnswers(NamedTuple):
     changes: list[ChangeEvent]
 
 
-def _every_channel_in_turn(client: McpClient) -> _ThreeAnswers:
+def _every_channel_in_turn(read: ReadTier) -> _ThreeAnswers:
     some_window = datetime(2026, 8, 20, 11, 45, 0, tzinfo=UTC)
 
     return _ThreeAnswers(
-        lines=get_log_lines(client=client),
-        buckets=get_metrics_summary(client=client),
-        changes=get_change_events(
+        lines=read.get_log_lines(),
+        buckets=read.get_metrics_summary(),
+        changes=read.get_change_events(
             "kukibuki-service",
             window_start=an_iso_minute(some_window - timedelta(hours=1)),
-            window_end=an_iso_minute(some_window + timedelta(hours=1)),
-            client=client
+            window_end=an_iso_minute(some_window + timedelta(hours=1))
         )
     )
 
@@ -643,8 +683,8 @@ class _DrillDown(NamedTuple):
     lines: list[str]
 
 
-def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
-    """One client to the subprocess the fixture started, held for one `when`.
+def _asking_the_server[T](ask: Callable[[ReadTier], T]) -> Callable[[], T]:
+    """The read tier the fixture started, held for one `when`.
 
     Where the subprocess is listening is read through `get_settings` rather than
     named here, because the fixture is what decides the port - it sets the
@@ -654,8 +694,8 @@ def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
     Closed on the way out, so a test leaves no session and no thread behind it.
     """
     def step() -> T:
-        with read_mcp(ReadMcpEndpoint.of(get_settings())) as client:
-            return ask(client)
+        with read_mcp(ReadMcpEndpoint.of(get_settings())) as read:
+            return ask(read)
 
     return step
 
@@ -663,8 +703,8 @@ def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
 def _drilling_down_from_metrics_to_logs(alert_time: str,
                                         into: Callable[[MetricBucket], bool]
 ) -> Callable[[], _DrillDown]:
-    def both_phases(client: McpClient) -> _DrillDown:
-        buckets = get_metrics_summary(alert_time=alert_time, client=client)
+    def both_phases(read: ReadTier) -> _DrillDown:
+        buckets = read.get_metrics_summary(alert_time=alert_time)
         anomalous = [bucket for bucket in buckets if into(bucket)]
         onset = anomalous[0].bucket_id if anomalous else None
 
@@ -675,10 +715,9 @@ def _drilling_down_from_metrics_to_logs(alert_time: str,
 
         return _DrillDown(
             onset=onset,
-            lines=get_log_lines(
+            lines=read.get_log_lines(
                 window_start=window_start,
-                window_end=window_end,
-                client=client
+                window_end=window_end
             )
         )
 

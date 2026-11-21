@@ -3596,7 +3596,7 @@ def _the_service_read_in_turn(*answers: list[MetricBucket] | Exception) -> Magic
     clocks here stick - and raising an answer that is a failure."""
     remaining = list(answers)
 
-    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+    def read(*, rule: str | None) -> list[MetricBucket]:
         answer = remaining.pop(0) if len(remaining) > 1 else remaining[0]
 
         if isinstance(answer, Exception):
@@ -4465,7 +4465,7 @@ class _AStopDuringALook:
         return not self._landed
 
     def while_reading_the_service(self, window: list[MetricBucket]) -> MetricsFetcher:
-        def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+        def read(*, rule: str | None) -> list[MetricBucket]:
             self._landed = True
             return window
 
@@ -4499,7 +4499,7 @@ class _ReadsThatTakeAnHour:
         """The service read once per answer, in order, sticking at the last."""
         remaining = list(answers)
 
-        def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+        def read(*, rule: str | None) -> list[MetricBucket]:
             self._moment += timedelta(hours=1)
             answer = remaining.pop(0) if len(remaining) > 1 else remaining[0]
 
@@ -5030,7 +5030,7 @@ def _a_read_that_fails_once_then_answers(
     """
     answered = False
 
-    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+    def read(*, rule: str | None) -> list[MetricBucket]:
         nonlocal answered
 
         if answered:
@@ -5090,7 +5090,7 @@ def _a_read_that_never_answers() -> MetricsFetcher:
     recover between passes, so a window bought to measure recovery can run out
     with not one reading in it.
     """
-    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+    def read(*, rule: str | None) -> list[MetricBucket]:
         raise McpToolError("MCP tool call [get_metrics_summary] failed: timed out")
 
     return read
@@ -5146,10 +5146,10 @@ def _each_look_kept_in(happened: list[tuple[str, UndoDescriptor | None]],
                        read: MetricsFetcher) -> MetricsFetcher:
     """A read of the service that keeps each look it is asked for beside the
     changes told, so the two can be put in order."""
-    def looked(rule: str | None, /) -> list[MetricBucket]:
+    def looked(*, rule: str | None) -> list[MetricBucket]:
         happened.append((_LOOKED, None))
 
-        return read(rule)
+        return read(rule=rule)
 
     return looked
 
@@ -6001,8 +6001,8 @@ def test_the_rules_deadline_is_read_off_its_first_reading() -> None:
 def _the_service_was_read_for(fetch_metrics: MagicMock, rule: str) -> Assertion[Outcome]:
     """That every read of the service was made for this rule."""
     def assertion(dont_care_outcome: Outcome) -> bool:
-        asked = [read.args for read in fetch_metrics.call_args_list]
-        if not asked or any(args != (rule,) for args in asked):
+        asked = [read.kwargs for read in fetch_metrics.call_args_list]
+        if not asked or any(keywords != {"rule": rule} for keywords in asked):
             raise AssertionError(
                 f"Expected every read of the service to be made for the rule "
                 f"[{rule}], and they were made as {asked}."

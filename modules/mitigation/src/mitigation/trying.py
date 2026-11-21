@@ -369,7 +369,7 @@ def watch_what_was_performed(action: Action,
     """
     settled = _what_watching_the_service_settled(
         # Read for the rule that paged, so the recovery is dated on its series.
-        partial(fetch_metrics, rule), arrivals(action), now, sleep, still_wanted, settings,
+        partial(fetch_metrics, rule=rule), arrivals(action), now, sleep, still_wanted, settings,
         thresholds, action.action_type, incident_id, publisher, onset,
         read_the_rule=(
             partial(read_rule, rule)

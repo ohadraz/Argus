@@ -18,7 +18,6 @@ from typing import Any, Final, cast
 import psycopg
 from core import Connections, Holding, get_settings
 from core.events import StatusChanged
-from core.mcp_transport import McpClient
 from core.models import Alert, IncidentStatus
 from core.telemetry import (
     ARGUS_INCIDENT_ID,
@@ -39,6 +38,8 @@ from opentelemetry.metrics import Counter, Histogram, Meter
 from opentelemetry.trace import Status, StatusCode, Tracer
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
+from read_mcp_client import ReadTier
+from write_mcp_client import WriteTier
 
 from orchestrator.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
@@ -78,8 +79,8 @@ _SCOPE = __name__
 
 def graph_for(connections: Connections,
               checkpoints: ConnectionPool,
-              read: McpClient,
-              write: McpClient,
+              read: ReadTier,
+              write: WriteTier,
               store: VectorSearch | None,
               holding: Holding) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
@@ -90,7 +91,7 @@ def graph_for(connections: Connections,
     are two graphs against two sets of connections rather than one that
     whichever ran first got to decide.
 
-    The three clients are passed through rather than built here, for the same
+    The two tiers and the store are passed through rather than built here, for the same
     reason `connections` and `checkpoints` are: what this function owns is when
     the graph is compiled, not what the process it belongs to has opened. So is
     `holding`, the run the process is walking, which the pools are fenced with.

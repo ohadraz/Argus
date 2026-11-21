@@ -8,9 +8,10 @@ is a cause Argus finds by luck.
 
 The two answers arrive from different tiers, and deliberately: the provider
 serves its audit log to admin credentials only, and the read process holds
-none. That makes flag history a read the *write* client offers - less than the
+none. That makes flag history a read the *write* tier offers - less than the
 write tier can already do, and no loosening of the claim the split actually
-makes, which is that the read process cannot mutate.
+makes, which is that the read process cannot mutate. Which tier answers which
+is bound where a process starts; the channel is handed the two histories.
 
 Merged here rather than by either server, so neither has to know the other
 exists. What reaches the model is one history in time order, because that is
@@ -19,36 +20,18 @@ what it is: the things that happened to this service, whoever recorded them.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import NamedTuple
 from unittest.mock import Mock, call, create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_same_error_reached_the_caller
-from core.mcp_transport import McpClient
 from core.models import ChangeEvent, ChangeKind, FlagChange
-from investigation_agent.retrieval import (
-    DeployHistory,
-    FlagHistory,
-    changes_over,
-    fetch_change_events,
-    logs_over,
-    metrics_over,
-    placements_over,
-)
+from investigation_agent.retrieval import DeployHistory, FlagHistory, changes_from
 
 A_SERVICE = "kukibuki-service"
 DONT_CARE_FLAG = "kukibuki"
 
 SOME_WINDOW_START = "2026-08-29T20:00:00Z"
 SOME_WINDOW_END = "2026-08-29T22:15:00Z"
-SOME_ALERT_TIME = "2026-08-29T22:10:00Z"
-
-METRICS_TOOL = "get_metrics_summary"
-LOGS_TOOL = "get_log_lines"
-CHANGE_EVENTS_TOOL = "get_change_events"
-FLAG_CHANGES_TOOL = "get_recent_flag_changes"
-PLACEMENTS_TOOL = "get_placements"
 
 
 @pytest.mark.unit
@@ -222,181 +205,6 @@ def test_a_toggle_keeps_the_actor_the_provider_named() -> None:
         )
 
 
-@pytest.mark.integration
-def test_the_metrics_channel_is_asked_over_the_read_tier() -> None:
-    # Which tier a channel is asked over is decided once, when the channel is
-    # built, and is invisible everywhere else: a channel bound to the wrong
-    # client answers in the right shape from the wrong server. These three say
-    # which session each one reaches, which nothing downstream can.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: metrics_over(read)(SOME_ALERT_TIME, None))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(METRICS_TOOL),
-            _the_write_tier_was_asked_for()
-        ))
-
-
-@pytest.mark.integration
-def test_the_metrics_channel_asks_for_the_series_the_rule_watches() -> None:
-    # The rule travels to the read tier as the tool's own argument, because the
-    # read tier is where it is resolved into a query. A channel that dropped it
-    # would come back with the five fixed series and nothing saying it had.
-    some_rule = "kuki-rule"
-
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _the_rules_asked_for(read, lambda: metrics_over(read)(SOME_ALERT_TIME, some_rule))
-        ) \
-        .then(
-            _the_rules_were([some_rule])
-        )
-
-
-@pytest.mark.integration
-def test_the_log_channel_is_asked_over_the_read_tier() -> None:
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write,
-                    lambda: logs_over(read)(SOME_WINDOW_START, SOME_WINDOW_END))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(LOGS_TOOL),
-            _the_write_tier_was_asked_for()
-        ))
-
-
-@pytest.mark.integration
-def test_the_placement_channel_is_asked_over_the_read_tier() -> None:
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: placements_over(read)(A_SERVICE))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(PLACEMENTS_TOOL),
-            _the_write_tier_was_asked_for()
-        ))
-
-
-@pytest.mark.integration
-def test_the_change_channel_asks_each_tier_for_the_history_it_keeps() -> None:
-    # The one place the tier split could be undone by a wiring mistake and
-    # nothing would say so. The flag history lives on the write tier because the
-    # provider serves its audit log to admin credentials alone, and a change
-    # channel that asked the read tier for it would simply find nothing - which
-    # reads exactly like an incident where no flag moved.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: changes_over(read, write)(
-                A_SERVICE, SOME_WINDOW_START, SOME_WINDOW_END
-            ))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(CHANGE_EVENTS_TOOL),
-            _the_write_tier_was_asked_for(FLAG_CHANGES_TOOL)
-        ))
-
-
-class _Asked(NamedTuple):
-    """Which tool each tier was asked for, in the order it was asked."""
-
-    read: list[str]
-    write: list[str]
-
-
-def _a_session_that_remembers_what_it_was_asked() -> Mock:
-    """A client that answers nothing and records the question.
-
-    Specced against `McpClient` rather than a `Protocol` of this suite's own,
-    because what a channel is handed is the real thing and the question being
-    asked is which of two it was handed.
-    """
-    client: Mock = create_autospec(McpClient, instance=True)
-
-    return client
-
-
-def _asking(read: Mock, write: Mock, ask: Callable[[], object]) -> Callable[[], _Asked]:
-    """Runs one channel and reports what each tier was asked for."""
-    def step() -> _Asked:
-        ask()
-
-        return _Asked(
-            read=[asked.args[0] for asked in read.call.call_args_list],
-            write=[asked.args[0] for asked in write.call.call_args_list]
-        )
-
-    return step
-
-
-def _the_rules_asked_for(read: Mock, ask: Callable[[], object]) -> Callable[[], list[object]]:
-    """Runs one channel and reports which rule each call to the tier named."""
-    def step() -> list[object]:
-        ask()
-
-        return [asked.kwargs.get("rule") for asked in read.call.call_args_list]
-
-    return step
-
-
-def _the_rules_were(rules: list[str]) -> Assertion[list[object]]:
-    def assertion(asked: list[object]) -> bool:
-        if asked != rules:
-            raise AssertionError(
-                f"Expected the read tier to be asked for the rules {rules}, got {asked}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_read_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
-    def assertion(asked: _Asked) -> bool:
-        if asked.read != list(tools):
-            raise AssertionError(
-                f"Expected the read tier to be asked for {list(tools)}, "
-                f"got {asked.read}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_write_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
-    def assertion(asked: _Asked) -> bool:
-        if asked.write != list(tools):
-            raise AssertionError(
-                f"Expected the write tier to be asked for {list(tools)}, "
-                f"got {asked.write}."
-            )
-
-        return True
-
-    return assertion
-
-
 def _a_flag_change(flag: str = DONT_CARE_FLAG,
                    enabled: bool = True,
                    at: str = "2026-08-29T21:00:00Z",
@@ -424,15 +232,10 @@ def _the_changes_read(deploys: list[ChangeEvent] | None = None,
     of the other. `reads_flags` is for the one test that asks what the flag
     source was asked, rather than what it answered.
     """
-    return fetch_change_events(
-        A_SERVICE,
-        SOME_WINDOW_START,
-        SOME_WINDOW_END,
-        get_change_events=create_autospec(DeployHistory, instance=True, return_value=deploys or []),
-        get_recent_flag_changes=reads_flags or create_autospec(
-            FlagHistory, instance=True, return_value=flags or []
-        )
-    )
+    return changes_from(
+        create_autospec(DeployHistory, instance=True, return_value=deploys or []),
+        reads_flags or create_autospec(FlagHistory, instance=True, return_value=flags or [])
+    )(A_SERVICE, window_start, window_end)
 
 
 def _the_flag_history_was_asked_since(asked: Mock, since: str) -> Assertion[object]:
@@ -474,15 +277,10 @@ def _what_was_raised_reading_changes(failure: Exception) -> Exception | None:
     failure arrived rather than merely that one did.
     """
     try:
-        fetch_change_events(
-            A_SERVICE,
-            SOME_WINDOW_START,
-            SOME_WINDOW_END,
-            get_change_events=create_autospec(DeployHistory, instance=True, return_value=[]),
-            get_recent_flag_changes=create_autospec(
-                FlagHistory, instance=True, side_effect=failure
-            )
-        )
+        changes_from(
+            create_autospec(DeployHistory, instance=True, return_value=[]),
+            create_autospec(FlagHistory, instance=True, side_effect=failure)
+        )(A_SERVICE, SOME_WINDOW_START, SOME_WINDOW_END)
     except Exception as error:
         return error
 

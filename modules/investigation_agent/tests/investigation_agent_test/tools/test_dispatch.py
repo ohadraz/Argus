@@ -33,7 +33,6 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
-from core.mcp_transport import McpToolError
 from core.models import DeploymentChanges, ToolResult
 from core.replay import CallType, Replay, ReplayEntry
 from investigation_agent.retrieval import (
@@ -58,6 +57,7 @@ from investigation_agent_test.framework.builders.dispatcher import (
     a_call_to,
     a_dispatcher,
 )
+from investigation_agent_test.framework.failures import ChannelFailed
 from investigation_agent_test.framework.recording import a_recorder_that_keeps_what_it_is_given
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
@@ -256,7 +256,7 @@ def test_a_channel_that_would_not_answer_is_logged_as_a_warning(
         .given(
             some_dispatcher := a_dispatcher(reads_logs=create_autospec(
                 LogFetcher, instance=True,
-                side_effect=McpToolError("MCP tool call [get_logs] failed: timed out")
+                side_effect=ChannelFailed("MCP tool call [get_logs] failed: timed out")
             ))
         ) \
         .when(

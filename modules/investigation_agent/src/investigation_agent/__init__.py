@@ -5,11 +5,14 @@ conversation with the model. `Findings`, which is what it hands back, and
 `Reading`, which is what it read to get there, are named here as well - but
 both are kernel contracts, because the walk that calls this names them too.
 
-None of the retrieval channels is defaulted, so the functions that build them are
-doors as well. Each takes the connection a process holds to a tier and hands
-back the channel asked over it, which is what a composition root needs and all
-it needs: where a server is reached is a fact about a deployment, and nothing
-under this door has any business reading it. `InvestigationSettings` is a door
+None of the retrieval channels is defaulted, and each is a `Protocol`. Every
+one but the change channel is a single tool's call, which the read tier's own
+method satisfies, so a composition root binds `read.<tool>` to it. The change
+channel is a door, `changes_from`, because it merges the two histories a change
+is recorded in - the read tier's deploys and the write tier's flags - and
+`read_tier_tools_over` is the other, offering the tools this package holds of
+the read tier. Where a server is reached is a fact about a deployment, and nothing under
+this door has any business reading it. `InvestigationSettings` is a door
 for the same caller: how far an investigation may go, which model answers it
 and how hard, and the windows it reads are a deployment's to say, and the
 composition root is what says it.
@@ -29,15 +32,7 @@ from core.models import Findings, Reading
 
 from investigation_agent.budget import InvestigationSettings
 from investigation_agent.investigation import BRIEF, investigate
-from investigation_agent.retrieval import (
-    changes_over,
-    dependencies_over,
-    deployment_diffs_over,
-    logs_over,
-    metrics_over,
-    placements_over,
-    rollouts_over,
-)
+from investigation_agent.retrieval import changes_from
 from investigation_agent.tools import investigator_tools, read_tier_tools_over
 
 __all__ = [
@@ -45,14 +40,8 @@ __all__ = [
     "Findings",
     "InvestigationSettings",
     "Reading",
-    "changes_over",
-    "dependencies_over",
-    "deployment_diffs_over",
+    "changes_from",
     "investigate",
     "investigator_tools",
-    "logs_over",
-    "metrics_over",
-    "placements_over",
-    "read_tier_tools_over",
-    "rollouts_over"
+    "read_tier_tools_over"
 ]

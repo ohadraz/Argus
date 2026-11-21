@@ -34,39 +34,7 @@ from core.models import (
     UndoDescriptor,
 )
 from deployment_platform.argocd import AUTOMATED, ENABLED
-from write_mcp_client import (
-    accelerator_pin_still_argus_s,
-    autoscaler_pin_still_argus_s,
-    commit_to_new_branch,
-    discard_cache_entries,
-    flag_still_argus_s,
-    get_recent_flag_changes,
-    open_pull_request,
-    pin_autoscaler,
-    pin_to_accelerator,
-    plan_accelerator_pin,
-    plan_autoscaler_pin,
-    plan_flag,
-    plan_rollback,
-    plan_scale_out,
-    restart_service,
-    restore_accelerator_pin,
-    restore_autoscaler_floor,
-    restore_deployment,
-    restore_replica_count,
-    roll_back_deployment,
-    rollback_still_argus_s,
-    scale_out,
-    scale_out_still_argus_s,
-    set_feature_flag,
-    was_flag_changed_by_others_since,
-    whether_accelerator_pin_was_made,
-    whether_autoscaler_pin_was_made,
-    whether_flag_was_made,
-    whether_rollback_was_made,
-    whether_scale_out_was_made,
-    write_mcp,
-)
+from write_mcp_client import WriteTier, write_mcp
 
 from write_mcp_client_test.a_write_server_holding_one_run import THE_RUN_HELD
 from write_mcp_client_test.fake_deployment_platform import (
@@ -147,13 +115,13 @@ THE_ACCELERATOR_PIN_PLANNED = AcceleratorPinUndo(
 # Every plan the platform answers, what it is asked with, whether the case needs
 # an autoscaler staged beside the Deployment, and the change it plans.
 EVERY_PLATFORM_PLAN = [
-    pytest.param(lambda client: plan_rollback(SOME_APPLICATION, client=client),
+    pytest.param(lambda tier: tier.plan_rollback(SOME_APPLICATION),
                  False, THE_ROLLBACK_PLANNED, id="rollback"),
-    pytest.param(lambda client: plan_scale_out(SOME_APPLICATION, client=client),
+    pytest.param(lambda tier: tier.plan_scale_out(SOME_APPLICATION),
                  False, THE_SCALE_OUT_PLANNED, id="scale-out"),
-    pytest.param(lambda client: plan_autoscaler_pin(SOME_APPLICATION, client=client),
+    pytest.param(lambda tier: tier.plan_autoscaler_pin(SOME_APPLICATION),
                  True, THE_AUTOSCALER_PIN_PLANNED, id="autoscaler-pin"),
-    pytest.param(lambda client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD, client=client),
+    pytest.param(lambda tier: tier.plan_accelerator_pin(SOME_APPLICATION, SOME_CARD),
                  False, THE_ACCELERATOR_PIN_PLANNED, id="accelerator-pin")
 ]
 
@@ -193,47 +161,42 @@ THE_FLAG_SET_AND_ASKED_AGAIN = FlagUndo(flag=SOME_FLAG, was_enabled=True,
 # second asking could find. A restart is Argo CD's own resource action, and a
 # discard removes what it names.
 EVERY_WRITE_NOT_TO_BE_ASKED_TWICE = [
-    pytest.param(lambda client: restart_service(DONT_CARE_SERVICE, client=client),
+    pytest.param(lambda tier: tier.restart_service(DONT_CARE_SERVICE),
                  id="restart"),
-    pytest.param(lambda client: discard_cache_entries([DONT_CARE_CACHE_KEY], client=client),
+    pytest.param(lambda tier: tier.discard_cache_entries([DONT_CARE_CACHE_KEY]),
                  id="discard")
 ]
 # Every other write: each finds its own mark at its target, or what it wrote,
 # and answers a second asking as made.
 EVERY_WRITE_ASKED_AGAIN_AS_MADE = [
-    pytest.param(lambda client: set_feature_flag(
-        DONT_CARE_PLANNED_FLAG, not DONT_CARE_PLANNED_FLAG.descriptor.was_enabled, client=client),
+    pytest.param(lambda tier: tier.set_feature_flag(
+        DONT_CARE_PLANNED_FLAG, not DONT_CARE_PLANNED_FLAG.descriptor.was_enabled),
                  id="flag"),
-    pytest.param(lambda client: roll_back_deployment(
-        Planned(descriptor=THE_ROLLBACK_PLANNED, since=THE_PLATFORM_S_TIME), client=client),
+    pytest.param(lambda tier: tier.roll_back_deployment(
+        Planned(descriptor=THE_ROLLBACK_PLANNED, since=THE_PLATFORM_S_TIME)),
                  id="rollback"),
-    pytest.param(lambda client: restore_deployment(THE_ROLLBACK_PLANNED, client=client),
+    pytest.param(lambda tier: tier.restore_deployment(THE_ROLLBACK_PLANNED),
                  id="rollback-put-back"),
-    pytest.param(lambda client: scale_out(
-        Planned(descriptor=THE_SCALE_OUT_PLANNED, since=THE_PLATFORM_S_TIME), client=client),
+    pytest.param(lambda tier: tier.scale_out(
+        Planned(descriptor=THE_SCALE_OUT_PLANNED, since=THE_PLATFORM_S_TIME)),
                  id="scale-out"),
-    pytest.param(lambda client: restore_replica_count(THE_SCALE_OUT_PLANNED, client=client),
+    pytest.param(lambda tier: tier.restore_replica_count(THE_SCALE_OUT_PLANNED),
                  id="scale-out-put-back"),
-    pytest.param(lambda client: pin_autoscaler(
-        Planned(descriptor=THE_AUTOSCALER_PIN_PLANNED, since=THE_PLATFORM_S_TIME),
-        client=client),
+    pytest.param(lambda tier: tier.pin_autoscaler(
+        Planned(descriptor=THE_AUTOSCALER_PIN_PLANNED, since=THE_PLATFORM_S_TIME)),
                  id="autoscaler-pin"),
-    pytest.param(lambda client: restore_autoscaler_floor(THE_AUTOSCALER_PIN_PLANNED,
-                                                         client=client),
+    pytest.param(lambda tier: tier.restore_autoscaler_floor(THE_AUTOSCALER_PIN_PLANNED),
                  id="autoscaler-pin-put-back"),
-    pytest.param(lambda client: pin_to_accelerator(
-        Planned(descriptor=THE_ACCELERATOR_PIN_PLANNED, since=THE_PLATFORM_S_TIME),
-        client=client),
+    pytest.param(lambda tier: tier.pin_to_accelerator(
+        Planned(descriptor=THE_ACCELERATOR_PIN_PLANNED, since=THE_PLATFORM_S_TIME)),
                  id="accelerator-pin"),
-    pytest.param(lambda client: restore_accelerator_pin(THE_ACCELERATOR_PIN_PLANNED,
-                                                        client=client),
+    pytest.param(lambda tier: tier.restore_accelerator_pin(THE_ACCELERATOR_PIN_PLANNED),
                  id="accelerator-pin-put-back"),
-    pytest.param(lambda client: commit_to_new_branch(
-        DONT_CARE_BRANCH, DONT_CARE_BASE, {DONT_CARE_TEXT: DONT_CARE_TEXT}, DONT_CARE_TEXT,
-        client=client),
+    pytest.param(lambda tier: tier.commit_to_new_branch(
+        DONT_CARE_BRANCH, DONT_CARE_BASE, {DONT_CARE_TEXT: DONT_CARE_TEXT}, DONT_CARE_TEXT),
                  id="branch"),
-    pytest.param(lambda client: open_pull_request(
-        DONT_CARE_BRANCH, DONT_CARE_BASE, DONT_CARE_TEXT, DONT_CARE_TEXT, client=client),
+    pytest.param(lambda tier: tier.open_pull_request(
+        DONT_CARE_BRANCH, DONT_CARE_BASE, DONT_CARE_TEXT, DONT_CARE_TEXT),
                  id="pull-request")
 ]
 
@@ -247,62 +210,57 @@ DONT_CARE_PLANNED_AUTOSCALER_PIN = Planned(descriptor=THE_AUTOSCALER_PIN_PLANNED
 DONT_CARE_PLANNED_ACCELERATOR_PIN = Planned(descriptor=THE_ACCELERATOR_PIN_PLANNED,
                                             since=THE_PLATFORM_S_TIME)
 EVERY_READ_OF_THE_WRITE_TIER = [
-    pytest.param(lambda client: plan_flag(SOME_FLAG, False, client=client), id="plan-flag"),
-    pytest.param(lambda client: plan_rollback(SOME_APPLICATION, client=client),
+    pytest.param(lambda tier: tier.plan_flag(SOME_FLAG, False), id="plan-flag"),
+    pytest.param(lambda tier: tier.plan_rollback(SOME_APPLICATION),
                  id="plan-rollback"),
-    pytest.param(lambda client: plan_scale_out(SOME_APPLICATION, client=client),
+    pytest.param(lambda tier: tier.plan_scale_out(SOME_APPLICATION),
                  id="plan-scale-out"),
-    pytest.param(lambda client: plan_autoscaler_pin(SOME_APPLICATION, client=client),
+    pytest.param(lambda tier: tier.plan_autoscaler_pin(SOME_APPLICATION),
                  id="plan-autoscaler-pin"),
-    pytest.param(lambda client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD,
-                                                     client=client),
+    pytest.param(lambda tier: tier.plan_accelerator_pin(SOME_APPLICATION, SOME_CARD),
                  id="plan-accelerator-pin"),
-    pytest.param(lambda client: whether_flag_was_made(DONT_CARE_PLANNED_FLAG, client=client),
+    pytest.param(lambda tier: tier.whether_flag_was_made(DONT_CARE_PLANNED_FLAG),
                  id="whether-flag-was-made"),
-    pytest.param(lambda client: whether_rollback_was_made(DONT_CARE_PLANNED_ROLLBACK,
-                                                          client=client),
+    pytest.param(lambda tier: tier.whether_rollback_was_made(DONT_CARE_PLANNED_ROLLBACK),
                  id="whether-rollback-was-made"),
-    pytest.param(lambda client: whether_scale_out_was_made(DONT_CARE_PLANNED_SCALE_OUT,
-                                                           client=client),
+    pytest.param(lambda tier: tier.whether_scale_out_was_made(DONT_CARE_PLANNED_SCALE_OUT),
                  id="whether-scale-out-was-made"),
-    pytest.param(lambda client: whether_autoscaler_pin_was_made(
-        DONT_CARE_PLANNED_AUTOSCALER_PIN, client=client), id="whether-autoscaler-pin-was-made"),
-    pytest.param(lambda client: whether_accelerator_pin_was_made(
-        DONT_CARE_PLANNED_ACCELERATOR_PIN, client=client), id="whether-accelerator-pin-was-made"),
-    pytest.param(lambda client: flag_still_argus_s(
-        DONT_CARE_PLANNED_FLAG, DONT_CARE_PLANNED_FLAG.descriptor, client=client),
+    pytest.param(lambda tier: tier.whether_autoscaler_pin_was_made(
+        DONT_CARE_PLANNED_AUTOSCALER_PIN), id="whether-autoscaler-pin-was-made"),
+    pytest.param(lambda tier: tier.whether_accelerator_pin_was_made(
+        DONT_CARE_PLANNED_ACCELERATOR_PIN), id="whether-accelerator-pin-was-made"),
+    pytest.param(lambda tier: tier.flag_still_argus_s(
+        DONT_CARE_PLANNED_FLAG, DONT_CARE_PLANNED_FLAG.descriptor),
                  id="flag-still-argus-s"),
-    pytest.param(lambda client: rollback_still_argus_s(THE_ROLLBACK_PLANNED, client=client),
+    pytest.param(lambda tier: tier.rollback_still_argus_s(THE_ROLLBACK_PLANNED),
                  id="rollback-still-argus-s"),
-    pytest.param(lambda client: scale_out_still_argus_s(THE_SCALE_OUT_PLANNED, client=client),
+    pytest.param(lambda tier: tier.scale_out_still_argus_s(THE_SCALE_OUT_PLANNED),
                  id="scale-out-still-argus-s"),
-    pytest.param(lambda client: autoscaler_pin_still_argus_s(THE_AUTOSCALER_PIN_PLANNED,
-                                                             client=client),
+    pytest.param(lambda tier: tier.autoscaler_pin_still_argus_s(THE_AUTOSCALER_PIN_PLANNED),
                  id="autoscaler-pin-still-argus-s"),
-    pytest.param(lambda client: accelerator_pin_still_argus_s(THE_ACCELERATOR_PIN_PLANNED,
-                                                              client=client),
+    pytest.param(lambda tier: tier.accelerator_pin_still_argus_s(THE_ACCELERATOR_PIN_PLANNED),
                  id="accelerator-pin-still-argus-s"),
-    pytest.param(lambda client: get_recent_flag_changes(SINCE, client=client),
+    pytest.param(lambda tier: tier.get_recent_flag_changes(SINCE),
                  id="recent-flag-changes"),
-    pytest.param(lambda client: was_flag_changed_by_others_since(
-        SOME_FLAG, THE_PROVIDER_S_TIME, client=client), id="flag-changed-by-others")
+    pytest.param(lambda tier: tier.was_flag_changed_by_others_since(
+        SOME_FLAG, THE_PROVIDER_S_TIME), id="flag-changed-by-others")
 ]
 
 # Every platform write a second asking answers as made, how it is planned,
 # whether the case needs an autoscaler staged beside the Deployment, and the
 # change it plans.
 EVERY_PLATFORM_WRITE_ASKED_AGAIN = [
-    pytest.param(lambda client: plan_rollback(SOME_APPLICATION, client=client),
-                 lambda planned, client: roll_back_deployment(planned, client=client),
+    pytest.param(lambda tier: tier.plan_rollback(SOME_APPLICATION),
+                 lambda planned, tier: tier.roll_back_deployment(planned),
                  False, THE_ROLLBACK_PLANNED, id="rollback"),
-    pytest.param(lambda client: plan_scale_out(SOME_APPLICATION, client=client),
-                 lambda planned, client: scale_out(planned, client=client),
+    pytest.param(lambda tier: tier.plan_scale_out(SOME_APPLICATION),
+                 lambda planned, tier: tier.scale_out(planned),
                  False, THE_SCALE_OUT_PLANNED, id="scale-out"),
-    pytest.param(lambda client: plan_autoscaler_pin(SOME_APPLICATION, client=client),
-                 lambda planned, client: pin_autoscaler(planned, client=client),
+    pytest.param(lambda tier: tier.plan_autoscaler_pin(SOME_APPLICATION),
+                 lambda planned, tier: tier.pin_autoscaler(planned),
                  True, THE_AUTOSCALER_PIN_PLANNED, id="autoscaler-pin"),
-    pytest.param(lambda client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD, client=client),
-                 lambda planned, client: pin_to_accelerator(planned, client=client),
+    pytest.param(lambda tier: tier.plan_accelerator_pin(SOME_APPLICATION, SOME_CARD),
+                 lambda planned, tier: tier.pin_to_accelerator(planned),
                  False, THE_ACCELERATOR_PIN_PLANNED, id="accelerator-pin")
 ]
 
@@ -339,9 +297,8 @@ def test_a_flag_s_plan_survives_the_wire_and_changes_nothing(
             calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(
-            _asking_the_server_as(None, lambda client: plan_flag(
-                SOME_FLAG, enabled=False, client=client
-            ))
+            _asking_the_server_as(None, lambda tier: tier.plan_flag(
+                SOME_FLAG, enabled=False))
         ) \
         .then(all_of(
             _the_plan_is(FlagUndo(flag=SOME_FLAG, was_enabled=True), THE_PROVIDER_S_TIME),
@@ -364,7 +321,7 @@ def test_switching_a_flag_off_reaches_the_provider_through_the_real_write_server
             calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(
-            _asking_the_server(lambda client: _setting(SOME_FLAG, False, client))
+            _asking_the_server(lambda tier: _setting(SOME_FLAG, False, tier))
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=True),
@@ -383,7 +340,7 @@ def test_switching_a_flag_on_reaches_the_provider_through_the_real_write_server(
             calling(the_provider_has_enabled(running_write_mcp))
         ) \
         .when(
-            _asking_the_server(lambda client: _setting(SOME_FLAG, True, client))
+            _asking_the_server(lambda tier: _setting(SOME_FLAG, True, tier))
         ) \
         .then(all_of(
             the_undo_descriptor_says_it_had_been(enabled=False),
@@ -405,8 +362,8 @@ def test_a_flag_somebody_changed_since_its_plan_arrives_as_changed_since_and_is_
             calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(attempting(
-            _asking_the_server(lambda client: _planned_and_then_toggled_by_somebody(
-                running_write_mcp, client
+            _asking_the_server(lambda tier: _planned_and_then_toggled_by_somebody(
+                running_write_mcp, tier
             ))
         )) \
         .then(all_of(
@@ -431,7 +388,7 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
         ) \
         .when(
             _asking_the_server_as(
-                None, lambda client: get_recent_flag_changes(SINCE, client=client)
+                None, lambda tier: tier.get_recent_flag_changes(SINCE)
             )
         ) \
         .then(
@@ -454,9 +411,8 @@ def test_asking_whether_others_changed_a_flag_reaches_the_provider_through_the_r
             ))
         ) \
         .when(
-            _asking_the_server_as(None, lambda client: was_flag_changed_by_others_since(
-                SOME_FLAG, parse_iso(SINCE), client=client
-            ))
+            _asking_the_server_as(None, lambda tier: tier.was_flag_changed_by_others_since(
+                SOME_FLAG, parse_iso(SINCE)))
         ) \
         .then(
             _the_answer_is(True)
@@ -491,8 +447,8 @@ def test_a_change_the_client_made_can_be_undone_through_the_same_calls(
             calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(
-            _asking_the_server(lambda client: _undoing(
-                _setting(SOME_FLAG, False, client), SOME_FLAG, client
+            _asking_the_server(lambda tier: _undoing(
+                _setting(SOME_FLAG, False, tier), SOME_FLAG, tier
             ))
         ) \
         .then(
@@ -516,9 +472,8 @@ def test_restarting_a_service_reaches_the_platform_through_the_real_write_server
 
     Scenario() \
         .when(
-            _asking_the_server(lambda client: restart_service(
-                some_service, client=client
-            ))
+            _asking_the_server(lambda tier: tier.restart_service(
+                some_service))
         ) \
         .then(all_of(
             the_platform_was_asked_to_restart(
@@ -534,7 +489,7 @@ def test_restarting_a_service_reaches_the_platform_through_the_real_write_server
 @pytest.mark.parametrize(("ask", "with_an_autoscaler", "planned"), EVERY_PLATFORM_PLAN)
 def test_a_platform_plan_survives_the_wire_and_changes_nothing(
     running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
-    ask: Callable[[McpClient], Planned[Any]],
+    ask: Callable[[WriteTier], Planned[Any]],
     with_an_autoscaler: bool,
     planned: UndoDescriptor
 ) -> None:
@@ -600,9 +555,8 @@ def test_restoring_a_configuration_reaches_the_platform_through_the_real_write_s
     # acts on.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: restore_deployment(
-                _rolling_back(client), client=client
-            ))
+            _asking_the_server(lambda tier: tier.restore_deployment(
+                _rolling_back(tier)))
         ) \
         .then(all_of(
             both_halves_were_put_back(),
@@ -629,9 +583,8 @@ def test_a_rollback_somebody_deployed_over_is_left_as_they_set_it_through_the_re
 
     Scenario() \
         .when(
-            _asking_the_server(lambda client: restore_deployment(
-                _rolled_back_and_then_deployed_over(handler, client),
-                client=client
+            _asking_the_server(lambda tier: tier.restore_deployment(
+                _rolled_back_and_then_deployed_over(handler, tier)
             ))
         ) \
         .then(all_of(
@@ -654,8 +607,8 @@ def test_a_rollback_somebody_deployed_over_since_its_plan_arrives_as_changed_sin
 
     Scenario() \
         .when(attempting(
-            _asking_the_server(lambda client: _planned_and_then_deployed_over_after_a_suspension(
-                handler, client
+            _asking_the_server(lambda tier: _planned_and_then_deployed_over_after_a_suspension(
+                handler, tier
             ))
         )) \
         .then(all_of(
@@ -696,9 +649,8 @@ def test_scaling_out_from_its_plan_reaches_the_platform_through_the_real_write_s
     # automated sync is put straight back by the next sync.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: scale_out(
-                plan_scale_out(SOME_APPLICATION, client=client), client=client
-            ))
+            _asking_the_server(lambda tier: tier.scale_out(
+                tier.plan_scale_out(SOME_APPLICATION)))
         ) \
         .then(all_of(
             _the_platform_runs(running_write_mcp_over_a_platform,
@@ -722,9 +674,8 @@ def test_pinning_an_autoscaler_from_its_plan_reaches_the_platform_through_the_re
             calling(_an_autoscaler_staged_on(handler, True))
         ) \
         .when(
-            _asking_the_server(lambda client: pin_autoscaler(
-                plan_autoscaler_pin(SOME_APPLICATION, client=client), client=client
-            ))
+            _asking_the_server(lambda tier: tier.pin_autoscaler(
+                tier.plan_autoscaler_pin(SOME_APPLICATION)))
         ) \
         .then(all_of(
             _the_autoscaler_s_floor_is(handler, THE_AUTOSCALER_PIN_PLANNED.min_replicas_asked_for),
@@ -744,7 +695,7 @@ def test_pinning_to_a_card_reaches_the_platform_through_the_real_write_server(
     # sync is taken off by the next sync.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: _pinning_to(SOME_CARD, client))
+            _asking_the_server(lambda tier: _pinning_to(SOME_CARD, tier))
         ) \
         .then(all_of(
             _the_platform_selects(running_write_mcp_over_a_platform, SOME_CARD),
@@ -763,9 +714,8 @@ def test_restoring_a_pin_reaches_the_platform_through_the_real_write_server(
     # and a restore that read it as "nothing recorded" would leave the pin on.
     Scenario() \
         .when(
-            _asking_the_server(lambda client: restore_accelerator_pin(
-                _pinning_to(SOME_CARD, client), client=client
-            ))
+            _asking_the_server(lambda tier: tier.restore_accelerator_pin(
+                _pinning_to(SOME_CARD, tier)))
         ) \
         .then(all_of(
             _both_halves_of_the_pin_were_put_back(),
@@ -816,7 +766,7 @@ def test_a_platform_write_made_while_no_action_is_taken_is_refused_and_changes_n
 @pytest.mark.unit
 @pytest.mark.parametrize("asking", EVERY_WRITE_NOT_TO_BE_ASKED_TWICE)
 def test_a_write_a_second_asking_would_make_twice_is_asked_not_to_be_asked_again(
-    asking: Callable[[McpClient], object]
+    asking: Callable[[WriteTier], object]
 ) -> None:
     # The transport asks a call once more over a new session where the first
     # got no answer. For a restart, that is a second restart: so this write
@@ -824,53 +774,53 @@ def test_a_write_a_second_asking_would_make_twice_is_asked_not_to_be_asked_again
     # lost rather than as a service restarted twice.
     Scenario() \
         .given(
-            client := _a_client_answering_anything()
+            session := _a_session_answering_anything()
         ) \
         .when(
-            attempting(lambda: asking(client))
+            attempting(lambda: asking(WriteTier(session)))
         ) \
         .then(
-            _it_was_asked(client, kind=Asking.CHANGE_ASKED_ONCE)
+            _it_was_asked(session, kind=Asking.CHANGE_ASKED_ONCE)
         )
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("asking", EVERY_WRITE_ASKED_AGAIN_AS_MADE)
 def test_a_write_a_second_asking_answers_as_made_is_left_to_be_asked_again(
-    asking: Callable[[McpClient], object]
+    asking: Callable[[WriteTier], object]
 ) -> None:
     # The other half: a write whose second asking finds what the first made is
     # how a lost answer is recovered, and marking it not to be asked again
     # would hand an incident to a person over a change that is known.
     Scenario() \
         .given(
-            client := _a_client_answering_anything()
+            session := _a_session_answering_anything()
         ) \
         .when(
-            attempting(lambda: asking(client))
+            attempting(lambda: asking(WriteTier(session)))
         ) \
         .then(
-            _it_was_asked(client, kind=Asking.CHANGE)
+            _it_was_asked(session, kind=Asking.CHANGE)
         )
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("asking", EVERY_READ_OF_THE_WRITE_TIER)
 def test_a_read_of_the_write_tier_is_asked_as_a_read(
-    asking: Callable[[McpClient], object]
+    asking: Callable[[WriteTier], object]
 ) -> None:
     # A plan, whether a claim's change was made, whether a change is still
     # Argus's: none changes anything, so a lost answer is no change nobody can
     # account for - asked again, and failing as that asking failed.
     Scenario() \
         .given(
-            client := _a_client_answering_anything()
+            session := _a_session_answering_anything()
         ) \
         .when(
-            attempting(lambda: asking(client))
+            attempting(lambda: asking(WriteTier(session)))
         ) \
         .then(
-            _it_was_asked(client, kind=Asking.READ)
+            _it_was_asked(session, kind=Asking.READ)
         )
 
 
@@ -891,13 +841,47 @@ def test_a_write_client_waits_for_an_answer_as_long_as_its_endpoint_says() -> No
         )
 
 
+@pytest.mark.unit
+def test_leaving_the_tier_closes_its_session() -> None:
+    # A process holds the tier for its life and leaves it on the way out; a
+    # session left open is a thread and a socket nobody owns.
+    Scenario() \
+        .given(
+            session := create_autospec(McpClient, instance=True)
+        ) \
+        .when(
+            lambda: _held_and_left(WriteTier(session))
+        ) \
+        .then(
+            _the_session_was_closed(session)
+        )
+
+
+def _held_and_left(tier: WriteTier) -> None:
+    with tier:
+        pass
+
+
+def _the_session_was_closed(session: Any) -> Assertion[None]:
+    def assertion(dont_care_left: None) -> bool:
+        if session.close.call_count != 1:
+            raise AssertionError(
+                f"Expected leaving the tier to close its session once, and it was closed "
+                f"{session.close.call_count} time(s)."
+            )
+
+        return True
+
+    return assertion
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize(("plan", "write", "with_an_autoscaler", "planned"),
                          EVERY_PLATFORM_WRITE_ASKED_AGAIN)
 def test_a_platform_write_asked_again_for_the_same_action_is_answered_as_made_and_writes_nothing(
     running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
-    plan: Callable[[McpClient], Planned[Any]],
-    write: Callable[[Planned[Any], McpClient], UndoDescriptor],
+    plan: Callable[[WriteTier], Planned[Any]],
+    write: Callable[[Planned[Any], WriteTier], UndoDescriptor],
     with_an_autoscaler: bool,
     planned: UndoDescriptor
 ) -> None:
@@ -935,8 +919,8 @@ def test_a_flag_set_asked_again_for_the_same_action_is_answered_as_made(
             calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(
-            _asking_the_server(lambda client: _set_and_asked_again(
-                running_write_mcp, THE_FLAG_SET_AND_ASKED_AGAIN, client
+            _asking_the_server(lambda tier: _set_and_asked_again(
+                running_write_mcp, THE_FLAG_SET_AND_ASKED_AGAIN, tier
             ))
         ) \
         .then(all_of(
@@ -972,7 +956,7 @@ def test_a_change_for_a_claim_the_run_moved_past_arrives_as_a_lost_run_and_chang
         ) \
         .when(attempting(
             _asking_the_server_as(A_CLAIM_THE_RUN_MOVED_PAST,
-                                  lambda client: _setting(SOME_FLAG, False, client))
+                                  lambda tier: _setting(SOME_FLAG, False, tier))
         )) \
         .then(all_of(
             an_error_was_raised(RunLost),
@@ -991,7 +975,7 @@ def test_a_change_made_while_no_run_is_held_is_refused_and_changes_nothing(
             calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG))
         ) \
         .when(attempting(
-            _asking_the_server_as(None, lambda client: _setting(SOME_FLAG, False, client))
+            _asking_the_server_as(None, lambda tier: _setting(SOME_FLAG, False, tier))
         )) \
         .then(all_of(
             an_error_was_raised(McpToolError),
@@ -1000,54 +984,53 @@ def test_a_change_made_while_no_run_is_held_is_refused_and_changes_nothing(
         ))
 
 
-def _setting(flag: str, enabled: bool, client: McpClient) -> UndoDescriptor:
+def _setting(flag: str, enabled: bool, tier: WriteTier) -> UndoDescriptor:
     """`flag` planned and then set to `enabled` from its plan, as the walk
     makes a change: two calls over one session."""
-    return set_feature_flag(plan_flag(flag, enabled, client=client), enabled, client=client)
+    return tier.set_feature_flag(tier.plan_flag(flag, enabled), enabled)
 
 
 def _undoing(undo_descriptor: UndoDescriptor,
              flag: str,
-             client: McpClient) -> UndoDescriptor:
+             tier: WriteTier) -> UndoDescriptor:
     assert isinstance(undo_descriptor, FlagUndo)
 
-    return _setting(flag, undo_descriptor.was_enabled, client)
+    return _setting(flag, undo_descriptor.was_enabled, tier)
 
 
 def _planned_and_then_toggled_by_somebody(handler: type[FakeUnleashHandler],
-                                          client: McpClient) -> UndoDescriptor:
+                                          tier: WriteTier) -> UndoDescriptor:
     """The flag planned to go off, then switched off and back on by somebody
     after the plan's read - the provider's history says so, its state does not
     - then set from the plan."""
-    planned = plan_flag(SOME_FLAG, False, client=client)
+    planned = tier.plan_flag(SOME_FLAG, False)
     handler.events = [
         a_disabling_of(SOME_FLAG, at=to_iso(AFTER_THE_PROVIDER_S_PLAN), by=SOME_HUMAN),
         an_enabling_of(SOME_FLAG, at=to_iso(AFTER_THE_PROVIDER_S_PLAN), by=SOME_HUMAN)
     ]
 
-    return set_feature_flag(planned, False, client=client)
+    return tier.set_feature_flag(planned, False)
 
 
-def _rolling_back(client: McpClient) -> DeploymentRollbackUndo:
+def _rolling_back(tier: WriteTier) -> DeploymentRollbackUndo:
     """`SOME_APPLICATION` planned and then rolled back from its plan, as the
     walk makes a change: two calls over one session."""
-    return roll_back_deployment(plan_rollback(SOME_APPLICATION, client=client), client=client)
+    return tier.roll_back_deployment(tier.plan_rollback(SOME_APPLICATION))
 
 
-def _pinning_to(card: str, client: McpClient) -> AcceleratorPinUndo:
+def _pinning_to(card: str, tier: WriteTier) -> AcceleratorPinUndo:
     """`SOME_APPLICATION` planned and then pinned to `card` from its plan."""
-    return pin_to_accelerator(plan_accelerator_pin(SOME_APPLICATION, card, client=client),
-                              client=client)
+    return tier.pin_to_accelerator(tier.plan_accelerator_pin(SOME_APPLICATION, card))
 
 
 def _planned_and_then_deployed_over_after_a_suspension(
-    handler: type[FakeDeploymentPlatformHandler], client: McpClient
+    handler: type[FakeDeploymentPlatformHandler], tier: WriteTier
 ) -> DeploymentRollbackUndo:
     """The rollback planned; then the sync off under this action's own mark, as
     an earlier asking whose answer was lost left it, and a deployment of
     somebody else's recorded after the plan; then the rollback asked again from
     the plan."""
-    planned = plan_rollback(SOME_APPLICATION, client=client)
+    planned = tier.plan_rollback(SOME_APPLICATION)
     handler.sync_policy = {AUTOMATED: {"selfHeal": True, ENABLED: False}}
     handler.syncs_itself = False
     handler.application_annotations = {THE_ACTION_ANNOTATION: SOME_ACTION_ID}
@@ -1058,7 +1041,7 @@ def _planned_and_then_deployed_over_after_a_suspension(
         "initiatedBy": {"username": SOME_PERSON_DEPLOYING}
     }]
 
-    return roll_back_deployment(planned, client=client)
+    return tier.roll_back_deployment(planned)
 
 
 def _an_autoscaler_staged_on(handler: type[FakeDeploymentPlatformHandler],
@@ -1221,25 +1204,25 @@ def _it_answered_as(planned: UndoDescriptor) -> Assertion[UndoDescriptor]:
     return assertion
 
 
-def _a_client_answering_anything() -> Any:
-    """A client whose every call is answered, with something no write reads -
+def _a_session_answering_anything() -> Any:
+    """A session whose every call is answered, with something no write reads -
     for the cases about how a write is asked rather than what comes back."""
     return create_autospec(McpClient, instance=True)
 
 
-def _it_was_asked(client: Any, *, kind: Asking) -> Assertion[object]:
+def _it_was_asked(session: Any, *, kind: Asking) -> Assertion[object]:
     """The one call made said what kind of call it is - a read, a change that
     may be asked again, or a change asked once - and said it outright, rather
     than leaving it to whatever the transport assumes."""
     def assertion(dont_care_result: object) -> bool:
-        if not client.call.called:
+        if not session.call.called:
             raise AssertionError(f"Expected one call asked as [{kind}], and none was made.")
 
-        said = client.call.call_args.kwargs.get("asking", "nothing")
+        said = session.call.call_args.kwargs.get("asking", "nothing")
 
         if said is not kind:
             raise AssertionError(
-                f"Expected [{client.call.call_args.args[0]}] asked as [{kind}], and it was "
+                f"Expected [{session.call.call_args.args[0]}] asked as [{kind}], and it was "
                 f"asked as [{said}]."
             )
 
@@ -1290,17 +1273,17 @@ def _written_to(handler: type[FakeDeploymentPlatformHandler]) -> dict[str, int]:
 
 
 def _asked_twice(handler: type[FakeDeploymentPlatformHandler],
-                 plan: Callable[[McpClient], Planned[Any]],
-                 write: Callable[[Planned[Any], McpClient], UndoDescriptor]
-                 ) -> Callable[[McpClient], _AskedAgain]:
+                 plan: Callable[[WriteTier], Planned[Any]],
+                 write: Callable[[Planned[Any], WriteTier], UndoDescriptor]
+                 ) -> Callable[[WriteTier], _AskedAgain]:
     """Planned once, and written from that plan twice over one session under
     one action - the second asking as the transport makes it."""
-    def both_askings(client: McpClient) -> _AskedAgain:
-        planned = plan(client)
-        write(planned, client)
+    def both_askings(tier: WriteTier) -> _AskedAgain:
+        planned = plan(tier)
+        write(planned, tier)
         written_after_the_first = _written_to(handler)
 
-        return _AskedAgain(answered_again=write(planned, client),
+        return _AskedAgain(answered_again=write(planned, tier),
                            written_after_the_first=written_after_the_first,
                            written_after_both=_written_to(handler))
 
@@ -1335,7 +1318,7 @@ def _the_second_asking_wrote_nothing() -> Assertion[_AskedAgain]:
 
 def _set_and_asked_again(handler: type[FakeUnleashHandler],
                          recorded: FlagUndo,
-                         client: McpClient) -> UndoDescriptor:
+                         tier: WriteTier) -> UndoDescriptor:
     """`recorded`'s flag planned away from the state it was in and set from
     its plan, the provider recording that under the name Argus writes as at
     `recorded`'s moment, and the same write asked again from the same plan;
@@ -1343,13 +1326,13 @@ def _set_and_asked_again(handler: type[FakeUnleashHandler],
     assert recorded.written_at is not None
 
     asked = not recorded.was_enabled
-    planned = plan_flag(recorded.flag, asked, client=client)
-    set_feature_flag(planned, asked, client=client)
+    planned = tier.plan_flag(recorded.flag, asked)
+    tier.set_feature_flag(planned, asked)
     the_provider_recorded(handler, [
         a_disabling_of(recorded.flag, at=to_iso(recorded.written_at), by=THE_ARGUS_ACTOR)
     ])()
 
-    return set_feature_flag(planned, asked, client=client)
+    return tier.set_feature_flag(planned, asked)
 
 
 def _answered_as_exactly(expected: UndoDescriptor) -> Assertion[UndoDescriptor]:
@@ -1364,18 +1347,18 @@ def _answered_as_exactly(expected: UndoDescriptor) -> Assertion[UndoDescriptor]:
     return assertion
 
 
-def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
+def _asking_the_server[T](ask: Callable[[WriteTier], T]) -> Callable[[], T]:
     """`_asking_the_server_as` the claim that holds the server's run, acting for
     an action, as a walk's worker asks it."""
     return _asking_the_server_as(THE_RUN_HELD, ask, acting_for=SOME_ACTION_ID)
 
 
 def _asking_the_server_as[T](held: Fence | None,
-                             ask: Callable[[McpClient], T],
+                             ask: Callable[[WriteTier], T],
                              acting_for: str | None = None) -> Callable[[], T]:
-    """One client to the subprocess the fixture started, held for one `when`,
-    by a process holding `held` - or holding no run, for `None` - and acting for
-    the action `acting_for` names, where it names one.
+    """The write tier, over a session to the subprocess the fixture started,
+    held for one `when` by a process holding `held` - or holding no run, for
+    `None` - and acting for the action `acting_for` names, where it names one.
 
     Where the subprocess is listening is read through `get_settings` rather than
     named here, because the fixture is what decides the port - it sets the
@@ -1388,11 +1371,11 @@ def _asking_the_server_as[T](held: Fence | None,
         holding = Holding()
 
         with (
-            write_mcp(WriteMcpEndpoint.of(get_settings()), holding=holding) as client,
+            write_mcp(WriteMcpEndpoint.of(get_settings()), holding=holding) as tier,
             holding.of(held) if held is not None else nullcontext(),
             holding.acting_for(acting_for) if acting_for is not None else nullcontext()
         ):
-            return ask(client)
+            return ask(tier)
 
     return step
 
@@ -1741,11 +1724,11 @@ def _both_halves_of_the_pin_were_put_back() -> Assertion[AcceleratorPinRestored]
 
 
 def _rolled_back_and_then_deployed_over(handler: type[FakeDeploymentPlatformHandler],
-                                        client: McpClient) -> DeploymentRollbackUndo:
+                                        tier: WriteTier) -> DeploymentRollbackUndo:
     """A real rollback through the server, and then a deployment of somebody
     else's recorded after it - the descriptor the rollback answered with, to
     put back."""
-    rolled_back = _rolling_back(client)
+    rolled_back = _rolling_back(tier)
     handler.history = handler.history + [{
         "id": handler.history[-1]["id"] + 1,
         "revision": A_REVISION_SOMEBODY_DEPLOYED,
@@ -1823,14 +1806,13 @@ def test_a_flag_still_as_argus_left_it_is_said_so_through_the_real_write_server(
     # told Argus writes under. A read - the flag is where it was.
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _a_flag_switched_off_by_argus(
-                running_write_mcp, WHEN_ARGUS_S_CHANGE_WAS_RECORDED, client
+            the_plan := _asking_the_server(lambda tier: _a_flag_switched_off_by_argus(
+                running_write_mcp, WHEN_ARGUS_S_CHANGE_WAS_RECORDED, tier
             ))()
         ) \
         .when(
-            _asking_the_server(lambda client: flag_still_argus_s(
-                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED),
-                client=client
+            _asking_the_server(lambda tier: tier.flag_still_argus_s(
+                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED)
             ))
         ) \
         .then(all_of(
@@ -1848,8 +1830,8 @@ def test_a_flag_somebody_changed_since_argus_set_it_is_said_so_through_the_real_
     # escalates on it rather than watch somebody's flag as Argus's.
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _a_flag_switched_off_by_argus(
-                running_write_mcp, WHEN_ARGUS_S_CHANGE_WAS_RECORDED, client
+            the_plan := _asking_the_server(lambda tier: _a_flag_switched_off_by_argus(
+                running_write_mcp, WHEN_ARGUS_S_CHANGE_WAS_RECORDED, tier
             ))(),
             calling(the_provider_has_enabled(running_write_mcp, SOME_FLAG)),
             calling(the_provider_recorded(running_write_mcp, [
@@ -1860,9 +1842,8 @@ def test_a_flag_somebody_changed_since_argus_set_it_is_said_so_through_the_real_
             ]))
         ) \
         .when(
-            _asking_the_server(lambda client: flag_still_argus_s(
-                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED),
-                client=client
+            _asking_the_server(lambda tier: tier.flag_still_argus_s(
+                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED)
             ))
         ) \
         .then(all_of(
@@ -1880,14 +1861,13 @@ def test_a_flag_whose_history_shows_no_change_since_its_plan_is_said_to_be_nobod
     # answer crosses the wire as nobody-can-say rather than either of the others.
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _a_flag_planned_off(
-                running_write_mcp, client
+            the_plan := _asking_the_server(lambda tier: _a_flag_planned_off(
+                running_write_mcp, tier
             ))()
         ) \
         .when(
-            _asking_the_server(lambda client: flag_still_argus_s(
-                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED),
-                client=client
+            _asking_the_server(lambda tier: tier.flag_still_argus_s(
+                the_plan, _as_recorded_at(the_plan, WHEN_ARGUS_S_CHANGE_WAS_RECORDED)
             ))
         ) \
         .then(all_of(
@@ -1912,9 +1892,8 @@ def test_a_rollback_still_argus_s_is_said_so_through_the_real_write_server(
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: rollback_still_argus_s(
-                the_rollback_made, client=client
-            ))
+            _asking_the_server(lambda tier: tier.rollback_still_argus_s(
+                the_rollback_made))
         ) \
         .then(all_of(
             _it_was_found(still_argus_s=True),
@@ -1933,14 +1912,13 @@ def test_a_rollback_somebody_deployed_over_is_said_so_through_the_real_write_ser
     Scenario() \
         .given(
             the_rollback_made := _asking_the_server(
-                lambda client: _rolled_back_and_then_deployed_over(handler, client)
+                lambda tier: _rolled_back_and_then_deployed_over(handler, tier)
             )(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: rollback_still_argus_s(
-                the_rollback_made, client=client
-            ))
+            _asking_the_server(lambda tier: tier.rollback_still_argus_s(
+                the_rollback_made))
         ) \
         .then(all_of(
             _it_was_found(still_argus_s=False, mentioning=A_REVISION_SOMEBODY_DEPLOYED),
@@ -1959,15 +1937,13 @@ def test_a_scale_out_still_argus_s_is_said_so_through_the_real_write_server(
 
     Scenario() \
         .given(
-            the_scale_out_made := _asking_the_server(lambda client: scale_out(
-                plan_scale_out(SOME_APPLICATION, client=client), client=client
-            ))(),
+            the_scale_out_made := _asking_the_server(lambda tier: tier.scale_out(
+                tier.plan_scale_out(SOME_APPLICATION)))(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: scale_out_still_argus_s(
-                the_scale_out_made, client=client
-            ))
+            _asking_the_server(lambda tier: tier.scale_out_still_argus_s(
+                the_scale_out_made))
         ) \
         .then(all_of(
             _it_was_found(still_argus_s=True),
@@ -1986,14 +1962,13 @@ def test_an_autoscaler_pin_still_argus_s_is_said_so_through_the_real_write_serve
     Scenario() \
         .given(
             the_pin_made := _asking_the_server(
-                lambda client: _an_autoscaler_pinned_on(handler, client)
+                lambda tier: _an_autoscaler_pinned_on(handler, tier)
             )(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: autoscaler_pin_still_argus_s(
-                the_pin_made, client=client
-            ))
+            _asking_the_server(lambda tier: tier.autoscaler_pin_still_argus_s(
+                the_pin_made))
         ) \
         .then(all_of(
             _it_was_found(still_argus_s=True),
@@ -2009,13 +1984,12 @@ def test_a_pin_to_a_card_still_argus_s_is_said_so_through_the_real_write_server(
 
     Scenario() \
         .given(
-            the_pin_made := _asking_the_server(lambda client: _pinning_to(SOME_CARD, client))(),
+            the_pin_made := _asking_the_server(lambda tier: _pinning_to(SOME_CARD, tier))(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: accelerator_pin_still_argus_s(
-                the_pin_made, client=client
-            ))
+            _asking_the_server(lambda tier: tier.accelerator_pin_still_argus_s(
+                the_pin_made))
         ) \
         .then(all_of(
             _it_was_found(still_argus_s=True),
@@ -2024,12 +1998,12 @@ def test_a_pin_to_a_card_still_argus_s_is_said_so_through_the_real_write_server(
 
 
 def _an_autoscaler_pinned_on(handler: type[FakeDeploymentPlatformHandler],
-                             client: McpClient) -> AutoscalerUndo:
+                             tier: WriteTier) -> AutoscalerUndo:
     """An autoscaler staged beside the Deployment, then pinned from its plan, as
     the walk makes a change: two calls over one session."""
     _an_autoscaler_staged_on(handler, True)()
 
-    return pin_autoscaler(plan_autoscaler_pin(SOME_APPLICATION, client=client), client=client)
+    return tier.pin_autoscaler(tier.plan_autoscaler_pin(SOME_APPLICATION))
 
 
 def _it_was_found(still_argus_s: bool | None,
@@ -2098,12 +2072,12 @@ def test_a_flag_change_argus_made_from_its_plan_is_found_made_through_the_real_w
 
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _a_flag_switched_off_by_argus(
-                running_write_mcp, the_change_recorded_at, client
+            the_plan := _asking_the_server(lambda tier: _a_flag_switched_off_by_argus(
+                running_write_mcp, the_change_recorded_at, tier
             ))()
         ) \
         .when(
-            _asking_the_server(lambda client: whether_flag_was_made(the_plan, client=client))
+            _asking_the_server(lambda tier: tier.whether_flag_was_made(the_plan))
         ) \
         .then(all_of(
             _it_was_made_as(THE_FLAG_CHANGE_PLANNED),
@@ -2124,12 +2098,12 @@ def test_a_flag_change_nothing_landed_of_is_found_not_made_through_the_real_writ
 
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _a_flag_planned_off(
-                running_write_mcp, client
+            the_plan := _asking_the_server(lambda tier: _a_flag_planned_off(
+                running_write_mcp, tier
             ))()
         ) \
         .when(
-            _asking_the_server(lambda client: whether_flag_was_made(the_plan, client=client))
+            _asking_the_server(lambda tier: tier.whether_flag_was_made(the_plan))
         ) \
         .then(all_of(
             _nothing_landed(left_behind=nothing_left),
@@ -2146,8 +2120,8 @@ def test_a_flag_somebody_changed_since_its_plan_arrives_as_changed_since_through
     # nothing - and the flag is as they left it.
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _a_flag_planned_off(
-                running_write_mcp, client
+            the_plan := _asking_the_server(lambda tier: _a_flag_planned_off(
+                running_write_mcp, tier
             ))(),
             calling(the_provider_recorded(running_write_mcp, [
                 a_disabling_of(SOME_FLAG, at=to_iso(AFTER_THE_PROVIDER_S_PLAN), by=SOME_HUMAN),
@@ -2155,7 +2129,7 @@ def test_a_flag_somebody_changed_since_its_plan_arrives_as_changed_since_through
             ]))
         ) \
         .when(attempting(
-            _asking_the_server(lambda client: whether_flag_was_made(the_plan, client=client))
+            _asking_the_server(lambda tier: tier.whether_flag_was_made(the_plan))
         )) \
         .then(all_of(
             an_error_was_raised(ChangedSince),
@@ -2179,7 +2153,7 @@ def test_a_rollback_argus_made_from_its_plan_is_found_made_through_the_real_writ
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: whether_rollback_was_made(the_plan, client=client))
+            _asking_the_server(lambda tier: tier.whether_rollback_was_made(the_plan))
         ) \
         .then(all_of(
             _it_was_made_as(THE_ROLLBACK_PLANNED),
@@ -2201,14 +2175,14 @@ def test_a_scale_out_argus_made_from_its_plan_is_found_made_through_the_real_wri
 
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _planned_and_made(
-                plan_scale_out(SOME_APPLICATION, client=client),
-                lambda planned: scale_out(planned, client=client)
+            the_plan := _asking_the_server(lambda tier: _planned_and_made(
+                tier.plan_scale_out(SOME_APPLICATION),
+                lambda planned: tier.scale_out(planned)
             ))(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: whether_scale_out_was_made(the_plan, client=client))
+            _asking_the_server(lambda tier: tier.whether_scale_out_was_made(the_plan))
         ) \
         .then(all_of(
             _it_was_made_as(THE_SCALE_OUT_PLANNED),
@@ -2225,16 +2199,15 @@ def test_an_autoscaler_pin_argus_made_from_its_plan_is_found_made_through_the_re
 
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _planned_and_made(
-                _an_autoscaler_planned_on(handler, client),
-                lambda planned: pin_autoscaler(planned, client=client)
+            the_plan := _asking_the_server(lambda tier: _planned_and_made(
+                _an_autoscaler_planned_on(handler, tier),
+                lambda planned: tier.pin_autoscaler(planned)
             ))(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: whether_autoscaler_pin_was_made(
-                the_plan, client=client
-            ))
+            _asking_the_server(lambda tier: tier.whether_autoscaler_pin_was_made(
+                the_plan))
         ) \
         .then(all_of(
             _it_was_made_as(THE_AUTOSCALER_PIN_PLANNED),
@@ -2251,16 +2224,15 @@ def test_a_pin_to_a_card_argus_made_from_its_plan_is_found_made_through_the_real
 
     Scenario() \
         .given(
-            the_plan := _asking_the_server(lambda client: _planned_and_made(
-                plan_accelerator_pin(SOME_APPLICATION, SOME_CARD, client=client),
-                lambda planned: pin_to_accelerator(planned, client=client)
+            the_plan := _asking_the_server(lambda tier: _planned_and_made(
+                tier.plan_accelerator_pin(SOME_APPLICATION, SOME_CARD),
+                lambda planned: tier.pin_to_accelerator(planned)
             ))(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: whether_accelerator_pin_was_made(
-                the_plan, client=client
-            ))
+            _asking_the_server(lambda tier: tier.whether_accelerator_pin_was_made(
+                the_plan))
         ) \
         .then(all_of(
             _it_was_made_as(THE_ACCELERATOR_PIN_PLANNED),
@@ -2272,19 +2244,17 @@ def test_a_pin_to_a_card_argus_made_from_its_plan_is_found_made_through_the_real
 # Every platform kind's plan, made through the server holding no run, and the
 # read of whether a claim's change on that plan was made.
 EVERY_PLATFORM_KIND_PLANNED_AND_ASKED_AFTER = [
-    pytest.param(lambda handler, client: plan_rollback(SOME_APPLICATION, client=client),
-                 lambda planned, client: whether_rollback_was_made(planned, client=client),
+    pytest.param(lambda handler, tier: tier.plan_rollback(SOME_APPLICATION),
+                 lambda planned, tier: tier.whether_rollback_was_made(planned),
                  id="rollback"),
-    pytest.param(lambda handler, client: plan_scale_out(SOME_APPLICATION, client=client),
-                 lambda planned, client: whether_scale_out_was_made(planned, client=client),
+    pytest.param(lambda handler, tier: tier.plan_scale_out(SOME_APPLICATION),
+                 lambda planned, tier: tier.whether_scale_out_was_made(planned),
                  id="scale-out"),
-    pytest.param(lambda handler, client: _an_autoscaler_planned_on(handler, client),
-                 lambda planned, client: whether_autoscaler_pin_was_made(planned, client=client),
+    pytest.param(lambda handler, tier: _an_autoscaler_planned_on(handler, tier),
+                 lambda planned, tier: tier.whether_autoscaler_pin_was_made(planned),
                  id="autoscaler-pin"),
-    pytest.param(lambda handler, client: plan_accelerator_pin(SOME_APPLICATION, SOME_CARD,
-                                                              client=client),
-                 lambda planned, client: whether_accelerator_pin_was_made(planned,
-                                                                         client=client),
+    pytest.param(lambda handler, tier: tier.plan_accelerator_pin(SOME_APPLICATION, SOME_CARD),
+                 lambda planned, tier: tier.whether_accelerator_pin_was_made(planned),
                  id="accelerator-pin")
 ]
 
@@ -2293,8 +2263,8 @@ EVERY_PLATFORM_KIND_PLANNED_AND_ASKED_AFTER = [
 @pytest.mark.parametrize(("plan", "ask"), EVERY_PLATFORM_KIND_PLANNED_AND_ASKED_AFTER)
 def test_a_platform_change_planned_and_never_made_is_found_not_made_through_the_real_write_server(
     running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler],
-    plan: Callable[[type[FakeDeploymentPlatformHandler], McpClient], Planned[Any]],
-    ask: Callable[[Planned[Any], McpClient], Made[Any] | NotMade[Any]]
+    plan: Callable[[type[FakeDeploymentPlatformHandler], WriteTier], Planned[Any]],
+    ask: Callable[[Planned[Any], WriteTier], Made[Any] | NotMade[Any]]
 ) -> None:
     # The claim was written and its worker died before the write: the platform
     # stands as the plan found it, under no mark of this action's, so nothing
@@ -2305,11 +2275,11 @@ def test_a_platform_change_planned_and_never_made_is_found_not_made_through_the_
 
     Scenario() \
         .given(
-            the_plan := _asking_the_server_as(None, lambda client: plan(handler, client))(),
+            the_plan := _asking_the_server_as(None, lambda tier: plan(handler, tier))(),
             written_by_then := _what_was_written_to(handler)
         ) \
         .when(
-            _asking_the_server(lambda client: ask(the_plan, client))
+            _asking_the_server(lambda tier: ask(the_plan, tier))
         ) \
         .then(all_of(
             _nothing_landed(left_behind=no_suspension),
@@ -2324,23 +2294,23 @@ def _as_recorded_at(planned: Planned[FlagUndo], written_at: datetime) -> FlagUnd
 
 
 def _a_flag_planned_off(handler: type[FakeUnleashHandler],
-                        client: McpClient) -> Planned[FlagUndo]:
+                        tier: WriteTier) -> Planned[FlagUndo]:
     """`SOME_FLAG` on, as the provider holds it, and its switching off planned -
     nothing written."""
     the_provider_has_enabled(handler, SOME_FLAG)()
 
-    return plan_flag(SOME_FLAG, False, client=client)
+    return tier.plan_flag(SOME_FLAG, False)
 
 
 def _a_flag_switched_off_by_argus(handler: type[FakeUnleashHandler],
                                   recorded_at: datetime,
-                                  client: McpClient) -> Planned[FlagUndo]:
+                                  tier: WriteTier) -> Planned[FlagUndo]:
     """`SOME_FLAG` planned off and switched off from its plan through the server,
     and the provider recording the change under the name Argus writes as at
     `recorded_at` - which the stand-in leaves a case to stage. The plan, as the
     claim carries it."""
-    planned = _a_flag_planned_off(handler, client)
-    set_feature_flag(planned, False, client=client)
+    planned = _a_flag_planned_off(handler, tier)
+    tier.set_feature_flag(planned, False)
     the_provider_recorded(handler, [
         a_disabling_of(SOME_FLAG, at=to_iso(recorded_at), by=THE_ARGUS_ACTOR)
     ])()
@@ -2348,11 +2318,11 @@ def _a_flag_switched_off_by_argus(handler: type[FakeUnleashHandler],
     return planned
 
 
-def _planned_and_rolled_back(client: McpClient) -> Planned[DeploymentRollbackUndo]:
+def _planned_and_rolled_back(tier: WriteTier) -> Planned[DeploymentRollbackUndo]:
     """`SOME_APPLICATION`'s rollback planned and made from its plan; the plan,
     as the claim carries it."""
-    return _planned_and_made(plan_rollback(SOME_APPLICATION, client=client),
-                             lambda planned: roll_back_deployment(planned, client=client))
+    return _planned_and_made(tier.plan_rollback(SOME_APPLICATION),
+                             lambda planned: tier.roll_back_deployment(planned))
 
 
 def _planned_and_made[D](planned: Planned[D],
@@ -2365,11 +2335,11 @@ def _planned_and_made[D](planned: Planned[D],
 
 
 def _an_autoscaler_planned_on(handler: type[FakeDeploymentPlatformHandler],
-                              client: McpClient) -> Planned[AutoscalerUndo]:
+                              tier: WriteTier) -> Planned[AutoscalerUndo]:
     """An autoscaler staged beside the Deployment, and its pin planned."""
     _an_autoscaler_staged_on(handler, True)()
 
-    return plan_autoscaler_pin(SOME_APPLICATION, client=client)
+    return tier.plan_autoscaler_pin(SOME_APPLICATION)
 
 
 def _it_was_made_as(planned: UndoDescriptor) -> Assertion[Made[Any] | NotMade[Any]]:

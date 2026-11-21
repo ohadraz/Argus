@@ -41,7 +41,6 @@ from core.events import (
     RetrievalUnanswered,
 )
 from core.llm import Conversations, ModelDidNotAnswer
-from core.mcp_transport import McpToolError
 from core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
@@ -150,6 +149,7 @@ from investigation_agent_test.framework.builders.model import (
     an_explanation,
     some_windows,
 )
+from investigation_agent_test.framework.failures import ChannelFailed
 from investigation_agent_test.framework.recording import a_recorder_that_keeps_what_it_is_given
 
 # ---- from test_loop.py ----
@@ -1447,7 +1447,7 @@ def test_a_reread_that_fails_disproves_nothing() -> None:
         .given(
             calling(investigation.metrics_showed_in_turn(
                 a_steady_window_that_stops_before_the_alert(),
-                McpToolError("the metrics source did not answer")
+                ChannelFailed("the metrics source did not answer")
             ))
         ) \
         .when(
@@ -3403,7 +3403,7 @@ def _the_metrics_were_first_read_for(reader: Mock,
     """
     def assertion(dont_care_findings: Findings) -> bool:
         first = reader.call_args_list[0] if reader.call_args_list else None
-        if first != call(alert_time, rule):
+        if first != call(alert_time=alert_time, rule=rule):
             raise AssertionError(
                 f"Expected the metrics to be read first anchored on [{alert_time}] "
                 f"for the rule [{rule}], and the first read was {first}."
@@ -3648,9 +3648,10 @@ def _the_channel_was_never_read(reader: Mock) -> Assertion[Findings]:
 
 
 def _the_windows_read_started_at(reader: Mock, *starts: str) -> Assertion[Findings]:
-    """The windows the model asked for, in the order it asked for them."""
+    """The windows the model asked the log channel for, in the order it asked
+    for them - by name, as the channel is asked."""
     def assertion(dont_care_findings: Findings) -> bool:
-        asked_for = [call.args[0] for call in reader.call_args_list]
+        asked_for = [call.kwargs.get("window_start") for call in reader.call_args_list]
         if asked_for != list(starts):
             raise AssertionError(
                 f"Expected the windows to start at {list(starts)}, got {asked_for}."
@@ -4290,7 +4291,7 @@ def test_a_later_round_numbers_its_candidates_on_from_the_earlier_rounds() -> No
          lambda investigation: investigation.metrics_showed([]),
          an_alert(started_at=None)),
         (lambda: an_investigation(a_model_that_says()),
-         lambda investigation: raising(investigation.metrics_fetcher, McpToolError(
+         lambda investigation: raising(investigation.metrics_fetcher, ChannelFailed(
              "MCP tool call [get_metrics_summary] failed: timed out")),
          an_alert(started_at=None))
     ],
@@ -4427,7 +4428,7 @@ def test_a_read_that_would_not_answer_is_published_as_having_gone_unanswered() -
         .given(
             calling(investigation.metrics_showed(a_window_that_starts_calm())),
             calling(investigation.the_register_failed(
-                McpToolError("MCP tool call [get_dependencies] failed: timed out")
+                ChannelFailed("MCP tool call [get_dependencies] failed: timed out")
             ))
         ) \
         .when(
@@ -4525,7 +4526,7 @@ def test_a_log_read_the_tier_would_not_answer_is_said_rather_than_ending_the_wal
     Scenario() \
         .given(
             calling(investigation.metrics_showed(a_window_that_starts_calm())),
-            calling(raising(investigation.log_fetcher, McpToolError(
+            calling(raising(investigation.log_fetcher, ChannelFailed(
                 "MCP tool call [get_logs] failed: timed out"
             )))
         ) \
@@ -4556,7 +4557,7 @@ def test_metrics_that_could_not_be_read_are_said_and_investigated_from_the_alarm
 
     Scenario() \
         .given(
-            calling(raising(investigation.metrics_fetcher, McpToolError(
+            calling(raising(investigation.metrics_fetcher, ChannelFailed(
                 "MCP tool call [get_metrics_summary] failed: timed out"
             )))
         ) \
@@ -4590,7 +4591,7 @@ def test_metrics_that_could_not_be_read_under_an_alert_that_never_said_when_it_f
 
     Scenario() \
         .given(
-            calling(raising(investigation.metrics_fetcher, McpToolError(
+            calling(raising(investigation.metrics_fetcher, ChannelFailed(
                 "MCP tool call [get_metrics_summary] failed: timed out"
             )))
         ) \
@@ -4616,7 +4617,7 @@ def test_metrics_that_could_not_be_read_under_a_stated_onset_are_investigated_fr
 
     Scenario() \
         .given(
-            calling(raising(investigation.metrics_fetcher, McpToolError(
+            calling(raising(investigation.metrics_fetcher, ChannelFailed(
                 "MCP tool call [get_metrics_summary] failed: timed out"
             )))
         ) \
@@ -4645,7 +4646,7 @@ def test_metrics_that_could_not_be_read_can_be_asked_for_again() -> None:
 
     Scenario() \
         .given(
-            calling(raising(investigation.metrics_fetcher, McpToolError(
+            calling(raising(investigation.metrics_fetcher, ChannelFailed(
                 "MCP tool call [get_metrics_summary] failed: timed out"
             )))
         ) \
@@ -4661,7 +4662,7 @@ def test_metrics_that_could_not_be_read_can_be_asked_for_again() -> None:
 @pytest.mark.parametrize(("what_the_metrics_said", "why"), [
     (lambda investigation: investigation.metrics_showed([]),
      "came back with no minute in them"),
-    (lambda investigation: raising(investigation.metrics_fetcher, McpToolError(
+    (lambda investigation: raising(investigation.metrics_fetcher, ChannelFailed(
         "MCP tool call [get_metrics_summary] failed: timed out")),
      "could not be read")
 ], ids=["read-and-empty", "never-answered"])
@@ -4866,7 +4867,7 @@ def test_a_placement_that_could_not_be_read_is_said_and_carried_as_absent() -> N
     Scenario() \
         .given(
             calling(investigation.metrics_showed(a_window_that_starts_calm())),
-            calling(investigation.the_placement_could_not_be_read(McpToolError(
+            calling(investigation.the_placement_could_not_be_read(ChannelFailed(
                 "MCP tool call [get_placements] failed: timed out"
             )))
         ) \
@@ -5262,7 +5263,7 @@ def test_metrics_that_could_not_be_read_are_logged_as_a_warning(
 
     Scenario() \
         .given(
-            calling(raising(investigation.metrics_fetcher, McpToolError(
+            calling(raising(investigation.metrics_fetcher, ChannelFailed(
                 "MCP tool call [get_metrics_summary] failed: timed out"
             )))
         ) \
@@ -5271,7 +5272,7 @@ def test_metrics_that_could_not_be_read_are_logged_as_a_warning(
         ) \
         .then(
             one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
-                                  "metrics could not be read", failure=McpToolError)
+                                  "metrics could not be read", failure=ChannelFailed)
         )
 
 
@@ -5368,7 +5369,7 @@ def test_a_placement_that_could_not_be_read_is_logged_as_a_warning(
     Scenario() \
         .given(
             calling(investigation.metrics_showed(a_window_that_starts_calm())),
-            calling(investigation.the_placement_could_not_be_read(McpToolError(
+            calling(investigation.the_placement_could_not_be_read(ChannelFailed(
                 "MCP tool call [get_placements] failed: timed out"
             )))
         ) \
@@ -5377,7 +5378,7 @@ def test_a_placement_that_could_not_be_read_is_logged_as_a_warning(
         ) \
         .then(
             one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
-                                  "placement could not be read", failure=McpToolError)
+                                  "placement could not be read", failure=ChannelFailed)
         )
 
 

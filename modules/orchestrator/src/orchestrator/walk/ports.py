@@ -134,8 +134,8 @@ class FetchFlagChanges(Protocol):
     a window ending now can reach.
 
     Keyword-only, because the binding that supplies it is a `partial` over the
-    deployment's settings and the connection: a positional argument would land
-    on the parameter after those two, which is the clock.
+    deployment's settings and the write tier's flag history: a positional
+    argument would land on the parameter after those two, which is the clock.
     """
 
     def __call__(self, *, onset: datetime | None) -> FlagHistory: ...
@@ -150,7 +150,7 @@ class FetchDeployments(Protocol):
     platform is asked about one.
 
     Keyword-only for the flag history's reason: the binding is a `partial` over
-    Mitigation's settings and the read tier's connection.
+    Mitigation's settings and the read tier's deploy history.
     """
 
     def __call__(self,

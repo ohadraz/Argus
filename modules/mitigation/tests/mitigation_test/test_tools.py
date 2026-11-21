@@ -1,9 +1,11 @@
-"""What Mitigation asks of the tiers, and over which of the two it asks it.
+"""What Mitigation asks of the write tier, and the windows it reads its history over.
 
-The flag provider's history, whose a flag change was, the deploy history, the
-service's metrics and rules, the writes and the reads beside them: each is bound
-over one connection, and which connection is the whole of what a binding can get
-wrong without a type error.
+Whose a flag change was, the flag and deploy histories' windows, and the two
+bundles - the writes and the reads beside them, and what puts a change back.
+Which tier a seam is bound over is the type checker's to hold: the two tiers are
+two classes, and a write bound to the read tier is not there to bind. What a
+bundle can still get wrong is which of the tier's tools a member asks, and that
+is what these say.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, NamedTuple
+from typing import Any
 from unittest.mock import MagicMock, Mock, create_autospec
 
 import pytest
@@ -34,22 +36,15 @@ from mitigation.tools import (
     FlagChangesSince,
     MitigationSettings,
     PerformingWrites,
-    accelerator_pin_restorer_over,
-    deployment_restorer_over,
-    deployment_roller_over,
-    deployments_over,
     fetch_recent_deployments,
     fetch_recent_flag_changes,
-    flag_changes_over,
-    flag_setter_over,
     performing_writes_over,
     putting_back_over,
-    recent_metrics_over,
-    rollout_progress_over,
-    rules_read_over,
+    set_flag,
     somebody_else_changed_flag_since,
 )
 from pydantic import BaseModel
+from write_mcp_client import WriteTier
 
 from mitigation_test.framework.builders import a_deployment
 
@@ -61,11 +56,6 @@ SOME_MOMENT = to_iso(THE_MOMENT_IT_WAS_CLAIMED)
 # claim, which is the whole of what this moment says.
 SOME_MOMENT_THE_PLAN_WAS_READ = THE_MOMENT_IT_WAS_CLAIMED - timedelta(seconds=2)
 
-ROLLOUT_PROGRESS_TOOL = "get_rollout_progress"
-
-METRICS_TOOL = "get_metrics_summary"
-ALERT_RULE_TOOL = "get_alert_rule"
-FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 OTHERS_CHANGED_FLAG_TOOL = "was_flag_changed_by_others_since"
 SET_FLAG_TOOL = "set_feature_flag"
 ROLL_BACK_TOOL = "roll_back_deployment"
@@ -88,7 +78,6 @@ WHETHER_SCALE_OUT_WAS_MADE_TOOL = "whether_scale_out_was_made"
 WHETHER_AUTOSCALER_PIN_WAS_MADE_TOOL = "whether_autoscaler_pin_was_made"
 WHETHER_ACCELERATOR_PIN_WAS_MADE_TOOL = "whether_accelerator_pin_was_made"
 
-CHANGE_EVENTS_TOOL = "get_change_events"
 
 SOME_APPLICATION = "io-shop"
 A_ROLLBACK_TO_PUT_BACK = DeploymentRollbackUndo(
@@ -116,25 +105,23 @@ A_FLAG_PLAN = Planned(descriptor=A_FLAG_CHANGE, since=SOME_MOMENT_THE_PLAN_WAS_R
 
 
 @pytest.mark.integration
-def test_whether_anybody_else_changed_a_flag_is_asked_over_the_write_tier() -> None:
+def test_whether_anybody_else_changed_a_flag_is_asked_of_the_write_tier() -> None:
     # The provider serves its event log to admin credentials alone, so the
-    # question about it is the write tier's. Bound to the read tier it would not
-    # error; it would be refused as a tool that does not exist, at the moment an
-    # undo needed the answer.
+    # question about it is the write tier's, and it is the one tool asked:
+    # whose each change was is the provider's adapter's to say, never this
+    # side's to work out from the history.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_answers_with(None)
         ) \
         .when(
-            _asking(read, write, lambda: somebody_else_changed_flag_since(
-                SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, client=write
+            _asking(write, lambda tier: somebody_else_changed_flag_since(
+                SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED, write=tier
             ))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(OTHERS_CHANGED_FLAG_TOOL)
-        ))
+        )
 
 
 @pytest.mark.unit
@@ -150,7 +137,7 @@ def test_what_the_write_tier_answers_about_a_flag_is_the_answer(answer: bool | N
         ) \
         .when(
             lambda: somebody_else_changed_flag_since(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED,
-                                                     client=write)
+                                                     write=WriteTier(write))
         ) \
         .then(
             _it_answers(answer)
@@ -167,7 +154,26 @@ def test_a_write_tier_that_cannot_be_reached_answers_nothing() -> None:
         ) \
         .when(
             lambda: somebody_else_changed_flag_since(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED,
-                                                     client=the_write_tier_is_down)
+                                                     write=WriteTier(the_write_tier_is_down))
+        ) \
+        .then(
+            _it_answers(None)
+        )
+
+
+@pytest.mark.unit
+def test_the_way_back_answers_nobody_can_say_when_the_write_tier_cannot_be_reached() -> None:
+    # The bundle's own question, not the tier's. The tier's method has the same
+    # shape and would type-check in its place - and raise out of the undo where
+    # this answers that nobody can say, which is what leaves a flag as found.
+    Scenario() \
+        .given(
+            the_write_tier_is_down := _a_session_that_fails()
+        ) \
+        .when(
+            lambda: putting_back_over(WriteTier(the_write_tier_is_down)).changed_from_outside(
+                SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED
+            )
         ) \
         .then(
             _it_answers(None)
@@ -462,68 +468,22 @@ def test_deployments_argus_made_itself_are_left_out() -> None:
 
 
 @pytest.mark.integration
-def test_the_deploy_history_is_asked_over_the_read_tier() -> None:
-    # The platform's history is the read tier's, as it is for the Investigator's
-    # change channel. The write tier holds no such tool, so a history bound to
-    # it would fail every round rather than report anything.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write,
-                    lambda: deployments_over(read)(service=SOME_APPLICATION,
-                                                   window_start=SOME_MOMENT,
-                                                   window_end=SOME_MOMENT))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(CHANGE_EVENTS_TOOL),
-            _the_write_tier_was_asked_for()
-        ))
-
-
-@pytest.mark.integration
-def test_the_flag_history_is_asked_over_the_write_tier() -> None:
-    # The provider serves its audit log to admin credentials alone, and
-    # `argus-read-mcp` holds none by design. A history bound to the read tier
-    # would not error - it would find nothing, which reads exactly like an
-    # incident in which no flag moved.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write,
-                    lambda: flag_changes_over(write)(since=SOME_MOMENT))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
-            _the_write_tier_was_asked_for(FLAG_CHANGES_TOOL)
-        ))
-
-
-@pytest.mark.integration
 def test_the_one_write_argus_makes_goes_over_the_write_tier() -> None:
     # The tier split is enforced by absence: no read server has this tool at
-    # all (spec §12.1, §13). A setter bound to the read client would fail on the
-    # one call Argus makes that changes production - after the walk had already
-    # decided to make it. Written from the plan the claim carries, and nothing
-    # planned again: the plan was asked for before the claim.
+    # all (spec §12.1, §13), and the read tier's class has no method for it.
+    # Written from the plan the claim carries, and nothing planned again: the
+    # plan was asked for before the claim.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write,
-                    lambda: performing_writes_over(write).set_state(A_FLAG_PLAN, True))
+            _asking(write,
+                    lambda tier: performing_writes_over(tier).set_state(A_FLAG_PLAN, True))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(SET_FLAG_TOOL)
-        ))
+        )
 
 
 @pytest.mark.integration
@@ -534,36 +494,15 @@ def test_putting_a_flag_back_plans_it_and_writes_it_over_the_write_tier() -> Non
     # needs. The plan first: a write asked first would have nothing to compare.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write,
-                    lambda: putting_back_over(write).set_state(SOME_FLAG, False))
+            _asking(write,
+                    lambda tier: putting_back_over(tier).set_state(SOME_FLAG, False))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(PLAN_FLAG_TOOL, SET_FLAG_TOOL)
-        ))
-
-
-@pytest.mark.integration
-def test_the_flag_setter_on_its_own_plans_and_writes_over_the_write_tier() -> None:
-    # The binding `putting_back_over` is built from, asked directly, so a
-    # setter bound to the read client fails here rather than at the moment a
-    # refuted flag is being put back.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: flag_setter_over(write)(SOME_FLAG, True))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
-            _the_write_tier_was_asked_for(PLAN_FLAG_TOOL, SET_FLAG_TOOL)
-        ))
+        )
 
 
 @pytest.mark.integration
@@ -574,17 +513,15 @@ def test_a_flag_the_plan_finds_already_back_is_not_written_again() -> None:
     # landed - and writing it a second time is a write nothing asked for.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_refusing_the_flag_as_already_as_asked()
         ) \
         .when(
-            _asking(read, write,
-                    lambda: flag_setter_over(write)(SOME_FLAG, THE_STATE_IT_IS_ALREADY_BACK_IN))
+            _asking(write, lambda tier: set_flag(SOME_FLAG, THE_STATE_IT_IS_ALREADY_BACK_IN,
+                                                 write=tier))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(PLAN_FLAG_TOOL)
-        ))
+        )
 
 
 @pytest.mark.unit
@@ -597,7 +534,7 @@ def test_a_flag_the_plan_finds_already_back_is_answered_as_in_that_state() -> No
             write := _a_session_refusing_the_flag_as_already_as_asked()
         ) \
         .when(
-            lambda: flag_setter_over(write)(SOME_FLAG, THE_STATE_IT_IS_ALREADY_BACK_IN)
+            lambda: set_flag(SOME_FLAG, THE_STATE_IT_IS_ALREADY_BACK_IN, write=WriteTier(write))
         ) \
         .then(
             the_answer_was(FlagUndo(flag=SOME_FLAG, was_enabled=THE_STATE_IT_IS_ALREADY_BACK_IN))
@@ -623,120 +560,36 @@ def test_each_plan_is_asked_of_the_write_tier(
     # write compares the estate with, read through the same port the compare
     # reads through - and a flag's plan needs the admin credential only that
     # tier holds. Asked of the bundle a walk performs through, so a planner
-    # bound to the read client, or left out of the bundle, fails here rather
-    # than at the moment a walk is about to claim an action.
+    # bound to the wrong tool fails here rather than at the moment a walk is
+    # about to claim an action.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write, lambda: plan(performing_writes_over(write)))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
-            _the_write_tier_was_asked_for(tool)
-        ))
-
-
-@pytest.mark.integration
-def test_the_service_is_re_read_over_the_read_tier() -> None:
-    # The verdict's own evidence, and the one thing Mitigation asks that has
-    # nothing to do with the provider. It belongs to the read tier for the same
-    # reason every other retrieval does: reading needs no credential to mutate.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: recent_metrics_over(read)(None))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(METRICS_TOOL),
-            _the_write_tier_was_asked_for()
-        ))
-
-
-@pytest.mark.integration
-def test_the_service_is_re_read_for_the_series_the_rule_watches() -> None:
-    # The rule travels to the read tier as the tool's own argument, because the
-    # read tier is where it is resolved into a query. A seam that dropped it would
-    # come back with the five fixed series and nothing saying it had.
-    some_rule = "some-rule"
-
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _the_rules_asked_for(read, lambda: recent_metrics_over(read)(some_rule))
+            _asking(write, lambda tier: plan(performing_writes_over(tier)))
         ) \
         .then(
-            _the_rules_were([some_rule])
+            _the_write_tier_was_asked_for(tool)
         )
 
 
 @pytest.mark.integration
-def test_the_rule_that_paged_is_read_over_the_read_tier() -> None:
-    # Where a rule stands is read and never changed, so it is asked of the tier
-    # that holds no credential to change anything.
-    some_rule = "some-rule"
-
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: rules_read_over(read)(some_rule))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(ALERT_RULE_TOOL),
-            _the_write_tier_was_asked_for()
-        ))
-
-
-@pytest.mark.integration
-def test_how_far_a_rollout_has_got_is_asked_over_the_read_tier() -> None:
-    # What a change's arrival is read off, and a read - so the read tier, the
-    # same reason the metrics are asked there. Asserted because the two clients
-    # are interchangeable at the type level and a seam bound to the wrong one
-    # fails at the moment the walk has already changed production, with the
-    # incident still happening.
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write, lambda: rollout_progress_over(read)(SOME_APPLICATION))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(ROLLOUT_PROGRESS_TOOL),
-            _the_write_tier_was_asked_for()
-        ))
-
-
-@pytest.mark.integration
 def test_returning_a_deployment_to_an_earlier_revision_goes_over_the_write_tier() -> None:
-    # The third write, and one no read server has either. A roller bound to the
-    # read client would fail at the moment the walk had already decided to roll
-    # production back - and the incident it was mitigating would still be
-    # happening.
+    # The third write, and one no read server has either. Asked of the bundle a
+    # walk performs through, so a roller bound to the wrong tool fails here
+    # rather than at the moment the walk had already decided to roll production
+    # back - with the incident it was mitigating still happening.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_answers_with(A_ROLLBACK_TO_PUT_BACK)
         ) \
         .when(
-            _asking(read, write,
-                    lambda: deployment_roller_over(write)(A_ROLLBACK_PLAN))
+            _asking(write, lambda tier: performing_writes_over(tier).roll_back(A_ROLLBACK_PLAN))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(ROLL_BACK_TOOL)
-        ))
+        )
 
 
 @pytest.mark.integration
@@ -747,92 +600,62 @@ def test_putting_a_rolled_back_deployment_back_goes_over_the_write_tier() -> Non
     # prior state and a platform that refuses one order of them.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write,
-                    lambda: deployment_restorer_over(write)(A_ROLLBACK_TO_PUT_BACK))
+            _asking(write, lambda tier: putting_back_over(tier).restore_deployment(
+                A_ROLLBACK_TO_PUT_BACK
+            ))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(RESTORE_CONFIGURATION_TOOL)
-        ))
+        )
 
 
 @pytest.mark.integration
 def test_holding_a_deployment_to_a_card_goes_over_the_write_tier() -> None:
     # Asked of the bundle a walk performs its actions through, so a pin bound to
-    # the read client - or left out of the bundle - fails here rather than at
-    # the moment a walk has decided to move production's pods.
+    # the wrong tool fails here rather than at the moment a walk has decided to
+    # move production's pods.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_answers_with(A_PIN_TO_PUT_BACK)
         ) \
         .when(
-            _asking(read, write, lambda: performing_writes_over(write).pin_to_accelerator(
+            _asking(write, lambda tier: performing_writes_over(tier).pin_to_accelerator(
                 A_PIN_PLAN
             ))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(PIN_TO_ACCELERATOR_TOOL)
-        ))
+        )
 
 
 @pytest.mark.integration
 def test_the_way_back_lets_a_deployment_off_its_card_over_the_write_tier() -> None:
     # Asked of the bundle an undo puts changes back through, as the pin above is
-    # asked of the one a walk performs through - so a restorer bound to the read
-    # client, or left out of the bundle, fails here rather than at the moment a
-    # refuted pin or a withdrawn incident is putting production's pods back.
+    # asked of the one a walk performs through - so a restorer bound to the
+    # wrong tool fails here rather than at the moment a refuted pin or a
+    # withdrawn incident is putting production's pods back.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write, lambda: putting_back_over(write).restore_accelerator_pin(
+            _asking(write, lambda tier: putting_back_over(tier).restore_accelerator_pin(
                 A_PIN_TO_PUT_BACK
             ))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(RESTORE_ACCELERATOR_PIN_TOOL)
-        ))
-
-
-@pytest.mark.integration
-def test_letting_a_deployment_off_its_card_goes_over_the_write_tier() -> None:
-    Scenario() \
-        .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
-            write := _a_session_that_remembers_what_it_was_asked()
-        ) \
-        .when(
-            _asking(read, write,
-                    lambda: accelerator_pin_restorer_over(write)(A_PIN_TO_PUT_BACK))
-        ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
-            _the_write_tier_was_asked_for(RESTORE_ACCELERATOR_PIN_TOOL)
-        ))
-
-
-class _Asked(NamedTuple):
-    """Which tool each tier was asked for, in the order it was asked."""
-
-    read: list[str]
-    write: list[str]
+        )
 
 
 def _a_session_that_remembers_what_it_was_asked() -> Mock:
-    """A client that answers nothing and records the question.
+    """A session that answers nothing and records the question.
 
-    Specced against `McpClient` rather than a `Protocol` of this suite's own,
-    because what these seams are handed is the real thing and the question being
-    asked is which of two it was handed.
+    Specced against `McpClient`, the session a `WriteTier` is asked over, so
+    what a bundle's member asks is read off the one call the tier made.
     """
     client: Mock = create_autospec(McpClient, instance=True)
 
@@ -854,60 +677,23 @@ def _a_session_that_answers_with(answer: object) -> Mock:
     return client
 
 
-def _the_rules_asked_for(read: Mock, ask: Callable[[], object]) -> Callable[[], list[object]]:
-    """Runs one seam and reports which rule each call to the tier named."""
-    def step() -> list[object]:
-        ask()
+def _asking(write: Mock, ask: Callable[[WriteTier], object]) -> Callable[[], list[str]]:
+    """Runs one seam over the write tier `write` is the session of, and reports
+    which tools that session was asked for, in the order it was asked."""
+    def step() -> list[str]:
+        ask(WriteTier(write))
 
-        return [asked.kwargs.get("rule") for asked in read.call.call_args_list]
-
-    return step
-
-
-def _the_rules_were(rules: list[str]) -> Assertion[list[object]]:
-    def assertion(asked: list[object]) -> bool:
-        if asked != rules:
-            raise AssertionError(
-                f"Expected the read tier to be asked for the rules {rules}, got {asked}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _asking(read: Mock, write: Mock, ask: Callable[[], object]) -> Callable[[], _Asked]:
-    """Runs one seam and reports what each tier was asked for."""
-    def step() -> _Asked:
-        ask()
-
-        return _Asked(
-            read=[asked.args[0] for asked in read.call.call_args_list],
-            write=[asked.args[0] for asked in write.call.call_args_list]
-        )
+        return [asked.args[0] for asked in write.call.call_args_list]
 
     return step
 
 
-def _the_read_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
-    def assertion(asked: _Asked) -> bool:
-        if asked.read != list(tools):
-            raise AssertionError(
-                f"Expected the read tier to be asked for {list(tools)}, "
-                f"got {asked.read}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_write_tier_was_asked_for(*tools: str) -> Assertion[_Asked]:
-    def assertion(asked: _Asked) -> bool:
-        if asked.write != list(tools):
+def _the_write_tier_was_asked_for(*tools: str) -> Assertion[list[str]]:
+    def assertion(asked: list[str]) -> bool:
+        if asked != list(tools):
             raise AssertionError(
                 f"Expected the write tier to be asked for {list(tools)}, "
-                f"got {asked.write}."
+                f"got {asked}."
             )
 
         return True
@@ -1088,7 +874,7 @@ def test_a_write_tier_that_cannot_say_whose_change_a_flag_was_is_logged(
         ) \
         .when(
             lambda: somebody_else_changed_flag_since(SOME_FLAG, THE_MOMENT_IT_WAS_CLAIMED,
-                                                     client=the_write_tier_is_down)
+                                                     write=WriteTier(the_write_tier_is_down))
         ) \
         .then(
             one_record_was_logged(caplog, "mitigation.tools", logging.WARNING,
@@ -1146,30 +932,29 @@ def test_whether_each_change_is_still_argus_s_is_asked_of_the_write_tier(
     # "made" rule asked without the write, read through the port the write
     # compares through - and a flag's history needs the admin credential only
     # that tier holds. Asked of the bundle a walk performs through, so a check
-    # bound to the read client, or left out of the bundle, fails here rather
-    # than at the moment a resumed walk is deciding whether to watch a change
-    # it did not make. A flag's is handed the claim's plan beside the change,
-    # since its history is read from the plan's own read, as the write reads it.
+    # bound to the wrong tool fails here rather than at the moment a resumed
+    # walk is deciding whether to watch a change it did not make. A flag's is
+    # handed the claim's plan beside the change, since its history is read from
+    # the plan's own read, as the write reads it.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write, lambda: ask(performing_writes_over(write)))
+            _asking(write, lambda tier: ask(performing_writes_over(tier)))
         ) \
         .then(all_of(
-            _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(tool),
             _the_write_tier_was_handed(write, handed)
         ))
 
 
-def _the_write_tier_was_handed(write: Mock, handed: dict[str, BaseModel]) -> Assertion[_Asked]:
+def _the_write_tier_was_handed(write: Mock,
+                               handed: dict[str, BaseModel]) -> Assertion[list[str]]:
     """The one question the write tier was asked named each of `handed` under
     its keyword - the change as the row records it, or the plan the claim
     carries, or both - in the JSON form a tool's arguments travel in."""
-    def assertion(dont_care_asked: _Asked) -> bool:
+    def assertion(dont_care_asked: list[str]) -> bool:
         expected = {keyword: value.model_dump(mode="json") for keyword, value in handed.items()}
         asked = [{keyword: question.kwargs.get(keyword) for keyword in handed}
                  for question in write.call.call_args_list]
@@ -1210,19 +995,17 @@ def test_whether_each_claim_s_change_was_made_is_asked_of_the_write_tier(
     # The write's own rule on the claim's plan, asked without the write: a read,
     # and the write tier's for the plans' reason - what it compares is what the
     # write compares, through the same port. Asked of the bundle a walk performs
-    # through, with the plan the claim carries, so a read bound to the read
-    # client, left out of the bundle, or handed anything but the plan fails here
-    # rather than at the moment a resumed walk is deciding whether to act again.
+    # through, with the plan the claim carries, so a read bound to the wrong
+    # tool, or handed anything but the plan, fails here rather than at the
+    # moment a resumed walk is deciding whether to act again.
     Scenario() \
         .given(
-            read := _a_session_that_remembers_what_it_was_asked(),
             write := _a_session_that_remembers_what_it_was_asked()
         ) \
         .when(
-            _asking(read, write, lambda: ask(performing_writes_over(write)))
+            _asking(write, lambda tier: ask(performing_writes_over(tier)))
         ) \
         .then(all_of(
-            _the_read_tier_was_asked_for(),
             _the_write_tier_was_asked_for(tool),
             _the_write_tier_was_handed(write, {"planned": planned})
         ))

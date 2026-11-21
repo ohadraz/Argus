@@ -41,6 +41,8 @@ from orchestrator.walk.graph import (
     recursion_limit,
 )
 from orchestrator.walk.state import IncidentState
+from read_mcp_client import ReadTier
+from write_mcp_client import WriteTier
 
 type Edge = tuple[str, str]
 
@@ -223,8 +225,8 @@ def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:
     # memory is not what a graph's shape is assembled to show.
     return build_graph(MemorySaver(), against(
         no_connections,
-        McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN),
-        McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN),
+        ReadTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN)),
+        WriteTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN)),
         None,
         Holding(),
         settings=get_settings()

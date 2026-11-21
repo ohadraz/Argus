@@ -216,7 +216,7 @@ def _the_metrics_read_were_anchored_on(reader: Mock,
     signature, so every comparison fails while printing identically.
     """
     def assertion(dont_care_result: ToolResult) -> bool:
-        if reader.call_count != 1 or reader.call_args != call(alert_time, rule):
+        if reader.call_count != 1 or reader.call_args != call(alert_time=alert_time, rule=rule):
             raise AssertionError(
                 f"Expected the metrics to be read once anchored on [{alert_time}] "
                 f"for the rule [{rule}], and they were read {reader.call_count} "

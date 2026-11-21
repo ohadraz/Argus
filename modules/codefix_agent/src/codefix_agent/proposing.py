@@ -37,7 +37,6 @@ from core.llm import (
     Conversations,
     ModelRefused,
 )
-from core.mcp_transport import McpClient
 from core.models import (
     Ask,
     CodeOutsideThePatch,
@@ -62,17 +61,8 @@ from core.models import (
 from core.replay import Recorder
 from core.replay import nobody as records_nothing
 from pydantic import ValidationError
-from read_mcp_client import (
-    branch_contains_revision,
-    get_code_outside_the_patch,
-    get_repository_index_freshness,
-    list_repository_files,
-    offered,
-    read_repository_file,
-    search_repository,
-    search_repository_by_meaning,
-)
-from write_mcp_client import commit_to_new_branch, open_pull_request
+from read_mcp_client import ReadTier
+from write_mcp_client import WriteTier
 
 from codefix_agent.as_it_ran import the_files_as_they_ran, the_uses_as_they_ran
 from codefix_agent.budget import FixSettings, a_budget_for
@@ -265,18 +255,19 @@ _SAY_ONLY_YOUR_OWN: Final = (
 )
 
 
-def fixes_over(read: McpClient,
-               write: McpClient,
+def fixes_over(read: ReadTier,
+               write: WriteTier,
                settings: FixSettings,
                conversations: Conversations,
                recorder: Recorder = records_nothing) -> Fixer:
-    """The fix channel, over a connection to each tier it needs.
+    """The fix channel, over each tier it needs.
 
-    Two clients rather than one, because the two halves of proposing a fix are
+    Two tiers rather than one, because the two halves of proposing a fix are
     two tiers by design: the repository is *read* from the process that cannot
     write, and the branch and the proposal come from the one that can (§13).
     That split is the whole guarantee, and this is the one place both ends of it
-    are held at once.
+    are held at once - typed apart, so a read bound to the write tier or a write
+    to the read tier is a type error rather than a refusal mid-fix.
 
     `conversations` is how the model is reached, built over whichever provider
     the process chose; nothing here has a default for it.
@@ -290,16 +281,16 @@ def fixes_over(read: McpClient,
         conversations=conversations,
         # The repository tools this deployment's way of finding source holds,
         # as the read tier declares them.
-        read_tier_tools=partial(offered, READ_TIER_HELD[settings.code_search], client=read),
-        search=partial(search_repository, client=read),
-        search_by_meaning=partial(search_repository_by_meaning, client=read),
-        index_notice=partial(get_repository_index_freshness, client=read),
-        list_files=partial(list_repository_files, client=read),
-        contains=partial(branch_contains_revision, client=read),
-        read_file=partial(read_repository_file, client=read),
-        code_outside=partial(get_code_outside_the_patch, client=read),
-        write_branch=partial(commit_to_new_branch, client=write),
-        open_pull_request=partial(open_pull_request, client=write),
+        read_tier_tools=partial(read.offered, READ_TIER_HELD[settings.code_search]),
+        search=read.search_repository,
+        search_by_meaning=read.search_repository_by_meaning,
+        index_notice=read.get_repository_index_freshness,
+        list_files=read.list_repository_files,
+        contains=read.branch_contains_revision,
+        read_file=read.read_repository_file,
+        code_outside=read.get_code_outside_the_patch,
+        write_branch=write.commit_to_new_branch,
+        open_pull_request=write.open_pull_request,
         recorder=recorder
     )
 

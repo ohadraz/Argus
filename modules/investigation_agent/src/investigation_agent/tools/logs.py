@@ -95,7 +95,7 @@ def read_logs(call: ToolCall,
         window_end=to_iso(end)
     )
     try:
-        lines = fetch_logs(to_iso(start), to_iso(end))
+        lines = fetch_logs(window_start=to_iso(start), window_end=to_iso(end))
     except Exception as error:
         # Reported rather than raised, for the reason an inverted window is:
         # everything already retrieved has been paid for, and the model has

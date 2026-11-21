@@ -42,6 +42,7 @@ from oncall_source import Acknowledgement, OnCallUnavailable, ReportedIncident
 from oncall_source.platform import OnCallPlatform, PagedIncident
 from orchestrator.sources import the_real_sources
 from postmortem_writing import EngagementAnswer, NotPaged, Sources
+from read_mcp_client import ReadTier
 
 SOME_PLATFORM_INCIDENT = "Q2FJZEW25HFSAW"
 SOME_OTHER_PLATFORM_INCIDENT = "Q0N5RRK7RT1Q46"
@@ -321,7 +322,7 @@ def _a_platform_holding(platform_incident: str, acknowledged_after: timedelta) -
 
 def _the_sources_over(platform: Any) -> Sources:
     return the_real_sources(get_settings(), connect_from_env,
-                            create_autospec(McpClient, instance=True),
+                            ReadTier(create_autospec(McpClient, instance=True)),
                             DONT_CARE_THRESHOLDS,
                             oncall=platform)
 

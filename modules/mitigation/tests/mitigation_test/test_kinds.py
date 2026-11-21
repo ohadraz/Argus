@@ -1238,7 +1238,7 @@ def test_each_kind_of_action_waits_for_what_it_actually_changes() -> None:
 
 @pytest.mark.unit
 def test_an_action_arrives_as_its_own_kind_says() -> None:
-    # What the walk binds once over its read connection, before it knows which
+    # What the walk binds once over its read tier, before it knows which
     # action it will take. One window that the two answers differ on, so an
     # arrival that asked the wrong kind - or one kind for both - cannot pass.
     a_split_fleet = _a_rollout_reporting(

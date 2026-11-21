@@ -3,9 +3,8 @@
 The read half of proposing a fix, and only the read half: what writes a branch
 and opens a proposal is the write tier's, and stays beside the loop that reaches
 it. Kept apart from the loop for the reason the investigator keeps its channels
-apart - the loop is asked about a repository, the client functions are asked over
-a connection, and a test standing one of these in should be standing in the
-former.
+apart: the loop is asked about a repository, and a test standing one of these
+in should be standing in that.
 """
 
 from __future__ import annotations
@@ -16,9 +15,9 @@ from core.models import CodeOutsideThePatch, ToolDefinition
 
 # `Protocol` rather than a `Callable` alias throughout, for the reason the
 # investigator's retrieval channels are: a test stands each of these in with
-# `create_autospec`, which needs something introspectable - and specing against
-# the client functions would be specing against the wrong shape, since those take
-# the connection they are asked over and the loop is asked about a repository.
+# `create_autospec`, which needs something introspectable. Each is the read
+# tier's own method's shape, so `fixes_over` binds `read.search_repository` and
+# its siblings directly.
 
 
 class SourceSearcher(Protocol):

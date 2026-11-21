@@ -30,11 +30,10 @@ from core import (
     get_settings,
     utc_now,
 )
-from core.mcp_transport import McpClient
 from core.models import Alert
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_record.repository import incidents, runs
-from write_mcp_client import commit_to_new_branch, write_mcp
+from write_mcp_client import WriteTier, write_mcp
 
 REQUEST_TIMEOUT_SECONDS: Final = 30.0
 
@@ -90,16 +89,15 @@ def _a_claim_the_run_was_taken_back_from() -> Fence:
     return Fence(run_id=paused.id, epoch=paused.epoch)
 
 
-def _writing_a_branch_holding(holding: Holding, held: Fence, write: McpClient) -> str:
+def _writing_a_branch_holding(holding: Holding, held: Fence, write: WriteTier) -> str:
     settings = get_settings()
 
     with holding.of(held):
-        return commit_to_new_branch(
+        return write.commit_to_new_branch(
             branch=SOME_BRANCH,
             base_branch=settings.deployed_branch,
             files={"io_shop/dont_care.py": "dont care\n"},
-            message="dont care",
-            client=write
+            message="dont care"
         )
 
 

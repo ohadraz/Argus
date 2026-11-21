@@ -46,9 +46,12 @@ A_MINUTES_SAMPLE = 200
 LONG_BEFORE_THE_ONSET = datetime(2026, 8, 26, 9, 0, tzinfo=UTC)
 
 
-def metrics_that_show_an_onset(dont_care_window_start: str | None,
-                               dont_care_rule: str | None) -> list[MetricBucket]:
-    """Enough of a departure that the investigation does not stop at retrieval.
+def metrics_that_show_an_onset(*,
+                               alert_time: str | None,
+                               rule: str | None) -> list[MetricBucket]:
+    """Enough of a departure that the investigation does not stop at retrieval,
+    whatever the alert's time and rule - each named because the channel is
+    asked for it by name.
 
     An incident with no metrics escalates before a model is ever called, which
     would make a test about what the walk recorded pass on an empty log.
@@ -81,9 +84,10 @@ def metrics_that_show_an_onset(dont_care_window_start: str | None,
     ]
 
 
-def logs_that_say_little(dont_care_start: str, dont_care_end: str) -> list[str]:
+def logs_that_say_little(*, window_start: str, window_end: str) -> list[str]:
     """One failure and no explanation - enough to read, not enough to conclude
-    from, which is what keeps these suites off the model's judgement."""
+    from, which is what keeps these suites off the model's judgement. Whatever
+    the window, which is named because the channel is asked for it by name."""
     return ["2026-08-29T22:15:00Z ERROR io-shop: request failed"]
 
 

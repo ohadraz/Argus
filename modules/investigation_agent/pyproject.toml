@@ -7,12 +7,10 @@ dependencies = [
     # No `llm` extra: the agent talks through the port and is handed the
     # provider, so the model vendor's SDK is the worker's to install.
     "argus-core[mcp]",
+    # The read tier, and only it: the agent offers what that tier declares. The
+    # flag history it also reads is the write tier's, and is bound to its seam
+    # by whoever holds that tier - never by this package.
     "argus-read_mcp_client",
-    # For the flag provider's audit log, which is the change channel's second
-    # source. Read-only, and on the write client only because the provider
-    # serves its history to admin credentials - which `argus-read-mcp` holds
-    # none of, by design.
-    "argus-write_mcp_client",
 ]
 
 
@@ -25,7 +23,6 @@ dev = [
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-read_mcp_client = { workspace = true }
-argus-write_mcp_client = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

@@ -181,7 +181,9 @@ def _the_logs_read_were(reader: Mock,
     signature, so every comparison fails while printing identically.
     """
     def assertion(dont_care_result: ToolResult) -> bool:
-        if reader.call_count != 1 or reader.call_args != call(window_start, window_end):
+        asked_for = call(window_start=window_start, window_end=window_end)
+
+        if reader.call_count != 1 or reader.call_args != asked_for:
             raise AssertionError(
                 f"Expected the logs to be read once over "
                 f"[{window_start}..{window_end}], and they were read "

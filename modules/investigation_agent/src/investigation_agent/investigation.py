@@ -386,7 +386,7 @@ def investigate(
     )
 
     try:
-        metric_buckets = fetch_metrics(alert_time, alert.rule)
+        metric_buckets = fetch_metrics(alert_time=alert_time, rule=alert.rule)
         metrics_answered = True
     except Exception as unanswered:
         # The one read no channel guard can absorb, because it happens before
@@ -1302,7 +1302,7 @@ def _read_until_the_alarms_minute(alert: Alert,
         sleep(settings.metrics_recheck_interval_seconds)
 
         try:
-            read_again = fetch_metrics(alert_time, alert.rule)
+            read_again = fetch_metrics(alert_time=alert_time, rule=alert.rule)
         except Exception:
             logger.warning("metrics could not be read again", exc_info=True)
             break

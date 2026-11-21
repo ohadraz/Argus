@@ -21,7 +21,6 @@ from unittest.mock import create_autospec
 from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
-from core.mcp_transport import McpClient
 from core.models import CodeSearch, ToolDefinition
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
@@ -46,10 +45,8 @@ def what_the_read_tier_offers(held: Mapping[str, Collection[str]],
     # `asyncio.run` rather than an async helper: listing is the only
     # asynchronous thing here, and no suite in the workspace is async.
     listed = asyncio.run(_a_read_tier(mode).list_tools())
-    the_read_tier = create_autospec(McpClient, instance=True)
-    the_read_tier.list_tools.return_value = listed
 
-    return offered(held, client=the_read_tier)
+    return offered(held, listed)
 
 
 def every_tool_the_read_tier_lists(mode: CodeSearch = SEARCHING_BY_GREP_ALONE) -> list[str]:

@@ -14,10 +14,10 @@ order, is the agent's prompt - so the order is the one the agent holds them in.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 
-from core.mcp_transport import McpClient
 from core.models import ToolDefinition
+from mcp.types import Tool
 
 
 class NotServed(LookupError):
@@ -29,9 +29,8 @@ class NotServed(LookupError):
 
 
 def offered(holds: Mapping[str, Collection[str]],
-            *,
-            client: McpClient) -> list[ToolDefinition]:
-    """The tools `holds` names, as the server declares them, in the order
+            listed: Sequence[Tool]) -> list[ToolDefinition]:
+    """The tools `holds` names, as the server `listed` them, in the order
     `holds` names them - each less the arguments `holds` says its caller fills
     in.
 
@@ -39,8 +38,12 @@ def offered(holds: Mapping[str, Collection[str]],
     have an argument no offer could carry, and that is nobody's to refuse.
     In the server's order, a registration moved in the server would rewrite
     every agent's prompt with nothing saying so.
+
+    Handed the listing rather than the session it was asked over, so the
+    filtering is a value's: `ReadTier.offered` asks the tier, and a suite with
+    no tier running hands in what a server built in-process lists.
     """
-    served = {tool.name: tool for tool in client.list_tools()}
+    served = {tool.name: tool for tool in listed}
     missing = [name for name in holds if name not in served]
 
     if missing:

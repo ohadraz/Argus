@@ -24,6 +24,7 @@ import logging
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
+from unittest.mock import create_autospec
 
 import psycopg
 import pytest
@@ -49,6 +50,8 @@ from orchestrator.assembling import (
 )
 from orchestrator.walk.collaborators import Collaborators
 from postmortem_writing import judge_policy, postmortem_policy
+from read_mcp_client import ReadTier
+from write_mcp_client import WriteTier
 
 NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
 # How long a client to it would wait for an answer, which no case here asks for.
@@ -66,12 +69,20 @@ WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"admitted", "plan"})
 WHAT_AN_UNDO_IS_GIVEN = frozenset({"undo_descriptor"})
 
 # What reads where the rule that paged stands: the rule, and nothing else. The
-# connection to the read tier is the binding's.
+# read tier it is asked of is the binding's.
 WHAT_A_RULE_READ_IS_GIVEN = frozenset({"rule"})
 
 # What the investigation node asks the deploy history: which service, and where
-# the window ends. The settings and the connection are the binding's.
+# the window ends. The settings and the read tier are the binding's.
 WHAT_THE_INVESTIGATION_NODE_ASKS = frozenset({"service", "onset"})
+
+# The two histories a change is recorded in, by the tool each tier answers with.
+CHANGE_EVENTS_TOOL = "get_change_events"
+FLAG_CHANGES_TOOL = "get_recent_flag_changes"
+# One window of one service, which nothing here reads.
+SOME_SERVICE = "io-shop"
+SOME_WINDOW_START = "2026-08-29T20:00:00Z"
+SOME_WINDOW_END = "2026-08-29T22:15:00Z"
 
 # What the investigation node hands the Investigator positionally: the alert and
 # the incident. Every channel it reads is the binding's.
@@ -94,8 +105,8 @@ def test_assembling_the_collaborators_opens_no_connection() -> None:
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
-                              _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached(),
+                              _a_read_tier_that_must_not_be_reached(),
+                              _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
                               settings=get_settings())) \
@@ -113,8 +124,8 @@ def test_taking_an_action_is_bound_with_every_tool_it_needs() -> None:
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
-                              _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached(),
+                              _a_read_tier_that_must_not_be_reached(),
+                              _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
                               settings=get_settings())) \
@@ -134,8 +145,8 @@ def test_the_deploy_history_is_bound_with_everything_but_the_question() -> None:
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
-                              _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached(),
+                              _a_read_tier_that_must_not_be_reached(),
+                              _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
                               settings=get_settings())) \
@@ -153,14 +164,38 @@ def test_the_investigation_is_bound_with_every_channel_it_reads() -> None:
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
-                              _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached(),
+                              _a_read_tier_that_must_not_be_reached(),
+                              _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
                               settings=get_settings())) \
         .then(
             _investigating_needs_only(WHAT_AN_INVESTIGATION_IS_GIVEN)
         )
+
+
+@pytest.mark.unit
+def test_the_investigators_change_channel_asks_each_tier_for_the_history_it_keeps() -> None:
+    # The read tier's deploy history alone has the change channel's shape, so a
+    # binding that handed it over by itself would type-check - and the model
+    # would never be shown a flag flip, which reads exactly like an incident in
+    # which no flag moved. The flags are the write tier's: the provider serves
+    # its audit log to admin credentials alone.
+    Scenario() \
+        .given(
+            read := _a_session_answering_nothing_changed(),
+            write := _a_session_answering_nothing_changed()
+        ) \
+        .when(
+            lambda: _the_changes_read_through(
+                against(_connections_that_must_not_be_opened(), ReadTier(read), WriteTier(write),
+                        None, Holding(), settings=get_settings())
+            )
+        ) \
+        .then(all_of(
+            _the_session_was_asked_for(read, CHANGE_EVENTS_TOOL),
+            _the_session_was_asked_for(write, FLAG_CHANGES_TOOL)
+        ))
 
 
 @pytest.mark.unit
@@ -175,8 +210,8 @@ def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
-                              _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached(),
+                              _a_read_tier_that_must_not_be_reached(),
+                              _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
                               settings=get_settings())) \
@@ -197,8 +232,8 @@ def test_both_writers_are_read_by_the_judge_at_its_own_model_and_address(writer:
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
-                              _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached(),
+                              _a_read_tier_that_must_not_be_reached(),
+                              _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
                               settings=settings)) \
@@ -222,8 +257,8 @@ def test_every_agent_is_answered_by_the_provider_the_process_chose(agent: str) -
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
         .when(lambda: against(no_connections,
-                              _a_client_that_must_not_be_reached(),
-                              _a_client_that_must_not_be_reached(),
+                              _a_read_tier_that_must_not_be_reached(),
+                              _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
                               settings=settings)) \
@@ -242,8 +277,8 @@ def test_a_process_that_searches_no_memory_still_files_what_was_tried() -> None:
     Scenario() \
         .given(
             collaborators := against(_connections_that_refuse_with(_TheDatabaseWasReached()),
-                                     _a_client_that_must_not_be_reached(),
-                                     _a_client_that_must_not_be_reached(),
+                                     _a_read_tier_that_must_not_be_reached(),
+                                     _a_write_tier_that_must_not_be_reached(),
                                      None,
                                      Holding(),
                                      settings=get_settings())
@@ -262,8 +297,8 @@ def test_the_action_a_walk_acts_for_is_held_by_the_process_holding_its_run() -> 
     Scenario() \
         .given(
             collaborators := against(_connections_that_must_not_be_opened(),
-                                     _a_client_that_must_not_be_reached(),
-                                     _a_client_that_must_not_be_reached(),
+                                     _a_read_tier_that_must_not_be_reached(),
+                                     _a_write_tier_that_must_not_be_reached(),
                                      None,
                                      holding,
                                      settings=get_settings())
@@ -315,15 +350,48 @@ def _what_is_held_inside(held: AbstractContextManager[Any]) -> Any:
         return inside
 
 
-def _a_client_that_must_not_be_reached() -> McpClient:
-    """A client to an address nothing serves.
+def _a_read_tier_that_must_not_be_reached() -> ReadTier:
+    """The read tier, over a session to an address nothing serves.
 
     The parallel of the connections above, and it holds for the same reason: a
-    client connects on its first call, so assembling one reaches nothing, and
+    session connects on its first call, so assembling one reaches nothing, and
     anything that asked it a question would fail here rather than quietly find
     a real server.
     """
-    return McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN)
+    return ReadTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN))
+
+
+def _a_write_tier_that_must_not_be_reached() -> WriteTier:
+    """The write tier, over a session to an address nothing serves, for the
+    read tier's reason."""
+    return WriteTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN))
+
+
+def _a_session_answering_nothing_changed() -> Any:
+    """A session to either tier whose every history is empty, recording what
+    it is asked."""
+    session = create_autospec(McpClient, instance=True)
+    session.call.return_value = []
+
+    return session
+
+
+def _the_changes_read_through(collaborators: Collaborators) -> None:
+    """The Investigator's change channel, as assembled, asked about one window."""
+    fetch_change_events = getattr(collaborators.investigate, "keywords", {})["fetch_change_events"]
+    fetch_change_events(SOME_SERVICE, SOME_WINDOW_START, SOME_WINDOW_END)
+
+
+def _the_session_was_asked_for(session: Any, tool: str) -> Assertion[None]:
+    def assertion(dont_care_read: None) -> bool:
+        asked = [call.args[0] for call in session.call.call_args_list]
+
+        if asked != [tool]:
+            raise AssertionError(f"Expected the tier to be asked for [{tool}] alone, got {asked}.")
+
+        return True
+
+    return assertion
 
 
 def _connections_that_must_not_be_opened() -> Connections:

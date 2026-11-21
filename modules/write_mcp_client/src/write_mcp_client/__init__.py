@@ -1,75 +1,14 @@
-"""The write tier, as typed functions rather than tool names and dictionaries.
+"""The write tier, as a typed class rather than tool names and dictionaries.
 
-`write_mcp` builds the client a process holds to `argus-write-mcp`. Two clients
-rather than one, as there are two servers - and holding this one authorizes
-nothing: what makes the write tier the write tier is the credential that server
-holds and the tools it has (spec §12.1, §13).
+`write_mcp` builds the `WriteTier` a process holds to `argus-write-mcp`. Two
+classes rather than one, as there are two servers - and holding this one
+authorizes nothing: what makes the write tier the write tier is the credential
+that server holds and the tools it has (spec §12.1, §13).
 """
 
-from write_mcp_client.client import (
-    accelerator_pin_still_argus_s,
-    autoscaler_pin_still_argus_s,
-    commit_to_new_branch,
-    discard_cache_entries,
-    flag_still_argus_s,
-    get_recent_flag_changes,
-    open_pull_request,
-    pin_autoscaler,
-    pin_to_accelerator,
-    plan_accelerator_pin,
-    plan_autoscaler_pin,
-    plan_flag,
-    plan_rollback,
-    plan_scale_out,
-    restart_service,
-    restore_accelerator_pin,
-    restore_autoscaler_floor,
-    restore_deployment,
-    restore_replica_count,
-    roll_back_deployment,
-    rollback_still_argus_s,
-    scale_out,
-    scale_out_still_argus_s,
-    set_feature_flag,
-    was_flag_changed_by_others_since,
-    whether_accelerator_pin_was_made,
-    whether_autoscaler_pin_was_made,
-    whether_flag_was_made,
-    whether_rollback_was_made,
-    whether_scale_out_was_made,
-    write_mcp,
-)
+from write_mcp_client.client import WriteTier, write_mcp
 
 __all__ = [
-    "accelerator_pin_still_argus_s",
-    "autoscaler_pin_still_argus_s",
-    "commit_to_new_branch",
-    "flag_still_argus_s",
-    "get_recent_flag_changes",
-    "open_pull_request",
-    "discard_cache_entries",
-    "pin_autoscaler",
-    "pin_to_accelerator",
-    "plan_accelerator_pin",
-    "plan_autoscaler_pin",
-    "plan_flag",
-    "plan_rollback",
-    "plan_scale_out",
-    "restart_service",
-    "restore_accelerator_pin",
-    "restore_autoscaler_floor",
-    "restore_deployment",
-    "restore_replica_count",
-    "roll_back_deployment",
-    "rollback_still_argus_s",
-    "scale_out",
-    "scale_out_still_argus_s",
-    "set_feature_flag",
-    "was_flag_changed_by_others_since",
-    "whether_accelerator_pin_was_made",
-    "whether_autoscaler_pin_was_made",
-    "whether_flag_was_made",
-    "whether_rollback_was_made",
-    "whether_scale_out_was_made",
+    "WriteTier",
     "write_mcp"
 ]

@@ -1,51 +1,19 @@
-"""The read tier, as typed functions rather than tool names and dictionaries.
+"""The read tier, as a typed class rather than tool names and dictionaries.
 
-`read_mcp` builds the client a process holds to `argus-read-mcp`, and every
-function here is asked over one. Where that server is reached is read once, by
-whoever builds the client; nothing below this door learns an address.
+`read_mcp` builds the `ReadTier` a process holds to `argus-read-mcp`, and every
+tool the tier serves is a method on it. Where that server is reached is read
+once, by whoever builds it; nothing below this door learns an address.
+
+`offered` is the filtering behind `ReadTier.offered`, on a listing rather than
+a session, for a suite that offers the tier's tools with no tier running.
 """
 
-from read_mcp_client.client import (
-    branch_contains_revision,
-    get_alert_rule,
-    get_change_events,
-    get_code_outside_the_patch,
-    get_enabled_flags,
-    get_log_lines,
-    get_metrics_summary,
-    get_placements,
-    get_repository_index_freshness,
-    get_rollout_progress,
-    get_rollout_state,
-    get_service_dependencies,
-    get_what_a_deployment_changed,
-    list_repository_files,
-    read_mcp,
-    read_repository_file,
-    search_repository,
-    search_repository_by_meaning,
-)
+from read_mcp_client.client import ReadTier, read_mcp
 from read_mcp_client.offering import NotServed, offered
 
 __all__ = [
     "NotServed",
-    "branch_contains_revision",
-    "get_alert_rule",
-    "get_change_events",
-    "get_code_outside_the_patch",
-    "get_enabled_flags",
-    "get_log_lines",
-    "get_metrics_summary",
-    "get_placements",
-    "get_repository_index_freshness",
-    "get_rollout_progress",
-    "get_rollout_state",
-    "get_service_dependencies",
-    "get_what_a_deployment_changed",
-    "list_repository_files",
+    "ReadTier",
     "offered",
-    "read_mcp",
-    "read_repository_file",
-    "search_repository",
-    "search_repository_by_meaning"
+    "read_mcp"
 ]

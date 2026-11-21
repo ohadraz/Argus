@@ -247,8 +247,9 @@ def a_clock_reading_at(start: datetime,
 def metrics_reading(window: list[MetricBucket]) -> MetricsFetcher:
     """A read of the service answering with one window, whichever rule it was
     read for - the rule decides which series the read tier adds, and the window
-    a test hands in already says which it carries."""
-    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+    a test hands in already says which it carries. `rule` is named because the
+    seam is asked for it by name."""
+    def read(*, rule: str | None) -> list[MetricBucket]:
         return window
 
     return read

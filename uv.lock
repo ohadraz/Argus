@@ -538,7 +538,6 @@ source = { editable = "modules/investigation_agent" }
 dependencies = [
     { name = "argus-core", extra = ["mcp"] },
     { name = "argus-read-mcp-client" },
-    { name = "argus-write-mcp-client" },
 ]
 
 [package.dev-dependencies]
@@ -550,7 +549,6 @@ dev = [
 requires-dist = [
     { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
-    { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
 
 [package.metadata.requires-dev]
@@ -620,7 +618,6 @@ version = "0.1.0"
 source = { editable = "modules/mitigation" }
 dependencies = [
     { name = "argus-core", extra = ["mcp"] },
-    { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
 ]
 
@@ -632,7 +629,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
-    { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
 

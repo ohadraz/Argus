@@ -3,7 +3,6 @@ from __future__ import annotations
 from functools import partial
 from typing import Protocol
 
-from core.mcp_transport import McpClient
 from core.models import (
     ChangeEvent,
     DeploymentChanges,
@@ -14,24 +13,14 @@ from core.models import (
     ServiceDependency,
     as_a_change,
 )
-from read_mcp_client import (
-    get_change_events,
-    get_log_lines,
-    get_metrics_summary,
-    get_placements,
-    get_rollout_state,
-    get_service_dependencies,
-    get_what_a_deployment_changed,
-)
-from write_mcp_client import get_recent_flag_changes
 
 # What the loop asks of each retrieval channel, said as the shape it calls with
-# rather than as the function that answers today. `Protocol` rather than a
+# rather than as the tier that answers today. `Protocol` rather than a
 # `Callable` alias throughout: a test stands each of these in with
-# `create_autospec`, which needs something introspectable, and specing against
-# the function below instead would be specing against the wrong shape - those
-# take the connection they are asked over, and a channel is asked about a
-# window.
+# `create_autospec`, which needs something introspectable. A composition root
+# binds each to the read tier's own method for it - `ReadTier.get_placements`
+# satisfies `PlacementFetcher` as it stands - so nothing sits between the two
+# to re-spell the call, and this package never names a tier.
 
 
 class MetricsFetcher(Protocol):
@@ -39,14 +28,29 @@ class MetricsFetcher(Protocol):
 
     The rule rather than the series it watches: what that series is called in
     the metrics backend's own language is the read tier's to work out, and
-    nothing on this side of the port speaks it.
+    nothing on this side of the port speaks it. The rule travels so that each
+    minute carries that rule's own series beside the five fixed ones: it is the
+    only signal a fault in what the service answers departs in.
+
+    Anchored on the alert, so no window is named. Keyword-only, both, because
+    the read tier's own call takes a window beside them, all the same type: a
+    positional seam would type-check against it and send the rule as the
+    window's start.
     """
 
-    def __call__(self, alert_time: str | None, rule: str | None, /) -> list[MetricBucket]: ...
+    def __call__(self, *, alert_time: str | None, rule: str | None) -> list[MetricBucket]: ...
 
 
 class LogFetcher(Protocol):
-    def __call__(self, window_start: str, window_end: str, /) -> list[str]: ...
+    """One explicit window of log lines, both bounds ISO-8601.
+
+    Always a window, never an alert anchor - by the time the loop reads logs it
+    has an onset, and the point of two-phase retrieval is to spend the
+    expensive phase around that onset. Keyword-only for `MetricsFetcher`'s
+    reason.
+    """
+
+    def __call__(self, *, window_start: str, window_end: str) -> list[str]: ...
 
 
 class ChangeFetcher(Protocol):
@@ -135,172 +139,15 @@ class FlagHistory(Protocol):
     def __call__(self, since: str, /) -> list[FlagChange]: ...
 
 
-def metrics_over(client: McpClient) -> MetricsFetcher:
-    """Phase one's channel, asked over one connection to the read tier."""
-    return partial(fetch_metrics, client=client)
+def changes_from(deploys: DeployHistory, flags: FlagHistory) -> ChangeFetcher:
+    """The change channel, over the two histories that record a change.
 
-
-def logs_over(client: McpClient) -> LogFetcher:
-    """Phase two's channel, asked over one connection to the read tier."""
-    return partial(fetch_logs, client=client)
-
-
-def dependencies_over(client: McpClient) -> DependencyFetcher:
-    """The register channel, asked over one connection to the read tier.
-
-    Bound where a process starts, as every other channel is, so the loop is
-    handed a channel rather than the means to build one.
+    Handed both rather than a tier, because the two live on two tiers (see
+    `fetch_change_events`) and which method of which answers is a composition
+    root's to bind - the deploys the read tier's, the flags the write tier's.
+    This package never holds the write tier to ask it.
     """
-    return partial(fetch_dependencies, client=client)
-
-
-def deployment_diffs_over(client: McpClient) -> DeploymentDiffFetcher:
-    """The deployment channel, asked over one connection to the read tier.
-
-    Bound where a process starts, as every other channel is, so the loop is
-    handed a channel rather than the means to build one.
-    """
-    return partial(fetch_what_a_deployment_changed, client=client)
-
-
-def rollouts_over(client: McpClient) -> RolloutFetcher:
-    """The rollout channel, asked over one connection to the read tier.
-
-    Bound where a process starts, as every other channel is, so the loop is
-    handed a channel rather than the means to build one.
-    """
-    return partial(fetch_the_rollout, client=client)
-
-
-def placements_over(client: McpClient) -> PlacementFetcher:
-    """The placement channel, asked over one connection to the read tier.
-
-    Bound where a process starts, as every other channel is, so the loop is
-    handed a channel rather than the means to build one.
-    """
-    return partial(fetch_placements, client=client)
-
-
-def fetch_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
-    """Where each of this service's replicas runs, its card, and since when.
-
-    A named function rather than the client's own passed directly, for the reason
-    `fetch_metrics` is one: what the loop needs is the one calling shape it uses,
-    and a seam is only useful if a test can spec against that.
-    """
-    return get_placements(service, client=client)
-
-
-def fetch_what_a_deployment_changed(service: str,
-                                    revision: str,
-                                    *,
-                                    client: McpClient) -> DeploymentChanges:
-    """What one deployment of this service changed, as lines a model reads.
-
-    A named function rather than the client's own passed directly, for the reason
-    `fetch_metrics` is one: what the loop needs is the one calling shape it uses,
-    and a seam is only useful if a test can spec against that.
-
-    The revision this is compared against is not passed and could not be. It is
-    the revision deployed before this one, which lives in the deployment history
-    the read tier holds and which nothing on this side of the port can see - so a
-    caller supplying it would be supplying a guess, and a diff against a guessed
-    base describes the wrong change in the shape a right one has.
-    """
-    return get_what_a_deployment_changed(service, revision, client=client)
-
-
-def fetch_the_rollout(service: str, *, client: McpClient) -> RolloutAccount:
-    """Whether this service's deployment has finished arriving, and the
-    revisions it is between.
-
-    A named function rather than the client's own passed directly, for the reason
-    `fetch_metrics` is one: what the loop needs is the one calling shape it uses,
-    and a seam is only useful if a test can spec against that.
-    """
-    return get_rollout_state(service, client=client)
-
-
-def fetch_dependencies(service: str,
-                       *,
-                       client: McpClient) -> list[ServiceDependency]:
-    """What the register says this service calls, and whose each one is.
-
-    A named function rather than `get_service_dependencies` passed directly, for
-    the reason `fetch_metrics` is one: what the loop needs is the one calling
-    shape it uses, and a seam is only useful if a test can spec against that.
-    """
-    return get_service_dependencies(service, client=client)
-
-
-def changes_over(read: McpClient, write: McpClient) -> ChangeFetcher:
-    """The change channel, over a connection to each tier that records one.
-
-    Two clients rather than one because the two histories live on two servers
-    (see `fetch_change_events`), and the merge is what makes them one channel.
-    Bound where a process starts, so the loop below is handed a channel rather
-    than the means to build one.
-    """
-    return partial(
-        fetch_change_events,
-        get_change_events=partial(_deploys_between, client=read),
-        get_recent_flag_changes=partial(_flag_changes_since, client=write)
-    )
-
-
-def _deploys_between(*,
-                     service: str,
-                     window_start: str,
-                     window_end: str,
-                     client: McpClient) -> list[ChangeEvent]:
-    """The read tier's change channel, over the connection it is asked on."""
-    return get_change_events(
-        service=service,
-        window_start=window_start,
-        window_end=window_end,
-        client=client
-    )
-
-
-def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
-    """The write tier's flag history, asked from one moment onwards."""
-    return get_recent_flag_changes(since, client=client)
-
-
-def fetch_metrics(alert_time: str | None,
-                  rule: str | None,
-                  *,
-                  client: McpClient) -> list[MetricBucket]:
-    """Phase one of spec §16's two-phase retrieval: the per-minute buckets the
-    onset is located in.
-
-    A named function rather than `get_metrics_summary` passed directly,
-    because the loop needs exactly one of that tool's calling shapes -
-    anchored on the alert - and a seam is only useful if a test can spec
-    against the shape the caller actually uses.
-
-    `rule` is the uid of the rule that paged, so each minute carries that
-    rule's own series beside the five fixed ones. It is the only signal a
-    fault in what the service answers departs in, and a window read without it
-    is five flat lines under an alarm.
-    """
-    return get_metrics_summary(alert_time=alert_time, rule=rule, client=client)
-
-
-def fetch_logs(window_start: str,
-               window_end: str,
-               *,
-               client: McpClient) -> list[str]:
-    """Phase two: the log lines for one explicit window, both bounds ISO-8601.
-
-    Always an explicit window, never an alert anchor - by the time the loop
-    reads logs it has an onset, and the whole point of two-phase retrieval is
-    to spend the expensive phase around that onset rather than around the
-    moment somebody's alerting rule happened to fire.
-    """
-    return get_log_lines(window_start=window_start,
-                         window_end=window_end,
-                         client=client)
+    return partial(fetch_change_events, get_change_events=deploys, get_recent_flag_changes=flags)
 
 
 def fetch_change_events(service: str,
@@ -333,9 +180,9 @@ def fetch_change_events(service: str,
     other exists. What comes back is one history in time order, because that is
     what it is: the things that happened to this service, whoever recorded them.
 
-    Neither source is defaulted. Both take a connection somebody opened, and a
-    default would be this module deciding where a deployment's servers are -
-    which is `changes_over`'s business, and a composition root's.
+    Neither source is defaulted. Both are asked over a tier somebody opened, and
+    a default would be this module deciding where a deployment's servers are -
+    which is a composition root's business.
 
     Raises rather than reporting nothing when either source cannot be reached.
     "Nothing changed" is a conclusion something acts on, so a source that was

@@ -24,7 +24,6 @@ from core.anomaly import AnomalyThresholds
 from core.autonomy import admit
 from core.embedding import an_embedder
 from core.llm import ModelProvider, build_llm_client, conversations_through
-from core.mcp_transport import McpClient
 from core.vector_store import VectorSearch
 from incident_memory.records import RememberedIncident
 from incident_record import (
@@ -35,31 +34,16 @@ from incident_record import (
     still_held_via,
     waiting_for_people_via,
 )
-from investigation_agent import (
-    InvestigationSettings,
-    changes_over,
-    dependencies_over,
-    deployment_diffs_over,
-    logs_over,
-    metrics_over,
-    placements_over,
-    read_tier_tools_over,
-    rollouts_over,
-)
+from investigation_agent import InvestigationSettings, changes_from, read_tier_tools_over
 from investigation_agent import investigate as _investigate
 from mitigation import (
     MitigationSettings,
     an_undo_over,
     arrival_of,
-    deployments_over,
     fetch_recent_deployments,
     fetch_recent_flag_changes,
-    flag_changes_over,
     performing_writes_over,
     plan_action,
-    recent_metrics_over,
-    rollout_progress_over,
-    rules_read_over,
     settle_the_refutation,
     still_argus_s,
     take_action,
@@ -69,6 +53,8 @@ from mitigation import (
 from oncall_source import OnCallSettings
 from oncall_source.pagerduty_adapter import pagerduty_from
 from postmortem_writing import judge_policy, postmortem_policy, synopsis_policy
+from read_mcp_client import ReadTier
+from write_mcp_client import WriteTier
 
 from orchestrator.gathering import write_postmortem_for, write_synopsis_for
 from orchestrator.records import Records
@@ -151,8 +137,8 @@ def the_models_at(settings: LLMSettings) -> ModelProvider:
 
 
 def against(connections: Connections,
-            read: McpClient,
-            write: McpClient,
+            read: ReadTier,
+            write: WriteTier,
             store: VectorSearch | None,
             holding: Holding,
             *,
@@ -162,8 +148,9 @@ def against(connections: Connections,
     Built once where the process starts. Everything derived from `connections`
     is a closure over it rather than an open connection, so assembling a graph
     reaches nothing - a walk is what opens one, when a node actually runs. The
-    two clients are the same bargain: each is one session to one server, opened
-    by the process that owns it and handed here rather than dialled per call.
+    two tiers are the same bargain: each is one session to one server, opened
+    by the process that owns it and handed here rather than dialled per call -
+    and typed apart, so the two cannot be handed over in each other's place.
     So is the store, which recall is handed rather than opening one: `None`
     there says this process searches no memory. Filing is not handed it - what
     the incident tried is a row, written through `connections` like every other.
@@ -184,11 +171,15 @@ def against(connections: Connections,
     address each model provider reaches, above all - can be told apart in a
     test that names two.
 
-    Which tier answers which question is decided here and nowhere else. The read
-    client serves every retrieval channel and the verification metrics; the write
-    client serves the one write Argus makes and the provider's own history of
-    who made it - which lives on the write tier because the provider serves that
-    history to admin credentials alone (spec §12.1).
+    Which tier answers which question is decided here and nowhere else. A seam
+    that is one tool's call is bound to the tier's own method for it; one that
+    is more than a call - the change channel, the wait for a change to arrive,
+    the way back - to a function of the agent's own over it. The read tier serves
+    every retrieval channel and the verification metrics; the write tier serves
+    the writes Argus makes and the provider's own history of who made a flag
+    change - which lives on the write tier because the provider serves that
+    history to admin credentials alone (spec §12.1). A method looked up on the
+    wrong tier is not there, which the type checker says before anything runs.
     """
     mitigation = MitigationSettings.of(settings)
     memory = IncidentMemorySettings.of(settings)
@@ -197,7 +188,7 @@ def against(connections: Connections,
     # two bindings are two registers as far as an incident is concerned - and
     # the failure that produces is the model defending a service the gate has
     # never heard of.
-    register = dependencies_over(read)
+    register = read.get_service_dependencies
     # Where the algorithm draws its lines, read from the deployment and
     # handed to both agents that measure against them. A domain value
     # rather than a slice: `core.anomaly` decides what counts as an
@@ -210,8 +201,8 @@ def against(connections: Connections,
     records = Records(connections, events_into_connection)
     recorder = calls_into(connections)
     # Every write that performs a mitigation, and the plans they are written
-    # from, over the one connection to the write tier - bound once, because the
-    # plan and the write it is handed back to are one collaboration.
+    # from, over the write tier - bound once, because the plan and the write it
+    # is handed back to are one collaboration.
     writes = performing_writes_over(write)
     # What puts a change back, bound once for the live walk's taking and a
     # resumed walk's watch and put-back alike: two copies of it is how one came
@@ -248,16 +239,18 @@ def against(connections: Connections,
             thresholds=thresholds,
             # The six channels, each over the tier that answers it. The change
             # channel takes both, because a deploy and a flag flip are recorded
-            # by two systems and the Investigator reads one history.
-            fetch_metrics=metrics_over(read),
-            fetch_logs=logs_over(read),
-            fetch_change_events=changes_over(read, write),
+            # by two systems and the Investigator reads one history - the flags
+            # off the write tier, which the Investigator never holds.
+            fetch_metrics=read.get_metrics_summary,
+            fetch_logs=read.get_log_lines,
+            fetch_change_events=changes_from(read.get_change_events,
+                                             write.get_recent_flag_changes),
             fetch_dependencies=register,
-            fetch_what_a_deployment_changed=deployment_diffs_over(read),
-            fetch_rollout=rollouts_over(read),
+            fetch_what_a_deployment_changed=read.get_what_a_deployment_changed,
+            fetch_rollout=read.get_rollout_state,
             # And the one the loop reads for itself after the onset, which no
             # model is offered: where each replica runs, over the read tier.
-            fetch_placements=placements_over(read),
+            fetch_placements=read.get_placements,
             # The three channels above that are the read tier's, offered to the
             # model as that tier declares them.
             read_tier_tools=read_tier_tools_over(read),
@@ -275,12 +268,12 @@ def against(connections: Connections,
         # the wait for the service are read once, here, rather than by the
         # agent every time it is asked a question.
         fetch_flag_changes=partial(
-            fetch_recent_flag_changes, mitigation, flag_changes_over(write)
+            fetch_recent_flag_changes, mitigation, write.get_recent_flag_changes
         ),
         # The other change a service has, over the same lookback and read over
         # the read tier the Investigator's change channel uses.
         fetch_deployments=partial(
-            fetch_recent_deployments, mitigation, deployments_over(read)
+            fetch_recent_deployments, mitigation, read.get_change_events
         ),
         record_outcome=records.outcome,
         # The gate's question, answered by the autonomy policy rather than by
@@ -299,16 +292,16 @@ def against(connections: Connections,
             # minutes describe the code it was meant to replace, and a verdict read
             # off them is a verdict about the wrong deployment. Over the read tier,
             # since it is a read.
-            arrivals=partial(arrival_of, rollouts=rollout_progress_over(read)),
+            arrivals=partial(arrival_of, rollouts=read.get_rollout_progress),
             # Every write that performs a mitigation, assembled once over the
-            # one connection they all use. Separately was a value taken apart for
+            # one tier they all use. Separately was a value taken apart for
             # the journey and put back together by the callee, and it grew by a
             # parameter every time Argus learned a new thing to do.
             writes=writes,
-            fetch_metrics=recent_metrics_over(read),
+            fetch_metrics=read.get_metrics_summary,
             # Where the alert rule that paged stands, which is what an action on
             # a series alert is judged by. Over the read tier, since it is a read.
-            read_rule=rules_read_over(read),
+            read_rule=read.get_alert_rule,
             # The agent's own binding rather than one assembled here, because
             # the worker wants the same one for a withdrawal - and two copies
             # of it is how one came to be missing a collaborator the other had.
@@ -335,9 +328,9 @@ def against(connections: Connections,
                 watch_what_was_performed,
                 settings=mitigation,
                 thresholds=thresholds,
-                fetch_metrics=recent_metrics_over(read),
-                arrivals=partial(arrival_of, rollouts=rollout_progress_over(read)),
-                read_rule=rules_read_over(read),
+                fetch_metrics=read.get_metrics_summary,
+                arrivals=partial(arrival_of, rollouts=read.get_rollout_progress),
+                read_rule=read.get_alert_rule,
                 undo=undo
             ),
             settle=partial(settle_the_refutation, undo=undo),

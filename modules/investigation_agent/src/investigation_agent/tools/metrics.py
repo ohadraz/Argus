@@ -72,7 +72,7 @@ def read_metrics(call: ToolCall,
     narrator.say(RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time)
 
     try:
-        buckets = fetch_metrics(alert_time, rule)
+        buckets = fetch_metrics(alert_time=alert_time, rule=rule)
     except Exception as error:
         # Reported rather than raised, exactly as the other channels report it,
         # and this one was the exception among them. A read that fails here

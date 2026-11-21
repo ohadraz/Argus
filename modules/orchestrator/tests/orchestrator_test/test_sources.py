@@ -29,6 +29,7 @@ from mcp.types import ErrorData
 from orchestrator.sources import the_real_sources
 from pay_band_source import PayBandsUnavailable
 from postmortem_writing import Sources
+from read_mcp_client import ReadTier
 
 DONT_CARE_START = datetime(2026, 9, 2, 11, 0, tzinfo=UTC)
 DONT_CARE_END = datetime(2026, 9, 2, 12, 30, tzinfo=UTC)
@@ -235,10 +236,11 @@ def test_a_rule_the_read_tier_cannot_read_is_answered_as_unread(
         )
 
 
-def _the_sources_over(read: McpClient) -> Sources:
+def _the_sources_over(session: McpClient) -> Sources:
+    """Every source, the read tier among them over `session`."""
     return the_real_sources(
-        get_settings(), _connections_that_must_not_be_opened(), read, DONT_CARE_THRESHOLDS,
-        oncall=None
+        get_settings(), _connections_that_must_not_be_opened(), ReadTier(session),
+        DONT_CARE_THRESHOLDS, oncall=None
     )
 
 
@@ -248,7 +250,7 @@ def _the_sources_holding_no_credential() -> Sources:
     return the_real_sources(
         get_settings().model_copy(update={"hr_api_key": ""}),
         _connections_that_must_not_be_opened(),
-        _a_session_that_remembers_what_it_was_asked(),
+        ReadTier(_a_session_that_remembers_what_it_was_asked()),
         DONT_CARE_THRESHOLDS,
         oncall=None
     )

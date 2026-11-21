@@ -10,7 +10,7 @@ from typing import Protocol
 
 from core import SettingsSlice, parse_iso, to_iso, utc_now
 from core.anomaly import the_end_of_the_onset
-from core.mcp_transport import ActionExhausted, McpClient
+from core.mcp_transport import ActionExhausted
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -36,42 +36,7 @@ from core.models import (
     RolloutProgress,
     UndoDescriptor,
 )
-from read_mcp_client import (
-    get_alert_rule,
-    get_change_events,
-    get_metrics_summary,
-    get_rollout_progress,
-)
-from write_mcp_client import (
-    accelerator_pin_still_argus_s,
-    autoscaler_pin_still_argus_s,
-    discard_cache_entries,
-    flag_still_argus_s,
-    get_recent_flag_changes,
-    pin_autoscaler,
-    pin_to_accelerator,
-    plan_accelerator_pin,
-    plan_autoscaler_pin,
-    plan_flag,
-    plan_rollback,
-    plan_scale_out,
-    restart_service,
-    restore_accelerator_pin,
-    restore_autoscaler_floor,
-    restore_deployment,
-    restore_replica_count,
-    roll_back_deployment,
-    rollback_still_argus_s,
-    scale_out,
-    scale_out_still_argus_s,
-    set_feature_flag,
-    was_flag_changed_by_others_since,
-    whether_accelerator_pin_was_made,
-    whether_autoscaler_pin_was_made,
-    whether_flag_was_made,
-    whether_rollback_was_made,
-    whether_scale_out_was_made,
-)
+from write_mcp_client import WriteTier
 
 from mitigation.attribution import changes_not_made_by
 
@@ -163,11 +128,12 @@ class DeploymentsBetween(Protocol):
                  service: str,
                  window_start: str,
                  window_end: str) -> list[ChangeEvent]: ...
-# The service's own account of itself, and the one way to change what it does.
-# `Protocol` rather than a `Callable` alias for both, because a test stands each
-# in with `create_autospec` and specing against the function that answers them
-# would be specing against the wrong shape: those take the connection they are
-# asked over, and neither of these knows a server exists.
+# The service's own account of itself, and the ways to change what it does.
+# `Protocol` rather than a `Callable` alias throughout, because a test stands
+# each in with `create_autospec`. A composition root binds each to the tier's
+# own method for it - `ReadTier.get_alert_rule` satisfies `RuleReader`,
+# `WriteTier.plan_rollback` satisfies `RollbackPlanner` - so nothing sits
+# between the two to re-spell the call.
 
 
 class MetricsFetcher(Protocol):
@@ -177,9 +143,17 @@ class MetricsFetcher(Protocol):
     the metrics backend's own language is the read tier's to work out, and
     nothing on this side of the port speaks it. `None` for an alert naming no
     rule, which is read for the five fixed series alone.
+
+    Unanchored deliberately. The verdict asks whether the minutes since the
+    action sit at the service's baseline, and the baseline is the incident's
+    own quiet stretch - a window narrowed to post-action minutes alone would
+    have no departure to contrast with. Keyword-only, because the read tier's
+    own call takes the alert's time and a window beside it, all the same type: a
+    positional seam would type-check against it and send the rule as the
+    alert's time.
     """
 
-    def __call__(self, rule: str | None, /) -> list[MetricBucket]: ...
+    def __call__(self, *, rule: str | None) -> list[MetricBucket]: ...
 
 
 class RuleReader(Protocol):
@@ -527,10 +501,10 @@ class PerformingWrites:
     """The writes that perform a mitigation - one per kind of action there is.
 
     A bundle because the alternative grows by one parameter per action kind at
-    every caller, and because in production these are assembled from one
-    connection and then taken apart again at the call site: each member is
-    `*_over(client)`, so passing them separately is a value disassembled for the
-    journey and reassembled by the callee's `match`.
+    every caller, and because in production these are assembled from one tier
+    and then taken apart again at the call site: each member is one of the
+    write tier's methods, so passing them separately is a value disassembled for
+    the journey and reassembled by the callee's `match`.
 
     Named for the role and not for the tier. A tier-shaped name would invite
     `changed_from_outside` in, which is a *read*, and the restorers with it - and
@@ -581,9 +555,9 @@ class PuttingBack:
     wait, and a withdrawal puts back every change an incident made, long after
     the writes that made them.
 
-    Each member is bound over the tier that serves it. Today all of them are the
-    write tier, because the restorers are writes and the provider serves its
-    audit log - which `changed_from_outside` reads - to write credentials alone.
+    Each member is bound over the tier that serves it. All of them are the write
+    tier, because the restorers are writes and the provider serves its audit
+    log - which `changed_from_outside` reads - to write credentials alone.
     """
 
     set_state: FlagSetter
@@ -626,46 +600,16 @@ class MitigationSettings(SettingsSlice):
     metrics_reporting_lag_minutes: int
 
 
-def flag_changes_over(client: McpClient) -> FlagChangesSince:
-    """The provider's flag history, asked over one connection to the write tier.
-
-    The tier is the write tier because the provider serves its audit log to
-    admin credentials only, and `argus-read-mcp` holds none by design. Reading
-    history is strictly less than the write tier can already do.
-    """
-    return partial(_flag_changes_since, client=client)
-
-
-def deployments_over(client: McpClient) -> DeploymentsBetween:
-    """The platform's deploy history, asked over one connection to the read tier.
-
-    The read tier, unlike the flag history's, because the platform's history is
-    readable with the read tier's own credential - the Investigator's change
-    channel asks it there for the same reason.
-    """
-    return partial(get_change_events, client=client)
-
-
-def recent_metrics_over(client: McpClient) -> MetricsFetcher:
-    """The service's metrics, asked over one connection to the read tier."""
-    return partial(fetch_recent_metrics, client=client)
-
-
-def rules_read_over(client: McpClient) -> RuleReader:
-    """Alert rules, read over one connection to the read tier."""
-    return partial(get_alert_rule, client=client)
-
-
 # Which arrival a given action has to wait for. A seam of its own because the
 # choice depends on the action and the binding does not: a walk binds this once
-# over its read connection, and the kind is only known when an action is taken.
+# over its read tier, and the kind is only known when an action is taken.
 ArrivalFor = Callable[[Action], HasArrived]
 
 
 def nothing_to_wait_for(action: Action) -> HasArrived:
     """Every kind of action in force as soon as it is acknowledged.
 
-    The default, and what every caller that has no read connection gets. Named
+    The default, and what every caller that holds no read tier gets. Named
     rather than written as a lambda at the signature, because "this caller is not
     waiting for anything" is a claim worth being able to find.
     """
@@ -683,155 +627,60 @@ class RolloutReader(Protocol):
     def __call__(self, service: str, /) -> RolloutProgress: ...
 
 
-def rollout_progress_over(client: McpClient) -> RolloutReader:
-    """How far a service's rollout has got, asked over one connection to the read
-    tier.
-
-    The read tier because this is a read, which is the same reason the metrics are
-    asked there. The two clients are interchangeable at the type level, so a seam
-    bound to the wrong one fails at the moment the walk has already changed
-    production and the incident is still happening.
-    """
-    return partial(get_rollout_progress, client=client)
-
-
-def flag_setter_over(client: McpClient) -> FlagSetter:
-    """Setting a flag with nothing planned for it, over one connection to the
-    write tier - what puts a flag back."""
-    return partial(set_flag, client=client)
-
-
-def planned_flag_setter_over(client: McpClient) -> PlannedFlagSetter:
-    """The first of the writes Argus makes, from its plan, over one connection
-    to the write tier."""
-    return partial(set_a_planned_flag, client=client)
-
-
-def service_restarter_over(client: McpClient) -> ServiceRestarter:
-    """The second, over the same connection."""
-    return partial(restart_a_service, client=client)
-
-
-def deployment_roller_over(client: McpClient) -> DeploymentRoller:
-    """The third, over the same connection."""
-    return partial(roll_back_a_deployment, client=client)
-
-
-def deployment_scaler_over(client: McpClient) -> DeploymentScaler:
-    """The fourth, over the same connection."""
-    return partial(scale_out_a_deployment, client=client)
-
-
-def capacity_restorer_over(client: McpClient) -> CapacityRestorer:
-    """Putting the fourth back, which is a tool of its own for the reason the
-    third's is: two pieces of prior state and a platform that refuses one order of
-    them, so the tier performs it as its own operation and answers with which
-    halves it managed."""
-    return partial(restore_a_replica_count, client=client)
-
-
-def performing_writes_over(client: McpClient) -> PerformingWrites:
-    """Every write that performs a mitigation, over one connection.
+def performing_writes_over(write: WriteTier) -> PerformingWrites:
+    """Every write that performs a mitigation, and the reads beside them, over
+    the write tier.
 
     Here rather than at the one caller that assembles it, because the bundle and
-    the connection are the same fact said twice: a caller building three of these
-    over one client and the fourth over another would be a caller nothing stopped.
+    the tier are the same fact said twice: a caller building three of these
+    over one tier and the fourth over another would be a caller nothing stopped.
+    Each member is the tier's own method; a read tier has none of them.
     """
     return PerformingWrites(
-        set_state=planned_flag_setter_over(client),
-        restart=service_restarter_over(client),
-        roll_back=deployment_roller_over(client),
-        scale_out=deployment_scaler_over(client),
-        pin=autoscaler_pinner_over(client),
-        discard=cache_entry_discarder_over(client),
-        pin_to_accelerator=accelerator_pinner_over(client),
-        plan_flag=partial(plan_a_flag, client=client),
-        plan_rollback=partial(plan_a_rollback, client=client),
-        plan_scale_out=partial(plan_a_scale_out, client=client),
-        plan_autoscaler_pin=partial(plan_an_autoscaler_pin, client=client),
-        plan_accelerator_pin=partial(plan_a_pin_to_a_card, client=client),
-        flag_still_argus_s=partial(flag_still_argus_s, client=client),
-        rollback_still_argus_s=partial(rollback_still_argus_s, client=client),
-        scale_out_still_argus_s=partial(scale_out_still_argus_s, client=client),
-        autoscaler_pin_still_argus_s=partial(autoscaler_pin_still_argus_s, client=client),
-        accelerator_pin_still_argus_s=partial(accelerator_pin_still_argus_s, client=client),
-        whether_flag_was_made=partial(whether_flag_was_made, client=client),
-        whether_rollback_was_made=partial(whether_rollback_was_made, client=client),
-        whether_scale_out_was_made=partial(whether_scale_out_was_made, client=client),
-        whether_autoscaler_pin_was_made=partial(whether_autoscaler_pin_was_made, client=client),
-        whether_accelerator_pin_was_made=partial(whether_accelerator_pin_was_made,
-                                                 client=client)
+        set_state=write.set_feature_flag,
+        restart=write.restart_service,
+        roll_back=write.roll_back_deployment,
+        scale_out=write.scale_out,
+        pin=write.pin_autoscaler,
+        discard=write.discard_cache_entries,
+        pin_to_accelerator=write.pin_to_accelerator,
+        plan_flag=write.plan_flag,
+        plan_rollback=write.plan_rollback,
+        plan_scale_out=write.plan_scale_out,
+        plan_autoscaler_pin=write.plan_autoscaler_pin,
+        plan_accelerator_pin=write.plan_accelerator_pin,
+        flag_still_argus_s=write.flag_still_argus_s,
+        rollback_still_argus_s=write.rollback_still_argus_s,
+        scale_out_still_argus_s=write.scale_out_still_argus_s,
+        autoscaler_pin_still_argus_s=write.autoscaler_pin_still_argus_s,
+        accelerator_pin_still_argus_s=write.accelerator_pin_still_argus_s,
+        whether_flag_was_made=write.whether_flag_was_made,
+        whether_rollback_was_made=write.whether_rollback_was_made,
+        whether_scale_out_was_made=write.whether_scale_out_was_made,
+        whether_autoscaler_pin_was_made=write.whether_autoscaler_pin_was_made,
+        whether_accelerator_pin_was_made=write.whether_accelerator_pin_was_made
     )
 
 
-def putting_back_over(client: McpClient) -> PuttingBack:
-    """Everything that puts a change back, over one connection to the write tier.
+def putting_back_over(write: WriteTier) -> PuttingBack:
+    """Everything that puts a change back, over the write tier.
 
     Here rather than at the one caller that binds it, for the reason
-    `performing_writes_over` is: the bundle and the connection are the same fact
-    said twice.
+    `performing_writes_over` is: the bundle and the tier are the same fact said
+    twice. A rollback's, a scale-out's and both pins' undo is a tool of its own
+    rather than the same call reversed - two pieces of prior state and a
+    platform that refuses one order of them, so the tier performs it as its own
+    operation and answers with which halves it managed. A flag's is `set_flag`,
+    which plans and writes in one breath.
     """
     return PuttingBack(
-        set_state=flag_setter_over(client),
-        restore_deployment=deployment_restorer_over(client),
-        restore_capacity=capacity_restorer_over(client),
-        restore_autoscaling=autoscaling_restorer_over(client),
-        restore_accelerator_pin=accelerator_pin_restorer_over(client),
-        changed_from_outside=partial(somebody_else_changed_flag_since, client=client)
+        set_state=partial(set_flag, write=write),
+        restore_deployment=write.restore_deployment,
+        restore_capacity=write.restore_replica_count,
+        restore_autoscaling=write.restore_autoscaler_floor,
+        restore_accelerator_pin=write.restore_accelerator_pin,
+        changed_from_outside=partial(somebody_else_changed_flag_since, write=write)
     )
-
-
-def autoscaler_pinner_over(client: McpClient) -> AutoscalerPinner:
-    """The fifth write, over one connection."""
-    return partial(pin_an_autoscaler, client=client)
-
-
-def cache_entry_discarder_over(client: McpClient) -> CacheEntryDiscarder:
-    """The sixth write, over one connection - and the only one not aimed at a
-    control plane."""
-    return partial(discard_the_cache_entries, client=client)
-
-
-def accelerator_pinner_over(client: McpClient) -> AcceleratorPinner:
-    """The seventh write, over one connection."""
-    return partial(pin_a_deployment_to_a_card, client=client)
-
-
-def accelerator_pin_restorer_over(client: McpClient) -> AcceleratorPinRestorer:
-    """Putting the seventh back, which is a tool of its own for the autoscaler
-    pin's reason: two pieces of prior state and a platform that refuses one order
-    of them."""
-    return partial(restore_a_card_pin, client=client)
-
-
-def autoscaling_restorer_over(client: McpClient) -> AutoscalingRestorer:
-    """Putting the fifth back, which is a tool of its own for the reason the
-    fourth's is: two pieces of prior state and a platform that refuses one order of
-    them, so the tier performs it as its own operation and answers with which
-    halves it managed."""
-    return partial(restore_an_autoscaler, client=client)
-
-
-def deployment_restorer_over(client: McpClient) -> DeploymentRestorer:
-    """Putting the third back, which is a tool of its own rather than the same
-    call reversed.
-
-    A flag's undo is `set_state` with the state the descriptor recorded, and one
-    seam serves both directions. A rollback's is not: it has two pieces of prior
-    state to restore and a platform that refuses one order of them, so the tier
-    performs it as its own operation and answers with which halves it managed.
-    """
-    return partial(restore_a_deployment, client=client)
-
-
-def _flag_changes_since(since: str, *, client: McpClient) -> list[FlagChange]:
-    """The write tier's flag history, asked from one moment onwards.
-
-    A named function rather than `get_recent_flag_changes` itself, because the
-    Mitigator needs exactly one of that tool's calling shapes and a seam is only
-    useful if a test can spec against the shape the caller actually uses.
-    """
-    return get_recent_flag_changes(since, client=client)
 
 
 def fetch_recent_flag_changes(
@@ -940,7 +789,7 @@ def fetch_recent_deployments(
 def somebody_else_changed_flag_since(flag: str,
                                      since: datetime,
                                      *,
-                                     client: McpClient) -> bool | None:
+                                     write: WriteTier) -> bool | None:
     """Whether anybody but Argus changed `flag` after `since`.
 
     What an undo consults before it writes, and the mirror of the question
@@ -955,193 +804,14 @@ def somebody_else_changed_flag_since(flag: str,
     difference between putting a change back and overwriting a person.
     """
     try:
-        return was_flag_changed_by_others_since(flag, since, client=client)
+        return write.was_flag_changed_by_others_since(flag, since)
     except Exception:
         logger.warning("flag history could not be read", exc_info=True, extra={"flag": flag})
 
         return None
 
 
-def fetch_recent_metrics(rule: str | None, *, client: McpClient) -> list[MetricBucket]:
-    """The service's metric buckets, over the retention the read tier holds.
-
-    Unanchored deliberately. The verdict asks whether the minutes since the
-    action sit at the service's baseline, and the baseline is the incident's
-    own quiet stretch - a window narrowed to post-action minutes alone would
-    have no departure to contrast with, and would read any steady rate as
-    healthy however elevated it was.
-
-    Read for the rule that paged, so each minute carries that rule's own series
-    beside the five - and the recovery is dated on the series that paged rather
-    than on five that may never have moved.
-    """
-    return get_metrics_summary(rule=rule, client=client)
-
-
-def restart_a_service(service: str, *, client: McpClient) -> RestartedService:
-    """Restarts a service, answering with the process that came up.
-
-    A named function rather than `restart_service` itself, for the reason
-    `_flag_changes_since` is one: the Mitigator needs one of that tool's calling
-    shapes, and a seam is only useful if a test can spec against the shape the
-    caller actually uses.
-    """
-    return restart_service(service, client=client)
-
-
-def plan_a_rollback(application: str,
-                    *,
-                    client: McpClient) -> Planned[DeploymentRollbackUndo]:
-    """Works out returning a deployment to the revision it ran before, changing
-    nothing.
-
-    A named function rather than `plan_rollback` itself, for the reason
-    `restart_a_service` is one: a seam is only useful if a test can spec against
-    the shape the caller actually uses.
-    """
-    return plan_rollback(application, client=client)
-
-
-def roll_back_a_deployment(planned: Planned[DeploymentRollbackUndo],
-                           *,
-                           client: McpClient) -> DeploymentRollbackUndo:
-    """Returns a deployment to the entry its plan named, answering with what
-    that cost.
-
-    A named function rather than `roll_back_deployment` itself, for the
-    reason `restart_a_service` is one: the Mitigator needs one of that tool's
-    calling shapes, and a seam is only useful if a test can spec against the
-    shape the caller actually uses.
-    """
-    return roll_back_deployment(planned, client=client)
-
-
-def restore_a_deployment(descriptor: DeploymentRollbackUndo,
-                         *,
-                         client: McpClient) -> DeploymentRestored:
-    """Puts back both of the things a rollback changed, reporting which it
-    managed."""
-    return restore_deployment(descriptor, client=client)
-
-
-def plan_a_scale_out(application: str,
-                     *,
-                     client: McpClient) -> Planned[ReplicaUndo]:
-    """Works out giving a deployment more replicas than it is running, changing
-    nothing. Named for `plan_a_rollback`'s reason."""
-    return plan_scale_out(application, client=client)
-
-
-def scale_out_a_deployment(planned: Planned[ReplicaUndo],
-                           *,
-                           client: McpClient) -> ReplicaUndo:
-    """Gives a deployment the replicas its plan asked for, answering with what
-    that cost.
-
-    A named function rather than `scale_out` itself, for the reason
-    `restart_a_service` is one: the Mitigator needs one of that tool's calling shapes,
-    and a seam is only useful if a test can spec against the shape the caller
-    actually uses.
-    """
-    return scale_out(planned, client=client)
-
-
-def restore_a_replica_count(descriptor: ReplicaUndo,
-                            *,
-                            client: McpClient) -> CapacityRestored:
-    """Puts back both of the things a scale-out changed, reporting which it
-    managed."""
-    return restore_replica_count(descriptor, client=client)
-
-
-def plan_an_autoscaler_pin(application: str,
-                           *,
-                           client: McpClient) -> Planned[AutoscalerUndo]:
-    """Works out stopping a deployment's autoscaler scaling it back down,
-    changing nothing. Named for `plan_a_rollback`'s reason."""
-    return plan_autoscaler_pin(application, client=client)
-
-
-def pin_an_autoscaler(planned: Planned[AutoscalerUndo],
-                      *,
-                      client: McpClient) -> AutoscalerUndo:
-    """Stops a deployment's autoscaler scaling it back down as its plan said,
-    answering with what that changed.
-
-    A named function rather than `pin_autoscaler` itself, for the reason
-    `scale_out_a_deployment` is one: the Mitigator needs one of that tool's calling
-    shapes, and a seam is only useful if a test can spec against the shape the
-    caller actually uses.
-    """
-    return pin_autoscaler(planned, client=client)
-
-
-def discard_the_cache_entries(keys: Sequence[str],
-                              *,
-                              client: McpClient) -> CacheEntriesDiscarded:
-    """Throws away the named cache entries, answering with how many were there.
-
-    A named function rather than the tool itself, for the reason
-    `pin_an_autoscaler` is one: the Mitigator needs one of that tool's calling shapes,
-    and a seam is only useful if a test can spec against the shape the caller
-    actually uses.
-    """
-    return discard_cache_entries(keys, client=client)
-
-
-def restore_an_autoscaler(descriptor: AutoscalerUndo,
-                          *,
-                          client: McpClient) -> AutoscalingRestored:
-    """Puts back both of the things a pin changed, reporting which it managed."""
-    return restore_autoscaler_floor(descriptor, client=client)
-
-
-def plan_a_pin_to_a_card(application: str,
-                         accelerator: str,
-                         *,
-                         client: McpClient) -> Planned[AcceleratorPinUndo]:
-    """Works out holding a deployment's pods to one card, changing nothing.
-    Named for `plan_a_rollback`'s reason."""
-    return plan_accelerator_pin(application, accelerator, client=client)
-
-
-def pin_a_deployment_to_a_card(planned: Planned[AcceleratorPinUndo],
-                               *,
-                               client: McpClient) -> AcceleratorPinUndo:
-    """Holds a deployment's pods to the card its plan named, answering with what
-    that changed.
-
-    A named function rather than the client's own, for the reason
-    `pin_an_autoscaler` is one: a seam is only useful if a test can spec against
-    the shape the caller actually uses.
-    """
-    return pin_to_accelerator(planned, client=client)
-
-
-def restore_a_card_pin(descriptor: AcceleratorPinUndo,
-                       *,
-                       client: McpClient) -> AcceleratorPinRestored:
-    """Puts back both of the things a pin to a card changed, reporting which it
-    managed."""
-    return restore_accelerator_pin(descriptor, client=client)
-
-
-def plan_a_flag(flag: str, enabled: bool, *, client: McpClient) -> Planned[FlagUndo]:
-    """Works out setting a flag to a state, changing nothing. Named for
-    `plan_a_rollback`'s reason."""
-    return plan_flag(flag, enabled, client=client)
-
-
-def set_a_planned_flag(planned: Planned[FlagUndo],
-                       enabled: bool,
-                       *,
-                       client: McpClient) -> UndoDescriptor:
-    """Sets the flag its plan named to a state, returning the undo descriptor
-    for the change. Named for `plan_a_rollback`'s reason."""
-    return set_feature_flag(planned, enabled, client=client)
-
-
-def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:
+def set_flag(flag: str, enabled: bool, *, write: WriteTier) -> UndoDescriptor:
     """Sets a flag to a state, planned and written in one breath, returning the
     undo descriptor for the change.
 
@@ -1161,8 +831,8 @@ def set_flag(flag: str, enabled: bool, *, client: McpClient) -> UndoDescriptor:
     flag was found in, which is the state asked for.
     """
     try:
-        planned = plan_flag(flag, enabled, client=client)
+        planned = write.plan_flag(flag, enabled)
     except ActionExhausted:
         return FlagUndo(flag=flag, was_enabled=enabled)
 
-    return set_feature_flag(planned, enabled, client=client)
+    return write.set_feature_flag(planned, enabled)

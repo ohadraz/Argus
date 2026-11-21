@@ -24,10 +24,13 @@ What a caller running the Mitigator has to supply - the settings slice it behave
 by, the flag history it reads, whether the walk is still wanted - is named here;
 how those reach the provider is not, and stays inside.
 
-Several are built from a connection, and their `*_over` builders are doors for
-that reason: a caller hands over the client it holds to a tier and gets back the
-flag history, the metrics, a rollout's progress or the writes, without ever
-learning which tool answers or where that server is.
+Every read it makes is a `Protocol` the read or write tier's own method
+satisfies, so a composition root binds `read.get_alert_rule` or
+`write.get_recent_flag_changes` to it directly. The two bundles are the
+exception, and their builders are doors for that reason: a caller hands over the
+write tier it holds and gets back every write that performs a mitigation
+(`performing_writes_over`) or a way to put one back (`an_undo_over`), without
+assembling either member by member.
 """
 
 from __future__ import annotations
@@ -63,17 +66,9 @@ from mitigation.tools import (
     MitigationSettings,
     PerformingWrites,
     ServiceRestarter,
-    deployment_restorer_over,
-    deployment_roller_over,
-    deployments_over,
     fetch_recent_deployments,
     fetch_recent_flag_changes,
-    flag_changes_over,
-    flag_setter_over,
     performing_writes_over,
-    recent_metrics_over,
-    rollout_progress_over,
-    rules_read_over,
 )
 from mitigation.trying import (
     ChangeMade,
@@ -116,19 +111,11 @@ __all__ = [
     "Verdict",
     "an_undo_over",
     "arrival_of",
-    "deployment_restorer_over",
-    "deployment_roller_over",
-    "deployments_over",
     "fetch_recent_deployments",
     "fetch_recent_flag_changes",
-    "flag_changes_over",
-    "flag_setter_over",
     "performed_as_recorded",
     "performing_writes_over",
     "plan_action",
-    "recent_metrics_over",
-    "rollout_progress_over",
-    "rules_read_over",
     "propose_action",
     "settle_the_refutation",
     "still_argus_s",

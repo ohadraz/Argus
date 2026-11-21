@@ -31,7 +31,6 @@ from functools import partial
 
 from core import Connections, Settings, to_iso
 from core.anomaly import AnomalyThresholds
-from core.mcp_transport import McpClient
 from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
@@ -59,7 +58,7 @@ from postmortem_writing import (
     RateTable,
     Sources,
 )
-from read_mcp_client import get_alert_rule, get_metrics_summary
+from read_mcp_client import ReadTier
 from revenue_source import RevenueSettings, taken_between
 from revenue_source.stripe_adapter import charges_between
 
@@ -70,7 +69,7 @@ logger = logging.getLogger(__name__)
 
 def the_real_sources(settings: Settings,
                      connections: Connections,
-                     read: McpClient,
+                     read: ReadTier,
                      thresholds: AnomalyThresholds,
                      *,
                      oncall: OnCallPlatform | None) -> Sources:
@@ -87,9 +86,9 @@ def the_real_sources(settings: Settings,
     of who may read a payment key one call further up, and split the answer
     across two places.
 
-    The read tier arrives as the connection somebody already holds to it, not as
-    an address to dial: a postmortem's metrics are one more question asked over
-    the session an investigation has been using all along.
+    The read tier arrives as the tier somebody already holds, not as an address
+    to dial: a postmortem's metrics are one more question asked over the session
+    an investigation has been using all along.
 
     `connections` rather than a connection: the rates are the one source that
     reaches a table, and it is asked for at most once, while a postmortem is
@@ -119,9 +118,9 @@ def the_real_sources(settings: Settings,
         engagement=partial(_who_responded, platform=oncall, connections=connections),
         bands=partial(_what_a_title_is_worth,
                       settings=PayBandSettings.of(settings)),
-        metrics=partial(_metrics_between, client=read,
+        metrics=partial(_metrics_between, read=read,
                         served=timedelta(minutes=settings.metrics_window_minutes)),
-        alert_rule=partial(_the_alert_rule, client=read),
+        alert_rule=partial(_the_alert_rule, read=read),
         working_hours_a_year=settings.working_hours_a_year,
         reporting_currency=settings.reporting_currency,
         metrics_reporting_lag_minutes=settings.metrics_reporting_lag_minutes
@@ -309,7 +308,7 @@ def _what_a_title_is_worth(*,
             for title, band in read.items()}
 
 
-def _the_alert_rule(rule: str, *, client: McpClient) -> AlertRuleStanding | None:
+def _the_alert_rule(rule: str, *, read: ReadTier) -> AlertRuleStanding | None:
     """`rule` as the read tier reads it off its definition - how long it waits
     with its condition holding before it fires, and the series it watches -
     over the session the metrics are read on.
@@ -321,7 +320,7 @@ def _the_alert_rule(rule: str, *, client: McpClient) -> AlertRuleStanding | None
     lost for want of it.
     """
     try:
-        return get_alert_rule(rule, client=client)
+        return read.get_alert_rule(rule)
     except Exception:
         logger.warning("alert rule could not be read", exc_info=True, extra={"rule": rule})
 
@@ -332,7 +331,7 @@ def _metrics_between(window_start: datetime,
                      window_end: datetime,
                      rule: str | None,
                      *,
-                     client: McpClient,
+                     read: ReadTier,
                      served: timedelta) -> list[MetricBucket]:
     """The metrics channel, asked for a window spanning the whole incident and
     for the rule that paged, so the document's figures are read off the series
@@ -356,21 +355,20 @@ def _metrics_between(window_start: datetime,
     are what a metrics outage looks like, and the document would say the
     service's metrics stopped where only the read did.
     """
-    read: dict[str, MetricBucket] = {}
+    kept: dict[str, MetricBucket] = {}
     start = window_start
 
     try:
         while start < window_end:
             end = min(start + served, window_end)
-            for bucket in get_metrics_summary(window_start=to_iso(start),
-                                              window_end=to_iso(end),
-                                              rule=rule,
-                                              client=client):
-                read.setdefault(bucket.bucket_id, bucket)
+            for bucket in read.get_metrics_summary(window_start=to_iso(start),
+                                                   window_end=to_iso(end),
+                                                   rule=rule):
+                kept.setdefault(bucket.bucket_id, bucket)
             start = end
     except Exception:
         logger.warning("metrics could not be read", exc_info=True, extra={"rule": rule})
 
         return []
 
-    return list(read.values())
+    return list(kept.values())

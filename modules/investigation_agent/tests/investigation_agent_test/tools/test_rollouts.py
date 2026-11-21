@@ -31,10 +31,11 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core import new_id
 from core.events import IncidentEvent, Narrator, RolloutRead
-from core.mcp_transport import McpToolError
 from core.models import ChangeEvent, ChangeKind, RolloutAccount, RolloutProgress, ToolCall
 from investigation_agent.retrieval import RolloutFetcher
 from investigation_agent.tools.rollouts import ROLLOUT_TOOL, read_the_rollout
+
+from investigation_agent_test.framework.failures import ChannelFailed
 
 SOME_SERVICE = "io-shop"
 SOME_CALL = ToolCall(id="call-1", name=ROLLOUT_TOOL, arguments={})
@@ -319,7 +320,7 @@ def a_platform_reporting(account: RolloutAccount) -> Any:
 
 def a_platform_nobody_can_reach() -> Any:
     platform = create_autospec(RolloutFetcher, instance=True)
-    platform.side_effect = McpToolError("nobody answered")
+    platform.side_effect = ChannelFailed("nobody answered")
 
     return platform
 

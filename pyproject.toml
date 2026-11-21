@@ -327,8 +327,6 @@ ignore_imports = [
     # imports.
     "orchestrator.assembling -> core.llm.adapters.anthropic_adapter",
     "message_intent.watching -> core.llm.adapters.anthropic_adapter",
-    "codefix_agent.** -> core.mcp_transport",
-    "investigation_agent.** -> core.mcp_transport",
     "mitigation.** -> core.mcp_transport",
     "orchestrator.** -> core.mcp_transport",
     "read_mcp_client.** -> core.mcp_transport",

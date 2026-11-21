@@ -18,9 +18,8 @@ from collections.abc import Collection, Mapping, Sequence
 from functools import partial
 from typing import Final, Protocol
 
-from core.mcp_transport import McpClient
 from core.models import ToolDefinition
-from read_mcp_client import offered
+from read_mcp_client import ReadTier
 
 from investigation_agent.tools.answer import answer_tool
 from investigation_agent.tools.changes import changes_tool
@@ -53,13 +52,14 @@ class ReadTierTools(Protocol):
     def __call__(self) -> list[ToolDefinition]: ...
 
 
-def read_tier_tools_over(client: McpClient) -> ReadTierTools:
-    """The read tier's tools held here, asked over one connection to it.
+def read_tier_tools_over(read: ReadTier) -> ReadTierTools:
+    """The read tier's tools held here, as that tier declares them.
 
     Bound where a process starts, as every channel is, so the loop is handed
-    the offer rather than the means to ask for one.
+    the offer rather than the means to ask for one. The read tier and only the
+    read tier: it is the one this package names.
     """
-    return partial(offered, READ_TIER_HELD, client=client)
+    return partial(read.offered, READ_TIER_HELD)
 
 
 def investigator_tools(read_tier: Sequence[ToolDefinition]) -> list[ToolDefinition]:

@@ -36,7 +36,6 @@ from __future__ import annotations
 import base64
 from collections.abc import Iterator
 from datetime import timedelta
-from functools import partial
 from typing import Any, Final
 
 import httpx2
@@ -66,7 +65,7 @@ from core.models import (
 )
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_record.repository import incidents, runs
-from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
+from write_mcp_client import write_mcp
 
 from tests.framework.models import the_configured_models
 
@@ -136,8 +135,8 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                     contains=_contained,
                     read_file=_an_empty_file,
                     code_outside=_nothing_outside,
-                    write_branch=partial(commit_to_new_branch, client=write),
-                    open_pull_request=partial(open_pull_request, client=write),
+                    write_branch=write.commit_to_new_branch,
+                    open_pull_request=write.open_pull_request,
                     conversations=conversations_through(the_configured_models())
                 )
             ) \

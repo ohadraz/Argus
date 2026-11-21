@@ -23,10 +23,11 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core import new_id
 from core.events import IncidentEvent, Narrator, ServiceRegisterRead
-from core.mcp_transport import McpToolError
 from core.models import Ownership, ServiceDependency, ToolCall
 from investigation_agent.retrieval import DependencyFetcher
 from investigation_agent.tools.dependencies import DEPENDENCIES_TOOL, read_dependencies
+
+from investigation_agent_test.framework.failures import ChannelFailed
 
 SOME_SERVICE = "io-shop"
 SOME_CALL = ToolCall(id="call-1", name=DEPENDENCIES_TOOL, arguments={})
@@ -164,7 +165,7 @@ def a_register_holding(*dependencies: ServiceDependency) -> Any:
 
 def a_register_nobody_can_reach() -> Any:
     registry = create_autospec(DependencyFetcher, instance=True)
-    registry.side_effect = McpToolError("nobody answered")
+    registry.side_effect = ChannelFailed("nobody answered")
 
     return registry
 

@@ -39,6 +39,7 @@ from core.models import (
 from core.replay import Recorder
 from investigation_agent import BRIEF, Findings, investigate, investigator_tools
 from investigation_agent.budget import Bound, Budget, InvestigationSettings
+from investigation_agent.retrieval import LogFetcher, MetricsFetcher
 
 from tests.framework.assertions import the_cause_was_identified_as
 from tests.framework.investigating import (
@@ -2495,31 +2496,29 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
         return list(pool.map(investigate_once, range(RUNS_PER_CASE)))
 
 
-def _the_metrics_of(
-    incident: Incident
-) -> Callable[[str | None, str | None], list[MetricBucket]]:
+def _the_metrics_of(incident: Incident) -> MetricsFetcher:
     """The whole metrics span, whatever it is anchored on.
 
     The anchor is ignored on purpose: the metrics channel has one span and the
     model is told so, and a fixture that varied it by anchor would be inventing
     a retrieval the real one does not offer. So is the rule: whether a minute
     carries the rule's series is the fixture's to say, in the buckets it stages.
+    Both are named because the channel is asked for them by name.
     """
-    def fetch(dont_care_alert_time: str | None,
-              dont_care_rule: str | None) -> list[MetricBucket]:
+    def fetch(*, alert_time: str | None, rule: str | None) -> list[MetricBucket]:
         return list(incident.buckets)
 
     return fetch
 
 
-def _the_logs_of(incident: Incident) -> Callable[[str, str], list[str]]:
+def _the_logs_of(incident: Incident) -> LogFetcher:
     """Only the lines inside the window asked for - which is the whole point.
 
     A fetcher that returned everything would hand the model the cause however
     narrow its window, and every widening question this file asks would answer
     itself.
     """
-    def fetch(window_start: str, window_end: str) -> list[str]:
+    def fetch(*, window_start: str, window_end: str) -> list[str]:
         start = parse_iso(window_start)
         end = parse_iso(window_end)
 

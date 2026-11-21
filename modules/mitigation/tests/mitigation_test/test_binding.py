@@ -8,8 +8,9 @@ leaves a required keyword unsupplied is a well-typed object that raises
 runs by accident - a refuted mitigation, a withdrawn incident - so it is asked
 here by inspection rather than by hoping a suite reaches it.
 
-**Over the write tier.** No read server has these tools at all, so an undo bound
-to the read client would fail at the moment somebody was putting production back.
+**The right tools.** An undo is bound over the write tier - the read tier's class
+has none of these methods, so binding it there is a type error - and each kind's
+way back asks the tool for that kind, which no type says.
 """
 
 from __future__ import annotations
@@ -21,10 +22,11 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario
 from core.mcp_transport import McpClient
 from core.models import AcceleratorPinUndo, DeploymentRollbackUndo, FlagUndo
 from mitigation import an_undo_over
+from write_mcp_client import WriteTier
 
 RESTORE_CONFIGURATION_TOOL = "restore_deployment"
 RESTORE_ACCELERATOR_PIN_TOOL = "restore_accelerator_pin"
@@ -69,8 +71,8 @@ def test_an_undo_needs_nothing_but_the_change_it_is_putting_back() -> None:
     # the moment it tries to undo something, which is the moment production is
     # already changed.
     Scenario() \
-        .given(dont_care_client := _a_session_that_answers_nothing()) \
-        .when(lambda: an_undo_over(dont_care_client)) \
+        .given(dont_care_session := _a_session_that_answers_nothing()) \
+        .when(lambda: an_undo_over(WriteTier(dont_care_session))) \
         .then(_it_still_requires_only(WHAT_AN_UNDO_IS_GIVEN))
 
 
@@ -82,20 +84,17 @@ def test_an_undo_puts_a_rolled_back_deployment_back_over_the_write_tier() -> Non
     # be missing a collaborator the first had.
     #
     # The tier split is enforced by absence: no read server has this tool at all
-    # (spec §12.1, §13). An undo bound to the read client would fail on the one
-    # call that puts production back - after the walk had already changed it.
+    # (spec §12.1, §13), and the read tier's class has no method for it.
     Scenario() \
         .given(
-            read := _a_session_that_answers_nothing(),
             write := _a_session_that_answers_nothing()
         ) \
         .when(
-            _asking(read, write, lambda: an_undo_over(write)(A_ROLLBACK_TO_PUT_BACK))
+            _asking(write, lambda tier: an_undo_over(tier)(A_ROLLBACK_TO_PUT_BACK))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(RESTORE_CONFIGURATION_TOOL)
-        ))
+        )
 
 
 @pytest.mark.integration
@@ -105,16 +104,14 @@ def test_an_undo_puts_a_pin_to_a_card_back_over_the_write_tier() -> None:
     # incident asks for one - with production's pods held to a card.
     Scenario() \
         .given(
-            read := _a_session_that_answers_nothing(),
             write := _a_session_that_answers_nothing()
         ) \
         .when(
-            _asking(read, write, lambda: an_undo_over(write)(A_PIN_TO_A_CARD_TO_PUT_BACK))
+            _asking(write, lambda tier: an_undo_over(tier)(A_PIN_TO_A_CARD_TO_PUT_BACK))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(RESTORE_ACCELERATOR_PIN_TOOL)
-        ))
+        )
 
 
 @pytest.mark.integration
@@ -125,20 +122,18 @@ def test_an_undo_asks_the_write_tier_whether_anybody_else_changed_a_flag() -> No
     # flag is then left as it is, and nothing is written.
     Scenario() \
         .given(
-            read := _a_session_that_answers_nothing(),
             write := _a_session_answering(None)
         ) \
         .when(
-            _asking(read, write, lambda: an_undo_over(write)(A_FLAG_TO_PUT_BACK))
+            _asking(write, lambda tier: an_undo_over(tier)(A_FLAG_TO_PUT_BACK))
         ) \
-        .then(all_of(
-            _the_read_tier_was_asked_for(),
+        .then(
             _the_write_tier_was_asked_for(OTHERS_CHANGED_FLAG_TOOL)
-        ))
+        )
 
 
 def _a_session_answering(answer: object) -> Mock:
-    """A client that records the question and gives every call this answer."""
+    """A session that records the question and gives every call this answer."""
     client: Mock = create_autospec(McpClient, instance=True)
     client.call.return_value = answer
 
@@ -146,55 +141,33 @@ def _a_session_answering(answer: object) -> Mock:
 
 
 def _a_session_that_answers_nothing() -> Mock:
-    """A client that records the question and answers with a mock.
+    """A session that records the question and answers with a mock.
 
-    Specced against `McpClient` rather than a `Protocol` of this suite's own,
-    because what the binding is handed is the real thing and the question being
-    asked is which of two it was handed.
+    Specced against `McpClient`, the session a `WriteTier` is asked over, so
+    which tool an undo asks is read off the one call the tier made.
     """
     client: Mock = create_autospec(McpClient, instance=True)
 
     return client
 
 
-def _asking(read: Mock,
-            write: Mock,
-            ask: Callable[[], object]) -> Callable[[], tuple[list[str], list[str]]]:
-    """Runs one binding and reports what each tier was asked for."""
-    def step() -> tuple[list[str], list[str]]:
-        ask()
+def _asking(write: Mock, ask: Callable[[WriteTier], object]) -> Callable[[], list[str]]:
+    """Runs one binding over the write tier `write` is the session of, and
+    reports which tools that session was asked for."""
+    def step() -> list[str]:
+        ask(WriteTier(write))
 
-        return (
-            [asked.args[0] for asked in read.call.call_args_list],
-            [asked.args[0] for asked in write.call.call_args_list]
-        )
+        return [asked.args[0] for asked in write.call.call_args_list]
 
     return step
 
 
-def _the_read_tier_was_asked_for(
-    *tools: str
-) -> Assertion[tuple[list[str], list[str]]]:
-    def assertion(asked: tuple[list[str], list[str]]) -> bool:
-        if asked[0] != list(tools):
-            raise AssertionError(
-                f"Expected the read tier to be asked for {list(tools)}, "
-                f"got {asked[0]}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_write_tier_was_asked_for(
-    *tools: str
-) -> Assertion[tuple[list[str], list[str]]]:
-    def assertion(asked: tuple[list[str], list[str]]) -> bool:
-        if asked[1] != list(tools):
+def _the_write_tier_was_asked_for(*tools: str) -> Assertion[list[str]]:
+    def assertion(asked: list[str]) -> bool:
+        if asked != list(tools):
             raise AssertionError(
                 f"Expected the write tier to be asked for {list(tools)}, "
-                f"got {asked[1]}."
+                f"got {asked}."
             )
 
         return True
