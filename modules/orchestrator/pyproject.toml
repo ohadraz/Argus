@@ -25,6 +25,10 @@ dependencies = [
     "argus-pay_band_source",
     "argus-revenue_source",
     "argus-exchange_rate_source",
+    # The worker builds both tiers' connections, and the walk's sources read
+    # the alert rule and the metrics over the read tier.
+    "argus-read_mcp_client",
+    "argus-write_mcp_client",
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres>=2.0",
     "opentelemetry-api>=1.45",
@@ -59,6 +63,8 @@ argus-oncall_source = { workspace = true }
 argus-pay_band_source = { workspace = true }
 argus-revenue_source = { workspace = true }
 argus-exchange_rate_source = { workspace = true }
+argus-read_mcp_client = { workspace = true }
+argus-write_mcp_client = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-investigation_agent = { workspace = true }
 argus-mitigation = { workspace = true }

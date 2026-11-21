@@ -29,8 +29,7 @@ from core.models import Alert
 from core.replay import CallType, ReplayEntry
 from incident_record.publishing import calls_into
 from incident_record.repository import incidents, replay
-from investigation_agent import investigate
-from investigation_agent.budget import InvestigationSettings
+from investigation_agent import InvestigationSettings, investigate
 
 from tests.framework.investigating import (
     logs_that_say_little,

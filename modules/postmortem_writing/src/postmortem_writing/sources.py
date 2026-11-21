@@ -1,15 +1,19 @@
-"""The two things the Postmortem needs that Argus cannot yet answer.
+"""The things the Postmortem needs to be told from outside Argus.
 
-Both are stated as the question the Postmortem Writer has, not as anything a provider
-offers: *what did the service take between these two times*, and *who
-responded to this incident and for how long*. Neither mentions a payment
-processor or an on-call tool, and nothing above these names one either.
+Each is stated as the question the Postmortem Writer has, not as anything a
+provider offers - *what did the service take between these two times*, *who
+responded to this incident and for how long* - and none of them names a
+payment processor, an on-call tool or any other vendor, nor does anything
+above them.
 
-They are ports rather than clients because no adapter exists yet. Defining
-them here rather than in `core` is deliberate: nothing else consumes
-them, and a shared abstraction with one consumer is a guess about the second.
+They are ports rather than clients, so that the question is the Postmortem
+Writer's and the answer is a vendor's: each is answered by an adapter in a
+package of its own, wired in by the process that writes the document, and
+nothing here knows which one answered. Defining them here rather than in `core`
+is deliberate: nothing else consumes them, and a shared abstraction with one
+consumer is a guess about the second.
 
-`None` from either is "could not be read", never "there was nothing". The
+`None` from any of them is "could not be read", never "there was nothing". The
 difference is the whole point of the type: a revenue source that is down must
 not become a postmortem reporting that the incident cost nothing.
 """

@@ -1066,7 +1066,8 @@ def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
         number=event.number,
         summary=said_plainly(event.summary, beside=formed_at),
         subject=event.subject,
-        confidence=_a_percentage(event.confidence) if event.confidence else None,
+        confidence=(_a_percentage(event.confidence) if event.confidence is not None
+                    else None),
         moved_from=said_as_a_state(event.from_state),
         moved_to=said_as_a_state(event.to_state),
         evidence=[a_finding(cited, beside=formed_at) for cited in event.evidence]

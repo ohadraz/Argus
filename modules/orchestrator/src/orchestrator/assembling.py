@@ -35,6 +35,7 @@ from incident_record import (
     waiting_for_people_via,
 )
 from investigation_agent import (
+    InvestigationSettings,
     changes_over,
     dependencies_over,
     deployment_diffs_over,
@@ -45,7 +46,6 @@ from investigation_agent import (
     rollouts_over,
 )
 from investigation_agent import investigate as _investigate
-from investigation_agent.budget import InvestigationSettings
 from mitigation import (
     MitigationSettings,
     an_undo_over,

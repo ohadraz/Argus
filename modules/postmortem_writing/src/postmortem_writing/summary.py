@@ -73,6 +73,10 @@ type _Written = Callable[[str], str]
 # candidates.
 _PLACES: Final = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh",
                   "eighth", "ninth", "tenth")
+# Past the tenth, the ending a place in figures takes by its last digit, and
+# the teens that take "th" whatever they end in.
+_ENDINGS: Final = {1: "st", 2: "nd", 3: "rd"}
+_TAKING_TH_WHATEVER_THEY_END_IN: Final = range(11, 14)
 
 # A candidate's label as the summary writes it after the candidate's place, and
 # an action item's after what it is about.
@@ -474,5 +478,13 @@ def _what_merging_it_alone_does(evidence: IncidentEvidence) -> str:
 
 
 def _counted(place: int) -> str:
-    """A place counted from one, as a sentence says it."""
-    return _PLACES[place - 1] if place <= len(_PLACES) else f"{place}th"
+    """A place counted from one, as a sentence says it: in words to the tenth,
+    and past it in figures with the ending English gives each - the teens
+    taking "th" whatever they end in."""
+    if place <= len(_PLACES):
+        return _PLACES[place - 1]
+
+    if place % 100 in _TAKING_TH_WHATEVER_THEY_END_IN:
+        return f"{place}th"
+
+    return f"{place}{_ENDINGS.get(place % 10, 'th')}"

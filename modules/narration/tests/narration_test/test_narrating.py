@@ -860,6 +860,20 @@ def test_a_candidate_shows_the_move_it_blamed_the_way_the_flag_table_does() -> N
 
 
 @pytest.mark.unit
+def test_a_candidate_believed_not_at_all_says_so() -> None:
+    # A confidence of nothing is a confidence the investigation gave - the
+    # candidate kept and believed not at all - and a line that dropped it
+    # would read as one given none.
+    believed_not_at_all = 0.0
+    a_candidate_believed_not_at_all = _a_hypothesis(confidence=believed_not_at_all)
+
+    Scenario() \
+        .given(a_candidate_believed_not_at_all) \
+        .when(lambda: build_narration([a_candidate_believed_not_at_all])) \
+        .then(_the_only_candidate_is_held_at("0%"))
+
+
+@pytest.mark.unit
 def test_the_candidates_formed_together_are_one_line() -> None:
     # An investigation forms its explanations in one breath, and a story that
     # spent a line on each would bury what it did next under a list. They are
@@ -3979,13 +3993,14 @@ def _a_hypothesis(summary: str = "dont care",
                   incident_id: str | None = None,
                   from_state: str | None = None,
                   to_state: str | None = None,
-                  number: int = 1) -> HypothesisFormed:
+                  number: int = 1,
+                  confidence: float | None = 0.9) -> HypothesisFormed:
     return HypothesisFormed(
         incident_id=incident_id or new_id(),
         hypothesis_id=new_id(),
         summary=summary,
         failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
-        confidence=0.9,
+        confidence=confidence,
         subject=SOME_FLAG,
         rank=rank,
         number=number,
@@ -4412,6 +4427,20 @@ def _the_only_candidate_moved(was: str, now: str) -> Assertion[list[NarrationLin
             raise AssertionError(
                 f"Expected the candidate to have moved [{was}] to [{now}], "
                 f"got [{candidate.moved_from}] to [{candidate.moved_to}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_candidate_is_held_at(expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        held_at = _the_only(narration).candidates[0].confidence
+
+        if held_at != expected:
+            raise AssertionError(
+                f"Expected the candidate to be held at [{expected}], got [{held_at}]."
             )
 
         return True

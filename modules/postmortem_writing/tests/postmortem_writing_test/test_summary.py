@@ -736,6 +736,33 @@ def test_a_held_back_cause_is_counted_as_its_label_counts_it() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("place", "said"), [(11, "11th"), (12, "12th"), (13, "13th"),
+                                              (21, "21st"), (22, "22nd"), (23, "23rd"),
+                                              (111, "111th"), (112, "112th"),
+                                              (113, "113th")])
+def test_a_held_back_cause_past_the_tenth_takes_the_ending_its_place_takes(
+        place: int, said: str) -> None:
+    # Past the tenth the place is said in figures, and a figure takes the
+    # ending English gives it - the 21st, never the 21th - with the teens the
+    # exception, taking "th" whatever they end in.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                *[a_candidate("dont care", subject=f"dont-care-{earlier}")
+                  for earlier in range(1, place)],
+                a_candidate("dont care", subject="scorer", tested=False,
+                            result="nothing could confirm it")])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says(f"Argus did not test the {said} candidate it formed (C{place}): nothing "
+                  f"could confirm it.")
+        )
+
+
+@pytest.mark.unit
 def test_a_draft_fix_and_a_recommended_action_are_said_as_left_to_a_person() -> None:
     # Never as having fixed anything: nothing ran the fix, and nothing took
     # the recommendation. The fix by the name the rest of the document gives

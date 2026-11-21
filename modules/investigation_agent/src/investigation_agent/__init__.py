@@ -9,7 +9,10 @@ None of the retrieval channels is defaulted, so the functions that build them ar
 doors as well. Each takes the connection a process holds to a tier and hands
 back the channel asked over it, which is what a composition root needs and all
 it needs: where a server is reached is a fact about a deployment, and nothing
-under this door has any business reading it.
+under this door has any business reading it. `InvestigationSettings` is a door
+for the same caller: how far an investigation may go, which model answers it
+and how hard, and the windows it reads are a deployment's to say, and the
+composition root is what says it.
 
 `BRIEF` and `investigator_tools` are doors for one reason and one caller: what
 the eval measures is a *prompt*, so the prompt has to be part of what names the
@@ -24,6 +27,7 @@ from __future__ import annotations
 
 from core.models import Findings, Reading
 
+from investigation_agent.budget import InvestigationSettings
 from investigation_agent.investigation import BRIEF, investigate
 from investigation_agent.retrieval import (
     changes_over,
@@ -39,6 +43,7 @@ from investigation_agent.tools import investigator_tools, read_tier_tools_over
 __all__ = [
     "BRIEF",
     "Findings",
+    "InvestigationSettings",
     "Reading",
     "changes_over",
     "dependencies_over",
