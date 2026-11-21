@@ -160,6 +160,25 @@ def test_a_package_named_like_the_adapter_is_not_the_adapter() -> None:
         .then(_these_are_refused([("vector_store_qdrant_tools.export", "qdrant_client")]))
 
 
+@pytest.mark.unit
+def test_the_model_vendors_sdk_named_past_its_adapter_is_refused() -> None:
+    # How the port came to be missing: the factory named the SDK's client in
+    # its own signature, so every caller of it held Anthropic's type.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("core.llm.building", "anthropic"))) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([("core.llm.building", "anthropic")]))
+
+
+@pytest.mark.unit
+def test_the_model_vendors_adapter_importing_its_sdk_passes() -> None:
+    # One module rather than a package, and the one place Anthropic is spoken.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("core.llm.adapters.anthropic_adapter", "anthropic"))) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([]))
+
+
 # The Mitigator's write, which accepts an admission and must never make one.
 THE_MITIGATOR_S_WRITE = "mitigation.trying"
 

@@ -204,7 +204,7 @@ name = "argus-codefix-agent"
 version = "0.1.0"
 source = { editable = "modules/codefix_agent" }
 dependencies = [
-    { name = "argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-core", extra = ["mcp"] },
     { name = "argus-narration" },
     { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
@@ -217,7 +217,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-core", extras = ["llm", "mcp"], editable = "modules/core" },
+    { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
     { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
@@ -491,7 +491,7 @@ name = "argus-investigation-agent"
 version = "0.1.0"
 source = { editable = "modules/investigation_agent" }
 dependencies = [
-    { name = "argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-core", extra = ["mcp"] },
     { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
 ]
@@ -503,7 +503,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-core", extras = ["llm", "mcp"], editable = "modules/core" },
+    { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
@@ -787,13 +787,13 @@ name = "argus-postmortem-writing"
 version = "0.1.0"
 source = { editable = "modules/postmortem_writing" }
 dependencies = [
-    { name = "argus-core", extra = ["llm"] },
+    { name = "argus-core" },
     { name = "argus-narration" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-core", extras = ["llm"], editable = "modules/core" },
+    { name = "argus-core", editable = "modules/core" },
     { name = "argus-narration", editable = "modules/narration" },
 ]
 

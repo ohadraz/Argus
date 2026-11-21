@@ -3,6 +3,9 @@ name = "argus-orchestrator"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    # The `llm` extra because this process's wiring (`assembling`) builds the
+    # model provider's adapter, which imports the vendor's SDK; the agents it
+    # hands the provider to take none.
     "argus-core[llm,mcp]",
     "argus-incident_record",
     "argus-narration",

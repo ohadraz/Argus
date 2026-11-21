@@ -10,7 +10,8 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings, new_id, parse_iso
-from core.llm import build_llm_client
+from core.llm import Conversation, build_llm_client
+from core.llm.adapters.anthropic_adapter import to_tool
 from core.models import (
     Alert,
     ChangeEvent,
@@ -20,6 +21,7 @@ from core.models import (
     Hypothesis,
     Meaning,
     MetricBucket,
+    ModelPolicy,
     Ownership,
     PodPlacement,
     ReportChannel,
@@ -34,6 +36,7 @@ from core.models import (
     Turn,
     a_chat_message,
 )
+from core.replay import Recorder
 from investigation_agent import BRIEF, Findings, investigate, investigator_tools
 from investigation_agent.budget import Bound, Budget, InvestigationSettings
 
@@ -42,6 +45,7 @@ from tests.framework.investigating import (
     the_configured_thresholds,
     what_the_read_tier_offers_the_investigator,
 )
+from tests.framework.models import the_configured_models
 from tests.framework.pooling import Outcome, Setup, the_samples_taken
 from tests.framework.spending import Spend, Tally
 
@@ -115,9 +119,14 @@ CASE_TWO_FLAGS_WITH_A_LEAD = "two-flags-with-a-lead-rank-the-fallback-first"
 # model that was handed the evidence rather than one that chooses its own reads.
 #
 # A bar is set where a batch of ten passes when nothing has changed and fails
-# when the rate really drops - so it sits below the pooled rate, not at it. The
-# five cases below are held 50 of 50 by every model and effort tried, which is
-# what makes them regression tests rather than comparisons; 9 is the first figure
+# when the rate really drops - so it sits below the pooled rate, not at it. Every
+# pooled row behind these bars asked one configuration - Opus 5 at high effort,
+# with no brief - whatever model or effort its arm was labelled with: the eval
+# built its client from the default policy until it was made to ask the
+# configured one. So the bars describe that configuration, and none of them yet
+# describes the model, effort and brief a deployment runs. The five cases below
+# are held 50 of 50 on every pooled arm, which is what makes them regression
+# tests rather than comparisons; 9 is the first figure
 # a single lapse survives while two do not. Re-measure after any change to
 # `BRIEF`, to a tool description, or to the budget, and do not re-derive from a
 # batch: 10 samples distinguish nothing short of total failure.
@@ -135,11 +144,13 @@ MUST_STAY_UNDETERMINED = 9  # 50/50 on every arm
 MUST_IDENTIFY_THE_BAD_DEPLOYMENT = 9  # 50/50 on every arm
 MUST_READ_PAST_THE_LOWER_BOUND = 9  # 50/50 on every arm
 MUST_IDENTIFY_THE_UPSTREAM_FAILURE = 9  # 50/50 on every arm
-# The one case no arm is reliably right about, and so the only one that tells two
-# configurations apart: 41 of 50 on the configured model, 38 of 50 on the tier
-# above it. A bar at 8 would fail one run in five with nothing wrong; 7 is what
-# 82% supports. Raising it means improving the model's judgement, not the number.
-MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 7  # 41/50 on the configured model
+# The one case no arm is reliably right about: 41 of 50 on the arm labelled with
+# the configured model, 38 of 50 on the arm labelled with the tier above it -
+# both Opus 5 at high with no brief, so two samples of one configuration rather
+# than a comparison. A bar at 8 would fail one run in five with nothing wrong; 7
+# is what 82% supports. Raising it means improving the model's judgement, not the
+# number.
+MUST_NOT_BLAME_THE_UNRELATED_CHANGE = 7  # 41/50, Opus 5 at high with no brief
 # The one bar in this file that is not derived from anything, because the case it
 # scores did not exist when the pools were taken and cannot be measured before it
 # does. It is written at its siblings' figure as a starting point and is not
@@ -627,11 +638,14 @@ def test_a_dependency_failing_outside_the_service_is_identified() -> None:
     # and a model that says so has read the evidence rather than guessed at it.
     some_incident = an_incident_where_an_upstream_dependency_failed()
 
-    Scenario()         .given(
+    Scenario() \
+        .given(
             some_incident
-        )         .when(
+        ) \
+        .when(
             lambda: _the_real_model_investigates_repeatedly(some_incident)
-        )         .then(
+        ) \
+        .then(
             _scored(
                 CASE_THE_UPSTREAM_FAILURE,
                 MUST_IDENTIFY_THE_UPSTREAM_FAILURE,
@@ -2418,9 +2432,12 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
     """Investigates the same incident `RUNS_PER_CASE` times, concurrently.
 
     Concurrently because a whole tool-use investigation at high effort is
-    minutes of wall clock, and ten of them in sequence is most of an hour. The
-    SDK client is safe to share across threads, so one client serves all of
-    them and they share a connection pool.
+    minutes of wall clock, and ten of them in sequence is most of an hour.
+
+    Each run's conversation is built the way a deployment builds it - over the
+    configured provider, under the policy the Investigator asks for: its model,
+    its effort and its brief. So what is scored is the agent a deployment runs,
+    and the pool's model and brief say what was actually asked.
 
     Each run gets its own budget: a shared one would have the first
     investigation to finish spending the tenth one's tokens, and every case
@@ -2430,7 +2447,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
     findings and what they cost, and a run that also filed receipts would be
     measuring the same model through more code.
     """
-    client = build_llm_client()
+    models = the_configured_models()
 
     def investigate_once(_: int) -> Run:
         spend = Budget(
@@ -2438,10 +2455,20 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
         )
         # Its own tally for the reason it has its own budget: what one run cost
         # is its own, not whatever the runs beside it spent.
-        tally = Tally(client)
+        tallies: list[Tally] = []
 
-        def speak(transcript: Transcript, tools: list[ToolDefinition]) -> Turn:
-            return tally.converse(transcript, tools)
+        def tallied(incident_id: str,
+                    recorder: Recorder,
+                    *,
+                    policy: ModelPolicy | None = None) -> Conversation:
+            tally = Tally(build_llm_client(models, policy=policy))
+            tallies.append(tally)
+
+            def speak(transcript: Transcript, tools: list[ToolDefinition], /) -> Turn:
+                return tally.converse(transcript, tools)
+
+            return speak
+
         findings = investigate(
             incident.alert,
             new_id(),
@@ -2456,9 +2483,11 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
             read_tier_tools=what_the_read_tier_offers_the_investigator,
-            converse=speak,
+            conversations=tallied,
             budget=spend
         )
+        # One conversation per investigation, built before anything is read.
+        [tally] = tallies
 
         return Run(findings=findings, ran_out_of=spend.bounds_reached(), spent=tally.spent())
 
@@ -2579,12 +2608,12 @@ def the_setup_under_test() -> Setup:
         texts={
             "brief": BRIEF,
             # As the model is offered them, not as they are written: a tool's
-            # description is part of the prompt, and `to_wire` is the only
-            # rendering that carries every field the model actually sees. Sorted
-            # so the text is about the content rather than about dictionary
-            # order.
+            # description is part of the prompt, and the adapter's `to_tool` is
+            # the only rendering that carries every field the model actually
+            # sees. Sorted so the text is about the content rather than about
+            # dictionary order.
             "tools": json.dumps(
-                [offered.to_wire() for offered in investigator_tools(
+                [to_tool(offered) for offered in investigator_tools(
                     what_the_read_tier_offers_the_investigator()
                 )],
                 sort_keys=True

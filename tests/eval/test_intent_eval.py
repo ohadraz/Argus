@@ -9,10 +9,12 @@ from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings
 from core.llm import build_llm_client
+from core.llm.adapters.anthropic_adapter import to_tool
 from core.models import Meaning, ModelPolicy
 from message_intent.classifying import classify
 from message_intent.prompting import SUBMIT_MEANING, opening_ask
 
+from tests.framework.models import the_configured_models
 from tests.framework.pooling import Outcome, Setup, the_samples_taken
 from tests.framework.spending import Spend, Tally
 
@@ -139,6 +141,7 @@ def _the_real_model_reads_repeatedly(words: str) -> list[Reading]:
     """
     settings = get_settings()
     llm = build_llm_client(
+        the_configured_models(),
         policy=ModelPolicy(model=settings.intent_model, effort=settings.intent_effort)
     )
 
@@ -188,7 +191,7 @@ def the_setup_under_test() -> Setup:
         effort=settings.intent_effort,
         values={},
         texts={
-            "tool": json.dumps(SUBMIT_MEANING.to_wire(), sort_keys=True),
+            "tool": json.dumps(to_tool(SUBMIT_MEANING), sort_keys=True),
             "ask": json.dumps(
                 [said.model_dump(mode="json") for said in opening_ask("<the message>")],
                 sort_keys=True

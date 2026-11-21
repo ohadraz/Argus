@@ -27,27 +27,25 @@ from core.models.model_policy import (
     DEFAULT_EFFORT,
     DEFAULT_MAX_OUTPUT_TOKENS,
     DEFAULT_MODEL,
-    LARGEST_UNSTREAMED_ANSWER,
-    Effort,
     ModelPolicy,
+    Reasoning,
 )
 from pydantic import ValidationError
 
-# Anthropic's five, written out here rather than read off `Effort`. That is the
-# whole point of the acceptance case below: a level the API offers and the
-# `Literal` has lost is a level no deployment can select, and a list derived
-# from `Effort` would lose it in the same breath and report nothing. Annotated
-# rather than inferred, so that losing one fails the type check as well as the
-# run - the same guard said twice, once at each moment it could be noticed.
-EVERY_EFFORT_THE_MODEL_OFFERS: tuple[Effort, ...] = ("low", "medium", "high", "xhigh", "max")
+# Argus's five, written out here rather than read off `Reasoning`. That is the
+# whole point of the acceptance case below: a level the scale has lost is a
+# level no deployment can select, and a list derived from `Reasoning` would lose
+# it in the same breath and report nothing. As text, because text is how a
+# level arrives - out of an environment, as words nobody type-checked.
+EVERY_LEVEL_A_DEPLOYMENT_MAY_NAME = ("low", "medium", "high", "higher", "highest")
 
 
 @pytest.mark.unit
-def test_an_effort_the_model_does_not_offer_is_refused() -> None:
-    # The reason this is a `Literal` and not a string. An effort nobody
-    # implements is a request the API rejects, and the useful moment to find
-    # that out is when the configuration is read rather than partway through
-    # the first incident of the day.
+def test_an_effort_nobody_implements_is_refused() -> None:
+    # The reason this is an enum and not a string. An effort nobody
+    # implements is a request no provider can take, and the useful moment to
+    # find that out is when the configuration is read rather than partway
+    # through the first incident of the day.
     #
     # Validated from a mapping rather than constructed, because a mapping is
     # how such a value actually arrives - out of an environment, as text
@@ -60,6 +58,29 @@ def test_an_effort_the_model_does_not_offer_is_refused() -> None:
         .when(
             attempting(
                 lambda: ModelPolicy.model_validate({"effort": an_effort_nobody_implements})
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValidationError),
+                the_error_mentioned("effort")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_vendors_own_spelling_of_a_level_is_refused() -> None:
+    # The scale is Argus's, so a deployment written against one vendor's words
+    # fails when it loads rather than reaching that vendor by accident - or,
+    # worse, being read as some other level by a provider that spells it
+    # differently.
+    Scenario() \
+        .given(
+            a_vendors_own_word := "xhigh"
+        ) \
+        .when(
+            attempting(
+                lambda: ModelPolicy.model_validate({"effort": a_vendors_own_word})
             )
         ) \
         .then(
@@ -90,46 +111,28 @@ def test_a_policy_nobody_configured_asks_what_every_agent_used_to_ask() -> None:
 
 
 @pytest.mark.unit
-def test_the_default_answer_fits_in_one_response() -> None:
-    # The default has to sit under the line where the SDK refuses to send a
-    # non-streaming request, because most agents answer with a short verdict
-    # and streaming every one of them would take on the harder-to-read
-    # failure mode for nothing. Code-Fix is the exception and says so by
-    # configuring its own.
-    Scenario() \
-        .given(
-            where_an_answer_starts_having_to_stream := LARGEST_UNSTREAMED_ANSWER
-        ) \
-        .when(
-            lambda: ModelPolicy().max_output_tokens
-        ) \
-        .then(
-            _room_enough_to_stay_under(where_an_answer_starts_having_to_stream)
-        )
-
-
-@pytest.mark.unit
-def test_every_effort_the_model_offers_is_accepted() -> None:
+def test_every_level_a_deployment_may_name_is_accepted() -> None:
     # The other side of the rejection above, and the one that would fail
-    # silently: a `Literal` missing a level the API supports is a level no
-    # deployment can select, and nothing would say so except a configuration
-    # that refused to load.
+    # silently: a scale missing a level is a level no deployment can select,
+    # and nothing would say so except a configuration that refused to load.
     Scenario() \
         .given(
-            EVERY_EFFORT_THE_MODEL_OFFERS
+            EVERY_LEVEL_A_DEPLOYMENT_MAY_NAME
         ) \
         .when(
             lambda: [
-                ModelPolicy(effort=effort).effort
-                for effort in EVERY_EFFORT_THE_MODEL_OFFERS
+                ModelPolicy.model_validate({"effort": named}).effort
+                for named in EVERY_LEVEL_A_DEPLOYMENT_MAY_NAME
             ]
         ) \
         .then(
-            _all_of_them_came_back(EVERY_EFFORT_THE_MODEL_OFFERS)
+            _all_of_them_came_back(EVERY_LEVEL_A_DEPLOYMENT_MAY_NAME)
         )
 
 
-def _it_asks_for(model: str, effort: Effort, max_output_tokens: int) -> Assertion[ModelPolicy]:
+def _it_asks_for(model: str,
+                 effort: Reasoning,
+                 max_output_tokens: int) -> Assertion[ModelPolicy]:
     """The three answers an unconfigured policy gives, checked together.
 
     Together rather than one at a time, because the claim is about the whole
@@ -158,31 +161,18 @@ def _it_asks_for(model: str, effort: Effort, max_output_tokens: int) -> Assertio
     return assertion
 
 
-def _room_enough_to_stay_under(ceiling: int) -> Assertion[int]:
-    """That the default cap does not itself require streaming to send."""
-    def assertion(room: int) -> bool:
-        if room > ceiling:
-            raise AssertionError(
-                f"Expected the default room to stay under [{ceiling}], got [{room}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _all_of_them_came_back(expected: tuple[Effort, ...]) -> Assertion[list[Effort]]:
-    """That every level offered was accepted, and came back as it was given.
+def _all_of_them_came_back(expected: tuple[str, ...]) -> Assertion[list[Reasoning]]:
+    """That every level named was accepted, and came back as it was named.
 
     Came back rather than merely did not raise: a field that accepted a level
     and stored something else would satisfy "no error" and be wrong in the way
     that matters, since what is read afterwards is the stored value.
     """
-    def assertion(accepted: list[Effort]) -> bool:
-        if list(expected) != accepted:
+    def assertion(accepted: list[Reasoning]) -> bool:
+        if [str(level) for level in accepted] != list(expected):
             raise AssertionError(
-                f"Expected every effort the model offers to come back as given, "
-                f"asked for {list(expected)} and got {accepted}."
+                f"Expected every level a deployment may name to come back as named, "
+                f"named {list(expected)} and got {[str(level) for level in accepted]}."
             )
 
         return True

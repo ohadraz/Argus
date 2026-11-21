@@ -13,7 +13,7 @@ would be checking Argus.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any, Final, cast
+from typing import Any, Final
 from uuid import uuid4
 
 import anthropic
@@ -31,6 +31,7 @@ from core.llm.adapters.anthropic_adapter import (
     MODEL,
     TOOL_USE_STOP_REASON,
     TOOL_USE_TYPE,
+    to_tool,
 )
 from investigation_agent.tools import investigator_tools
 
@@ -88,9 +89,9 @@ TOOL_THE_MODEL_MUST_USE_TO_ANSWER: ToolParam = {
 
 
 def _what_the_investigator_offers() -> list[ToolParam]:
-    """Every tool the loop offers, rendered by the `to_wire` the adapter sends."""
+    """Every tool the loop offers, rendered by the `to_tool` the adapter sends."""
     return [
-        cast(ToolParam, tool.to_wire())
+        to_tool(tool)
         for tool in investigator_tools(what_the_read_tier_offers_the_investigator())
     ]
 
@@ -163,7 +164,7 @@ def test_the_real_api_accepts_every_tool_the_investigator_offers() -> None:
     # means a schema the API rejects passes every free suite and fails only
     # when a real incident is investigated.
     #
-    # What is offered is what the loop offers, rendered by the same `to_wire`
+    # What is offered is what the loop offers, rendered by the same `to_tool`
     # the adapter sends, because a schema written out by hand here would only
     # be checking this test's idea of the offer. The only assertion is that a
     # turn came back at all: the contract being checked is that the request was

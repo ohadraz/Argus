@@ -14,7 +14,6 @@ is indistinguishable, downstream, from one that was never asked.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of
@@ -27,6 +26,7 @@ from codefix_agent.prompting import (
     SUBMIT_FIX,
     SubmittedFix,
 )
+from core.models import ToolDefinition
 
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_CONTENT = "def average_spend_per_item_this_month(account):\n    return 0\n"
@@ -248,7 +248,7 @@ def test_the_submit_tool_will_not_accept_a_patch_with_no_files() -> None:
     # `minItems` is one of the few numeric constraints strict mode honours, and
     # only for 0 and 1 - which is exactly the bound wanted here.
     Scenario() \
-        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .when(lambda: SUBMIT_FIX) \
         .then(
             all_of(
                 _the_schema_requires(FILES_FIELD),
@@ -267,7 +267,7 @@ def test_nothing_to_change_is_its_own_tool_and_carries_its_reasoning() -> None:
     # asked for one is what makes submitting this a conclusion rather than a way
     # out of a hard read.
     Scenario() \
-        .when(lambda: REPORT_NOTHING_TO_CHANGE.to_wire()) \
+        .when(lambda: REPORT_NOTHING_TO_CHANGE) \
         .then(
             all_of(
                 _the_tool_is_called(REPORT_TOOL_NAME),
@@ -283,7 +283,7 @@ def test_a_fix_is_submitted_with_an_explanation_of_what_it_found() -> None:
     # showed why the new model scored lower, beside a patch that fixed exactly
     # that.
     Scenario() \
-        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .when(lambda: SUBMIT_FIX) \
         .then(_the_schema_requires(EXPLANATION_FIELD))
 
 
@@ -319,7 +319,7 @@ def test_the_patch_field_says_a_test_for_slowness_has_to_bound_something() -> No
     # model cannot be expected to notice on its own: it is asked for a test that
     # fails first, and its test does fail to *prove* anything while passing.
     Scenario() \
-        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .when(lambda: SUBMIT_FIX) \
         .then(
             all_of(
                 _the_description_of(FILES_FIELD, mentions="bound"),
@@ -337,7 +337,7 @@ def test_the_explanation_says_what_the_test_is_written_to_show_never_that_it_fai
     # both as fact. So the request is worded as one about the writing, and the
     # explanation is told what it may claim.
     Scenario() \
-        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .when(lambda: SUBMIT_FIX) \
         .then(
             all_of(
                 _the_description_of(FILES_FIELD,
@@ -356,7 +356,7 @@ def test_the_explanation_says_what_a_file_says_only_of_that_file() -> None:
     # What a comment says is nothing a check can verify afterwards, so the
     # explanation is told to tie each such claim to the one file it comes from.
     Scenario() \
-        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .when(lambda: SUBMIT_FIX) \
         .then(
             _the_description_of(EXPLANATION_FIELD,
                                 mentions="only of the file that says it, naming it by its path")
@@ -375,7 +375,7 @@ def test_the_explanation_says_what_code_does_no_wider_than_its_lines(asked: str)
     # the purchases among the readers that "read the stored figure as if it were
     # true" - having read that comparison in full.
     Scenario() \
-        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .when(lambda: SUBMIT_FIX) \
         .then(
             _the_description_of(EXPLANATION_FIELD, mentions=asked)
         )
@@ -390,7 +390,7 @@ def test_the_explanation_leaves_what_the_incident_did_to_the_investigation() -> 
     # took it up in the root cause. Code-Fix reads code, not telemetry, so what
     # the incident did is left to the investigation that measured it.
     Scenario() \
-        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .when(lambda: SUBMIT_FIX) \
         .then(
             _the_description_of(EXPLANATION_FIELD,
                                 mentions="what the incident did - how many requests or "
@@ -399,9 +399,9 @@ def test_the_explanation_leaves_what_the_incident_did_to_the_investigation() -> 
         )
 
 
-def _the_description_of(field: str, mentions: str) -> Assertion[dict[str, Any]]:
-    def assertion(offered: dict[str, Any]) -> bool:
-        said = offered["input_schema"]["properties"][field]["description"]
+def _the_description_of(field: str, mentions: str) -> Assertion[ToolDefinition]:
+    def assertion(offered: ToolDefinition) -> bool:
+        said = offered.properties[field]["description"]
 
         if mentions not in said:
             raise AssertionError(
@@ -458,49 +458,12 @@ def test_a_module_that_is_only_its_docstring_is_kept() -> None:
         .then(_the_patch_is({"src/io_shop/__init__.py": an_init}))
 
 
-@pytest.mark.unit
-def test_a_patch_written_as_parameter_tags_inside_the_explanation_is_read() -> None:
-    # Measured on two paid runs, five submissions, every one the same. The model
-    # closes the prose with `</explanation>`, opens `<parameter name="files">`,
-    # and writes the whole patch as JSON inside the explanation string - while
-    # the `files` argument that arrives properly holds a phrase pointing at it.
-    #
-    # Nothing was lost and nothing was wrong with the fix: the patches recovered
-    # this way are 67-68KB of `monthly_statement.py` plus its tests, which is the
-    # shape of every recording that ever worked. What it cost was the run - four
-    # rejections, a whole wall clock spent resubmitting, and a walk reported as
-    # having read until it ran out.
-    #
-    # Repaired rather than refused, for the reason the stray closing tag above is
-    # and the array inside a string before it: the wrapping was wrong and the
-    # answer was not.
-    prose = "The month with no purchases raises from `max`."
-    patch = json.dumps([{"path": SOME_PATH, "content": SOME_CONTENT}])
-
-    Scenario() \
-        .when(
-            lambda: SubmittedFix.model_validate({
-                "summary": "dont care",
-                "explanation": (
-                    f"{prose}</explanation>\n<parameter name=\"files\">{patch}"
-                ),
-                "files": [{"path": SOME_PATH, "content": "(see explanation)"}]
-            })
-        ) \
-        .then(
-            all_of(
-                _the_patch_is({SOME_PATH: SOME_CONTENT}),
-                _the_explanation_is(prose)
-            )
-        )
-
-
-def _the_tool_is_called(name: str) -> Assertion[dict[str, Any]]:
-    def assertion(offered: dict[str, Any]) -> bool:
-        if offered["name"] != name:
+def _the_tool_is_called(name: str) -> Assertion[ToolDefinition]:
+    def assertion(offered: ToolDefinition) -> bool:
+        if offered.name != name:
             raise AssertionError(
                 f"Expected the tool to be called [{name!r}], got "
-                f"[{offered['name']!r}]."
+                f"[{offered.name!r}]."
             )
 
         return True
@@ -508,9 +471,9 @@ def _the_tool_is_called(name: str) -> Assertion[dict[str, Any]]:
     return assertion
 
 
-def _the_schema_requires(field: str) -> Assertion[dict[str, Any]]:
-    def assertion(offered: dict[str, Any]) -> bool:
-        required = offered["input_schema"]["required"]
+def _the_schema_requires(field: str) -> Assertion[ToolDefinition]:
+    def assertion(offered: ToolDefinition) -> bool:
+        required = offered.required
 
         if field not in required:
             raise AssertionError(
@@ -522,9 +485,9 @@ def _the_schema_requires(field: str) -> Assertion[dict[str, Any]]:
     return assertion
 
 
-def _the_schema_asks_for_at_least_one(field: str) -> Assertion[dict[str, Any]]:
-    def assertion(offered: dict[str, Any]) -> bool:
-        asked = offered["input_schema"]["properties"][field].get("minItems")
+def _the_schema_asks_for_at_least_one(field: str) -> Assertion[ToolDefinition]:
+    def assertion(offered: ToolDefinition) -> bool:
+        asked = offered.properties[field].get("minItems")
 
         if asked != 1:
             raise AssertionError(

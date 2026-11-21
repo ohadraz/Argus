@@ -269,13 +269,14 @@ allow_indirect_imports = true
 # `models.reading`, and a package that had to go through its own front door
 # would import itself while still importing.
 #
-# Two of the doors are narrower than the rest, and that is the other half of
-# `core`'s extras. `anthropic` and `mcp` are optional dependencies, taken
-# by the modules that go through `core.llm` and `core.mcp_transport`
-# and by nobody else. A module reaching one without declaring the extra would
-# work in the workspace venv and fail wherever that module is resolved on its
-# own - so the allowance names the modules, and reaching past it is a broken
-# contract here rather than an ImportError in a walk.
+# Some doors are narrower than the rest, and that is the other half of
+# `core`'s extras. `anthropic` and `mcp` are optional dependencies, taken by
+# the modules that go through the model provider's adapter and
+# `core.mcp_transport` and by nobody else. A module reaching one without
+# declaring the extra would work in the workspace venv and fail wherever that
+# module is resolved on its own - so the allowance names the modules, and
+# reaching past it is a broken contract here rather than an ImportError in a
+# walk.
 ignore_imports = [
     "core.** -> core.**",
     "** -> core.models",
@@ -311,11 +312,18 @@ ignore_imports = [
     # by it, the read server the store it searches, and the corpora the store
     # they write - and the vendor behind it is `vector_store_qdrant`'s alone.
     "** -> core.vector_store",
-    "codefix_agent.** -> core.llm",
-    "investigation_agent.** -> core.llm",
-    "message_intent.** -> core.llm",
-    "orchestrator.** -> core.llm",
-    "postmortem_writing.** -> core.llm",
+    # The model's port, and a door for everyone, like the vector store's: the
+    # client interface, the provider port, the factory and the conversations
+    # import no third party, so naming them installs nothing.
+    "** -> core.llm",
+    # The model provider's adapter, and narrower than any door above: a
+    # process's wiring builds it and hands it out as `core.llm.ModelProvider`,
+    # and nothing else names a model vendor. The worker's and the Intent
+    # Reader's, the two processes that ask a model anything - and the two that
+    # take `core`'s `llm` extra, which carries the vendor's SDK the adapter
+    # imports.
+    "orchestrator.assembling -> core.llm.adapters.anthropic_adapter",
+    "message_intent.watching -> core.llm.adapters.anthropic_adapter",
     "codefix_agent.** -> core.mcp_transport",
     "investigation_agent.** -> core.mcp_transport",
     "mitigation.** -> core.mcp_transport",

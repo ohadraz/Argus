@@ -52,7 +52,6 @@ from core.llm import (
     Conversations,
     ModelDidNotAnswer,
     ModelRefused,
-    a_conversation_recorded_for,
 )
 from core.models import (
     REVERT_FEATURE_FLAG,
@@ -61,15 +60,16 @@ from core.models import (
     CodeOutsideThePatch,
     CodeSearch,
     CodeUse,
-    Effort,
     Evidence,
     FailureMode,
     FileAsItRan,
     Hypothesis,
     Leads,
     Meaning,
+    ModelPolicy,
     OpenedPullRequest,
     ProposedFix,
+    Reasoning,
     ReportChannel,
     Standing,
     ThreadMessage,
@@ -138,7 +138,7 @@ FILES_NAMED_IN_THE_EVIDENCE = "Files named in the evidence:"
 WHICH_THE_REPOSITORY_DOES_NOT_HOLD = "which the repository does not hold"
 
 SOME_MODEL = "claude-sonnet-5"
-SOME_EFFORT: Effort = "medium"
+SOME_EFFORT = Reasoning.MEDIUM
 SOME_MAX_OUTPUT_TOKENS = 128_000
 
 # Past every bound a test can set, so the two bounds a test did not name stay
@@ -208,7 +208,7 @@ def test_the_model_is_told_what_the_investigation_concluded() -> None:
                 some_hypothesis,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -241,7 +241,7 @@ def test_the_model_is_told_the_evidence_the_conclusion_rests_on() -> None:
                 some_hypothesis,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -273,7 +273,7 @@ def test_the_model_is_told_which_files_the_evidence_names_and_which_are_missing(
                 some_hypothesis,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository(holding=[SOME_PATH]).ports()
             )
         ) \
@@ -303,7 +303,7 @@ def test_evidence_naming_only_a_missing_file_is_told_that_file_alone() -> None:
                 some_hypothesis,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository(holding=[SOME_PATH]).ports()
             )
         ) \
@@ -333,7 +333,7 @@ def test_evidence_naming_no_file_is_given_no_list_of_files() -> None:
                 some_hypothesis,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository(holding=[SOME_PATH]).ports()
             )
         ) \
@@ -360,7 +360,7 @@ def test_the_model_is_told_what_people_wrote_and_what_the_investigation_made_of_
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=lambda: [a_supported_lead],
                 **repository.ports()
             )
@@ -388,7 +388,7 @@ def test_a_lead_the_investigation_never_weighed_is_said_to_be_unweighed() -> Non
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=lambda: [an_unweighed_lead],
                 **repository.ports()
             )
@@ -420,7 +420,7 @@ def test_a_lead_the_investigation_refuted_is_put_below_the_finding_not_against_i
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=lambda: [a_refuted_lead],
                 **repository.ports()
             )
@@ -456,7 +456,7 @@ def test_a_lead_is_followed_by_what_argus_did_and_whether_each_change_stands() -
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=lambda: [a_lead_the_reads_could_not_settle],
                 done=[some_put_back, some_in_place],
                 **repository.ports()
@@ -489,7 +489,7 @@ def test_a_lead_on_an_incident_nothing_was_done_about_is_followed_by_no_word_of_
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=lambda: [a_weighed_lead],
                 done=[],
                 **repository.ports()
@@ -515,7 +515,7 @@ def test_a_fix_nobody_wrote_about_is_told_nothing_of_what_argus_did() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 done=[some_put_back],
                 **repository.ports()
             )
@@ -542,7 +542,7 @@ def test_a_fix_nobody_wrote_about_is_told_nothing_of_a_thread() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -568,7 +568,7 @@ def test_a_lead_written_while_the_fix_is_worked_out_rides_on_the_next_result() -
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=_leads_arriving_after(1, [a_late_lead]),
                 **repository.ports()
             )
@@ -598,7 +598,7 @@ def test_a_lead_written_while_the_fix_is_worked_out_is_said_to_be_unweighed() ->
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=_leads_arriving_after(1, [a_late_lead]),
                 **repository.ports()
             )
@@ -628,7 +628,7 @@ def test_a_lead_is_shown_once_however_often_the_thread_is_asked() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=lambda: [some_lead],
                 **repository.ports()
             )
@@ -657,7 +657,7 @@ def test_a_lead_written_while_the_model_only_talks_still_reaches_it() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 leads=_leads_arriving_after(1, [a_late_lead]),
                 **repository.ports()
             )
@@ -685,7 +685,7 @@ def test_a_turn_that_only_talks_is_answered_with_something_to_read() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -707,7 +707,7 @@ def test_a_request_to_list_the_repository_is_answered_with_its_files() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -738,7 +738,7 @@ def test_a_search_is_answered_with_where_the_cause_appears() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -764,7 +764,7 @@ def test_a_search_is_made_at_the_branch_the_fix_is_cut_from() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(base_branch=the_deployed_branch),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -786,7 +786,7 @@ def test_the_model_is_told_to_search_before_it_reads() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -843,7 +843,7 @@ def test_a_fault_that_already_wrote_wrong_values_is_asked_for_a_repair_too() -> 
                 ),
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository(holding=[SOME_PATH]).ports()
             )
         ) \
@@ -864,7 +864,7 @@ def test_an_ordinary_fault_is_asked_for_nothing_but_the_fix() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository(holding=[SOME_PATH]).ports()
             )
         ) \
@@ -899,7 +899,7 @@ def test_the_model_is_handed_the_repositorys_files_before_it_asks() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -993,7 +993,7 @@ def test_the_model_is_asked_what_in_the_code_let_the_incident_happen() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1073,7 +1073,7 @@ def test_a_search_by_meaning_is_answered_with_the_passages_it_found() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1099,7 +1099,7 @@ def test_a_search_by_meaning_that_matched_nothing_says_so() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1124,7 +1124,7 @@ def test_a_search_by_meaning_is_made_at_the_branch_the_fix_is_cut_from() -> None
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(base_branch=the_deployed_branch),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1150,7 +1150,7 @@ def test_an_index_that_could_not_be_searched_does_not_end_the_work() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1187,7 +1187,7 @@ def test_a_listing_that_could_not_be_fetched_does_not_end_the_work() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1213,7 +1213,7 @@ def test_an_index_that_is_behind_is_said_before_the_model_reads_anything() -> No
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1233,7 +1233,7 @@ def test_an_index_that_is_current_adds_nothing_to_what_the_model_is_told() -> No
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1255,7 +1255,7 @@ def test_a_revision_the_branch_read_does_not_contain_is_said_before_the_model_re
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(base_branch="main"),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=SOME_REVISION_THAT_RAN,
                 **repository.ports()
             )
@@ -1281,7 +1281,7 @@ def test_a_revision_the_branch_read_contains_adds_nothing_to_what_the_model_is_t
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=SOME_REVISION_THAT_RAN,
                 **repository.ports()
             )
@@ -1302,7 +1302,7 @@ def test_with_no_revision_known_to_have_run_the_branch_is_not_asked() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=None,
                 **repository.ports()
             )
@@ -1326,7 +1326,7 @@ def test_a_branch_that_could_not_be_asked_says_nothing_and_does_not_end_the_work
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=SOME_REVISION_THAT_RAN,
                 **repository.ports()
             )
@@ -1363,7 +1363,7 @@ def test_a_proposal_comes_back_saying_whether_the_branch_read_holds_what_ran(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=deployed,
                 **repository.ports()
             )
@@ -1383,7 +1383,7 @@ def test_nothing_to_change_comes_back_saying_whether_the_branch_read_holds_what_
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=SOME_REVISION_THAT_RAN,
                 **a_repository(containing_what_ran=False).ports()
             )
@@ -1403,7 +1403,7 @@ def test_a_proposal_comes_back_naming_the_branch_it_read() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(base_branch="release"),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository().ports()
             )
         ) \
@@ -1425,7 +1425,7 @@ def test_a_proposal_comes_back_with_the_files_its_reading_names_as_they_ran() ->
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=SOME_REVISION_THAT_RAN,
                 **a_repository().ports()
             )
@@ -1510,7 +1510,7 @@ def test_a_request_to_read_a_file_is_answered_with_its_source() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1542,7 +1542,7 @@ def test_a_file_that_is_not_there_is_reported_back_rather_than_ending_the_work()
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1568,7 +1568,7 @@ def test_a_submitted_fix_is_written_to_a_branch_of_this_incidents_own() -> None:
                 DONT_CARE_HYPOTHESIS,
                 some_incident,
                 settings=some_settings(base_branch="main"),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1602,7 +1602,7 @@ def test_the_proposal_carries_the_models_own_words() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1631,7 +1631,7 @@ def test_what_comes_back_is_where_the_proposal_can_be_read() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1664,7 +1664,7 @@ def test_a_proposal_bringing_no_test_comes_back_saying_so() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1688,7 +1688,7 @@ def test_a_model_reporting_nothing_to_change_writes_nothing_and_proposes_nothing
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1716,7 +1716,7 @@ def test_a_proposal_comes_back_with_what_the_model_said_of_the_code() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository().ports()
             )
         ) \
@@ -1738,7 +1738,7 @@ def test_nothing_to_change_comes_back_with_why_there_is_nothing() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **a_repository().ports()
             )
         ) \
@@ -1765,7 +1765,7 @@ def test_a_submitted_fix_is_asked_whether_it_needs_code_outside_this_repository(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1797,7 +1797,7 @@ def test_a_fix_that_helps_only_once_code_outside_changes_is_written_and_not_kept
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1829,7 +1829,7 @@ def test_an_answer_with_no_question_open_is_told_so() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1857,7 +1857,7 @@ def test_an_answer_sent_with_the_submission_is_not_its_answer() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1884,7 +1884,7 @@ def test_reporting_nothing_to_change_once_asked_proposes_nothing() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1915,7 +1915,7 @@ def test_a_fix_submitted_again_once_asked_is_asked_about_again() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1943,7 +1943,7 @@ def test_a_fix_submitted_on_the_last_call_is_still_asked_about() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(max_tool_calls=one_call),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -1966,7 +1966,7 @@ def test_a_fix_whose_question_is_never_answered_did_not_finish() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=one_call),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -1999,7 +1999,7 @@ def test_a_fix_submitted_again_in_the_room_for_its_answer_did_not_finish() -> No
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=one_call),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2030,7 +2030,7 @@ def test_every_turn_is_offered_the_same_tools() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2058,7 +2058,7 @@ def test_the_model_is_offered_what_the_read_tier_serves_on_every_turn() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2082,7 +2082,7 @@ def test_the_read_tier_is_asked_what_it_serves_once_however_many_turns() -> None
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2106,7 +2106,7 @@ def test_a_model_that_only_talks_once_asked_is_asked_again() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2135,7 +2135,7 @@ def test_an_answer_that_cannot_be_read_is_asked_again() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2177,7 +2177,7 @@ def test_a_read_sent_with_the_submission_waits_for_the_answer() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2209,7 +2209,7 @@ def test_a_model_asked_about_its_patch_is_not_told_to_submit_one() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(max_tool_calls=three_calls),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2243,7 +2243,7 @@ def test_a_model_that_never_submits_says_so_rather_than_proposing_nothing() -> N
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=3),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2272,7 +2272,7 @@ def test_a_fix_nobody_wants_any_more_stops_before_its_next_turn() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     still_wanted=_wanted_for(turns=1),
                     **repository.ports()
                 )
@@ -2305,7 +2305,7 @@ def test_a_fix_submitted_after_the_withdrawal_is_never_proposed() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     still_wanted=_wanted_for(turns=2),
                     **repository.ports()
                 )
@@ -2334,7 +2334,7 @@ def test_a_fix_stopped_between_turns_is_logged(caplog: pytest.LogCaptureFixture)
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     still_wanted=_wanted_for(turns=1),
                     **repository.ports()
                 )
@@ -2365,7 +2365,7 @@ def test_a_fix_withheld_before_it_was_written_is_logged(
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     still_wanted=_wanted_for(turns=2),
                     **repository.ports()
                 )
@@ -2399,7 +2399,7 @@ def test_a_model_that_declines_says_so_rather_than_looking_like_a_broken_reposit
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2425,7 +2425,7 @@ def test_a_declined_fix_carries_none_of_the_adapters_words() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2450,7 +2450,7 @@ def test_an_answer_cut_short_carries_none_of_the_adapters_words() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2480,7 +2480,7 @@ def test_an_answer_cut_short_is_a_fix_that_did_not_finish() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2515,7 +2515,7 @@ def test_a_fix_that_reads_expensively_is_stopped_by_what_it_spent() -> None:
                         max_tool_calls=a_generous_number_of_calls,
                         max_tokens=some_token_bound
                     ),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2544,7 +2544,7 @@ def test_a_model_on_its_last_call_is_told_so_before_it_spends_it() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=two_calls),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2586,7 +2586,7 @@ def test_a_model_whose_tokens_are_nearly_gone_is_told_so_as_well() -> None:
                         max_tool_calls=a_generous_number_of_calls,
                         max_tokens=barely_two_reads
                     ),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2617,7 +2617,7 @@ def test_an_empty_patch_sent_twice_is_never_read_as_a_verdict() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=2),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2658,7 +2658,7 @@ def test_a_patch_whose_content_is_not_source_is_sent_back_for_another_attempt() 
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2691,7 +2691,7 @@ def test_a_patch_bringing_no_test_is_sent_back_for_another_attempt() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2721,7 +2721,7 @@ def test_a_walk_whose_patches_never_bring_a_test_opens_nothing() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=two_calls),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -2765,7 +2765,7 @@ def test_a_test_is_known_by_the_name_pytest_collects_it_under(path: str, sent_ba
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2804,7 +2804,7 @@ def test_a_patch_changing_only_configuration_is_proposed_without_a_test(path: st
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2831,7 +2831,7 @@ def test_a_patch_changing_anything_but_configuration_still_brings_a_test(path: s
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2865,7 +2865,7 @@ def test_a_patch_changing_configuration_and_code_still_brings_a_test() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2902,7 +2902,7 @@ def test_a_submission_speaking_of_code_outside_its_patch_as_a_group_is_sent_back
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2944,7 +2944,7 @@ def test_a_submission_sent_back_once_is_asked_its_question_the_second_time() -> 
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -2980,7 +2980,7 @@ def test_a_submission_sent_back_on_the_last_call_is_still_rewritten_and_asked() 
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(max_tool_calls=one_call),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -3038,7 +3038,7 @@ def test_a_read_sent_with_a_submission_sent_back_is_answered_not_run(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -3072,7 +3072,7 @@ def test_a_submission_sent_back_in_the_room_for_its_answer_gets_no_room_for_a_re
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=one_call),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -3121,7 +3121,7 @@ def test_a_walk_ending_on_a_submission_sent_back_says_so(
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=two_calls),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -3156,7 +3156,7 @@ def test_a_submission_sent_back_withdraws_the_one_asked_before_it() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=three_calls),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -3186,7 +3186,7 @@ def test_the_fix_proposed_carries_what_the_code_outside_its_patch_does_with_it()
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -3218,7 +3218,7 @@ def test_the_uses_outside_the_patch_come_back_saying_whether_their_files_ran_as_
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 deployed=SOME_REVISION_THAT_RAN,
                 **repository.ports()
             )
@@ -3250,7 +3250,7 @@ def test_the_pull_request_says_what_the_code_outside_its_patch_does_with_it() ->
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -3282,7 +3282,7 @@ def test_a_patch_that_is_never_source_is_never_written_to_a_branch() -> None:
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(max_tool_calls=2),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -3320,7 +3320,7 @@ def test_a_patch_file_that_is_not_python_is_proposed_as_it_arrived() -> None:
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -3364,7 +3364,7 @@ def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal(
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -3427,10 +3427,9 @@ def test_the_conversation_a_real_fix_has_is_recorded_against_its_incident() -> N
     # investigation's is: a recorded conversation needs the incident, and the
     # incident is not known until the fix is asked for.
     some_incident_id = "an-incident-being-fixed"
-    conversations = create_autospec(a_conversation_recorded_for, instance=False)
-    conversations.return_value = a_model_that(
+    conversations = _a_conversation_factory_returning(a_model_that(
         submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
-    ).converse
+    ).converse)
     recorder = create_autospec(Recorder, instance=True)
 
     Scenario() \
@@ -3447,30 +3446,6 @@ def test_the_conversation_a_real_fix_has_is_recorded_against_its_incident() -> N
         .then(_the_conversation_was_recorded_for(conversations,
                                                  some_incident_id,
                                                  recorder))
-
-
-@pytest.mark.unit
-def test_a_scripted_conversation_never_reaches_the_real_client() -> None:
-    # The seam that keeps every test above offline. A caller injecting a
-    # conversation must not touch the construction behind it, or a unit test
-    # would read configuration and build a vendor SDK to ask a double a
-    # question.
-    conversations = create_autospec(a_conversation_recorded_for, instance=False)
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(),
-                converse=a_model_that(
-                    submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
-                ).converse,
-                conversations=conversations,
-                **a_repository().ports()
-            )
-        ) \
-        .then(_no_conversation_was_built(conversations))
 
 
 @pytest.mark.unit
@@ -3499,7 +3474,7 @@ def test_a_submission_with_no_files_is_sent_back_rather_than_read_as_a_verdict()
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -3517,20 +3492,6 @@ def _the_conversation_was_recorded_for(
             raise AssertionError(
                 f"Expected a conversation built for [{incident_id}] with the "
                 f"recorder, got [{asked}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _no_conversation_was_built(conversations: Any
-                               ) -> Assertion[ProposedFix]:
-    def assertion(dont_care_result: ProposedFix) -> bool:
-        if conversations.called:
-            raise AssertionError(
-                f"Expected no conversation to be built, got "
-                f"[{conversations.call_args}]."
             )
 
         return True
@@ -4212,6 +4173,16 @@ class _Model:
 
         return answered
 
+    def conversations(self,
+                      incident_id: str,
+                      recorder: Recorder,
+                      *,
+                      policy: ModelPolicy | None = None) -> Conversation:
+        """The `Conversations` seam, handing back this script whatever it is
+        asked to build - which incident, recorder and policy are the subject
+        of the tests that hand over a specced double instead."""
+        return self.converse
+
     def everything_it_was_told(self) -> str:
         """Every word put to the model across the whole conversation.
 
@@ -4410,7 +4381,7 @@ def some_settings(base_branch: str = "main",
                   max_tool_calls: int = 12,
                   retrieval: CodeSearch = CodeSearch.BOTH,
                   model: str = SOME_MODEL,
-                  effort: Effort = SOME_EFFORT,
+                  effort: Reasoning = SOME_EFFORT,
                   max_output_tokens: int = SOME_MAX_OUTPUT_TOKENS,
                   max_tokens: int = ROOM_TO_SPARE_IN_TOKENS,
                   max_seconds: float = ROOM_TO_SPARE_IN_SECONDS
@@ -4471,7 +4442,7 @@ def test_a_listing_that_could_not_be_fetched_is_logged_as_a_warning(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -4503,7 +4474,7 @@ def test_a_tool_call_that_failed_is_logged_as_a_warning(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -4528,7 +4499,7 @@ def test_an_answer_cut_short_is_logged_as_a_warning(caplog: pytest.LogCaptureFix
                     DONT_CARE_HYPOTHESIS,
                     DONT_CARE_INCIDENT,
                     settings=some_settings(),
-                    converse=model.converse,
+                    conversations=model.conversations,
                     **repository.ports()
                 )
             )
@@ -4557,7 +4528,7 @@ def test_a_patch_whose_content_is_not_source_is_logged_as_a_warning(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -4585,7 +4556,7 @@ def test_a_patch_bringing_no_test_is_logged_as_a_warning(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -4612,7 +4583,7 @@ def test_code_outside_a_patch_that_could_not_be_read_is_logged_and_the_submissio
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \
@@ -4639,7 +4610,7 @@ def test_an_empty_patch_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture)
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
                 settings=some_settings(),
-                converse=model.converse,
+                conversations=model.conversations,
                 **repository.ports()
             )
         ) \

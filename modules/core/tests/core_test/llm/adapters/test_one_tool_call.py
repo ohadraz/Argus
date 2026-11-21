@@ -22,12 +22,10 @@ import pytest
 from argus_testkit import Assertion, Scenario
 from core.llm.adapters.anthropic_adapter import (
     AT_MOST_ONE_TOOL_CALL,
+    LARGEST_UNSTREAMED_ANSWER,
     AnthropicLLMClient,
 )
-from core.models.model_policy import (
-    LARGEST_UNSTREAMED_ANSWER,
-    ModelPolicy,
-)
+from core.models.model_policy import ModelPolicy
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 from core.models.turn import Turn

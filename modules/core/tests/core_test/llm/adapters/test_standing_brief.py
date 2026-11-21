@@ -31,12 +31,10 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core.llm.adapters.anthropic_adapter import (
     EPHEMERAL_CACHE,
+    LARGEST_UNSTREAMED_ANSWER,
     AnthropicLLMClient,
 )
-from core.models.model_policy import (
-    LARGEST_UNSTREAMED_ANSWER,
-    ModelPolicy,
-)
+from core.models.model_policy import ModelPolicy
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 from core.models.turn import Turn
@@ -320,11 +318,14 @@ def test_an_agent_whose_answers_must_stream_is_told_the_same_thing() -> None:
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
-    Scenario()         .given(
+    Scenario() \
+        .given(
             a_tool := _a_tool()
-        )         .when(
+        ) \
+        .when(
             lambda: code_fix.converse(dont_care_transcript, [a_tool])
-        )         .then(
+        ) \
+        .then(
             all_of(
                 _the_streamed_request_said(some_api, SOME_BRIEF),
                 _the_streamed_request_asked_to_be_cached(some_api)

@@ -4,6 +4,8 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
+    # The `llm` extra because this process's wiring (`watching`) builds the
+    # model provider's adapter, which imports the vendor's SDK.
     "argus-core[llm]",
     "argus-incident_record",
     # The incident's timeline said in words, for one question: what a person

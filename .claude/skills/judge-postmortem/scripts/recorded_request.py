@@ -14,6 +14,7 @@ import json
 import sys
 from pathlib import Path
 
+from core.llm.adapters.anthropic_adapter import to_tool
 from postmortem_writing.prompting import SUBMIT_POSTMORTEM
 
 # The fields only some incidents are offered, in the order the code adds them.
@@ -39,8 +40,8 @@ def main() -> None:
     head = SUBMIT_POSTMORTEM.model_copy(update={
         "properties": {**SUBMIT_POSTMORTEM.properties, **offered},
         "required": [*SUBMIT_POSTMORTEM.required, *offered]})
-    wire = {**{key: value for key, value in recorded.items() if key not in head.to_wire()},
-            **head.to_wire()}
+    wire = {**{key: value for key, value in recorded.items() if key not in to_tool(head)},
+            **to_tool(head)}
     assert canonical(wire) == canonical(recorded), "HEAD's tool differs from the recording"
 
     content = body["messages"][0]["content"]

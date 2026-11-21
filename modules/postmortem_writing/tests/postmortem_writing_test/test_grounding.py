@@ -29,7 +29,7 @@ from argus_testkit import (
     the_answer_was,
 )
 from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
-from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript, Turn
+from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript, Turn
 from postmortem_writing.answer import WENT_WRONG_FIELD
 from postmortem_writing.grounding import (
     FLAGS_FIELD,
@@ -616,7 +616,7 @@ def test_the_judge_is_asked_under_its_own_brief_one_call_a_turn() -> None:
     # is the same for every answer, so it is the judge's standing brief; its
     # one answer is a call.
     some_model = "some-model"
-    some_effort: Effort = "medium"
+    some_effort = Reasoning.MEDIUM
 
     Scenario() \
         .when(

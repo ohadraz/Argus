@@ -1,11 +1,11 @@
-"""Which client a caller gets when it brings none of its own.
+"""Which client a caller is handed, over the provider it was given.
 
-Two decisions, and neither is the choosing. There is a single adapter and no
-alternative to weigh it against, so what this pins is the rest of the factory's
+Two decisions, and neither is the choosing - the caller already chose, by
+handing over a `ModelProvider`. What this pins is the rest of the factory's
 job: a caller that asked for a receipt is handed a client that keeps one, a
-caller that did not is handed the adapter itself rather than a recorder wrapped
-around a sink that discards, and either way the policy it was built with is
-what the vendor is eventually asked for.
+caller that did not is handed the traced client itself rather than a recorder
+wrapped around a sink that discards, and either way the policy it was built
+with is what the provider is asked for and what the vendor is eventually sent.
 
 The first two matter, and the second is the one nothing else would catch. A
 factory that wrapped unconditionally would pass every test Argus has - the
@@ -19,19 +19,14 @@ one implementation and not the other is invisible from both ends: the agent
 above still calls two arguments, the adapter below still reads a figure and
 believes it, and every suite passes while the per-agent cap is discarded one
 layer down. That is not a hypothetical - it is what happened, and it was the
-factory's own wiring that nothing drove.
-
-`component` rather than `unit`: the factory reads the process's settings and
-builds a vendor client out of them, neither of which it takes as a parameter.
-Nothing leaves the process, though - the SDK stand-in answers, and
-constructing a real client talks to nobody - so this costs no tokens and needs
-no key.
+factory's own wiring that nothing drove. Those cases build the Anthropic
+provider over an SDK stand-in, and are `component`; nothing leaves the
+process, so they cost no tokens and need no key.
 
 And one thing that is not about the client at all: what it costs to name the
-door this is exported from. That is `building.py`'s property - it is the
-module that decides when the adapter is reached - and it is here because a
-separation stated in a docstring and checked by nothing is a separation that
-was quietly undone once already.
+door this is exported from. That is `building.py`'s property - it names no
+vendor - and it is here because a separation stated in a docstring and checked
+by nothing is a separation that was quietly undone once already.
 """
 
 from __future__ import annotations
@@ -49,21 +44,26 @@ import pytest
 from anthropic.types import Message, TextBlock, Usage
 from argus_testkit import Assertion, Scenario
 from core import LLMSettings
-from core.llm import build_llm_client
+from core.llm import LLMClient, build_llm_client
 from core.llm.adapters.anthropic_adapter import (
     ASSISTANT_ROLE,
     END_TURN_STOP_REASON,
     MESSAGE_TYPE,
     TEXT_TYPE,
+    AnthropicProvider,
 )
 from core.llm.recorded_client import RecordedLLMClient
-from core.models import ModelPolicy
+from core.models import ModelPolicy, Reasoning
 from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask
+from core.models.transcript import Ask, Transcript
 from core.models.turn import Turn
 from core.replay import Replay
 
-from core_test.framework.llm import an_api_that_answers
+from core_test.framework.llm import (
+    a_turn_that_said,
+    an_api_that_answers,
+    settings_that_reach_no_api,
+)
 from core_test.framework.replay import a_recorder_that_keeps_what_it_is_given
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
@@ -77,7 +77,7 @@ SOME_KEY = "some-key"
 A_WHOLE_FILES_WORTH_OF_ROOM = 128_000
 
 
-@pytest.mark.component
+@pytest.mark.unit
 def test_a_caller_that_asked_for_no_receipt_is_handed_the_client_itself() -> None:
     # Unwrapped rather than wrapped around a recorder with nowhere to write:
     # an agent that is not recording should not pay for a decorator, and the
@@ -87,14 +87,14 @@ def test_a_caller_that_asked_for_no_receipt_is_handed_the_client_itself() -> Non
             an_agent_that_is_not_recording := None
         ) \
         .when(
-            lambda: build_llm_client(an_agent_that_is_not_recording)
+            lambda: build_llm_client(_a_provider(), an_agent_that_is_not_recording)
         ) \
         .then(
             _keeps_no_receipt()
         )
 
 
-@pytest.mark.component
+@pytest.mark.unit
 def test_a_caller_that_asked_to_keep_a_receipt_is_handed_one_that_does() -> None:
     # The wrapping happens in the factory rather than at the call site, because
     # the recorder has to be told which model it is recording and that is the
@@ -105,10 +105,44 @@ def test_a_caller_that_asked_to_keep_a_receipt_is_handed_one_that_does() -> None
                 SOME_INCIDENT_ID, a_recorder_that_keeps_what_it_is_given().take)
         ) \
         .when(
-            lambda: build_llm_client(an_incident_keeping_its_receipts)
+            lambda: build_llm_client(_a_provider(), an_incident_keeping_its_receipts)
         ) \
         .then(
             _keeps_a_receipt()
+        )
+
+
+@pytest.mark.unit
+def test_the_provider_is_asked_for_a_client_under_the_callers_policy() -> None:
+    # The provider is the one who knows how its vendor spells a model and an
+    # effort, so the policy has to reach it whole. A factory that built the
+    # client under a policy of its own would answer every agent as the same
+    # one - in the same shape, and billed differently.
+    some_policy = ModelPolicy(model="claude-haiku-4-5", effort=Reasoning.LOW,
+                              max_output_tokens=A_WHOLE_FILES_WORTH_OF_ROOM)
+    a_provider = _a_provider()
+
+    Scenario() \
+        .when(
+            lambda: build_llm_client(a_provider, None, some_policy)
+        ) \
+        .then(
+            _the_provider_was_asked_under(a_provider, some_policy)
+        )
+
+
+@pytest.mark.unit
+def test_a_caller_with_no_opinion_asks_the_provider_under_the_default_policy() -> None:
+    # A caller with no opinion is not made to invent one, and gets what every
+    # agent got when there was one answer for all of them.
+    a_provider = _a_provider()
+
+    Scenario() \
+        .when(
+            lambda: build_llm_client(a_provider)
+        ) \
+        .then(
+            _the_provider_was_asked_under(a_provider, ModelPolicy())
         )
 
 
@@ -134,9 +168,9 @@ def test_a_recorded_agent_asks_the_vendor_for_the_room_its_policy_gave_it() -> N
     Scenario() \
         .given(
             writing_whole_files := build_llm_client(
+                AnthropicProvider(settings_that_reach_no_api(), sdk=some_api),
                 Replay(SOME_INCIDENT_ID, a_recorder_that_keeps_what_it_is_given().take),
-                a_code_fix_policy,
-                client=some_api
+                a_code_fix_policy
             )
         ) \
         .when(
@@ -151,16 +185,16 @@ def test_a_recorded_agent_asks_the_vendor_for_the_room_its_policy_gave_it() -> N
 
 
 @pytest.mark.component
-def test_a_client_handed_settings_of_its_own_reaches_the_model_where_they_say() -> None:
+def test_a_provider_handed_settings_of_its_own_reaches_the_model_where_they_say() -> None:
     # The grounding judge is reached at an address of its own, so a replay can
     # serve it from a stand-in of its own. A client that read the process's
-    # settings whatever it was handed would ask the writer's stand-in, and be
-    # served the writer's recordings out of turn.
+    # settings whatever its provider was built with would ask the writer's
+    # stand-in, and be served the writer's recordings out of turn.
     with _an_api_listening() as an_api:
         Scenario() \
             .given(
-                a_judge := build_llm_client(settings=LLMSettings(
-                    anthropic_api_key=SOME_KEY, anthropic_base_url=an_api.address))
+                a_judge := build_llm_client(AnthropicProvider(LLMSettings(
+                    anthropic_api_key=SOME_KEY, anthropic_base_url=an_api.address)))
             ) \
             .when(
                 lambda: a_judge.converse([Ask(text="dont care what was asked")], [_a_tool()])
@@ -191,6 +225,58 @@ def test_naming_the_front_door_does_not_import_a_vendor() -> None:
         .then(
             _nothing_imported("anthropic")
         )
+
+
+class _AProvider:
+    """A `ModelProvider` handing out one prepared client, remembering the
+    policy it was asked under.
+
+    Hand-written rather than autospecced: `ModelProvider` is a Protocol, and
+    `create_autospec` does not strip `self` from a Protocol's signature.
+    """
+
+    def __init__(self) -> None:
+        self.asked_under: list[ModelPolicy] = []
+
+    @property
+    def name(self) -> str:
+        return "some-provider"
+
+    def client(self, policy: ModelPolicy, /) -> LLMClient:
+        self.asked_under.append(policy)
+
+        return _AClientThatSaid(a_turn_that_said("dont care what it said"))
+
+
+class _AClientThatSaid:
+    """An `LLMClient` answering every turn with one prepared turn."""
+
+    def __init__(self, turn: Turn) -> None:
+        self._turn = turn
+
+    def converse(self,
+                 transcript: Transcript,
+                 tools: list[ToolDefinition],
+                 max_tokens: int | None = None) -> Turn:
+        return self._turn
+
+
+def _a_provider() -> _AProvider:
+    return _AProvider()
+
+
+def _the_provider_was_asked_under(provider: _AProvider,
+                                  policy: ModelPolicy) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        if provider.asked_under != [policy]:
+            raise AssertionError(
+                f"Expected the provider asked for one client under [{policy}], got "
+                f"{provider.asked_under}."
+            )
+
+        return True
+
+    return assertion
 
 
 class _AnApiListening:

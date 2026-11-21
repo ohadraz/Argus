@@ -19,11 +19,11 @@ from datetime import timedelta
 from functools import partial
 
 from codefix_agent import FixSettings, fixes_over
-from core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
+from core import Connections, Holding, LLMSettings, Settings, SettingsSlice
 from core.anomaly import AnomalyThresholds
 from core.autonomy import admit
 from core.embedding import an_embedder
-from core.llm import build_llm_client
+from core.llm import ModelProvider, build_llm_client, conversations_through
 from core.mcp_transport import McpClient
 from core.vector_store import VectorSearch
 from incident_memory.records import RememberedIncident
@@ -136,11 +136,27 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[VectorSearch | 
         yield store
 
 
+def the_models_at(settings: LLMSettings) -> ModelProvider:
+    """Whoever answers this process's model calls, reached where `settings` say.
+
+    The one place the worker names a model vendor. Built here and handed to
+    every agent as the port, so that which provider answers is decided once,
+    where the process is assembled, rather than by a default inside each agent.
+    The adapter is imported here, where it is built, so that naming this
+    module loads no vendor's SDK.
+    """
+    from core.llm.adapters.anthropic_adapter import AnthropicProvider
+
+    return AnthropicProvider(settings)
+
+
 def against(connections: Connections,
             read: McpClient,
             write: McpClient,
             store: VectorSearch | None,
-            holding: Holding) -> Collaborators:
+            holding: Holding,
+            *,
+            settings: Settings) -> Collaborators:
     """The real ones, for a process that has a database, a model and two tiers.
 
     Built once where the process starts. Everything derived from `connections`
@@ -163,13 +179,17 @@ def against(connections: Connections,
     `holding` is the run the process is walking, which is all a walk asking
     whether its run is still its own needs to be answered.
 
+    `settings` is the deployment's configuration, handed in by whoever started
+    the process rather than read here, so that what a binding was given - the
+    address each model provider reaches, above all - can be told apart in a
+    test that names two.
+
     Which tier answers which question is decided here and nowhere else. The read
     client serves every retrieval channel and the verification metrics; the write
     client serves the one write Argus makes and the provider's own history of
     who made it - which lives on the write tier because the provider serves that
     history to admin credentials alone (spec §12.1).
     """
-    settings = get_settings()
     mitigation = MitigationSettings.of(settings)
     memory = IncidentMemorySettings.of(settings)
     # One register, read by the model during the investigation and by the walk
@@ -207,13 +227,15 @@ def against(connections: Connections,
         # ever reaches this process to refuse.
         oncall=pagerduty_from(OnCallSettings.of(settings), webhook_secret="")
     )
+    # Whoever answers every agent's model calls, chosen once for the process.
+    models = the_models_at(LLMSettings.of(settings))
     # The grounding judge both writers are read by, at its own model and
     # address. Its address is settled here, where the process starts, so one
     # pointed at the agents' stand-in and at nothing for the judge refuses to
     # start rather than judging out of the writer's recordings.
     judging = partial(build_llm_client,
-                      policy=judge_policy(settings.judge_model, settings.judge_effort),
-                      settings=LLMSettings.for_the_judge(settings))
+                      the_models_at(LLMSettings.for_the_judge(settings)),
+                      policy=judge_policy(settings.judge_model, settings.judge_effort))
 
     return Collaborators(
         # Bound here because this is where a deployment's configuration meets
@@ -238,7 +260,10 @@ def against(connections: Connections,
             fetch_placements=placements_over(read),
             # The three channels above that are the read tier's, offered to the
             # model as that tier declares them.
-            read_tier_tools=read_tier_tools_over(read)
+            read_tier_tools=read_tier_tools_over(read),
+            # The model, over the process's provider. The agent builds its
+            # conversation from it per incident, under its own policy.
+            conversations=conversations_through(models)
         ),
         record_hypothesis=records.hypothesis,
         # The same channel the investigation reads, asked again by the walk -
@@ -324,7 +349,8 @@ def against(connections: Connections,
         # Both tiers, because proposing a fix is the one act that spans them:
         # the repository is read from the process that cannot write, and the
         # branch and the draft pull request come from the one that can (§13).
-        propose_fix=fixes_over(read, write, FixSettings.of(settings), recorder),
+        propose_fix=fixes_over(read, write, FixSettings.of(settings),
+                               conversations_through(models), recorder),
         actions_taken=records.actions_taken,
         recall_similar=_recalling(memory, store),
         # Filed whether or not this deployment searches memory: the store is a
@@ -342,6 +368,7 @@ def against(connections: Connections,
             # arrives inside the policy it hands out.
             client_for=partial(
                 build_llm_client,
+                models,
                 policy=postmortem_policy(settings.postmortem_model,
                                          settings.postmortem_effort)
             ),
@@ -356,6 +383,7 @@ def against(connections: Connections,
             sources=sources,
             client_for=partial(
                 build_llm_client,
+                models,
                 policy=synopsis_policy(settings.postmortem_model,
                                        settings.postmortem_effort)
             ),

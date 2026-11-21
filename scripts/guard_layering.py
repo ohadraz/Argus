@@ -110,19 +110,25 @@ THE_WAY_RECALL_READS = ("vector_store_qdrant.searching", "qdrant_client")
 # missing in the first place. Held here rather than by a contract for the reason
 # the walk's SDK rule is: import-linter sees a third party only with
 # `include_external_packages`, which is global (see the docstring above).
-SPOKEN_ONLY_BY_ITS_ADAPTER = {"qdrant_client": "vector_store_qdrant"}
+SPOKEN_ONLY_BY_ITS_ADAPTER = {
+    "qdrant_client": "vector_store_qdrant",
+    "anthropic": "core.llm.adapters.anthropic_adapter"
+}
 
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests
 # the modules behind the front doors, and a test that could only reach them
 # through one could not test them at all.
 THE_KERNELS_OWN_SUITE = "modules/core/tests"
 
-# What a suite may still name by path, and why. A module deliberately left off a
-# front door is not thereby untestable: the Anthropic adapter is absent from
-# `core.llm` so that no caller can reach for a vendor, and the two suites
-# whose whole subject is that adapter name it directly - as the kernel's own
-# suite does. An entry here is a claim that the importer exists to exercise the
-# thing rather than to use it.
+# What a suite or a script may still name by path, and why. The Anthropic
+# adapter is absent from `core.llm` so that no agent can reach for a vendor, and
+# only a process's wiring builds it. Outside the source tree two kinds of file
+# name it all the same: the suites whose subject is the adapter, which exercise
+# it as the kernel's own suite does; and the files that stand where a process's
+# wiring would - the evals, the contract and integration suites, the recording
+# script and `tests/framework/models.py` - which build it, or read a recorded
+# answer through it, because a process would. An entry here is a claim that
+# every importer is one of those two.
 BEHIND_THE_DOOR = frozenset({"core.llm.adapters.anthropic_adapter"})
 
 # The autonomy policy, and the one name in it that makes an admission.
@@ -174,9 +180,9 @@ def _the_front_doors() -> dict[str, set[str]]:
     refused an import the source tree is allowed.
 
     Two shapes, and the difference is `core`'s extras. `** -> core.models`
-    is a door anything may use. `investigation_agent.** -> core.llm` is one
-    only that module may, because `anthropic` is an optional dependency and only
-    the modules that declared the extra have it. A suite is held to its own
+    is a door anything may use. `mitigation.** -> core.mcp_transport` is one
+    only that module may, because `mcp` is an optional dependency and only the
+    modules that declared the extra have it. A suite is held to its own
     module's allowance for the same reason the source is: `test_module` resolves
     each module against its own dependencies alone, so a suite reaching a door
     its module did not take fails on CI and nowhere else.

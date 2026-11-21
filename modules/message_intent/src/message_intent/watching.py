@@ -27,12 +27,14 @@ from chat_platform.slack import ChatSettings, slack_from
 from core import (
     Connections,
     DatabaseSettings,
+    LLMSettings,
+    Settings,
     TelemetrySettings,
     get_settings,
     open_pool,
     unit_of_work,
 )
-from core.llm import build_llm_client
+from core.llm import LLMClient, build_llm_client
 from core.models import (
     IncidentStatus,
     Meaning,
@@ -65,6 +67,8 @@ type NotUnderstood = Callable[[int], list[ThreadMessage]]
 # Understanding one message a person wrote: classifying it, and offering what
 # it calls for.
 type Understand = Callable[[ThreadMessage], None]
+# A client for one incident's calls, recording into that incident's replay log.
+type ModelFor = Callable[[Replay], LLMClient]
 
 
 def watch_once(not_understood: NotUnderstood,
@@ -142,8 +146,24 @@ def _not_understood(connections: Connections) -> NotUnderstood:
     return not_understood
 
 
+def the_model_for(settings: Settings) -> ModelFor:
+    """How this process gets a client for one incident: over the provider its
+    settings point at, under the Intent Reader's own model and effort.
+
+    The one place this process names a model vendor. The provider is built here
+    and handed down as the port, and the adapter is imported here, where it is
+    built, so that naming this module loads no vendor's SDK.
+    """
+    from core.llm.adapters.anthropic_adapter import AnthropicProvider
+
+    return partial(build_llm_client,
+                   AnthropicProvider(LLMSettings.of(settings)),
+                   policy=ModelPolicy(model=settings.intent_model,
+                                      effort=settings.intent_effort))
+
+
 def _understanding(connections: Connections,
-                   policy: ModelPolicy,
+                   model_for: ModelFor,
                    person_named: Callable[[str], str | None]) -> Understand:
     """What understanding one message is, wired to the database, the model and
     the chat platform this process holds."""
@@ -155,7 +175,7 @@ def _understanding(connections: Connections,
         # A client per message, recording into that incident's replay log, as
         # the postmortem's is built per incident.
         return partial(classify,
-                       llm=build_llm_client(Replay(incident_id, recorder), policy=policy))
+                       llm=model_for(Replay(incident_id, recorder)))
 
     def answer_of(incident_id: str) -> AnswerOf:
         # The incident's timeline as it stands when the question is answered,
@@ -165,7 +185,7 @@ def _understanding(connections: Connections,
                 story = build_narration(events.get_by_incident(conn, incident_id))
 
             return answer(question, story,
-                          build_llm_client(Replay(incident_id, recorder), policy=policy))
+                          model_for(Replay(incident_id, recorder)))
 
         return answered
 
@@ -211,10 +231,7 @@ def main() -> None:
 
             watch_forever(
                 _not_understood(connections),
-                _understanding(connections,
-                               ModelPolicy(model=settings.intent_model,
-                                           effort=settings.intent_effort),
-                               platform.person_named),
+                _understanding(connections, the_model_for(settings), platform.person_named),
                 pause=settings.intent_poll_seconds
             )
 

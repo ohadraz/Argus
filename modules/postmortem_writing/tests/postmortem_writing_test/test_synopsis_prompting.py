@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
-from core.models import Ask, Effort, ModelPolicy, Transcript
+from core.models import Ask, ModelPolicy, Reasoning, Transcript
 from postmortem_writing.synopsis_prompting import (
     LIKELY_ONLY_WHERE_THE_CAUSE_SAYS,
     NO_SIZE_IN_WORDS,
@@ -284,7 +284,7 @@ def test_the_overview_is_asked_under_no_brief_of_the_postmortem_s() -> None:
     # brief is about five whys and a causal chain, and sent as this call's
     # system it would ask for a tool this call does not offer.
     some_model = "some-model"
-    some_effort: Effort = "low"
+    some_effort = Reasoning.LOW
 
     Scenario() \
         .when(

@@ -40,7 +40,7 @@ from core.events import (
     RetrievalRequested,
     RetrievalUnanswered,
 )
-from core.llm import ModelDidNotAnswer, a_conversation_recorded_for
+from core.llm import Conversations, ModelDidNotAnswer
 from core.mcp_transport import McpToolError
 from core.models import (
     DISCARD_CACHE_ENTRIES,
@@ -64,6 +64,7 @@ from core.models import (
     MetricBucket,
     ModelPolicy,
     PodPlacement,
+    Reasoning,
     RecordedPlacement,
     ReportChannel,
     RetrievalChannel,
@@ -124,6 +125,7 @@ from investigation_agent_test.framework.builders.incident import (
 )
 from investigation_agent_test.framework.builders.investigation import (
     Investigation,
+    a_factory_handing_over,
     an_investigation,
 )
 from investigation_agent_test.framework.builders.model import (
@@ -1059,9 +1061,9 @@ def test_the_investigation_is_held_with_the_model_its_deployment_named() -> None
     # An expected policy omitting it would assert that the Investigator
     # says nothing standing at all.
     some_policy = ModelPolicy(
-        model="claude-haiku-4-5", effort="low", brief=BRIEF
+        model="claude-haiku-4-5", effort=Reasoning.LOW, brief=BRIEF
     )
-    conversations = create_autospec(a_conversation_recorded_for, instance=False)
+    conversations = create_autospec(Conversations, instance=True)
     conversations.return_value = a_model_that_says(a_turn_answering(an_explanation()))
     investigation = an_investigation(a_model_that_says())
 
@@ -5534,7 +5536,9 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),
         read_tier_tools=create_autospec(ReadTierTools, instance=True, return_value=[]),
-        converse=a_model_that_says(a_turn_answering(an_explanation())),
+        conversations=a_factory_handing_over(
+            a_model_that_says(a_turn_answering(an_explanation()))
+        ),
         budget=a_budget(),
         recorder=recorded.take
     )

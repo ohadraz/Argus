@@ -95,11 +95,7 @@ from core.models.metrics import (
     RuleReading,
     WorseWhen,
 )
-from core.models.model_policy import (
-    LARGEST_UNSTREAMED_ANSWER,
-    Effort,
-    ModelPolicy,
-)
+from core.models.model_policy import ModelPolicy, Reasoning
 from core.models.money import said_as_money
 from core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from core.models.placement import PodPlacement, RecordedPlacement
@@ -308,9 +304,8 @@ __all__ = [
     "Lifespan",
     "Meaning",
     "MetricBucket",
-    "LARGEST_UNSTREAMED_ANSWER",
-    "Effort",
     "ModelPolicy",
+    "Reasoning",
     "Offer",
     "OfferedEnding",
     "OpenedPullRequest",

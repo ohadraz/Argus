@@ -5,16 +5,10 @@ from typing import Any, Final
 
 from pydantic import BaseModel, model_validator
 
-# Anthropic's own vocabulary for a tool offer, named here because this is the
-# one module that writes it. Everything above holds a `ToolDefinition` and
-# never assembles a schema by hand - which is the point: the strictness rules
-# below are easy to half-apply, and a schema that half-applies them is quietly
-# permissive rather than broken.
-_NAME_KEY: Final = "name"
-_DESCRIPTION_KEY: Final = "description"
-_INPUT_SCHEMA_KEY: Final = "input_schema"
-_STRICT_KEY: Final = "strict"
-
+# JSON Schema's own vocabulary, which is what a tool's arguments are written
+# in whoever is offered them. How an offer is laid out for one provider - the
+# keys around the schema, whether it is strict - is that provider's adapter's
+# to say (`core.llm.adapters`), and nothing here renders one.
 _TYPE_KEY: Final = "type"
 _PROPERTIES_KEY: Final = "properties"
 _REQUIRED_KEY: Final = "required"
@@ -34,9 +28,10 @@ class ToolDefinition(BaseModel):
 
     Holds what a caller actually decides - what the tool is called, when to
     reach for it, and what it may be asked for - and leaves the schema
-    boilerplate to `to_wire`. A caller writing the JSON Schema itself would be
-    restating `type: object` and `additionalProperties: false` at every tool,
-    and the day one of them is omitted the tool silently stops being strict.
+    boilerplate to the adapter that offers it. A caller writing the JSON Schema
+    itself would be restating `type: object` and `additionalProperties: false`
+    at every tool, and the day one of them is omitted the tool silently stops
+    being strict.
 
     `description` is not decoration. It is the only thing telling the model
     when this tool is the right one, so a tool offered without one leaves the
@@ -129,36 +124,6 @@ class ToolDefinition(BaseModel):
             "required": [argument for argument in self.required if argument not in arguments]
         })
 
-    def to_wire(self) -> dict[str, Any]:
-        """Renders this tool as the API expects a tool offer to look.
-
-        Always strict, and not by a per-tool choice. The dispatcher looks a
-        tool up by name and calls it with whatever arrived; an argument the
-        schema never promised is one nothing is written to handle. Strict mode
-        is what makes the arguments a dispatcher receives exactly the arguments
-        it declared - and `additionalProperties: false` is the half of that
-        which is easiest to leave out, which is why it is written here rather
-        than asked of every caller.
-
-        Strict at every depth, not only at the top. A tool taking a list of
-        records - a patch of whole files, each a path and its contents -
-        carries objects the caller wrote, and the API demands the same of those.
-        It refuses the whole request over one of them, so a nested object left
-        permissive takes every other tool in the call down with it.
-        """
-        return {
-            _NAME_KEY: self.name,
-            _DESCRIPTION_KEY: self.description,
-            _STRICT_KEY: True,
-            _INPUT_SCHEMA_KEY: _strictly(
-                {
-                    _TYPE_KEY: _OBJECT_TYPE,
-                    _PROPERTIES_KEY: self.properties,
-                    _REQUIRED_KEY: self.required
-                }
-            )
-        }
-
 
 def _anywhere_in(schema: Any, found: Callable[[dict[str, Any]], bool]) -> bool:
     """Whether any node of `schema` is one `found` picks out."""
@@ -202,31 +167,5 @@ def _untitled(schema: Any) -> Any:
 
     if isinstance(schema, list):
         return [_untitled(item) for item in schema]
-
-    return schema
-
-
-def _strictly(schema: Any) -> Any:
-    """The same schema, with every object in it forbidding what it did not name.
-
-    A copy rather than an edit in place: `properties` is the caller's own
-    fragment, usually a module-level constant, and stamping it where it lies
-    would rewrite the definition somebody wrote rather than the offer being
-    sent.
-
-    Set rather than defaulted, so a fragment that said `true` is corrected
-    rather than honoured. There is no tool here for which permissive is the
-    right answer, and one arriving that way is a mistake rather than a choice.
-    """
-    if isinstance(schema, dict):
-        stamped = {key: _strictly(value) for key, value in schema.items()}
-
-        if stamped.get(_TYPE_KEY) == _OBJECT_TYPE:
-            stamped[_ADDITIONAL_PROPERTIES_KEY] = False
-
-        return stamped
-
-    if isinstance(schema, list):
-        return [_strictly(item) for item in schema]
 
     return schema

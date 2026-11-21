@@ -41,10 +41,11 @@ from typing import Any, Final
 
 import httpx2
 import pytest
+from anthropic.types import Message
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_testkit import Assertion, Scenario, all_of, calling
-from codefix_agent import FixSettings, SubmittedFix, propose_fix
+from codefix_agent import SUBMIT_FIX, FixSettings, SubmittedFix, propose_fix
 from core import (
     Fence,
     Holding,
@@ -53,6 +54,8 @@ from core import (
     get_settings,
     utc_now,
 )
+from core.llm import conversations_through
+from core.llm.adapters.anthropic_adapter import to_turn
 from core.models import (
     Alert,
     CodeOutsideThePatch,
@@ -65,6 +68,8 @@ from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_record.repository import incidents, runs
 from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
 
+from tests.framework.models import the_configured_models
+
 # The two answers the model gives, each a real one. The first is a submission
 # that rewrote `monthly_statement.py` whole, recorded from a walk that chose to
 # fix it there; the second is a "no" to the question every submission is asked,
@@ -73,19 +78,6 @@ from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
 # changes nothing that reaches the branch.
 RECORDED_LARGE_FIX: Final = "codefix-large-fix"
 RECORDED_ANSWER_NO: Final = "codefix-answer-no"
-
-# Anthropic's word for a block that calls a tool, and Code-Fix's name for the
-# tool that submits a fix - spelled here for the reason
-# `tests/e2e/framework/argus.py` spells the first: neither is on a front door
-# this suite may import from.
-TOOL_USE_TYPE: Final = "tool_use"
-SUBMIT_TOOL_NAME: Final = "submit_fix"
-
-# The fields of a stored Anthropic body this file reads.
-CONTENT_FIELD: Final = "content"
-TYPE_FIELD: Final = "type"
-NAME_FIELD: Final = "name"
-INPUT_FIELD: Final = "input"
 
 REQUEST_TIMEOUT_SECONDS: Final = 30.0
 
@@ -145,7 +137,8 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                     read_file=_an_empty_file,
                     code_outside=_nothing_outside,
                     write_branch=partial(commit_to_new_branch, client=write),
-                    open_pull_request=partial(open_pull_request, client=write)
+                    open_pull_request=partial(open_pull_request, client=write),
+                    conversations=conversations_through(the_configured_models())
                 )
             ) \
             .then(
@@ -222,15 +215,15 @@ def _nothing_outside(_files: dict[str, str], _ref: str, /) -> CodeOutsideThePatc
 def _the_patch_in(recording: str) -> dict[str, str]:
     """Every file the recorded answer submitted, as Code-Fix writes it to a branch.
 
-    Read through `SubmittedFix`, as the grader reads it, rather than out of the
-    JSON by hand: what reaches the branch is the patch the agent makes of the
-    answer, and a second reading of it kept here would be one more to drift.
+    Read as the grader reads it - the answer through the adapter's `to_turn`,
+    with the offer it was given to, and the call through `SubmittedFix` - rather
+    than out of the JSON by hand: what reaches the branch is the patch the agent
+    makes of the answer, and a second reading of it kept here would be one more
+    to drift.
     """
-    answer = recordings.load(recording)
-    submitted = next(
-        block[INPUT_FIELD] for block in answer[CONTENT_FIELD]
-        if block.get(TYPE_FIELD) == TOOL_USE_TYPE and block.get(NAME_FIELD) == SUBMIT_TOOL_NAME
-    )
+    answered = to_turn(Message.model_validate(recordings.load(recording)), [SUBMIT_FIX])
+    submitted = next(call.arguments for call in answered.tool_calls
+                     if call.name == SUBMIT_FIX.name)
 
     return SubmittedFix.model_validate(submitted).patch()
 

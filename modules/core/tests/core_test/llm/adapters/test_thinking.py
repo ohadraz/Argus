@@ -18,16 +18,21 @@ under every display setting; what changes is only whether Argus is told.
 
 from __future__ import annotations
 
+from typing import get_args
 from unittest.mock import Mock
 
 import pytest
 from argus_testkit import Assertion, Scenario
 from argus_testkit.assertions import all_of
 from core.llm.adapters.anthropic_adapter import (
+    EFFORT_ON_THE_WIRE,
+    LARGEST_UNSTREAMED_ANSWER,
     SUMMARISED_THINKING,
+    AnthropicEffort,
     AnthropicLLMClient,
 )
-from core.models import LARGEST_UNSTREAMED_ANSWER, Effort, ModelPolicy
+from core.models import ModelPolicy, Reasoning
+from core.models.model_policy import DEFAULT_MAX_OUTPUT_TOKENS
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 from core.models.turn import Turn
@@ -67,7 +72,7 @@ def test_a_turn_asks_the_model_its_agent_was_given_to_ask() -> None:
     # Bound to the client rather than passed per turn, so the loop still
     # chooses nothing - it holds a `(transcript, tools) -> Turn` and knows of
     # no model, no effort and no client, exactly as before.
-    some_policy = ModelPolicy(model="claude-haiku-4-5", effort="low")
+    some_policy = ModelPolicy(model="claude-haiku-4-5", effort=Reasoning.LOW)
     some_api = an_api_that_answers()
     an_agents_client = AnthropicLLMClient(
         settings_that_reach_no_api(), policy=some_policy, client=some_api
@@ -84,7 +89,7 @@ def test_a_turn_asks_the_model_its_agent_was_given_to_ask() -> None:
         .then(
             all_of(
                 _the_request_named_the_model(some_api, some_policy.model),
-                _the_request_asked_for_effort(some_api, some_policy.effort)
+                _the_request_asked_for_effort(some_api, EFFORT_ON_THE_WIRE[some_policy.effort])
             )
         )
 
@@ -146,6 +151,71 @@ def test_an_answer_that_fits_is_asked_for_in_one_piece() -> None:
         )
 
 
+@pytest.mark.unit
+def test_every_level_of_argus_s_scale_is_one_anthropic_offers_in_the_same_order() -> None:
+    # Five a side, one for one. A level of Argus's that two of its own shared
+    # on the wire would be a setting that changed nothing; one that fell
+    # between Anthropic's would ask for something nobody configured. Anthropic's
+    # five are read off the type the adapter declares them in, lowest first,
+    # rather than spelled again here, because the order is the claim: `higher`
+    # asks for more than `high`.
+    Scenario() \
+        .given(
+            anthropics_five_in_order := list(get_args(AnthropicEffort.__value__))
+        ) \
+        .when(
+            lambda: [EFFORT_ON_THE_WIRE[level] for level in Reasoning]
+        ) \
+        .then(
+            _the_levels_asked_for_were(anthropics_five_in_order)
+        )
+
+
+@pytest.mark.unit
+def test_the_default_answer_fits_in_one_response() -> None:
+    # The default has to sit under the line where the SDK refuses to send a
+    # non-streaming request, because most agents answer with a short verdict
+    # and streaming every one of them would take on the harder-to-read
+    # failure mode for nothing. Code-Fix is the exception and says so by
+    # configuring its own.
+    Scenario() \
+        .given(
+            where_an_answer_starts_having_to_stream := LARGEST_UNSTREAMED_ANSWER
+        ) \
+        .when(
+            lambda: DEFAULT_MAX_OUTPUT_TOKENS
+        ) \
+        .then(
+            _room_enough_to_stay_under(where_an_answer_starts_having_to_stream)
+        )
+
+
+def _the_levels_asked_for_were(expected: list[AnthropicEffort]
+                               ) -> Assertion[list[AnthropicEffort]]:
+    def assertion(asked: list[AnthropicEffort]) -> bool:
+        if list(asked) != expected:
+            raise AssertionError(
+                f"Expected Argus's levels, lowest first, to ask for {expected}, got {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _room_enough_to_stay_under(ceiling: int) -> Assertion[int]:
+    """That the default cap does not itself require streaming to send."""
+    def assertion(room: int) -> bool:
+        if room > ceiling:
+            raise AssertionError(
+                f"Expected the default room to stay under [{ceiling}], got [{room}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_request_named_the_model(api: Mock, model: str) -> Assertion[Turn]:
     def assertion(_: Turn) -> bool:
         asked = api.messages.create.call_args.kwargs.get("model")
@@ -158,7 +228,7 @@ def _the_request_named_the_model(api: Mock, model: str) -> Assertion[Turn]:
     return assertion
 
 
-def _the_request_asked_for_effort(api: Mock, effort: Effort) -> Assertion[Turn]:
+def _the_request_asked_for_effort(api: Mock, effort: AnthropicEffort) -> Assertion[Turn]:
     """How hard the model was asked to think, read off the request.
 
     Off the request rather than the answer, like the breakpoint and the

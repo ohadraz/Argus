@@ -153,6 +153,29 @@ class LLMClient(Protocol):
                  max_tokens: int | None = ...) -> Turn: ...
 
 
+class ModelProvider(Protocol):
+    """Whoever answers Argus's model calls, as the composition root hands it out.
+
+    The port the rest of `core.llm` is built against, named for the role: the
+    factory that wraps a client in a trace and a receipt asks this for the
+    client and never learns which vendor stands behind it. A deployment chooses
+    one where its process starts, and that choice is the only place a vendor is
+    named.
+
+    `client` is one client for one policy, built when asked. The policy is
+    which model answers and how hard it is asked to think, and the provider is
+    what knows how its own vendor spells either.
+
+    `name` is the provider as telemetry names it (`gen_ai.provider.name`), a
+    property rather than an attribute so that a frozen value can answer it.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    def client(self, policy: ModelPolicy, /) -> LLMClient: ...
+
+
 class Conversation(Protocol):
     """The one call a loop that talks to a model makes.
 

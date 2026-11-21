@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Final
 
-from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript
+from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript
 
 OVERVIEW_TOOL_NAME: Final = "submit_executive_overview"
 OVERVIEW_FIELD: Final = "overview"
@@ -113,7 +113,7 @@ SUBMIT_EXECUTIVE_OVERVIEW: Final = ToolDefinition(
 )
 
 
-def synopsis_policy(model: str, effort: Effort) -> ModelPolicy:
+def synopsis_policy(model: str, effort: Reasoning) -> ModelPolicy:
     """The overview's model at the deployment's choice of model and effort, for
     one tool call per turn, and under no brief: everything it needs is in its
     one message, and the postmortem's brief asks for a tool it is not offered."""

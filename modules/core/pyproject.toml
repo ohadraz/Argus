@@ -27,7 +27,7 @@ dependencies = [
 # could - a dependency is not a thing a module can decline.
 #
 # Enforced rather than trusted: the front-door contract in the root
-# `pyproject.toml` names who may import `core.llm` and
+# `pyproject.toml` names who may import the model provider's adapter and
 # `core.mcp_transport`, so a module reaching one without the extra fails
 # `guard_layering` rather than at runtime on the day that path is first walked.
 [project.optional-dependencies]
@@ -35,6 +35,10 @@ dependencies = [
 # corpora want one and most callers of this kernel want neither: a module
 # naming a `UuidStr` should not install an ONNX runtime to do it.
 embedding = ["fastembed>=0.8"]
+# The model vendor's SDK, which only the provider's adapter
+# (`core.llm.adapters.anthropic_adapter`) imports. `core.llm` itself - the port,
+# the factory, the conversations - needs none of it, so the agents that talk
+# through it do not take this; the processes whose wiring builds the adapter do.
 llm = ["anthropic>=1.0"]
 # `httpx` because the transport builds the HTTP client a session is held over
 # (`mcp_transport.an_http_client_waiting`), and the SDK takes one of its own.

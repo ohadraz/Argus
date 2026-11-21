@@ -18,6 +18,7 @@ import json
 import sys
 from pathlib import Path
 
+from core.llm.adapters.anthropic_adapter import to_tool
 from core.models import LogsInTheGap
 from postmortem_writing.briefing import STANDING_BRIEF
 from postmortem_writing.prompting import SUBMIT_POSTMORTEM, submit_postmortem_for
@@ -53,8 +54,8 @@ def main() -> None:
     offered = [name for name in head.properties if name not in SUBMIT_POSTMORTEM.properties]
     assert offered == recorded_extra, f"offered {offered}, recorded beyond HEAD's {recorded_extra}"
 
-    wire = {**{key: value for key, value in recorded.items() if key not in head.to_wire()},
-            **head.to_wire()}
+    wire = {**{key: value for key, value in recorded.items() if key not in to_tool(head)},
+            **to_tool(head)}
     sent = wire["input_schema"]["properties"]
     differs = sorted(name for name in {*sent, *recorded_properties}
                      if dumped(sent.get(name)) != dumped(recorded_properties.get(name)))

@@ -30,9 +30,9 @@ from typing import Any
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
-from core.llm.client import LLMClient
-from core.llm.conversing import a_conversation_recorded_for
-from core.models.model_policy import ModelPolicy
+from core.llm.client import LLMClient, ModelProvider
+from core.llm.conversing import a_conversation_recorded_for, conversations_through
+from core.models.model_policy import ModelPolicy, Reasoning
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask, Transcript
 from core.models.turn import Turn
@@ -126,6 +126,113 @@ def test_the_client_is_asked_for_one_recording_this_incident_to_this_recorder() 
         .then(
             the_entry_was_recorded_for(recorded, ANOTHER_INCIDENT_ID)
         )
+
+
+@pytest.mark.unit
+def test_conversations_through_a_provider_build_its_clients_under_the_agents_policy() -> None:
+    # What a composition root binds into an agent. The agent names its policy
+    # when it builds its conversation; the provider is what the process chose.
+    # A binding that lost either on the way would answer every agent as the
+    # default one, or through a provider nobody chose - in the same shape, and
+    # billed differently.
+    some_policy = ModelPolicy(model="claude-haiku-4-5", effort=Reasoning.LOW)
+    some_provider = _SomeProvider()
+    building = _ABuilderOf(_a_client_that_answers(a_turn_that_said(DONT_CARE_TURN)))
+    kept_by_nobody: KeptEntries = a_recorder_that_keeps_what_it_is_given()
+
+    Scenario() \
+        .when(
+            lambda: conversations_through(some_provider, building=building.build)(
+                SOME_INCIDENT_ID, kept_by_nobody.take, policy=some_policy
+            )
+        ) \
+        .then(
+            _a_client_was_built_by(building, some_provider, some_policy)
+        )
+
+
+@pytest.mark.unit
+def test_conversations_through_a_provider_are_recorded_for_their_incident() -> None:
+    # The receipt is the incident's, whoever answered: a conversation built
+    # over a provider asks for its client under a `Replay` of the incident it
+    # was built for, writing to the recorder it was given.
+    building = _ABuilderOf(_a_client_that_answers(a_turn_that_said(DONT_CARE_TURN)))
+
+    Scenario() \
+        .given(
+            recorded := a_recorder_that_keeps_what_it_is_given()
+        ) \
+        .when(
+            lambda: _a_call_recorded_through_what_was_built(
+                building, ANOTHER_INCIDENT_ID, recorded.take
+            )
+        ) \
+        .then(
+            the_entry_was_recorded_for(recorded, ANOTHER_INCIDENT_ID)
+        )
+
+
+class _SomeProvider:
+    """A `ModelProvider` nothing asks for a client - the builder stand-in below
+    is handed it and keeps it, which is all these cases look at."""
+
+    @property
+    def name(self) -> str:
+        return "some-provider"
+
+    def client(self, policy: ModelPolicy, /) -> LLMClient:
+        raise AssertionError("Expected the builder stand-in to be asked, not the provider.")
+
+
+class _ABuilderOf:
+    """A stand-in for `build_llm_client`, remembering what it was handed and
+    handing back a prepared client."""
+
+    def __init__(self, client: LLMClient) -> None:
+        self._client = client
+        self.asked: list[tuple[ModelProvider, Replay | None, ModelPolicy | None]] = []
+
+    def build(self,
+              provider: ModelProvider,
+              replay: Replay | None,
+              policy: ModelPolicy | None) -> LLMClient:
+        self.asked.append((provider, replay, policy))
+
+        return self._client
+
+
+def _a_call_recorded_through_what_was_built(building: _ABuilderOf,
+                                            incident_id: str,
+                                            recorder: Any) -> bool:
+    """Builds the conversation, then records one call through the `Replay` its
+    client was asked for under - the only way to read that binding."""
+    conversations_through(_SomeProvider(), building=building.build)(incident_id, recorder)
+    [(_, replay, _)] = building.asked
+
+    if replay is None:
+        raise AssertionError("Expected the client asked for under a replay, and it had none.")
+
+    replay.record(call_type=CallType.LLM, target="dont-care-model",
+                  request={"dont": "care"}, response={"dont": "care"})
+
+    return True
+
+
+def _a_client_was_built_by(building: _ABuilderOf,
+                           provider: ModelProvider,
+                           policy: ModelPolicy) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        asked = [(given, under) for given, _, under in building.asked]
+
+        if asked != [(provider, policy)]:
+            raise AssertionError(
+                f"Expected one client built over the process's provider under [{policy}], "
+                f"got {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 class _AClientThatAnswers:

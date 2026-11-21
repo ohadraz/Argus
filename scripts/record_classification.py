@@ -49,9 +49,10 @@ import httpx2
 import uvicorn
 from anthropic_double.recordings import RECORDINGS_DIR
 from anthropic_double.server import app as the_double
-from core import DatabaseSettings, Settings, get_settings, open_pool, utc_now
+from core import DatabaseSettings, LLMSettings, Settings, get_settings, open_pool, utc_now
 from core.events import PersonWrote
 from core.llm import build_llm_client
+from core.llm.adapters.anthropic_adapter import AnthropicProvider
 from core.models import Meaning, ModelPolicy, ReportChannel, a_chat_message
 from incident_record.repository import events
 from message_intent.answering import answer
@@ -101,7 +102,8 @@ def main() -> None:
         httpx2.post(f"{_BASE_URL}/double-control/record",
                     json={"name": asked.name}).raise_for_status()
 
-        llm = build_llm_client(policy=ModelPolicy(model=settings.intent_model,
+        llm = build_llm_client(AnthropicProvider(LLMSettings.of(settings)),
+                               policy=ModelPolicy(model=settings.intent_model,
                                                   effort=settings.intent_effort))
         meaning = classify(asked.message, llm=llm)
         answered = (answer(asked.message, story, llm)

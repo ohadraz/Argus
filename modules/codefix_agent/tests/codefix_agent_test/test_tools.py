@@ -77,8 +77,7 @@ def test_code_fix_offers_what_the_read_tier_serves_and_three_ways_to_answer() ->
                 "submit_fix",
                 "report_nothing_to_change",
                 "answer_question"
-            ]),
-            _every_tool_is_offered_strictly()
+            ])
         ))
 
 
@@ -109,15 +108,3 @@ def _the_tools_offered_are(names: list[str]) -> Assertion[list[ToolDefinition]]:
 
     return assertion
 
-
-def _every_tool_is_offered_strictly() -> Assertion[list[ToolDefinition]]:
-    """No tool may accept an argument the loop was not written for."""
-    def assertion(tools: list[ToolDefinition]) -> bool:
-        loose = [tool.name for tool in tools if tool.to_wire().get("strict") is not True]
-
-        if loose:
-            raise AssertionError(f"Expected every tool to be strict, but {loose} were not.")
-
-        return True
-
-    return assertion

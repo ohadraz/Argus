@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from core.models import Effort, ModelPolicy
+from core.models import ModelPolicy, Reasoning
 
 from postmortem_writing.answer import (
     CAUSAL_CHAIN_FIELD,
@@ -72,7 +72,7 @@ STANDING_BRIEF: Final = "\n\n".join([
 ])
 
 
-def postmortem_policy(model: str, effort: Effort) -> ModelPolicy:
+def postmortem_policy(model: str, effort: Reasoning) -> ModelPolicy:
     """The postmortem's model at the deployment's choice of model and effort,
     asked under the Postmortem Writer's own brief, for one tool call per turn - its one
     tool ends the conversation, so a second call is never more work."""

@@ -36,7 +36,6 @@ from core.llm import (
     Conversation,
     Conversations,
     ModelRefused,
-    a_conversation_recorded_for,
 )
 from core.mcp_transport import McpClient
 from core.models import (
@@ -269,6 +268,7 @@ _SAY_ONLY_YOUR_OWN: Final = (
 def fixes_over(read: McpClient,
                write: McpClient,
                settings: FixSettings,
+               conversations: Conversations,
                recorder: Recorder = records_nothing) -> Fixer:
     """The fix channel, over a connection to each tier it needs.
 
@@ -278,12 +278,16 @@ def fixes_over(read: McpClient,
     That split is the whole guarantee, and this is the one place both ends of it
     are held at once.
 
+    `conversations` is how the model is reached, built over whichever provider
+    the process chose; nothing here has a default for it.
+
     Bound where a process starts, so the walk is handed something it can call
     with an incident rather than the means to build one.
     """
     return partial(
         propose_fix,
         settings=settings,
+        conversations=conversations,
         # The repository tools this deployment's way of finding source holds,
         # as the read tier declares them.
         read_tier_tools=partial(offered, READ_TIER_HELD[settings.code_search], client=read),
@@ -314,9 +318,8 @@ def propose_fix(hypothesis: Hypothesis | None,
                 code_outside: CodeOutsideReader,
                 write_branch: BranchWriter,
                 open_pull_request: PullRequestOpener,
-                converse: Conversation | None = None,
+                conversations: Conversations,
                 recorder: Recorder = records_nothing,
-                conversations: Conversations = a_conversation_recorded_for,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
@@ -346,11 +349,11 @@ def propose_fix(hypothesis: Hypothesis | None,
     The collaborators are keyword seams: the real tool calls in production,
     doubles in a test, and no monkeypatching either way.
 
-    `converse` is the exception among them, and defaults to nothing rather than
-    to the real call. A conversation that files its receipts has to be built
-    from this incident and this recorder, and neither is known until here - so
-    what a caller omitting it gets is built below, and a caller injecting a
-    scripted one never reaches the construction or the SDK behind it.
+    `conversations` is how the model is reached, and it has no default: which
+    provider answers is the composition root's to choose. A factory rather
+    than a conversation, because one that files its receipts has to be built
+    from this incident, this recorder and this agent's policy, and none is
+    known until here; a test hands over one that returns its script.
 
     `recorder` changes nothing about the answer and everything about what can be
     said afterwards. Code-Fix spends more than any other agent here and is the
@@ -391,7 +394,7 @@ def propose_fix(hypothesis: Hypothesis | None,
         deployed=deployed,
         read_file=read_file,
         code_outside=code_outside,
-        converse=converse or conversations(
+        converse=conversations(
             incident_id,
             recorder,
             policy=ModelPolicy(

@@ -17,7 +17,7 @@ from argus_testkit import dont_care_sleep, raising, returning
 from core import new_id
 from core.budget import StillWanted, wanted_throughout
 from core.events import Publisher, nobody
-from core.llm import Conversations, a_conversation_recorded_for
+from core.llm import Conversation, Conversations
 from core.models import (
     Alert,
     Attempt,
@@ -25,11 +25,13 @@ from core.models import (
     EstablishedOnset,
     Leads,
     MetricBucket,
+    ModelPolicy,
     PodPlacement,
     ServiceDependency,
     ToolDefinition,
     no_leads,
 )
+from core.replay import Recorder
 from investigation_agent import Findings, Reading, investigate
 from investigation_agent.budget import Budget, InvestigationSettings
 from investigation_agent.retrieval import (
@@ -80,12 +82,11 @@ class Investigation(NamedTuple):
                     sleep: Callable[[float], None] = dont_care_sleep) -> Findings:
         """The loop, run with whatever this investigation was built around.
 
-        `conversations` is the one argument here that changes which seam is
-        exercised rather than what it answers. Left out, the scripted model
-        goes in as `converse` and the factory is never reached - which is what
-        every test of the loop's own decisions wants. Named, the factory is
-        under test and nothing is handed in already built, so what the loop
-        asked to be built with is observable.
+        `conversations` is the one argument here that changes what is observed
+        rather than what it answers. Left out, the factory hands over the
+        scripted model whatever it is asked to build - which is what every test
+        of the loop's own decisions wants. Named, the factory is a double of
+        the test's own, so what the loop asked to be built with is observable.
         """
 
         return investigate(
@@ -101,8 +102,7 @@ class Investigation(NamedTuple):
             settings=settings or some_investigation_settings(),
             thresholds=some_thresholds(),
             read_tier_tools=self.read_tier_tools,
-            converse=None if conversations is not None else self.model,
-            conversations=conversations or a_conversation_recorded_for,
+            conversations=conversations or a_factory_handing_over(self.model),
             budget=self.budget,
             already_refuted=already_refuted,
             already_read=already_read,
@@ -155,6 +155,19 @@ class Investigation(NamedTuple):
 
     def the_read_tier_served(self, tools: list[ToolDefinition]) -> Callable[[], None]:
         return returning(self.read_tier_tools, tools)
+
+
+def a_factory_handing_over(model: Conversation) -> Conversations:
+    """A `Conversations` that hands back the scripted model, whatever it is
+    asked to build - the incident, the recorder and the policy are the subject
+    of the tests that name a factory of their own."""
+    def conversations(incident_id: str,
+                      recorder: Recorder,
+                      *,
+                      policy: ModelPolicy | None = None) -> Conversation:
+        return model
+
+    return conversations
 
 
 def an_investigation(model: Mock, budget: Budget | None = None) -> Investigation:

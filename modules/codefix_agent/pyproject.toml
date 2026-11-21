@@ -4,9 +4,10 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    # The `llm` extra because this agent reasons: it reads the repository and
-    # writes a patch, which is a conversation with a model rather than a lookup.
-    "argus-core[llm,mcp]",
+    # No `llm` extra, though this agent reasons: it talks through the port
+    # (`core.llm`), which imports no vendor, and is handed the provider by the
+    # process that builds it.
+    "argus-core[mcp]",
     # What Argus did about an incident is said in the words its own account
     # uses, so the fix and the write-up say one action one way.
     "argus-narration",

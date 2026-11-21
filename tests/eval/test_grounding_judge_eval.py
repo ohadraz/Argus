@@ -34,6 +34,7 @@ from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings
 from core.llm import build_llm_client
+from core.llm.adapters.anthropic_adapter import to_tool
 from postmortem_writing.grounding import (
     DID_NOT_ANSWER,
     JUDGE_BRIEF,
@@ -44,6 +45,7 @@ from postmortem_writing.grounding import (
     judge_policy,
 )
 
+from tests.framework.models import the_configured_models
 from tests.framework.pooling import Outcome, Setup, the_samples_taken
 from tests.framework.spending import Spend, Tally
 
@@ -222,7 +224,8 @@ def _the_real_judge_reads_repeatedly(asked: Asked) -> list[Judged]:
     not whatever the judgements beside it did.
     """
     settings = get_settings()
-    client = build_llm_client(policy=judge_policy(settings.judge_model, settings.judge_effort))
+    client = build_llm_client(the_configured_models(),
+                              policy=judge_policy(settings.judge_model, settings.judge_effort))
 
     def judge_once(_: int) -> Judged:
         tally = Tally(client)
@@ -289,7 +292,7 @@ def the_setup_under_test() -> Setup:
         values={},
         texts={
             "brief": JUDGE_BRIEF,
-            "tool": json.dumps(JUDGE_CLAIMS.to_wire(), sort_keys=True)
+            "tool": json.dumps(to_tool(JUDGE_CLAIMS), sort_keys=True)
         }
     )
 

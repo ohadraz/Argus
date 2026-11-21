@@ -21,7 +21,7 @@ from contextlib import contextmanager
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario
-from core import Holding
+from core import Holding, get_settings
 from core.mcp_transport import McpClient
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START
@@ -226,7 +226,8 @@ def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:
         McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN),
         McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN),
         None,
-        Holding()
+        Holding(),
+        settings=get_settings()
     ))
 
 

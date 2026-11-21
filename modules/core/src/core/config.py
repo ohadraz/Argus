@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.models.code_search import CodeSearch
-from core.models.model_policy import DEFAULT_EFFORT, DEFAULT_MODEL, Effort
+from core.models.model_policy import DEFAULT_EFFORT, DEFAULT_MODEL, Reasoning
 
 # The longest Mitigation stands by with nothing measured: a change still
 # arriving, a read tier not answering. Named here because two settings are stated
@@ -368,7 +368,7 @@ class Settings(BaseSettings):
     # work. The postmortem writes one piece of prose with every figure already
     # measured and no tools to explore; the investigator runs a tool loop whose
     # whole judgement is which evidence would settle the question; Code-Fix is
-    # agentic coding, where the higher efforts earn their cost. A single level
+    # agentic coding, where more effort is said to earn its cost. A single level
     # across the three is wrong for at least one of them, and which one is not
     # knowable from here - it is a thing to measure against the eval, which is
     # why these are configuration rather than constants.
@@ -376,32 +376,32 @@ class Settings(BaseSettings):
     # `high` is what every agent used when there was one setting for all of
     # them, and is also the API's own default, stated rather than relied on.
     # Code-Fix stays at `high` too, and that is measured rather than argued.
-    # It was moved to `xhigh` on the reasoning that agentic coding is where
-    # the higher efforts earn their cost; a matched pair of recorded corpora -
+    # It was moved to `higher` on the reasoning that agentic coding is where
+    # more effort earns its cost; a matched pair of recorded corpora -
     # same scenarios, same bounds, effort the only difference - said the
     # opposite. At `high` it proposed a fix in six of the eight walks that
-    # reached it, in 9 to 31 calls; at `xhigh` in three, in 13 to 29, and with
+    # reached it, in 9 to 31 calls; at `higher` in three, in 13 to 29, and with
     # roughly twice the tokens. The case whose answer is a whole large file is
     # among the three it lost. More thinking per call bought more reading and
     # fewer conclusions, which is the shape of an agent exploring rather than
     # deciding.
-    # Sonnet rather than the shared default, measured over 500 investigations
-    # of the six pinned eval cases at 50 samples each per arm. Five of the six
-    # are held by every model and effort tried and so discriminate nothing; on
-    # the sixth - the deploy that explains nothing, which is the only case any
-    # arm gets wrong - Opus scored 38 of 50 and Sonnet 41, a difference well
-    # inside the interval either rate carries at that depth.
+    # The investigator's model and effort are unmeasured. Every eval arm meant
+    # to compare them - Sonnet against Opus, medium against high - asked one
+    # configuration: Opus 5 at `high` with no brief. The eval built its client
+    # from the default policy and handed the investigation that conversation,
+    # so these two settings and the brief never reached a request, and the
+    # effort-cost script did the same. The pooled rows labelled Sonnet or
+    # medium are all Opus 5 at `high` with no brief; the scores and token
+    # counts they differ by are sampling noise, and medium was never asked.
     #
-    # What is not inside the noise is the bill: Sonnet's four rates are 40% of
-    # Opus's, and the same six investigations billed 94,035 tokens against
-    # 92,604, so the work costs 45% of what it did. A model that answers as
-    # well for less is not a trade, and this is the one agent whose answers can
-    # be scored well enough to say so. Those runs were on Sonnet 5; it runs on
-    # its successor, Sonnet 5.5, at the same rates, which no eval has scored.
+    # Sonnet stays on price, as a choice rather than a finding: its four rates
+    # are 40% of Opus's. Whether it answers as well, and at which effort, is
+    # what the eval can now say, since it asks the configured model, effort and
+    # brief.
     investigation_model: str = Field(default="claude-sonnet-5-5")
-    investigation_effort: Effort = Field(default=DEFAULT_EFFORT)
+    investigation_effort: Reasoning = Field(default=DEFAULT_EFFORT)
     codefix_model: str = Field(default=DEFAULT_MODEL)
-    codefix_effort: Effort = Field(default=DEFAULT_EFFORT)
+    codefix_effort: Reasoning = Field(default=DEFAULT_EFFORT)
     # How much room one fix gets to be written in. Alone among the agents
     # Code-Fix answers with whole files, and the largest in the Target
     # Service - `monthly_statement.py` - is 21,593 tokens, 23,735 with the test
@@ -417,14 +417,14 @@ class Settings(BaseSettings):
     # The shared default: asked to hold about forty rules at once, Sonnet kept a
     # different few of them in each of three re-records of one incident.
     postmortem_model: str = Field(default=DEFAULT_MODEL)
-    postmortem_effort: Effort = Field(default=DEFAULT_EFFORT)
+    postmortem_effort: Reasoning = Field(default=DEFAULT_EFFORT)
     # The grounding judge, which reads a write-up and an overview against what
     # they were written from. Opus at medium effort: no weaker than the writer
     # it judges, and thinking. Checking each claim against a record is
     # reasoning, and Sonnet at low effort, which did not think, flagged claims
     # its own record supported in every write-up of the pilot.
     judge_model: str = Field(default="claude-opus-5-5")
-    judge_effort: Effort = Field(default="medium")
+    judge_effort: Reasoning = Field(default=Reasoning.MEDIUM)
 
     # The model that classifies what a person wrote in an incident's thread, and
     # how often the intent reader looks for something new to understand. One short
@@ -432,7 +432,7 @@ class Settings(BaseSettings):
     # writing and Argus offering to resolve, paid only when there was nothing
     # new.
     intent_model: str = Field(default=DEFAULT_MODEL)
-    intent_effort: Effort = Field(default=DEFAULT_EFFORT)
+    intent_effort: Reasoning = Field(default=DEFAULT_EFFORT)
     intent_poll_seconds: float = Field(default=2.0, gt=0.0)
 
     # The bot the Communicator posts as. Empty by default, and empty means it

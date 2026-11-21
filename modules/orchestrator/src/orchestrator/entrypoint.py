@@ -110,7 +110,8 @@ def graph_for(connections: Connections,
             reading_dicts = cast(ConnectionPool[psycopg.Connection[DictRow]], checkpoints)
             graph = build_graph(
                 PostgresSaver(reading_dicts),
-                against(connections, read, write, store, holding)
+                against(connections, read, write, store, holding,
+                        settings=get_settings())
             )
 
         return graph

@@ -1,9 +1,12 @@
-"""The Anthropic-backed `LLMClient` - the only place Argus talks to a model.
+"""The Anthropic-backed `ModelProvider` - the only place Argus talks to a model.
 
-Everything vendor-shaped lives here: the model id, the request parameters, and
-the translation between a conversation Argus is holding and the messages the
-API expects. Callers hold an `LLMClient` and pass a `Transcript`; nothing
-outside this module knows that Anthropic exists.
+Everything vendor-shaped lives here: the model id, the request parameters, how
+Argus's reasoning scale and tool offers are spelled on the wire, how a model's
+own slips into its native call syntax are repaired, and the translation between
+a conversation Argus is holding and the messages the API expects. Callers hold
+an `LLMClient` and pass a `Transcript`; a process's wiring builds an
+`AnthropicProvider` and hands it out as the port, and nothing else knows that
+Anthropic exists.
 
 The one seam below this file is `Settings.anthropic_base_url`, which points
 the SDK somewhere else. That is how the test double is selected, and it is
@@ -14,7 +17,12 @@ still run.
 
 from __future__ import annotations
 
-from typing import Any, Final, cast
+import json
+import logging
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Final, Literal, cast
 
 import anthropic
 from anthropic.types import (
@@ -34,6 +42,7 @@ from anthropic.types.message_create_params import MessageCreateParamsBase
 from core.config import LLMSettings
 from core.llm.client import (
     AnswerTruncated,
+    LLMClient,
     ModelDidNotAnswer,
     ModelRefused,
     ModelUnavailable,
@@ -44,8 +53,8 @@ from core.llm.escapes import with_escapes_resolved
 from core.models.model_policy import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     DEFAULT_MODEL,
-    LARGEST_UNSTREAMED_ANSWER,
     ModelPolicy,
+    Reasoning,
 )
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import (
@@ -56,6 +65,7 @@ from core.models.transcript import (
     Transcript,
 )
 from core.models.turn import ToolCall, Turn
+from core.telemetry import GEN_AI_PROVIDER_ANTHROPIC
 
 # Anthropic's own vocabulary for the parts of a message. Named here because
 # this is the module that reads and writes them - a loop above holds a
@@ -116,6 +126,72 @@ MODEL: Final = DEFAULT_MODEL
 # suite asks the real API with it, and that check means something only if it
 # asks the way the adapter would.
 MAX_TOKENS: Final = DEFAULT_MAX_OUTPUT_TOKENS
+
+# Above this the SDK refuses a non-streaming request outright, by a rule
+# of its own: it expects 128,000 tokens to take an hour, will not let a
+# single response run past ten minutes, and 128000 * 600/3600 is this.
+# Hardcoded there, and unmoved by the client's own timeout - so this is
+# not a threshold to tune but the line where streaming stops being a
+# preference and becomes the only way to ask.
+LARGEST_UNSTREAMED_ANSWER: Final = 21_333
+
+# Anthropic's five effort levels, as `output_config.effort` takes them.
+type AnthropicEffort = Literal["low", "medium", "high", "xhigh", "max"]
+
+# Where Argus's reasoning scale sits on Anthropic's: one for one, in order, so
+# every level Anthropic offers is one a deployment can ask for. `low`, `medium`
+# and `high` are spelled alike on both sides; Argus's two above them are what
+# Anthropic calls `xhigh` and `max`.
+#
+# Public and shared with the test that asserts on it, like the vocabulary
+# above: these are Anthropic's spellings, and a second copy in a test would be
+# a second opinion about a third party.
+EFFORT_ON_THE_WIRE: Final[Mapping[Reasoning, AnthropicEffort]] = {
+    Reasoning.LOW: "low",
+    Reasoning.MEDIUM: "medium",
+    Reasoning.HIGH: "high",
+    Reasoning.HIGHER: "xhigh",
+    Reasoning.HIGHEST: "max"
+}
+
+# Anthropic's own vocabulary for a tool offer, named here because this is the
+# one module that writes it. Everything above holds a `ToolDefinition` and
+# never assembles a schema by hand - which is the point: the strictness rules
+# below are easy to half-apply, and a schema that half-applies them is quietly
+# permissive rather than broken.
+_NAME_KEY: Final = "name"
+_DESCRIPTION_KEY: Final = "description"
+_INPUT_SCHEMA_KEY: Final = "input_schema"
+_STRICT_KEY: Final = "strict"
+
+# And JSON Schema's, for the part of the offer that stamps it strict.
+_TYPE_KEY: Final = "type"
+_PROPERTIES_KEY: Final = "properties"
+_REQUIRED_KEY: Final = "required"
+_ADDITIONAL_PROPERTIES_KEY: Final = "additionalProperties"
+_OBJECT_TYPE: Final = "object"
+_ARRAY_TYPE: Final = "array"
+
+# How a model writes a tool argument when it slips out of JSON into its own
+# call syntax, inside another argument's string: the prose ends with the
+# closing tag of the argument it was in, and the value that should have been
+# an argument of its own follows the opening tag of that one. Both halves are
+# quoted from real submissions rather than guessed.
+_A_PARAMETER_OPENS: Final = '<parameter name="'
+_ITS_NAME_ENDS: Final = '">'
+
+# What comes right before such an opening tag when the model has slipped: the
+# closing tag of whatever it was writing - its own argument's, or an earlier
+# parameter's it wrote the same way. A tag opened in the middle of a sentence is
+# something the prose says, not a call.
+_A_CLOSING_TAG_ENDS_IT: Final = re.compile(r"</[A-Za-z_][\w-]*>\s*$")
+
+# The two JSON Schema types a model writes as JSON inside a tag, and what each
+# decodes to. A string argument written in a tag is not JSON at all, so there is
+# nothing to tell where it ends.
+_DECODED_AS: Final[Mapping[str, type]] = {_ARRAY_TYPE: list, _OBJECT_TYPE: dict}
+
+_logger = logging.getLogger(__name__)
 
 # How many times the SDK may retry a call that never reached a verdict - a
 # connection that dropped, a 429, a 5xx. Two, which is what the SDK would do
@@ -263,7 +339,68 @@ def to_messages(transcript: Transcript) -> list[MessageParam]:
     return [_a_message_for(exchange) for exchange in transcript]
 
 
-def to_turn(message: Message) -> Turn:
+def to_tool(tool: ToolDefinition) -> ToolParam:
+    """Renders one tool as the API expects a tool offer to look.
+
+    Always strict, and not by a per-tool choice. The dispatcher looks a
+    tool up by name and calls it with whatever arrived; an argument the
+    schema never promised is one nothing is written to handle. Strict mode
+    is what makes the arguments a dispatcher receives exactly the arguments
+    it declared - and `additionalProperties: false` is the half of that
+    which is easiest to leave out, which is why it is written here rather
+    than asked of every caller.
+
+    Strict at every depth, not only at the top. A tool taking a list of
+    records - a patch of whole files, each a path and its contents -
+    carries objects the caller wrote, and the API demands the same of those.
+    It refuses the whole request over one of them, so a nested object left
+    permissive takes every other tool in the call down with it.
+
+    Public for the reason `to_messages` is, and for one more: an eval's pool
+    is named by the offer exactly as the model sees it, and this is the only
+    rendering that carries every field the model reads.
+    """
+    return cast(ToolParam, {
+        _NAME_KEY: tool.name,
+        _DESCRIPTION_KEY: tool.description,
+        _STRICT_KEY: True,
+        _INPUT_SCHEMA_KEY: _strictly(
+            {
+                _TYPE_KEY: _OBJECT_TYPE,
+                _PROPERTIES_KEY: tool.properties,
+                _REQUIRED_KEY: tool.required
+            }
+        )
+    })
+
+
+def _strictly(schema: Any) -> Any:
+    """The same schema, with every object in it forbidding what it did not name.
+
+    A copy rather than an edit in place: `properties` is the caller's own
+    fragment, usually a module-level constant, and stamping it where it lies
+    would rewrite the definition somebody wrote rather than the offer being
+    sent.
+
+    Set rather than defaulted, so a fragment that said `true` is corrected
+    rather than honoured. There is no tool here for which permissive is the
+    right answer, and one arriving that way is a mistake rather than a choice.
+    """
+    if isinstance(schema, dict):
+        stamped = {key: _strictly(value) for key, value in schema.items()}
+
+        if stamped.get(_TYPE_KEY) == _OBJECT_TYPE:
+            stamped[_ADDITIONAL_PROPERTIES_KEY] = False
+
+        return stamped
+
+    if isinstance(schema, list):
+        return [_strictly(item) for item in schema]
+
+    return schema
+
+
+def to_turn(message: Message, offered: Sequence[ToolDefinition] = ()) -> Turn:
     """Reads one API response into the shape the loop works in.
 
     The other direction of `to_messages`, and here for the same reason: turning
@@ -293,12 +430,13 @@ def to_turn(message: Message) -> Turn:
     and whether that holds on Sonnet 5.5 and Opus 5.5, which the agents now run
     on, is unmeasured; nothing is replayed, so the history-editing check has
     nothing to refuse. The benefit is below the investigator eval's resolution,
-    where five of six cases already sit at 50/50; and the cost is not linear, since every turn's
-    reasoning would be resent by every turn after it - quadratic across a walk
-    of up to twelve rounds per investigation. The eval's own rows price that
-    side exactly, each carrying what its run was billed, which is the
-    measurement to take when the eval grows a case sharp enough to make the
-    other side worth paying for.
+    where five of six cases already sit at 50/50 - on rows that all asked
+    Opus 5 at high with no brief, not the configured model - and the cost is
+    not linear, since every turn's reasoning would be resent by every turn
+    after it - quadratic across a walk of up to twelve rounds per
+    investigation. The eval's own rows price that side exactly, each carrying
+    what its run was billed, which is the measurement to take when the eval
+    grows a case sharp enough to make the other side worth paying for.
 
     Text is joined rather than taken first, because one turn's words arrive as
     however many blocks the API chose to break them into and they are one
@@ -306,10 +444,21 @@ def to_turn(message: Message) -> Turn:
     call into its visible text - which happens when thinking is off - asked for
     nothing, and dispatching it would run something nobody requested.
 
+    A call's arguments are read as the model meant them, which is two repairs
+    of its own habits rather than of the API's: a character it escaped instead
+    of writing, and an argument it wrote in its native call syntax inside
+    another one (`_with_parameters_recovered`). Both are this vendor's model's,
+    so both are made here, where every agent's answer passes once. The second
+    needs the tools the request `offered`, since an argument is given back only
+    under a name the tool declares and in the type it declares; with none
+    offered, nothing is given back.
+
     Public for the same reason as `to_messages`: the rules above are worth
     testing against a hand-built response, without a client, a key or a
     recording.
     """
+    declared = {tool.name: tool for tool in offered}
+
     return Turn(
         text=with_escapes_resolved(
             _BETWEEN_WHAT_IT_SAID.join(
@@ -323,7 +472,10 @@ def to_turn(message: Message) -> Turn:
             ToolCall(
                 id=block.id,
                 name=block.name,
-                arguments=_arguments_as_written(dict(block.input or {}))
+                arguments=_with_parameters_recovered(
+                    declared.get(block.name), block.name,
+                    _arguments_as_written(dict(block.input or {}))
+                )
             )
             for block in message.content
             if block.type == TOOL_USE_TYPE
@@ -393,6 +545,120 @@ def _as_written(value: Any) -> Any:
         return {name: _as_written(item) for name, item in value.items()}
 
     return value
+
+
+def _with_parameters_recovered(offer: ToolDefinition | None,
+                               tool: str,
+                               asked_for: dict[str, Any]) -> dict[str, Any]:
+    """One request's arguments, with one written in tag form inside another
+    given back to the argument it names.
+
+    A real answer, five Code-Fix submissions across two paid runs and every one
+    the same: the model closes the prose with `</explanation>`, opens
+    `<parameter name="files">`, and writes the whole patch as JSON inside the
+    explanation string - while the `files` argument that arrives properly
+    holds a phrase pointing at it. Tool arguments in this model's own call
+    syntax, in the middle of a JSON one. Nothing was lost and nothing was wrong
+    with the fix; what it cost was the run, resubmitting an answer written
+    correctly the first time, or worse, a pointer like `(see above)` written to
+    a branch as a module.
+
+    Repaired rather than refused: the wrapping was wrong and the answer was
+    not. Here rather than in the agent that met it, because the syntax is this
+    vendor's model's and any agent's argument can carry it.
+
+    Given back only where all of these hold, because anything less turns prose
+    that mentions a tag into a call nobody made:
+    - the offered tool declares the name the tag gives, and declares it an
+      array or an object - a value a model writes as JSON at all;
+    - what follows the tag decodes as that type, so a JSON object written where
+      the tool takes a list leaves a readable list alone;
+    - the tag comes straight after a closing tag - of the argument it was in,
+      or of an earlier parameter written the same way - which is how the slip
+      reads every time it has been seen. A tag opened mid-sentence is something
+      the prose says.
+    Every tag in an argument is tried, in order, so an earlier tag for some
+    other parameter does not hide the one that carries the value; the first
+    that holds is given back. Its value replaces what arrived under that name
+    rather than joining it: the two describe the same thing, and the one in the
+    tag is the one the model elided. The argument it was written inside keeps
+    everything before that tag, less the closing tag of its own name.
+
+    Untouched where nothing holds - which is not the rare case it reads as: a
+    patch written into prose carries the files' own newlines, so it is often
+    not JSON at all. What arrived is then what the agent reads, and its own
+    checks are what catch it.
+
+    Said at WARNING each time it is made, naming the tool, the argument given
+    back and the one it was written inside. The repaired call is what the
+    transcript echoes and the replay log keeps, so nothing else shows the model
+    slipped - and a model that starts slipping more often is worth seeing.
+    """
+    if offer is None:
+        return asked_for
+
+    for name, value in asked_for.items():
+        if not isinstance(value, str):
+            continue
+
+        for opens in _every_opening_in(value):
+            other, named, written = value[opens + len(_A_PARAMETER_OPENS):].partition(
+                _ITS_NAME_ENDS
+            )
+            before = value[:opens]
+
+            if not named or other == name or not _A_CLOSING_TAG_ENDS_IT.search(before):
+                continue
+
+            recovered = _a_value_of_its_declared_type(offer, other, written)
+
+            if recovered is None:
+                continue
+
+            _logger.warning("tool argument recovered from tag form",
+                            extra={"tool": tool, "argument": other, "written_inside": name})
+
+            return {
+                **asked_for,
+                name: before.strip().removesuffix(f"</{name}>").strip(),
+                other: recovered
+            }
+
+    return asked_for
+
+
+def _every_opening_in(value: str) -> list[int]:
+    """Where each parameter's opening tag starts in `value`, in order."""
+    found: list[int] = []
+    at = value.find(_A_PARAMETER_OPENS)
+
+    while at != -1:
+        found.append(at)
+        at = value.find(_A_PARAMETER_OPENS, at + 1)
+
+    return found
+
+
+def _a_value_of_its_declared_type(offer: ToolDefinition, argument: str, written: str) -> Any:
+    """The value written at the start of `written`, where `offer` declares
+    `argument` an array or an object and that is what it decodes as - or `None`.
+
+    Trailing text after it is tolerated, which is what `raw_decode` buys: a
+    model that closed the tag, or wrote another paragraph after it, still
+    wrote the value.
+    """
+    declared = offer.properties.get(argument, {}).get(_TYPE_KEY)
+    decoded_as = _DECODED_AS.get(declared) if isinstance(declared, str) else None
+
+    if decoded_as is None:
+        return None
+
+    try:
+        decoded, _ = json.JSONDecoder().raw_decode(written.strip())
+    except ValueError:
+        return None
+
+    return decoded if isinstance(decoded, decoded_as) else None
 
 
 def _a_message_for(exchange: Exchange) -> MessageParam:
@@ -500,6 +766,36 @@ def _the_standing_brief(brief: str) -> list[TextBlockParam]:
     ]
 
 
+@dataclass(frozen=True)
+class AnthropicProvider:
+    """`ModelProvider` answered by Anthropic, reached where `settings` say.
+
+    What a process's wiring builds and hands out as the port. It holds where
+    the API is and with whose key, and builds a client per policy when asked -
+    one SDK client each, as the factory always built, so nothing about a
+    conversation is shared between two incidents through this.
+
+    `sdk` is the seam a test reaches for when what it is checking is the
+    request rather than the answer: every client built is handed it instead of
+    one of its own. Configuration still decides everything about a real one.
+
+    A frozen value, so that two providers built from the same settings are the
+    same provider - which is how a test reads off a binding which one an agent
+    was given. Its settings are left out of its `repr`, because they carry the
+    key, and a provider printed in a log or a failure would print it.
+    """
+
+    settings: LLMSettings = field(repr=False)
+    sdk: anthropic.Anthropic | None = None
+
+    @property
+    def name(self) -> str:
+        return GEN_AI_PROVIDER_ANTHROPIC
+
+    def client(self, policy: ModelPolicy, /) -> LLMClient:
+        return AnthropicLLMClient(self.settings, policy=policy, client=self.sdk)
+
+
 class AnthropicLLMClient:
     """`LLMClient` backed by the real Anthropic Messages API.
 
@@ -570,11 +866,7 @@ class AnthropicLLMClient:
         each is its own type, and none of them is a `Turn` a loop could
         mistake for progress.
         """
-        # `to_wire` answers in Argus's terms - a plain mapping - so that
-        # `ToolDefinition` stays a domain model and its callers do not import
-        # the SDK to hold one. The shape is the API's, and this is the module
-        # that already knows that, so the cast belongs here and nowhere else.
-        offered = [cast(ToolParam, tool.to_wire()) for tool in tools]
+        offered = [to_tool(tool) for tool in tools]
         room = max_tokens if max_tokens is not None else self._policy.max_output_tokens
 
         answer = self._answered(transcript, offered, room)
@@ -591,7 +883,7 @@ class AnthropicLLMClient:
                 billed=_what_it_cost(answer)
             )
 
-        return to_turn(answer)
+        return to_turn(answer, tools)
 
     def _answered(self,
                   transcript: Transcript,
@@ -662,7 +954,7 @@ class AnthropicLLMClient:
             # every turn's prefix is the previous turn's entire request. Pinning
             # it would freeze the saving at whatever the first turn sent.
             cache_control=EPHEMERAL_CACHE,
-            output_config=OutputConfigParam(effort=self._policy.effort),
+            output_config=OutputConfigParam(effort=EFFORT_ON_THE_WIRE[self._policy.effort]),
             thinking=SUMMARISED_THINKING,
             tools=offered,
             messages=to_messages(transcript),

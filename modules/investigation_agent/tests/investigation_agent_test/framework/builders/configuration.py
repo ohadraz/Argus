@@ -13,7 +13,7 @@ for a reason the failure does not name.
 from __future__ import annotations
 
 from core.anomaly import AnomalyThresholds
-from core.models import Effort
+from core.models import Reasoning
 from investigation_agent.budget import InvestigationSettings
 
 A_LOOKBACK_IN_MINUTES = 30
@@ -43,7 +43,7 @@ SOME_RECOVERY_FRACTION = 0.8
 # the setting entirely, if the setting happened to say what the code would
 # have said anyway.
 SOME_MODEL = "claude-sonnet-5"
-SOME_EFFORT: Effort = "medium"
+SOME_EFFORT = Reasoning.MEDIUM
 
 
 def some_investigation_settings(
@@ -51,7 +51,7 @@ def some_investigation_settings(
     tokens: int = ROOM_TO_SPARE_IN_TOKENS,
     seconds: float = ROOM_TO_SPARE_IN_SECONDS,
     model: str = SOME_MODEL,
-    effort: Effort = SOME_EFFORT,
+    effort: Reasoning = SOME_EFFORT,
     lookback_minutes: int = A_LOOKBACK_IN_MINUTES,
     lookahead_minutes: int = A_LOOKAHEAD_IN_MINUTES,
     log_ceiling_minutes: int = A_LOG_CEILING_IN_MINUTES,

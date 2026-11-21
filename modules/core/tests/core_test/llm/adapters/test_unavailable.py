@@ -33,8 +33,7 @@ import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario
 from core.llm import ModelUnavailable, RequestRejected
-from core.llm.adapters.anthropic_adapter import AnthropicLLMClient
-from core.models.model_policy import LARGEST_UNSTREAMED_ANSWER
+from core.llm.adapters.anthropic_adapter import LARGEST_UNSTREAMED_ANSWER, AnthropicLLMClient
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 

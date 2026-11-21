@@ -37,11 +37,16 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
-from core import Connections, Holding, LLMSettings, get_settings
+from core import Connections, Holding, LLMSettings, Settings, get_settings
 from core.mcp_transport import McpClient
 from core.models import ModelPolicy
 from incident_memory.records import RememberedIncident
-from orchestrator.assembling import IncidentMemorySettings, against, the_store_for
+from orchestrator.assembling import (
+    IncidentMemorySettings,
+    against,
+    the_models_at,
+    the_store_for,
+)
 from orchestrator.walk.collaborators import Collaborators
 from postmortem_writing import judge_policy, postmortem_policy
 
@@ -72,6 +77,12 @@ WHAT_THE_INVESTIGATION_NODE_ASKS = frozenset({"service", "onset"})
 # the incident. Every channel it reads is the binding's.
 WHAT_AN_INVESTIGATION_IS_GIVEN = frozenset({"alert", "incident_id"})
 
+# Where the agents' model is reached, and where the judge's is - two addresses,
+# so that a binding handing one the other's provider cannot pass as the right
+# one. With both left empty the judge's settings equal the agents'.
+WHERE_THE_AGENTS_ARE_ANSWERED = "http://agents.invalid"
+WHERE_THE_JUDGE_IS_ANSWERED = "http://judge.invalid"
+
 
 @pytest.mark.unit
 def test_assembling_the_collaborators_opens_no_connection() -> None:
@@ -86,7 +97,8 @@ def test_assembling_the_collaborators_opens_no_connection() -> None:
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
                               None,
-                              Holding())) \
+                              Holding(),
+                              settings=get_settings())) \
         .then(_every_collaborator_was_supplied())
 
 
@@ -104,7 +116,8 @@ def test_taking_an_action_is_bound_with_every_tool_it_needs() -> None:
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
                               None,
-                              Holding())) \
+                              Holding(),
+                              settings=get_settings())) \
         .then(all_of(
             _taking_an_action_needs_only(WHAT_THE_MITIGATION_NODE_SUPPLIES),
             _putting_a_change_back_needs_only(WHAT_AN_UNDO_IS_GIVEN),
@@ -124,7 +137,8 @@ def test_the_deploy_history_is_bound_with_everything_but_the_question() -> None:
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
                               None,
-                              Holding())) \
+                              Holding(),
+                              settings=get_settings())) \
         .then(
             _reading_the_deploy_history_needs_only(WHAT_THE_INVESTIGATION_NODE_ASKS)
         )
@@ -142,7 +156,8 @@ def test_the_investigation_is_bound_with_every_channel_it_reads() -> None:
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
                               None,
-                              Holding())) \
+                              Holding(),
+                              settings=get_settings())) \
         .then(
             _investigating_needs_only(WHAT_AN_INVESTIGATION_IS_GIVEN)
         )
@@ -163,7 +178,8 @@ def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
                               None,
-                              Holding())) \
+                              Holding(),
+                              settings=get_settings())) \
         .then(
             _the_postmortem_is_asked_under(
                 postmortem_policy(settings.postmortem_model, settings.postmortem_effort))
@@ -176,7 +192,7 @@ def test_both_writers_are_read_by_the_judge_at_its_own_model_and_address(writer:
     # Its own address, settled where the process starts, so a replay serves
     # the judge from a stand-in of its own; its own model and effort, since a
     # reading against a record is not the writing it judges.
-    settings = get_settings()
+    settings = _settings_reaching_two_addresses()
 
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
@@ -184,11 +200,35 @@ def test_both_writers_are_read_by_the_judge_at_its_own_model_and_address(writer:
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
                               None,
-                              Holding())) \
+                              Holding(),
+                              settings=settings)) \
         .then(
             _judged_under(writer,
                           judge_policy(settings.judge_model, settings.judge_effort),
                           LLMSettings.for_the_judge(settings))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("agent", ["investigate", "propose_fix", "write_postmortem",
+                                   "write_synopsis"])
+def test_every_agent_is_answered_by_the_provider_the_process_chose(agent: str) -> None:
+    # Which provider answers is chosen once, here, and no agent has a default
+    # of its own to fall back on - so an agent bound without it would not
+    # start, and one bound with another would be answered from an address
+    # nobody configured for it.
+    settings = _settings_reaching_two_addresses()
+
+    Scenario() \
+        .given(no_connections := _connections_that_must_not_be_opened()) \
+        .when(lambda: against(no_connections,
+                              _a_client_that_must_not_be_reached(),
+                              _a_client_that_must_not_be_reached(),
+                              None,
+                              Holding(),
+                              settings=settings)) \
+        .then(
+            _answered_by(agent, the_models_at(LLMSettings.of(settings)))
         )
 
 
@@ -205,7 +245,8 @@ def test_a_process_that_searches_no_memory_still_files_what_was_tried() -> None:
                                      _a_client_that_must_not_be_reached(),
                                      _a_client_that_must_not_be_reached(),
                                      None,
-                                     Holding())
+                                     Holding(),
+                                     settings=get_settings())
         ) \
         .when(attempting(lambda: collaborators.remember_incident(_a_record()))) \
         .then(an_error_was_raised(_TheDatabaseWasReached))
@@ -224,7 +265,8 @@ def test_the_action_a_walk_acts_for_is_held_by_the_process_holding_its_run() -> 
                                      _a_client_that_must_not_be_reached(),
                                      _a_client_that_must_not_be_reached(),
                                      None,
-                                     holding)
+                                     holding,
+                                     settings=get_settings())
         ) \
         .when(lambda: _the_action_held_while(collaborators, some_action_id, holding)) \
         .then(the_answer_was(some_action_id))
@@ -249,6 +291,15 @@ def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
             one_record_was_logged(caplog, "orchestrator.assembling", logging.INFO,
                                   "incident memory disabled")
         )
+
+
+def _settings_reaching_two_addresses() -> Settings:
+    """The process's settings, with the agents' model and the judge's at two
+    different addresses."""
+    return get_settings().model_copy(update={
+        "anthropic_base_url": WHERE_THE_AGENTS_ARE_ANSWERED,
+        "judge_anthropic_base_url": WHERE_THE_JUDGE_IS_ANSWERED
+    })
 
 
 def _the_action_held_while(collaborators: Collaborators,
@@ -441,24 +492,54 @@ def _the_postmortem_is_asked_under(expected: ModelPolicy) -> Assertion[Collabora
 
 def _judged_under(writer: str, policy: ModelPolicy,
                   settings: LLMSettings) -> Assertion[Collaborators]:
-    """The policy and the settings the judge of `writer` is built with, read
+    """The policy and the provider the judge of `writer` is built with, read
     off the binding - where alone they can be seen, as the postmortem's own
     model's are."""
     def assertion(collaborators: Collaborators) -> bool:
         judge_for = getattr(getattr(collaborators, writer), "keywords", {}).get("judge_for")
         bound = getattr(judge_for, "keywords", {})
+        reached = next(iter(getattr(judge_for, "args", ())), None)
 
-        reached = bound.get("settings")
-        if bound.get("policy") != policy or reached != settings:
+        if bound.get("policy") != policy or reached != the_models_at(settings):
             # By address alone: the settings carry the key.
             raise AssertionError(
                 f"Expected [{writer}] read by a judge asked under [{policy}] at "
-                f"[{settings.anthropic_base_url}], got [{bound.get('policy')}] at "
-                f"[{getattr(reached, 'anthropic_base_url', None)}].")
+                f"[{settings.anthropic_base_url}], got [{bound.get('policy')}] from "
+                f"[{_the_address_of(reached)}].")
 
         return True
 
     return assertion
+
+
+def _answered_by(agent: str, provider: object) -> Assertion[Collaborators]:
+    """The provider `agent`'s model is built over, read off the binding.
+
+    The two agents with a loop are handed a factory of conversations, whose
+    client comes from a factory bound to the provider; the two writers are
+    handed the client factory itself.
+    """
+    def assertion(collaborators: Collaborators) -> bool:
+        bound = getattr(getattr(collaborators, agent), "keywords", {})
+        conversations = bound.get("conversations")
+        client_for = (getattr(conversations, "keywords", {}).get("client_for")
+                      if conversations is not None else bound.get("client_for"))
+        reached = next(iter(getattr(client_for, "args", ())), None)
+
+        if reached != provider:
+            # By address alone: the settings carry the key.
+            raise AssertionError(
+                f"Expected [{agent}] answered by the provider at "
+                f"[{_the_address_of(provider)}], got one at [{_the_address_of(reached)}].")
+
+        return True
+
+    return assertion
+
+
+def _the_address_of(provider: object) -> object:
+    """Where a provider reaches its model, and nothing else it was built with."""
+    return getattr(getattr(provider, "settings", None), "anthropic_base_url", None)
 
 
 def _still_required_of(call: Callable[..., Any]) -> set[str]:

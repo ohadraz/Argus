@@ -16,13 +16,16 @@ kept its own copy of this leniency, which made it a grade of what the model said
 rather than of what a human would review, and the two part company the moment
 anything here repairs a malformed answer. `changes_only_configuration` is a door
 for the same grader: a patch that may come without a test is one rule, and the
-grader holds recorded patches to it rather than to a copy.
+grader holds recorded patches to it rather than to a copy. `SUBMIT_FIX` is a
+door for it too: the model adapter gives an argument back out of the model's
+tag form only under a name the offered tool declares, so a recorded answer is
+read the way the agent is handed it only with the offer it was answering.
 """
 
 from __future__ import annotations
 
 from codefix_agent.budget import FixSettings
-from codefix_agent.prompting import SubmittedFix, changes_only_configuration
+from codefix_agent.prompting import SUBMIT_FIX, SubmittedFix, changes_only_configuration
 from codefix_agent.proposing import (
     FixDeclined,
     FixNotAnswered,
@@ -33,6 +36,7 @@ from codefix_agent.proposing import (
 )
 
 __all__ = [
+    "SUBMIT_FIX",
     "FixDeclined",
     "FixNotAnswered",
     "FixNotProposed",

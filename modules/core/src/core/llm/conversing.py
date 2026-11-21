@@ -8,14 +8,21 @@ and kept passing because the two copies still agreed.
 
 `ClientFor` next door moved for the same reason a version earlier. A type two
 modules both name is a contract, and so is the factory that produces one.
+
+Nothing here has a default that reaches a vendor. An agent is handed its
+`Conversations` by whoever assembled it, built over the provider that process
+chose (`conversations_through`), so which model answers is decided in one
+place and visible there.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
 from typing import Protocol
 
 from core.llm.building import build_llm_client
-from core.llm.client import ClientFor, Conversation
+from core.llm.client import ClientFor, Conversation, LLMClient, ModelProvider
 from core.models.model_policy import ModelPolicy
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Transcript
@@ -28,7 +35,7 @@ class Conversations(Protocol):
 
     Named as a shape so a loop can take the factory itself as a seam: a test
     hands over something it can assert was asked for, where production hands
-    over the one below.
+    over one built by `conversations_through`.
 
     A `Protocol` rather than a `Callable` alias because `policy` is
     keyword-only and optional, which an alias cannot say. Keyword-only on
@@ -49,7 +56,7 @@ def a_conversation_recorded_for(
     recorder: Recorder,
     *,
     policy: ModelPolicy | None = None,
-    client_for: ClientFor = build_llm_client
+    client_for: ClientFor
 ) -> Conversation:
     """The conversational seam for real work, writing down what it costs.
 
@@ -63,14 +70,13 @@ def a_conversation_recorded_for(
     Nothing is cached, here or below. The wrapper holds the incident it records
     for, so one shared across a process would file every later incident's calls
     under whichever was walked first - and the client it wraps is rebuilt with
-    it, because `build_llm_client` constructs an adapter and an SDK client on
-    every call. Reading the configuration is the one cached part, and that is
-    `config`'s doing rather than anything under here. What this costs is one
-    SDK client per incident, paid when the incident starts and not per turn.
+    it. What this costs is one client per incident, paid when the incident
+    starts and not per turn.
 
-    `client_for` is a seam rather than a fixed call so a test can assert what
-    was asked for without a vendor answering. It defaults to the real builder,
-    which already has this shape.
+    `client_for` is where the client comes from, and it is required: a default
+    here would be a vendor every caller got without choosing one. Production
+    binds it to a provider (`conversations_through`); a test hands over
+    something that answers on the spot.
     """
     client = client_for(Replay(incident_id, recorder), policy)
 
@@ -79,3 +85,21 @@ def a_conversation_recorded_for(
         return client.converse(transcript, tools)
 
     return converse_and_record
+
+
+type ClientBuilder = Callable[[ModelProvider, Replay | None, ModelPolicy | None], LLMClient]
+
+
+def conversations_through(provider: ModelProvider,
+                          building: ClientBuilder = build_llm_client) -> Conversations:
+    """Every recorded conversation a process builds, answered by `provider`.
+
+    What a composition root binds into an agent: the incident, the recorder and
+    the policy arrive later, from the agent, and which provider answers is the
+    one thing settled here, where the process chose it.
+
+    `building` is the factory each conversation's client comes from - the real
+    one, which wraps the provider's client in a trace and a receipt, unless a
+    test hands over a stand-in to see what it was asked for.
+    """
+    return partial(a_conversation_recorded_for, client_for=partial(building, provider))

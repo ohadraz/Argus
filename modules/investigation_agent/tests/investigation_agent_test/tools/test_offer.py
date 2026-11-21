@@ -65,8 +65,7 @@ def test_the_investigator_offers_its_own_tools_around_what_the_read_tier_serves(
                 METRICS_TOOL, LOGS_TOOL, CHANGES_TOOL,
                 *(tool.name for tool in SOME_SERVED_TOOLS),
                 ANSWER_TOOL
-            ]),
-            _every_tool_is_offered_strictly()
+            ])
         ))
 
 
@@ -92,14 +91,3 @@ def _the_tools_offered_are(names: list[str]) -> Assertion[list[ToolDefinition]]:
 
     return assertion
 
-
-def _every_tool_is_offered_strictly() -> Assertion[list[ToolDefinition]]:
-    """No tool may accept an argument the dispatcher was not written for."""
-    def assertion(tools: list[ToolDefinition]) -> bool:
-        loose = [tool.name for tool in tools if tool.to_wire().get("strict") is not True]
-        if loose:
-            raise AssertionError(f"Expected every tool to be strict, but {loose} were not.")
-
-        return True
-
-    return assertion

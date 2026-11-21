@@ -13,7 +13,9 @@ written against a vendor's response shape.
 
 from __future__ import annotations
 
-from typing import Any
+import json
+import logging
+from typing import Any, Final
 
 import pytest
 from anthropic.types import (
@@ -25,7 +27,7 @@ from anthropic.types import (
     ToolUseBlock,
     Usage,
 )
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from core.llm.adapters.anthropic_adapter import (
     ASSISTANT_ROLE,
     END_TURN_STOP_REASON,
@@ -36,7 +38,46 @@ from core.llm.adapters.anthropic_adapter import (
     TOOL_USE_TYPE,
     to_turn,
 )
+from core.models.tool_definition import ToolDefinition
 from core.models.turn import Turn
+
+# The logger the adapter writes under: its module's name.
+THE_ADAPTER: Final = "core.llm.adapters.anthropic_adapter"
+
+# A tool shaped like Code-Fix's submission, which is where the tag form was
+# met: two prose arguments and a list of whole files. Named once, so every tag
+# below is derived from the name it carries.
+SUMMARY: Final = "summary"
+EXPLANATION: Final = "explanation"
+FILES: Final = "files"
+A_PATCH_TOOL: Final = ToolDefinition(
+    name="submit_fix",
+    description="dont care what it does",
+    properties={
+        SUMMARY: {"type": "string"},
+        EXPLANATION: {"type": "string"},
+        FILES: {"type": "array", "items": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+            "required": ["path", "content"]
+        }}
+    },
+    required=[SUMMARY, EXPLANATION, FILES]
+)
+SOME_PATCH: Final = [{"path": "src/io_shop/spend_summary.py", "content": "return 0\n"}]
+# What arrives in `files` when the patch went into the prose instead.
+A_POINTER_TO_THE_PATCH: Final = [{"path": "src/io_shop/spend_summary.py",
+                                  "content": "(see explanation)"}]
+
+
+def _opening(argument: str) -> str:
+    """The tag the model opens a parameter with in its own call syntax."""
+    return f'<parameter name="{argument}">'
+
+
+def _closing(argument: str) -> str:
+    """The tag that closes one."""
+    return f"</{argument}>"
 
 
 @pytest.mark.unit
@@ -325,6 +366,278 @@ def test_a_character_escaped_inside_an_argument_is_asked_for_as_that_character()
 
 
 @pytest.mark.unit
+def test_an_argument_written_as_a_parameter_tag_inside_another_is_given_back() -> None:
+    # Measured on two paid runs, five submissions, every one the same. The model
+    # closes the prose with `</explanation>`, opens `<parameter name="files">`,
+    # and writes the whole patch as JSON inside the explanation string - while
+    # the `files` argument that arrives properly holds a phrase pointing at it.
+    # This model's own call syntax, in the middle of a JSON argument.
+    #
+    # Nothing was lost and nothing was wrong with the fix: what it cost was the
+    # run, resubmitting an answer written correctly the first time. Repaired
+    # rather than refused, here where every agent's answer passes: the syntax is
+    # the model's, and any agent's argument can carry it.
+    some_summary = "guard the monthly divisor"
+    some_prose = "The month with no purchases raises from `max`."
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(
+                    name=A_PATCH_TOOL.name,
+                    arguments={
+                        SUMMARY: some_summary,
+                        EXPLANATION: (f"{some_prose}{_closing(EXPLANATION)}\n"
+                                      f"{_opening(FILES)}{json.dumps(SOME_PATCH)}"),
+                        FILES: A_POINTER_TO_THE_PATCH
+                    }
+                )
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _the_calls_ask_for({SUMMARY: some_summary, EXPLANATION: some_prose,
+                                FILES: SOME_PATCH})
+        )
+
+
+@pytest.mark.unit
+def test_an_argument_named_in_a_tag_is_given_back_when_it_never_arrived_at_all() -> None:
+    # The value in the tag is the one the model wrote, whether or not anything
+    # arrived under that name beside it - a submission that dropped `files`
+    # altogether had still written the patch.
+    some_prose = "Guard the divisor."
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(
+                    name=A_PATCH_TOOL.name,
+                    arguments={EXPLANATION: (
+                        f"{some_prose}{_closing(EXPLANATION)}"
+                        f"{_opening(FILES)}{json.dumps(SOME_PATCH)}{_closing('parameter')}"
+                    )}
+                )
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _the_calls_ask_for({EXPLANATION: some_prose, FILES: SOME_PATCH})
+        )
+
+
+@pytest.mark.unit
+def test_an_earlier_tag_for_another_parameter_does_not_hide_the_one_carrying_the_value() -> None:
+    # The model can slip into its call syntax for more than one parameter in a
+    # row. A tag for a prose argument carries no value to give back - prose is
+    # not JSON, so nothing says where it ends - and the patch in the tag after it
+    # is still the patch.
+    some_prose = "Why the month with no purchases raises."
+    a_summary_written_as_a_tag = f"{_opening(SUMMARY)}Fix it{_closing('parameter')}"
+    written = (f"{some_prose}{_closing(EXPLANATION)}\n{a_summary_written_as_a_tag}\n"
+               f"{_opening(FILES)}{json.dumps(SOME_PATCH)}")
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(name=A_PATCH_TOOL.name,
+                             arguments={EXPLANATION: written, FILES: A_POINTER_TO_THE_PATCH})
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _the_calls_ask_for({
+                EXPLANATION: (f"{some_prose}{_closing(EXPLANATION)}\n"
+                              f"{a_summary_written_as_a_tag}"),
+                FILES: SOME_PATCH
+            })
+        )
+
+
+@pytest.mark.unit
+def test_a_value_of_a_type_the_tool_does_not_take_leaves_a_readable_argument_alone() -> None:
+    # The tool takes its files as a list. An object written after the tag is
+    # not one, and given back it would replace a list the agent could have read
+    # with one it reads as no patch at all.
+    some_files = [{"path": "src/io_shop/spend_summary.py", "content": "return 0\n"}]
+    written = (f"Guard it.{_closing(EXPLANATION)}"
+               f"{_opening(FILES)}{json.dumps({'path': 'src/io_shop/other.py'})}")
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(name=A_PATCH_TOOL.name,
+                             arguments={EXPLANATION: written, FILES: some_files})
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _the_calls_ask_for({EXPLANATION: written, FILES: some_files})
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("named", [FILES, "attachments"], ids=["declared", "undeclared"])
+def test_a_tag_the_prose_mentions_is_not_a_call(named: str) -> None:
+    # A root cause can quote the syntax - a write-up about this very slip would -
+    # and a tag opened mid-sentence is something the prose says. Read as a call,
+    # it would cut the prose short at the quote and empty an argument the model
+    # wrote properly; one the tool does not declare would arrive as an argument
+    # the dispatcher was never written for.
+    some_files = [{"path": "src/io_shop/spend_summary.py", "content": "return 0\n"}]
+    written = f"The model wrote {_opening(named)}[] where it meant the list itself."
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(name=A_PATCH_TOOL.name,
+                             arguments={EXPLANATION: written, FILES: some_files})
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _the_calls_ask_for({EXPLANATION: written, FILES: some_files})
+        )
+
+
+@pytest.mark.unit
+def test_a_tag_naming_an_argument_the_tool_does_not_declare_is_left_as_written() -> None:
+    # Even in the shape of a slip, a name the offer never declared is not an
+    # argument: given back, it would reach the dispatcher - and be echoed to the
+    # model - as one nothing was written to handle.
+    written = (f"Guard it.{_closing(EXPLANATION)}"
+               f"{_opening('attachments')}{json.dumps(SOME_PATCH)}")
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(name=A_PATCH_TOOL.name, arguments={EXPLANATION: written})
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _the_calls_ask_for({EXPLANATION: written})
+        )
+
+
+@pytest.mark.unit
+def test_with_no_tool_offered_nothing_is_given_back() -> None:
+    # What an argument may be given back as is the offer's to say. A reading
+    # with no offer to hand - a recording read on its own - has nothing to say
+    # it with, and leaves the call as it arrived.
+    written = (f"Guard it.{_closing(EXPLANATION)}"
+               f"{_opening(FILES)}{json.dumps(SOME_PATCH)}")
+
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(name=A_PATCH_TOOL.name,
+                             arguments={EXPLANATION: written, FILES: A_POINTER_TO_THE_PATCH})
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message)
+        ) \
+        .then(
+            _the_calls_ask_for({EXPLANATION: written, FILES: A_POINTER_TO_THE_PATCH})
+        )
+
+
+@pytest.mark.unit
+def test_an_argument_given_back_out_of_a_tag_is_said_naming_the_tool_and_both_arguments(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The repaired call is what the transcript echoes and the replay log keeps,
+    # so after the repair nothing shows the model slipped. The line is the one
+    # trace left, and a model that starts slipping more often is seen by it.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.WARNING)),
+            some_message := _a_message_asking_for(
+                _a_tool_call(
+                    name=A_PATCH_TOOL.name,
+                    arguments={EXPLANATION: (f"Guard the divisor.{_closing(EXPLANATION)}"
+                                             f"{_opening(FILES)}{json.dumps(SOME_PATCH)}")}
+                )
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_ADAPTER, logging.WARNING,
+                                  "tool argument recovered from tag form",
+                                  values={"tool": A_PATCH_TOOL.name, "argument": FILES,
+                                          "written_inside": EXPLANATION})
+        )
+
+
+@pytest.mark.unit
+def test_a_tag_with_nothing_recoverable_after_it_is_not_said_to_be_recovered(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Said only where a value was actually given back: a line for every tag the
+    # model wrote would read as repairs that never happened.
+    a_pointer_rather_than_a_patch = (
+        f"Guard it.{_closing(EXPLANATION)}{_opening(FILES)}src/io_shop/spend_summary.py"
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.WARNING)),
+            some_message := _a_message_asking_for(
+                _a_tool_call(name=A_PATCH_TOOL.name,
+                             arguments={EXPLANATION: a_pointer_rather_than_a_patch})
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _nothing_was_said_by_the_adapter(caplog)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("written", [
+    f"Guard it.{_closing(EXPLANATION)}{_opening(FILES)}src/io_shop/spend_summary.py, rewritten",
+    f'Guard it.{_closing(EXPLANATION)}{_opening(FILES)}"just a string"',
+    f'Guard it.{_closing(EXPLANATION)}{_opening(EXPLANATION)}["a list"]',
+    f'Guard it.{_closing(EXPLANATION)}<parameter name="{FILES}" with no end'
+], ids=["not-json", "json-but-not-a-structure", "names-itself", "tag-never-closed"])
+def test_a_tag_with_nothing_recoverable_after_it_is_left_as_written(written: str) -> None:
+    # A patch written into prose carries the files' own newlines, so it is
+    # often not JSON at all - and a guess at it would invent a value the model
+    # did not send. What arrived is what the agent reads, and its own checks
+    # are what catch it.
+    Scenario() \
+        .given(
+            some_message := _a_message_asking_for(
+                _a_tool_call(name=A_PATCH_TOOL.name,
+                             arguments={EXPLANATION: written, FILES: A_POINTER_TO_THE_PATCH})
+            )
+        ) \
+        .when(
+            lambda: to_turn(some_message, [A_PATCH_TOOL])
+        ) \
+        .then(
+            _the_calls_ask_for({EXPLANATION: written, FILES: A_POINTER_TO_THE_PATCH})
+        )
+
+
+@pytest.mark.unit
 def test_a_turn_that_only_asked_carries_no_words() -> None:
     # A model that has nothing to say and simply asks is answering normally,
     # not failing. The absence has to arrive as an empty account rather than
@@ -467,6 +780,18 @@ def _the_calls_ask_for(*arguments: dict[str, Any]) -> Assertion[Turn]:
             raise AssertionError(
                 f"Expected tool calls asking for {list(arguments)}, got {asked_for}."
             )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_said_by_the_adapter(caplog: pytest.LogCaptureFixture) -> Assertion[Turn]:
+    def assertion(_: Turn) -> bool:
+        said = [record.getMessage() for record in caplog.records if record.name == THE_ADAPTER]
+
+        if said:
+            raise AssertionError(f"Expected the adapter to say nothing, and it said {said}.")
 
         return True
 

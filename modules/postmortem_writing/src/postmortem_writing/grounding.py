@@ -38,7 +38,7 @@ from collections.abc import Mapping, Sequence
 from typing import Final
 
 from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
-from core.models import Ask, Effort, ModelPolicy, ToolDefinition, Transcript
+from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript
 from pydantic import BaseModel, ValidationError
 
 from postmortem_writing.answer import WENT_WRONG_FIELD
@@ -221,7 +221,7 @@ class _Submitted(BaseModel):
     flags: list[Flag]
 
 
-def judge_policy(model: str, effort: Effort) -> ModelPolicy:
+def judge_policy(model: str, effort: Reasoning) -> ModelPolicy:
     """The judge's model at the deployment's choice of model and effort, under
     its standing brief, for one tool call per turn: the record and the answer
     are in its one message."""

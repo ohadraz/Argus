@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from core import SettingsSlice
 from core.budget import Bound, Budget
-from core.models import Effort
+from core.models import Reasoning
 
 
 class InvestigationSettings(SettingsSlice):
@@ -35,7 +35,7 @@ class InvestigationSettings(SettingsSlice):
     # conversation, exactly as it hands the bounds to `Budget.from_settings`,
     # and goes on holding a seam that knows of no model and no effort.
     investigation_model: str
-    investigation_effort: Effort
+    investigation_effort: Reasoning
     log_initial_lookback_minutes: int
     log_initial_lookahead_minutes: int
     log_max_window_minutes: int

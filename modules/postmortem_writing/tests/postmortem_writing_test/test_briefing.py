@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario, the_answer_was
-from core.models import Effort, ModelPolicy
+from core.models import ModelPolicy, Reasoning
 from postmortem_writing import STANDING_BRIEF, postmortem_policy
 
 # The five whys, by the words that carry its rules: where the chain starts,
@@ -34,7 +34,7 @@ def test_the_postmortem_is_asked_under_its_brief() -> None:
     # the agent's. Handed out as one policy, a composition root naming only the
     # two it chooses still asks the model with the third.
     some_model = "claude-haiku-4-5"
-    some_effort: Effort = "low"
+    some_effort = Reasoning.LOW
 
     Scenario() \
         .when(
@@ -52,7 +52,7 @@ def test_the_postmortem_is_asked_for_one_tool_call_per_turn() -> None:
     # never a second piece of work. One arrived anyway - a submission filled
     # with placeholders - and refusing the pair cost a whole turn every walk.
     dont_care_model = "dont care which model"
-    dont_care_effort: Effort = "low"
+    dont_care_effort = Reasoning.LOW
 
     Scenario() \
         .when(

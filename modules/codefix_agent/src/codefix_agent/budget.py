@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from core import SettingsSlice
 from core.budget import Budget
-from core.models import CodeSearch, Effort
+from core.models import CodeSearch, Reasoning
 
 
 class FixSettings(SettingsSlice):
@@ -44,7 +44,7 @@ class FixSettings(SettingsSlice):
     # its answers are whole files, which is the workload where the higher
     # efforts earn their cost and the cheaper models most obviously do not.
     codefix_model: str
-    codefix_effort: Effort
+    codefix_effort: Reasoning
     # Whole files, so far more room than any other agent needs, and past
     # the line where the answer has to be streamed to arrive at all.
     codefix_max_output_tokens: int

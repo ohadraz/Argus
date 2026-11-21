@@ -54,7 +54,6 @@ before whatever the suite then reports.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -68,9 +67,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from anthropic.types import Message
+from anthropic_double.recordings import is_a_question
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
-from codefix_agent import SubmittedFix, changes_only_configuration
+from codefix_agent import SUBMIT_FIX, SubmittedFix, changes_only_configuration
+from core.llm.adapters.anthropic_adapter import to_turn
 from pydantic import ValidationError
 
 from tests.e2e.framework.argus import THE_RECORDINGS_THAT_MUST_CARRY_A_FIX
@@ -96,9 +98,6 @@ THE_SHOPS_INTERPRETER = (
 # replays, and `grep` is recorded against the same prompts; `meaning`'s recordings
 # predate this, and it is not recorded.
 THE_MODES = ("both", "grep")
-
-SUBMIT_TOOL_NAME = "submit_fix"
-TOOL_USE_TYPE = "tool_use"
 
 # Where the shop keeps its tests. The split has to be the path rather than the
 # filename: a module called `test_something.py` under `src/` would be source,
@@ -217,11 +216,16 @@ def _every_corpus() -> dict[str, list[Path]]:
 
     Sorted by the trailing number rather than as text, where `-10` would come
     before `-2` and the walk would be read shuffled.
+
+    Answers only. The question each answer was given to is stored beside it
+    under the same prefix, and is a request rather than a response - told apart
+    by the store's own rule rather than by a suffix spelled again here.
     """
     corpora: dict[str, list[Path]] = {}
 
     for recording in (path for mode in THE_MODES
-                      for path in RECORDINGS_DIR.glob(f"{mode}-*.json")):
+                      for path in RECORDINGS_DIR.glob(f"{mode}-*.json")
+                      if not is_a_question(path)):
         corpora.setdefault(re.sub(r"-\d+$", "", recording.stem), []).append(recording)
 
     return {
@@ -237,13 +241,16 @@ def _the_patch_in(corpus: list[Path]) -> dict[str, str]:
     cause was not in the code. That is a walk with nothing to grade rather than a
     walk that failed.
 
-    Read through `SubmittedFix` rather than out of the JSON, and that is the
-    whole of what this grades: a human reviews the files that reach the branch,
-    so the question is whether *those* hold up. A copy of the agent's leniency
-    lived here and answered a different question - what the model said - and the
-    two part company the moment anything in the agent repairs a malformed
-    answer, which is the day a patch that lands correct would be graded on the
-    mangled text it arrived as.
+    Read the way the agent is handed it - the answer through the adapter's
+    `to_turn`, which repairs what the model's own habits broke and needs the
+    offer the answer was given to, and its arguments through `SubmittedFix` -
+    rather than out of the JSON, and that is
+    the whole of what this grades: a human reviews the files that reach the
+    branch, so the question is whether *those* hold up. A copy of the agent's
+    leniency lived here and answered a different question - what the model said
+    - and the two part company the moment anything between the API and the
+    branch repairs a malformed answer, which is the day a patch that lands
+    correct would be graded on the mangled text it arrived as.
 
     Not a loss of independence. What must not grade this agent is the model, and
     the model is nowhere in here; the writer is deterministic production code
@@ -257,14 +264,15 @@ def _the_patch_in(corpus: list[Path]) -> dict[str, str]:
     submitted: dict[str, str] = {}
 
     for recording in corpus:
-        body = json.loads(recording.read_text(encoding="utf-8"))
+        answered = to_turn(Message.model_validate_json(recording.read_text(encoding="utf-8")),
+                           [SUBMIT_FIX])
 
-        for block in body.get("content", []):
-            if block.get("type") != TOOL_USE_TYPE or block.get("name") != SUBMIT_TOOL_NAME:
+        for call in answered.tool_calls:
+            if call.name != SUBMIT_FIX.name:
                 continue
 
             try:
-                submitted = SubmittedFix.model_validate(block.get("input", {})).patch()
+                submitted = SubmittedFix.model_validate(call.arguments).patch()
             except ValidationError:
                 submitted = {}
 

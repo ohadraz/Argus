@@ -1303,12 +1303,17 @@ The Investigator's opening (§9) is always the same: aggregate → locate onset 
 ## 17. Model Selection Per Task
 
 One provider, reached through one adapter (§12). Every model call Argus makes
-goes through `core.llm`, and the single seam below it is a base URL - which
-is what lets the offline suites replay a recorded conversation through the real
-adapter, the real request parameters and the real response parsing. A second
-provider would be a second adapter, a second recording format and a second set
-of failure shapes to classify, bought for a saving that is not the constraint
-here.
+goes through `core.llm`, whose port is `ModelProvider`: given a policy, it
+builds the client that policy is asked through. The adapter,
+`AnthropicProvider`, is the only code that knows a model id's wire form, a
+request parameter, how a tool offer is laid out, or how the model's own slips
+into its native call syntax are repaired; each process's wiring builds it and
+hands it to every agent, and no agent has a default way to reach a model of its
+own. The single seam below the adapter is a base URL - which is what lets the
+offline suites replay a recorded conversation through the real adapter, the real
+request parameters and the real response parsing. A second provider would be a
+second adapter, a second recording format and a second set of failure shapes to
+classify, bought for a saving that is not the constraint here.
 
 Which model answers, and how hard it is asked to think, is **per agent and is
 configuration rather than code**. The agents are not the same shape of work:
@@ -1321,20 +1326,26 @@ configuration rather than code**. The agents are not the same shape of work:
 
 The defaults are per agent as well, and they differ because what can be measured
 about each agent differs. The Investigator answers on the cheaper of the two
-model tiers, which is a finding rather than a preference: its six pinned cases
-are scored fifty samples deep per configuration (§21), and a tier that holds
-every case at a fraction of the bill is not a trade-off to weigh. Code-Fix and
-the postmortem keep the more capable model, because neither can be scored finely
-enough to say the same - a fix is graded as one pass or fail per recorded walk,
-and the postmortem is not scored at all. An agent whose quality cannot be
-measured is not an agent to economise on.
+model tiers, and that is a choice on price, not a finding: it is the one agent
+whose answers can be scored finely enough to settle it - six pinned cases, fifty
+samples deep per configuration (§21) - and no eval run has yet asked it the
+configured model, effort and brief, so whether the cheaper tier holds its cases
+is unmeasured. Code-Fix and the postmortem keep the more capable model, because
+neither can be scored finely enough to settle it - a fix is graded as one pass
+or fail per recorded walk, and the postmortem is not scored at all. An agent
+whose quality cannot be measured is not an agent to economise on.
 
-Effort is the same question, and its answer is that lowering it buys nothing
-here. Every agent runs at the level the eval found, which for all three is the
-same one: a lower effort holds the Investigator's cases but spends what it saves
-in thinking on a longer answer, and output is the dearest thing an agent buys.
-Which level each agent should run at is a measurement against the eval (§21), not
-an assertion here - which is the reason all of this is configuration at all.
+Effort is the same question. Code-Fix's is measured: a matched pair of recorded
+corpora, effort the only difference, proposed fixes in six walks of eight at
+`high` against three at `higher`, for roughly twice the tokens. The
+Investigator's is unmeasured, for the reason its model is. Which level each
+agent should run at is a measurement against the eval (§21), not an assertion
+here - which is the reason all of this is configuration at all.
+
+Effort is said on Argus's own scale - `low`, `medium`, `high`, `higher`,
+`highest` - and the provider's adapter says where each sits among its own
+levels; Anthropic's five map one for one. A deployment names the scale, never a
+vendor's spelling of it, so the configuration reads the same whoever answers.
 
 Effort is bound when an agent's client is built, not passed per call. A loop
 holds a conversation and nothing else: it has no business choosing a model, a
@@ -1762,7 +1773,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 | Investigation bounds | Three independent budgets - tool calls, cumulative tokens, wall-clock seconds - enforced by the loop and never expressed to the model (§9) | They fail differently and none implies the others; a bound the model could ask to extend is not a bound |
 | Repository structure | `uv` workspace, one `pyproject.toml` per module (§20) | Independent versioning/deployment inside one repo |
 | Testing discipline | TDD in Argus's own repo - the coding agent never writes/edits/deletes tests there (§18.3). Separately, the runtime Code-Fix agent writes tests freely in the Target Service repo, with no path withheld | Two distinct rules, two agents, two reasons: development process integrity, versus a proposed fix being able to carry the evidence that it works |
-| Model selection | Per-task model class, spread across free-tier providers (§17) | Matches call volume/reasoning needs and avoids one provider's rate limit stalling a demo |
+| Model selection | One provider behind the `ModelProvider` port; model and effort per agent, as configuration (§17) | Each agent's work wants a different model and effort; one provider keeps one adapter, one recording format and one set of failure shapes, and a second is an adapter rather than a rewrite |
 | Backoffice access | No login (§14) | Deliberate scope limit for a single-team, non-internet-exposed, demo-scale admin surface |
 
 ## 25. Risks & Open Questions

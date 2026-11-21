@@ -45,10 +45,8 @@ from core.events import (
 )
 from core.llm import (
     AnswerTruncated,
-    Conversation,
     Conversations,
     ModelRefused,
-    a_conversation_recorded_for,
     on_one_line,
 )
 from core.models import (
@@ -285,8 +283,7 @@ def investigate(
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
     read_tier_tools: ReadTierTools,
-    converse: Conversation | None = None,
-    conversations: Conversations = a_conversation_recorded_for,
+    conversations: Conversations,
     budget: Budget | None = None,
     already_read: Sequence[Reading] | None = None,
     already_refuted: Sequence[Attempt] | None = None,
@@ -329,18 +326,19 @@ def investigate(
     candidate is said by its number the moment it is formed, so the count has
     to be in hand then.
 
-    The collaborators are default-argument seams: the real retrieval calls and
-    the real model in production, doubles in a test, and no monkeypatching
-    either way. `publisher` and `recorder` are two of the same kind, and the
-    only two whose absence changes nothing - the investigation reaches the same
-    conclusion whether or not anybody is listening or filing the receipts (spec
-    §4 principles 8 and 6).
+    The collaborators are seams: the real retrieval calls and the real model in
+    production, doubles in a test, and no monkeypatching either way.
+    `publisher` and `recorder` are two with defaults, and the only two whose
+    absence changes nothing - the investigation reaches the same conclusion
+    whether or not anybody is listening or filing the receipts (spec §4
+    principles 8 and 6).
 
-    `converse` is the exception among them, and defaults to nothing rather than
-    to the real call. The conversation for a real investigation has to be built
-    from this incident and this recorder, which are not known until here - so
-    what a caller omitting it gets is constructed below, and a caller injecting
-    a scripted one never reaches the construction or the SDK behind it.
+    `conversations` is how the model is reached, and it has no default: which
+    provider answers is the composition root's to choose, and a default here
+    was a vendor every caller got without choosing one. It is a factory rather
+    than a conversation because the conversation has to be built from this
+    incident, this recorder and this agent's policy, which are not known until
+    here; a test hands over one that returns its script.
 
     `still_wanted` is asked before every turn, which is the one place a
     withdrawn incident can be noticed without discarding an answer already paid
@@ -367,7 +365,7 @@ def investigate(
     # incident to a collaborator the caller supplied, and both would otherwise
     # have to thread an incident id through every call that uses them.
     replay = Replay(incident_id, recorder)
-    speak = converse or conversations(
+    speak = conversations(
         incident_id,
         recorder,
         policy=ModelPolicy(
