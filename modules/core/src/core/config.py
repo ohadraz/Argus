@@ -181,8 +181,9 @@ class Settings(BaseSettings):
     github_write_retry_wait_ms: int = Field(default=200, ge=0)
     # The secret GitHub signs its push deliveries with, so Argus can tell a
     # push from anybody who found the endpoint. Empty accepts nothing rather
-    # than everything: with no secret configured no signature can match, which
-    # is the right way round for a route open to the internet.
+    # than everything: where no secret is set every delivery is refused - a
+    # digest under an empty key is one anybody can compute - which is the
+    # right way round for a route open to the internet.
     github_webhook_secret: str = Field(default="")
 
     # Where that repository's source is kept as something searchable by

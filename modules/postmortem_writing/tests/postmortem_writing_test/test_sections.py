@@ -46,6 +46,7 @@ from core.models import (
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    Unit,
     Verdict,
     WhyNoTrigger,
     why_it_was_refused,
@@ -3014,7 +3015,7 @@ def test_a_disproven_alarm_has_no_impact_but_the_rules_series_it_was_judged_on()
                 onset_at=None, back_to_normal_at=None, loss=None,
                 error_rates=ErrorRates(baseline=0.01, while_broken=0.01, at_its_worst=0.015,
                                        usual_ceiling=0.02, usual_worst=0.04),
-                rule_series_unit="percentunit", rule_series_is_the_error_rate=True,
+                rule_series_unit=Unit.SHARE_OF_ONE, rule_series_is_the_error_rate=True,
                 rule_series_before_the_alert=RuleSeriesSpan(lowest=0.0, highest=0.015,
                                                             first_minute=some_minute,
                                                             last_minute=ONSET, line=0.1))
@@ -3028,7 +3029,7 @@ def test_a_disproven_alarm_has_no_impact_but_the_rules_series_it_was_judged_on()
                                   peak_error_rate=None,
                                   before_the_alert=RuleSeriesBeforeTheAlert(
                                       lowest=0.0, highest=0.015, first_minute=some_minute,
-                                      last_minute=ONSET, line=0.1, unit="percentunit",
+                                      last_minute=ONSET, line=0.1, unit=Unit.SHARE_OF_ONE,
                                       is_the_error_rate=True)))
         )
 
@@ -3373,7 +3374,7 @@ def test_impact_carries_the_unit_of_the_rules_series() -> None:
             measured := a_measured_incident(
                 rule_series=RuleSeriesLevels(baseline=120.0, while_broken=640.0,
                                              at_its_worst=910.0, worse_when="above"),
-                rule_series_unit="ms")
+                rule_series_unit=Unit.MILLISECONDS)
         ) \
         .when(
             lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
@@ -3381,7 +3382,8 @@ def test_impact_carries_the_unit_of_the_rules_series() -> None:
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=120.0, while_broken=640.0,
-                                          at_its_worst=910.0, worse_when="above", unit="ms"))
+                                          at_its_worst=910.0, worse_when="above",
+                                          unit=Unit.MILLISECONDS))
         )
 
 

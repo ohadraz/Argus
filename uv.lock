@@ -8,6 +8,8 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "argus-alert-source",
+    "argus-alerting-platform",
     "argus-anthropic-double",
     "argus-argus-testkit",
     "argus-chat-platform",
@@ -32,6 +34,7 @@ members = [
     "argus-pay-band-source",
     "argus-postmortem-rendering",
     "argus-postmortem-writing",
+    "argus-push-source",
     "argus-read-mcp-client",
     "argus-read-mcp-server",
     "argus-repository-index",
@@ -116,6 +119,48 @@ sdist = { url = "https://files.pythonhosted.org/packages/87/6f/5a73f04007ca95070
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/bd/551ee6af426af84ca33e02622be722925c196608e9127d731ef17c47f06e/argcomplete-3.7.2-py3-none-any.whl", hash = "sha256:6029205678bdd9c1c728a155f5f9ecf5812393f969eef58807641a2bc2aa5b19", size = 43294, upload-time = "2026-08-06T04:53:20.246Z" },
 ]
+
+[[package]]
+name = "argus-alert-source"
+version = "0.1.0"
+source = { editable = "modules/alert_source" }
+dependencies = [
+    { name = "argus-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "argus-core", editable = "modules/core" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-alerting-platform"
+version = "0.1.0"
+source = { editable = "modules/alerting_platform" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "httpx2" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "httpx2" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
 name = "argus-anthropic-double"
@@ -798,6 +843,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "argus-push-source"
+version = "0.1.0"
+source = { editable = "modules/push_source" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
 name = "argus-read-mcp-client"
 version = "0.1.0"
 source = { editable = "modules/read_mcp_client" }
@@ -825,6 +885,7 @@ name = "argus-read-mcp-server"
 version = "0.1.0"
 source = { editable = "modules/read_mcp_server" }
 dependencies = [
+    { name = "argus-alerting-platform" },
     { name = "argus-code-host" },
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
@@ -844,6 +905,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argus-alerting-platform", editable = "modules/alerting_platform" },
     { name = "argus-code-host", editable = "modules/code_host" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
@@ -1023,12 +1085,14 @@ name = "argus-web-app"
 version = "0.1.0"
 source = { editable = "modules/web_app" }
 dependencies = [
+    { name = "argus-alert-source" },
     { name = "argus-chat-platform" },
     { name = "argus-core" },
     { name = "argus-incident-record" },
     { name = "argus-narration" },
     { name = "argus-oncall-source" },
     { name = "argus-postmortem-rendering" },
+    { name = "argus-push-source" },
     { name = "argus-repository-index" },
     { name = "argus-telemetry" },
     { name = "fastapi" },
@@ -1047,12 +1111,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argus-alert-source", editable = "modules/alert_source" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },
+    { name = "argus-push-source", editable = "modules/push_source" },
     { name = "argus-repository-index", editable = "modules/repository_index" },
     { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "fastapi", specifier = ">=0.115" },

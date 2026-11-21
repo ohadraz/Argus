@@ -17,7 +17,14 @@ from decimal import Decimal
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from core import level_said_in, to_iso
-from core.models import ActionProgress, OpenedPullRequest, Quantile, Verdict, said_as_money
+from core.models import (
+    ActionProgress,
+    OpenedPullRequest,
+    Quantile,
+    Unit,
+    Verdict,
+    said_as_money,
+)
 from postmortem_writing.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels
 from postmortem_writing.summary import said_off_the_page, the_executive_summary
 
@@ -371,16 +378,18 @@ def test_where_the_alert_watches_the_error_rate_its_worst_is_said_once_as_reques
       _a_quantile("p95", 215.13, 1449.0),
       _a_quantile("p99", 302.4, 2210.0, departed=False)],
      f"Requests took longer: the slowest one request in twenty went from "
-     f"{level_said_in(215.13, 'ms')} before it began to {level_said_in(1449.0, 'ms')} at its "
-     f"worst."),
+     f"{level_said_in(215.13, Unit.MILLISECONDS)} before it began to "
+     f"{level_said_in(1449.0, Unit.MILLISECONDS)} at its worst."),
     ([_a_quantile("p50", 41.0, 118.0),
       _a_quantile("p95", 215.13, 1449.0),
       _a_quantile("p99", 302.4, 2210.0)],
-     f"Requests took longer: the median request went from {level_said_in(41.0, 'ms')} before "
-     f"it began to {level_said_in(118.0, 'ms')} at its worst, the slowest one request in "
-     f"twenty from {level_said_in(215.13, 'ms')} to {level_said_in(1449.0, 'ms')}, and the "
-     f"slowest one request in a hundred from {level_said_in(302.4, 'ms')} to "
-     f"{level_said_in(2210.0, 'ms')}.")
+     f"Requests took longer: the median request went from "
+     f"{level_said_in(41.0, Unit.MILLISECONDS)} before it began to "
+     f"{level_said_in(118.0, Unit.MILLISECONDS)} at its worst, the slowest one request in "
+     f"twenty from {level_said_in(215.13, Unit.MILLISECONDS)} to "
+     f"{level_said_in(1449.0, Unit.MILLISECONDS)}, and the slowest one request in a hundred "
+     f"from {level_said_in(302.4, Unit.MILLISECONDS)} to "
+     f"{level_said_in(2210.0, Unit.MILLISECONDS)}.")
 ], ids=["one-quantile-departed", "every-quantile-departed"])
 def test_where_no_more_requests_failed_how_much_longer_they_took_is_said_first(
         latency: list[LatencyLevels], said: str) -> None:

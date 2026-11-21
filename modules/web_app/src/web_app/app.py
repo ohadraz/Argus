@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import Annotated, Final
 
 import psycopg
+from alert_source import AlertSource, AlertUnreadable, OnlyResolved
+from alert_source.grafana import GrafanaAlerts
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from chat_platform.slack import ChatSettings, slack_from
 from core import (
@@ -52,20 +54,15 @@ from postmortem_rendering import (
     synopsis_as_pdf,
     the_person_who_resolved,
 )
+from push_source import PushSource, PushUnverified
+from push_source.github import GitHubPushes
 from repository_index.records import record_pushed
 
 from web_app import reads
 from web_app.chat import receive_chat_delivery
 from web_app.formatting import from_markdown, marked_up, with_references
-from web_app.grafana import parse_grafana_alert, reports_only_resolutions
 from web_app.oncall import OnCallDeliverySettings, receive_delivery
-from web_app.pushes import (
-    SIGNATURE_HEADER,
-    PushSettings,
-    PushUnverified,
-    Watermark,
-    receive_push,
-)
+from web_app.pushes import PushSettings, Watermark, receive_push
 from web_app.views import IncidentDetail, Story, the_rows_held
 
 logger = logging.getLogger(__name__)
@@ -85,6 +82,13 @@ RESOLVE_SPAN: Final = "resolve incident"
 # through which door, and a real name arrives with the day somebody can sign in.
 THE_DEMO_USER: Final = "demo user"
 
+# The senders of alerts this deployment hears, each at a route of its own,
+# `/webhooks/alerts/<name>`, named for the sender. The first is heard at
+# `/webhooks/alerts` too, with no name: every sender configured before senders
+# had routes of their own posts there.
+GRAFANA_ALERTS: Final = "grafana"
+THE_UNNAMED_SENDER: Final = GRAFANA_ALERTS
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
@@ -103,6 +107,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     with open_pool(DatabaseSettings.of(get_settings())) as pool:
         app.state.connections = pool.connection
         app.state.push_settings = PushSettings.of(get_settings())
+        # Each sender's adapter, built here and nowhere else, and handed to the
+        # routes as its port. The push source holds the secret the deployment
+        # was given for it, and nothing that reads a repository.
+        app.state.alert_sources = {GRAFANA_ALERTS: GrafanaAlerts()}
+        app.state.push_source = GitHubPushes(app.state.push_settings.github_webhook_secret)
         # `None` where the deployment has no on-call platform, which is how
         # its webhook comes to answer as though it did not exist.
         app.state.oncall_platform = pagerduty_from(
@@ -145,6 +154,42 @@ def push_settings_of(request: Request) -> PushSettings:
     return settings
 
 
+def alert_sources_of(request: Request) -> Mapping[str, AlertSource]:
+    """The senders of alerts this deployment hears, by the name each one's
+    route carries.
+
+    A dependency for the reason the push settings are one: the route says in
+    its signature what it reads from, and a test stands a sender in without
+    anybody's payload.
+    """
+    sources: Mapping[str, AlertSource] = request.app.state.alert_sources
+
+    return sources
+
+
+def push_source_of(request: Request) -> PushSource:
+    """The sender of pushes, holding the secret its deliveries are signed with.
+
+    A dependency for the reason the alert sources are one.
+    """
+    source: PushSource = request.app.state.push_source
+
+    return source
+
+
+async def body_of(request: Request) -> bytes:
+    """The bytes that arrived, as they arrived.
+
+    A dependency so a synchronous route can be handed them: a synchronous
+    handler cannot await the body itself, and a sender's signature is over
+    these bytes rather than anything parsed out of them. Read here, on the
+    event loop, and nothing else is: every webhook route stays synchronous, so
+    the database writes and the platforms' API reads after it run in the
+    threadpool rather than holding the loop every other request is served on.
+    """
+    return await request.body()
+
+
 def oncall_platform_of(request: Request) -> OnCallPlatform | None:
     """The on-call platform deliveries come from, or `None` where there is none.
 
@@ -179,6 +224,9 @@ def tracer_of() -> Tracer:
 
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
+type UsingAlertSources = Annotated[Mapping[str, AlertSource], Depends(alert_sources_of)]
+type UsingPushSource = Annotated[PushSource, Depends(push_source_of)]
+type TheBody = Annotated[bytes, Depends(body_of)]
 type UsingOnCallPlatform = Annotated[OnCallPlatform | None, Depends(oncall_platform_of)]
 type UsingChatPlatform = Annotated[ChatPlatformReads | None, Depends(chat_platform_of)]
 type Tracing = Annotated[Tracer, Depends(tracer_of)]
@@ -207,12 +255,44 @@ templates.env.filters["from_markdown"] = from_markdown
 
 
 @app.post("/webhooks/alerts", status_code=202)
-def receive_alert(payload: dict[str, Any],
+def receive_alert(request: Request,
+                  body: TheBody,
+                  sources: UsingAlertSources,
                   connections: UsingConnections,
                   tracer: Tracing) -> dict[str, str | None]:
-    """`web_app`'s only incident-domain entrypoint (spec §7.9): validates
-    and normalizes the payload into an `Alert` domain object, then calls the
-    Orchestrator's entrypoint in-process - never the raw payload.
+    """Where a sender configured with no name of its own delivers an alert:
+    heard as the deployment's first sender, Grafana. Everything it does is
+    `receive_alert_from`'s."""
+    return _an_alert(body, request, sources[THE_UNNAMED_SENDER], connections, tracer)
+
+
+@app.post("/webhooks/alerts/{source}", status_code=202)
+def receive_alert_from(source: str,
+                       request: Request,
+                       body: TheBody,
+                       sources: UsingAlertSources,
+                       connections: UsingConnections,
+                       tracer: Tracing) -> dict[str, str | None]:
+    """Where the sender named `source` delivers an alert - one route per sender,
+    so each delivery is read by the adapter that knows its shape.
+
+    `404` for a name this deployment hears from nobody by."""
+    sender = sources.get(source)
+
+    if sender is None:
+        raise HTTPException(status_code=404, detail=f"no alert source is named {source}")
+
+    return _an_alert(body, request, sender, connections, tracer)
+
+
+def _an_alert(body: bytes,
+              request: Request,
+              sender: AlertSource,
+              connections: Connections,
+              tracer: Tracer) -> dict[str, str | None]:
+    """`web_app`'s only incident-domain entrypoint (spec §7.9): the sender's
+    adapter reads the delivery into an `Alert` domain object, then the
+    Orchestrator's entrypoint is called in-process - never the raw payload.
 
     Answers as soon as the incident exists, with its id. The walk belongs to a
     worker: an investigation run here would hold this connection open for its
@@ -226,23 +306,23 @@ def receive_alert(payload: dict[str, Any],
     begins: the incident keeps the span's context, and every walk of it
     continues from there."""
     with tracer.start_as_current_span(RECEIVE_ALERT_SPAN, kind=SpanKind.SERVER) as span:
-        if reports_only_resolutions(payload):
-            return {"incident_id": None}
-
         try:
-            alert = parse_grafana_alert(payload)
-        except (LookupError, TypeError, ValueError) as unreadable:
+            delivered = sender.parse_delivery(body, request.headers)
+        except AlertUnreadable as unreadable:
             # The sender's input rather than a fault here, so refused rather
-            # than failed: Grafana sends a failure again, and a payload that
+            # than failed: a sender sends a failure again, and a payload that
             # could not be read once reads no better the next time.
             logger.warning("alert payload rejected", exc_info=True)
             raise HTTPException(
-                status_code=422, detail=f"the alert could not be read: {unreadable!r}"
+                status_code=422, detail=f"the alert could not be read: {unreadable}"
             ) from unreadable
+
+        if isinstance(delivered, OnlyResolved):
+            return {"incident_id": None}
 
         received_in: dict[str, str] = {}
         propagate.inject(received_in)
-        incident_id = start_incident(alert, connections, events_into_connection,
+        incident_id = start_incident(delivered, connections, events_into_connection,
                                      trace_context=received_in)
         span.set_attribute(ARGUS_INCIDENT_ID, incident_id)
 
@@ -250,9 +330,11 @@ def receive_alert(payload: dict[str, Any],
 
 
 @app.post("/webhooks/github/push", status_code=202)
-async def receive_github_push(request: Request,
-                              connections: UsingConnections,
-                              settings: UsingPushSettings) -> dict[str, str | None]:
+def receive_github_push(request: Request,
+                        body: TheBody,
+                        connections: UsingConnections,
+                        settings: UsingPushSettings,
+                        source: UsingPushSource) -> dict[str, str | None]:
     """Records that the Target Service's repository has moved (spec §11).
 
     The edge of an edge-triggered notification, level-triggered reconciliation
@@ -261,20 +343,21 @@ async def receive_github_push(request: Request,
     a permanently stale index - and indexing in this process would install an
     ONNX runtime to serve a page.
 
-    Async, unlike every other route here, because the signature is over the
-    bytes that arrived and reading those is the one thing FastAPI will not
-    hand a synchronous handler. The behavior - verification, the ref filter,
-    what gets recorded - lives in `pushes.receive_push`; this is registration
-    only.
+    Handed the bytes that arrived, since the signature is over those, and
+    synchronous like every route here, so the watermark's write runs in the
+    threadpool. Verification is the push source's, and the rest - the ref
+    filter, what gets recorded - lives in `pushes.receive_push`; this is
+    registration only.
 
     `202` for a push that was recorded and for one there was nothing to record
     about alike. Both are deliveries that arrived intact, and a webhook that
     answers an error for news it does not need is one somebody disables."""
     try:
         recorded = receive_push(
-            await request.body(),
-            request.headers.get(SIGNATURE_HEADER),
+            body,
+            request.headers,
             settings=settings,
+            source=source,
             record_pushed=_the_watermark_kept_by(connections)
         )
     except PushUnverified as refused:
@@ -284,16 +367,19 @@ async def receive_github_push(request: Request,
 
 
 @app.post("/webhooks/oncall", status_code=202)
-async def receive_oncall_delivery(request: Request,
-                                  platform: UsingOnCallPlatform,
-                                  connections: UsingConnections,
-                                  tracer: Tracing) -> dict[str, str]:
+def receive_oncall_delivery(request: Request,
+                            body: TheBody,
+                            platform: UsingOnCallPlatform,
+                            connections: UsingConnections,
+                            tracer: Tracing) -> dict[str, str]:
     """Where the on-call platform tells Argus what happened to its incidents.
 
     One delivery is acted on - a person resolving an incident Argus has - and
     what that does lives in `oncall.receive_delivery`; this is registration
-    and the answer the platform acts on. Async for the reason the push webhook
-    is: the signature is over the bytes that arrived.
+    and the answer the platform acts on. Handed the bytes that arrived, for
+    the reason the push webhook is - the signature is over them - and
+    synchronous like it, so the platform's API reads and the incident record's
+    writes run in the threadpool.
 
     `404` where the deployment has no on-call platform, which is optional.
     `401` for a delivery it did not sign, which the platform drops. `503` when
@@ -309,7 +395,7 @@ async def receive_oncall_delivery(request: Request,
 
     try:
         receive_delivery(
-            await request.body(),
+            body,
             request.headers,
             platform=platform,
             record=_TheIncidentRecord(connections, tracer)
@@ -328,10 +414,11 @@ async def receive_oncall_delivery(request: Request,
 
 
 @app.post("/webhooks/slack/events")
-async def receive_chat_event(request: Request,
-                             platform: UsingChatPlatform,
-                             connections: UsingConnections,
-                             tracer: Tracing) -> dict[str, str]:
+def receive_chat_event(request: Request,
+                       body: TheBody,
+                       platform: UsingChatPlatform,
+                       connections: UsingConnections,
+                       tracer: Tracing) -> dict[str, str]:
     """Where the chat platform tells Argus what was posted where it can see.
 
     One thing is acted on - a person replying in an incident's thread, which is
@@ -339,31 +426,34 @@ async def receive_chat_event(request: Request,
     `chat.receive_chat_delivery`; this is registration and the answer the
     platform acts on.
     """
-    return await _a_chat_delivery(request, platform, connections, tracer)
+    return _a_chat_delivery(body, request, platform, connections, tracer)
 
 
 @app.post("/webhooks/slack/interactions")
-async def receive_chat_interaction(request: Request,
-                                   platform: UsingChatPlatform,
-                                   connections: UsingConnections,
-                                   tracer: Tracing) -> dict[str, str]:
+def receive_chat_interaction(request: Request,
+                             body: TheBody,
+                             platform: UsingChatPlatform,
+                             connections: UsingConnections,
+                             tracer: Tracing) -> dict[str, str]:
     """Where the chat platform tells Argus a button on one of its messages was
     pressed.
 
     A door of its own only because Slack is configured with a separate address
     for interactions; what is behind it is the same handling as the events'.
     """
-    return await _a_chat_delivery(request, platform, connections, tracer)
+    return _a_chat_delivery(body, request, platform, connections, tracer)
 
 
-async def _a_chat_delivery(request: Request,
-                           platform: ChatPlatformReads | None,
-                           connections: Connections,
-                           tracer: Tracer) -> dict[str, str]:
+def _a_chat_delivery(body: bytes,
+                     request: Request,
+                     platform: ChatPlatformReads | None,
+                     connections: Connections,
+                     tracer: Tracer) -> dict[str, str]:
     """Both chat doors' handling, and the answer the platform acts on.
 
-    Async for the reason the push webhook is: the signature is over the bytes
-    that arrived.
+    Handed the bytes that arrived, for the reason the push webhook is - the
+    signature is over them - and synchronous like it, so the incident record's
+    writes and the platform's reads run in the threadpool.
 
     `404` where the deployment has no chat workspace, which is optional. `401`
     for a delivery it did not sign. `200` for everything else, acted on or not,
@@ -379,7 +469,7 @@ async def _a_chat_delivery(request: Request,
 
     try:
         challenge = receive_chat_delivery(
-            await request.body(),
+            body,
             request.headers,
             platform=platform,
             record=_TheChatRecord(_TheIncidentRecord(connections, tracer), connections)

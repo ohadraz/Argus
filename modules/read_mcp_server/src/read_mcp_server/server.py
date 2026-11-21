@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Annotated, Any, Final
+from typing import Annotated, Final
 
+from alerting_platform import AlertingPlatform
+from alerting_platform.grafana import Grafana, GrafanaSettings
 from code_host import CodeHostReads
 from code_host.github import GitHubReads, GitHubReadSettings
 from core import (
@@ -37,14 +39,15 @@ from core.models import (
     PodPlacement,
     RolloutAccount,
     RolloutProgress,
+    RuleSeries,
     ServiceDependency,
 )
 from deployment_platform import DeploymentPlatformReads
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from flag_provider import FlagProviderReads
 from flag_provider.unleash import UnleashFrontend, UnleashFrontendSettings
-from metrics_source import MetricsSettings, MetricsSource, RuleSeries
-from metrics_source.prometheus_adapter import buckets_between
+from metrics_source import MetricsSettings, MetricsSource, SeriesClassifier
+from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
 from pydantic import Field
 from repository_index.embedding import an_embedder
 from telemetry import start_telemetry
@@ -60,7 +63,6 @@ from read_mcp_server import (
     retrieval,
     rollouts,
 )
-from read_mcp_server.alert_rules import AlertRuleReadSettings
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.deploy_history import fetch_deploys
 from read_mcp_server.meaning import IndexReadSettings
@@ -90,7 +92,8 @@ def build_server(endpoint: ReadMcpEndpoint,
                  registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
-                 alert_rule_settings: AlertRuleReadSettings,
+                 rules: AlertingPlatform,
+                 classify: SeriesClassifier,
                  connections: Connections) -> TracedFastMCP:
     """Registers every read tool against one deployment's configuration.
 
@@ -141,13 +144,10 @@ def build_server(endpoint: ReadMcpEndpoint,
 
     changes: ChangeSource = deploys
 
-    def from_grafana(path: str) -> dict[str, Any]:
-        return alert_rules.fetch_from_grafana(path, alert_rule_settings)
-
-    # Which series a rule watches, read off its definition in the same Grafana
+    # Which series a rule watches, read off its definition on the same platform
     # the rule's standing is read from.
     def series_the_rule_watches(rule: str) -> RuleSeries | None:
-        return alert_rules.the_series_the_rule_watches(rule, fetch=from_grafana)
+        return rules.series_of(rule)
 
     def registered(service: str) -> dict[str, object]:
         return fetch_registered_service(service, registry_settings)
@@ -383,7 +383,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         answering normal, which is the answer that would confirm whatever was
         just done. The behavior lives in `alert_rules.how_the_rule_stands`; this
         is registration only."""
-        return alert_rules.how_the_rule_stands(rule, fetch=from_grafana)
+        return alert_rules.how_the_rule_stands(rule, rules=rules, classify=classify)
 
     @mcp.tool(description=descriptions.ROLLOUT_STATE)
     def get_rollout_state(
@@ -572,7 +572,12 @@ def main() -> None:
             ServiceRegistrySettings.of(settings),
             RepositoryReadSettings.of(settings),
             IndexReadSettings.of(settings),
-            AlertRuleReadSettings.of(settings),
+            # The alerting platform's adapter, built here for the same reason and
+            # handed on as its port, and the metrics adapter's account of what a
+            # rule's series measures beside it - the one adapter that may read a
+            # query.
+            Grafana(GrafanaSettings.of(settings)),
+            what_the_series_is,
             pool.connection
         ).serve()
 

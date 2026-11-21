@@ -26,6 +26,7 @@ from core.models.metrics import Quantile, WorseWhen
 from core.models.reading import RetrievalChannel
 from core.models.refusal import Refusal
 from core.models.report import ReportChannel
+from core.models.unit import Unit
 
 
 class CitedEvidence(BaseModel):
@@ -608,9 +609,8 @@ class RuleSeriesHarm(BaseModel):
     series read as 0.8, without anything guessing a unit. `None` where it could
     not be read.
 
-    `unit` is the unit the levels and the line are in, as Grafana names it, and
-    `None` where nothing said one - which a document written before the unit was
-    carried reads as.
+    `unit` is the unit the levels and the line are in, and `None` where nothing
+    said one - which a document written before the unit was carried reads as.
 
     `is_the_error_rate` is the series being the very query the error rate is
     read by: then its worst minute is the peak error rate, already said, and is
@@ -622,7 +622,7 @@ class RuleSeriesHarm(BaseModel):
     at_its_worst: float
     worse_when: WorseWhen
     line: float | None = None
-    unit: str | None = None
+    unit: Unit | None = None
     is_the_error_rate: bool = False
 
 
@@ -662,7 +662,7 @@ class RuleSeriesBeforeTheAlert(BaseModel):
     first_minute: datetime
     last_minute: datetime
     line: float | None = None
-    unit: str | None = None
+    unit: Unit | None = None
     is_the_error_rate: bool = False
 
 

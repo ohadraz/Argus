@@ -7,6 +7,23 @@ from typing import Any, NamedTuple
 from unittest.mock import create_autospec
 
 import pytest
+from alerting_platform.grafana import (
+    CONDITION,
+    CONDITIONS,
+    DATA,
+    DATASOURCE_UID,
+    EVALUATOR,
+    EXPR,
+    EXPRESSION,
+    EXPRESSION_DATASOURCE,
+    LT,
+    MODEL,
+    PARAMS,
+    REDUCE,
+    REF_ID,
+    THRESHOLD,
+    TYPE,
+)
 from argus_testkit.assertions import Assertion, all_of, the_answer_was
 from argus_testkit.scenario import Scenario, attempting, calling
 from core import ReadMcpEndpoint, get_settings, parse_iso
@@ -39,23 +56,6 @@ from read_mcp_client import (
     read_repository_file,
     search_repository,
     search_repository_by_meaning,
-)
-from read_mcp_server.alert_rules import (
-    CONDITION,
-    CONDITIONS,
-    DATA,
-    DATASOURCE_UID,
-    EVALUATOR,
-    EXPR,
-    EXPRESSION,
-    EXPRESSION_DATASOURCE,
-    LT,
-    MODEL,
-    PARAMS,
-    REDUCE,
-    REF_ID,
-    THRESHOLD,
-    TYPE,
 )
 
 from read_mcp_client_test.conftest import FakeTargetServiceHandler

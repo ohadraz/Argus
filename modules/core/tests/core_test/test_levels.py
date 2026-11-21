@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 from argus_testkit import Scenario, the_answer_was
 from core import level_given_in, level_said_in, said_as_a_level, said_as_a_share
+from core.models import Unit
 
 
 @pytest.mark.unit
@@ -42,17 +43,16 @@ def test_a_level_is_said_to_three_figures_and_never_fewer_than_its_whole_part(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("level", "unit", "said"), [
-    (600.0, "ms", "600 ms"),
-    (0.6, "s", "0.6 s"),
-    (0.899, "percentunit", "89.9%"),
-    (0.4456789, "percentunit", "44.6%"),
-    (12.5, "percent", "12.5%"),
-    (2048.0, "bytes", "2048 bytes"),
-    (3.0, "reqps", "3 reqps"),
+    (600.0, Unit.MILLISECONDS, "600 ms"),
+    (0.6, Unit.SECONDS, "0.6 s"),
+    (0.899, Unit.SHARE_OF_ONE, "89.9%"),
+    (0.4456789, Unit.SHARE_OF_ONE, "44.6%"),
+    (12.5, Unit.PERCENT, "12.5%"),
+    (2048.0, Unit.BYTES, "2048 bytes"),
     (600.0, None, "600")
 ], ids=["milliseconds", "seconds", "a-share-of-one", "a-share-to-three-figures",
-        "already-a-percentage", "bytes", "a-unit-said-as-grafana-names-it", "no-unit"])
-def test_a_level_is_said_in_its_unit(level: float, unit: str | None, said: str) -> None:
+        "already-a-percentage", "bytes", "no-unit"])
+def test_a_level_is_said_in_its_unit(level: float, unit: Unit | None, said: str) -> None:
     # A bare number beside an alert that says "80%" is two scales on one page.
     # A share of one is said as the percentage, scaled exactly before it is cut
     # to three figures; a unit nothing named is no unit, rather than a guess.
@@ -62,6 +62,32 @@ def test_a_level_is_said_in_its_unit(level: float, unit: str | None, said: str) 
         ) \
         .then(
             the_answer_was(said)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("unit", list(Unit), ids=[unit.value for unit in Unit])
+def test_every_unit_is_said_in_its_own_way(unit: Unit) -> None:
+    # A unit added to the vocabulary with no way to be written would raise the
+    # first time a postmortem tried to say a level in it - and a unit missing
+    # from the table here fails this case first, asking how it is said.
+    some_level = 0.6
+    the_figures = said_as_a_level(some_level)
+    the_percentage = said_as_a_level(some_level * 100)
+    how_it_is_said = {
+        Unit.SHARE_OF_ONE: f"{the_percentage}%",
+        Unit.PERCENT: f"{the_figures}%",
+        Unit.MILLISECONDS: f"{the_figures} ms",
+        Unit.SECONDS: f"{the_figures} s",
+        Unit.BYTES: f"{the_figures} bytes"
+    }
+
+    Scenario() \
+        .when(
+            lambda: level_said_in(some_level, unit)
+        ) \
+        .then(
+            the_answer_was(how_it_is_said[unit])
         )
 
 
@@ -106,10 +132,10 @@ def test_a_level_that_is_no_number_is_said_as_prometheus_writes_it(level: float,
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("level", "unit", "said"), [
-    (float("inf"), "ms", "+Inf ms"),
-    (float("nan"), "percentunit", "NaN%")
+    (float("inf"), Unit.MILLISECONDS, "+Inf ms"),
+    (float("nan"), Unit.SHARE_OF_ONE, "NaN%")
 ], ids=["in-its-unit", "as-a-share-of-one"])
-def test_a_level_that_is_no_number_is_said_in_its_unit(level: float, unit: str,
+def test_a_level_that_is_no_number_is_said_in_its_unit(level: float, unit: Unit,
                                                        said: str) -> None:
     Scenario() \
         .when(
@@ -125,7 +151,7 @@ def test_a_level_that_is_no_number_is_given_to_the_model_as_prometheus_writes_it
     # Not `Infinity`, a spelling the model has seen nowhere in what it reads.
     Scenario() \
         .when(
-            lambda: level_given_in(float("inf"), "ms")
+            lambda: level_given_in(float("inf"), Unit.MILLISECONDS)
         ) \
         .then(
             the_answer_was("+Inf ms")
@@ -147,13 +173,16 @@ def test_a_share_that_is_no_number_is_said_as_prometheus_writes_it() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("level", "unit", "given"), [
-    (0.4456789, "percentunit", "44.56789%"),
-    (600.0, "ms", "600 ms"),
-    (0.1 + 0.2, "s", "0.30000000000000004 s"),
+    (0.4456789, Unit.SHARE_OF_ONE, "44.56789%"),
+    (600.0, Unit.MILLISECONDS, "600 ms"),
+    (0.1 + 0.2, Unit.SECONDS, "0.30000000000000004 s"),
+    (12.5, Unit.PERCENT, "12.5%"),
+    (2048.0, Unit.BYTES, "2048 bytes"),
     (600.0, None, "600")
-], ids=["a-share-of-one", "milliseconds", "as-measured", "no-unit"])
+], ids=["a-share-of-one", "milliseconds", "as-measured", "already-a-percentage", "bytes",
+        "no-unit"])
 def test_a_level_is_given_to_the_model_exactly_in_its_unit(level: float,
-                                                           unit: str | None,
+                                                           unit: Unit | None,
                                                            given: str) -> None:
     # What the model is handed is reformatted, never rounded: a share of one
     # moves its point two places and loses no digit of what was measured.

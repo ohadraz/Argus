@@ -38,7 +38,6 @@ from core.db import Connections, connect, connect_from_env, open_pool, unit_of_w
 from core.fencing import Fence, Holding, RunLost, fence, was_lost
 from core.ids import UuidStr, new_id
 from core.levels import (
-    MILLISECONDS_UNIT,
     level_given_in,
     level_said_in,
     said_as_a_level,
@@ -59,7 +58,6 @@ from core.timestamps import (
 __all__ = [
     "A_DAY_SAID",
     "A_REVISION",
-    "MILLISECONDS_UNIT",
     "Clock",
     "Connections",
     "DatabaseSettings",

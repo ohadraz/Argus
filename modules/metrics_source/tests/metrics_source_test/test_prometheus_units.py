@@ -14,24 +14,26 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from read_mcp_server.units import the_unit_its_name_carries
+from core.models import Unit
+from metrics_source.prometheus_units import the_unit_its_name_carries
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("query", "unit"), [
-    ("http_request_duration_seconds", "s"),
-    ('max(http_request_duration_seconds{quantile="0.95"})', "s"),
-    ("sum by (service) (http_request_duration_seconds)", "s"),
-    ("max(max_over_time(process_resident_memory_bytes[1m]))", "bytes"),
-    ('quantile_over_time(0.95, http_request_duration_seconds{quantile="0.5"}[5m])', "s"),
-    ("avg(some_confident_ratio)", "percentunit"),
+    ("http_request_duration_seconds", Unit.SECONDS),
+    ('max(http_request_duration_seconds{quantile="0.95"})', Unit.SECONDS),
+    ("sum by (service) (http_request_duration_seconds)", Unit.SECONDS),
+    ("max(max_over_time(process_resident_memory_bytes[1m]))", Unit.BYTES),
+    ('quantile_over_time(0.95, http_request_duration_seconds{quantile="0.5"}[5m])',
+     Unit.SECONDS),
+    ("avg(some_confident_ratio)", Unit.SHARE_OF_ONE),
     ("histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
-     "s"),
+     Unit.SECONDS),
     ("histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-     "s")
+     Unit.SECONDS)
 ], ids=["bare", "aggregated", "aggregated-by-a-label", "over-time", "a-quantile-over-time",
         "a-ratio", "a-histogram-quantile", "a-histogram-quantile-grouped-after"])
-def test_a_series_that_keeps_its_metric_s_unit_is_in_it(query: str, unit: str) -> None:
+def test_a_series_that_keeps_its_metric_s_unit_is_in_it(query: str, unit: Unit) -> None:
     Scenario() \
         .when(lambda: the_unit_its_name_carries(query)) \
         .then(the_answer_was(unit))

@@ -24,6 +24,7 @@ import logging
 from unittest.mock import Mock, create_autospec
 
 import pytest
+from alerting_platform import AlertingPlatform
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -40,8 +41,7 @@ from flag_provider import FlagProviderReads, FlagProviderUnavailable
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, Tool
-from metrics_source import MetricsSettings
-from read_mcp_server.alert_rules import AlertRuleReadSettings
+from metrics_source import MetricsSettings, SeriesClassifier
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
@@ -485,8 +485,8 @@ def _a_read_tier(mode: CodeSearch,
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           repository_index_collection="dont-care-collection",
                           code_search=mode),
-        AlertRuleReadSettings(grafana_base_url="http://grafana.invalid",
-                              grafana_auth_token="dont-care-token"),
+        create_autospec(AlertingPlatform, instance=True),
+        create_autospec(SeriesClassifier, instance=True),
         create_autospec(Connections, instance=True)
     )
 

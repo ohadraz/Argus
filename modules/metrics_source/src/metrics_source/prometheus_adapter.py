@@ -2,7 +2,8 @@
 
 Read through its range-query API - `GET /api/v1/query_range` - one PromQL
 expression per bucket field, at a minute's step. Nothing above this module sees
-PromQL, Prometheus's envelope, or its errors.
+PromQL, Prometheus's envelope, or its errors - and nothing above it reads a
+rule's query either: what one measures, and the unit it is in, are said here.
 """
 
 from __future__ import annotations
@@ -16,9 +17,15 @@ from typing import Any, Final
 
 import httpx2
 from core import to_iso
-from core.models import RULE_READING_FIELD, MetricBucket, RuleReading
+from core.models import RULE_READING_FIELD, MetricBucket, RuleReading, RuleSeries, SeriesQuery
 
-from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
+from metrics_source.minutes import (
+    Measure,
+    MetricsSettings,
+    MetricsUnavailable,
+    SeriesKind,
+)
+from metrics_source.prometheus_units import the_unit_its_name_carries
 
 logger = logging.getLogger(__name__)
 
@@ -89,27 +96,39 @@ _EVERY_BUCKET_NEEDS: Final = frozenset(QUERIES) - {
 }
 
 
-def is_the_error_rate(query: str) -> bool:
-    """Whether `query` is the one the error rate is read by, however it is laid
-    out - PromQL reads nothing into whitespace, so neither does this.
+def what_the_series_is(query: SeriesQuery, /) -> SeriesKind:
+    """What a rule's series measures, and the unit its metric's name carries.
 
-    A paging rule over the error rate itself watches the figure every reader of
-    the incident is already given as the error rate, and whoever says what the
-    rule watched would otherwise say that figure twice."""
-    return "".join(query.split()) == "".join(QUERIES["error_rate"].split())
+    The error rate where `query` is the one the error rate is read by, and a
+    latency where it is one a latency is read by, however either is laid out -
+    PromQL reads nothing into whitespace, so neither does this. A paging rule
+    over either watches a figure every reader of the incident is already given,
+    and whoever says what the rule watched would otherwise say it twice.
+
+    The unit is the name's, followed only through what keeps it
+    (`prometheus_units`)."""
+    return SeriesKind(measures=_what_it_measures(query),
+                      unit=the_unit_its_name_carries(query))
 
 
 # The fields whose queries are a latency: how long requests took, at a quantile.
 _LATENCIES: Final = ("p50_ms", "p95_ms", "p99_ms")
 
 
-def is_a_latency(query: str) -> bool:
-    """Whether `query` is one a latency is read by, however it is laid out.
+def _what_it_measures(query: str) -> Measure:
+    laid_out = _without_whitespace(query)
 
-    A paging rule over a latency watches how long requests took, which is what
-    whoever reads the incident is given as its latency, and said beside the
-    rule's own series it would be said twice."""
-    return "".join(query.split()) in {"".join(QUERIES[field].split()) for field in _LATENCIES}
+    if laid_out == _without_whitespace(QUERIES["error_rate"]):
+        return Measure.ERROR_RATE
+
+    if laid_out in {_without_whitespace(QUERIES[field]) for field in _LATENCIES}:
+        return Measure.LATENCY
+
+    return Measure.OTHER
+
+
+def _without_whitespace(query: str) -> str:
+    return "".join(query.split())
 
 
 def buckets_between(started_at: datetime,

@@ -1,11 +1,19 @@
+"""Grafana as a sender of alerts: its unified-alerting webhook, read into
+Argus's own `Alert`, and the only module that knows that webhook's shape."""
+
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+from collections.abc import Mapping
 from typing import Any, Final
 from urllib.parse import urlsplit
 
 from core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
+
+from alert_source.failures import AlertUnreadable
+from alert_source.port import OnlyResolved
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +57,43 @@ _THE_ALERTING_PATH: Final = "/alerting/"
 _GRAFANA_MANAGED: Final = "grafana"
 
 
+class GrafanaAlerts:
+    """Grafana, as a sender of alerts.
+
+    Holds nothing: Grafana's webhook is not signed here, so a delivery is read
+    for what it says and nothing proves who said it - the route it arrives on
+    is the deployment's to keep private. Built where the web application is
+    wired, and handed on typed as `AlertSource`.
+    """
+
+    def parse_delivery(self, body: bytes, headers: Mapping[str, str], /) -> Alert | OnlyResolved:
+        """What one notification says: the first alert still firing in it, or
+        that it carries only resolutions.
+
+        Anything that is not a notification in Grafana's shape - not JSON, not
+        an object, alerts that are not a list of objects, an alert missing a
+        field the `Alert` needs - is `AlertUnreadable`, saying what was wrong as
+        the error that found it."""
+        try:
+            payload = json.loads(body)
+
+            if not isinstance(payload, dict):
+                raise TypeError(f"a notification is a JSON object, not a {type(payload).__name__}")
+
+            if reports_only_resolutions(payload):
+                return OnlyResolved()
+
+            return parse_grafana_alert(payload)
+        # `AttributeError` too: alerts that are a string, or a list of strings,
+        # meet `.get` on something that is no object.
+        except (AttributeError, LookupError, TypeError, ValueError) as unreadable:
+            raise AlertUnreadable(repr(unreadable)) from unreadable
+
+
 def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
     """Deterministic parser for Grafana's unified-alerting webhook format -
-    plain field mapping, no LLM call (design.md Non-Goals; spec §7.9/§25
-    tracks generic/LLM-based ingestion as separate future work)."""
+    plain field mapping, no LLM call (spec §25 tracks generic, LLM-based
+    ingestion as one more sender behind the same port)."""
     alerts = raw_payload["alerts"]
     # The first alert still firing. A notification carries every alert of its
     # group, a resolved one can come first, and a resolution never starts an

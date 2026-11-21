@@ -1,23 +1,28 @@
 """A service's per-minute metrics, read from whatever monitors it.
 
-The port the read tier reads minute buckets through, and the Prometheus adapter
-behind it. What travels upwards is Argus's own `MetricBucket`; a vendor's
-query language, envelope and errors stop at the adapter that speaks them.
+The port the read tier reads minute buckets through, and asks what a rule's
+series measures through, and the Prometheus adapter behind it. What travels
+upwards is Argus's own `MetricBucket` and `SeriesKind`; a vendor's query
+language, envelope and errors stop at the adapter that speaks them.
+
+The adapter is not exported here. It is built where the read server is wired,
+and everything else is handed the port.
 """
 
 from metrics_source.minutes import (
+    Measure,
     MetricsSettings,
     MetricsSource,
     MetricsUnavailable,
-    RuleSeries,
+    SeriesClassifier,
+    SeriesKind,
 )
-from metrics_source.prometheus_adapter import is_a_latency, is_the_error_rate
 
 __all__ = [
+    "Measure",
     "MetricsSettings",
     "MetricsSource",
     "MetricsUnavailable",
-    "RuleSeries",
-    "is_a_latency",
-    "is_the_error_rate",
+    "SeriesClassifier",
+    "SeriesKind"
 ]

@@ -1,0 +1,100 @@
+"""The notifications Grafana sends, in the shape it really uses."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from alert_source.grafana import CLAIM_ANNOTATION
+
+
+def a_grafana_payload(service: str = "kukibuki",
+                      alert_name: str = "HighErrorRate",
+                      onset: str | None = None,
+                      claim: str | None = None,
+                      stale_entry_keys: tuple[str, ...] | None = None,
+                      rule_uid: str | None = None,
+                      generator_url: str | None = None,
+                      status: str = "firing",
+                      group_key: str | None = None,
+                      fingerprint: str | None = None,
+                      starts_at: str = "2026-08-14T10:15:00Z") -> dict[str, Any]:
+    """One alert, firing unless `status` says otherwise, nested the way Grafana nests it.
+
+    The whole envelope rather than the fields Argus wants, because the nesting
+    is what the parser exists to undo - a fixture already flattened would test
+    the parser against its own output.
+
+    `onset` is absent by default, because almost no alert states one: a rule
+    that fires on a series is reporting a minute Argus can measure for itself.
+    An alert carries one only where the thing that fired it knows something the
+    series cannot say - a check reporting what it found long after the writing
+    went wrong - which is why it is an annotation of its own rather than
+    `startsAt`. Those two differ by a week in the case this exists for.
+
+    `claim` is absent by default for the same reason and with a different
+    consequence: a sender that says nothing about what its rule watched is read
+    as a threshold rule, which is what the default payload here is. Typed as a
+    plain string rather than as `AlarmClaim`, because a value no member spells
+    is a case the parser has to answer for and a builder that could only produce
+    members could not stage it.
+
+    `rule_uid` is the rule that fired, said the one place Grafana says it: in
+    the link to the rule, `generatorURL`, in the shape its releases build.
+    `generator_url` stages that link verbatim instead, for a shape of its own.
+    Both are absent unless asked for, so a sender that names no rule is the
+    default.
+
+    `status` is `firing` or `resolved`, and Grafana says it twice - on the
+    envelope and on the alert - so both say it here.
+
+    `group_key` is the alert group's key, on the envelope where Grafana puts it.
+    Absent unless asked for, since the parser must take an alert without one.
+
+    `fingerprint` is Grafana's identity for the alert, on the alert, and
+    `starts_at` the moment this firing of it began; the two together name the
+    firing. The fingerprint is absent unless asked for, for the group key's
+    reason.
+    """
+    annotations = {"summary": f"Error rate above threshold on {service}"}
+
+    if onset:
+        annotations["onset"] = onset
+
+    if claim is not None:
+        annotations[CLAIM_ANNOTATION] = claim
+
+    if stale_entry_keys is not None:
+        annotations["stale_entry_keys"] = ",".join(stale_entry_keys)
+        annotations["stale_entries_found"] = str(len(stale_entry_keys))
+
+    alert: dict[str, Any] = {
+        "status": status,
+        "labels": {
+            "alertname": alert_name,
+            "service": service,
+            "severity": "critical"
+        },
+        "annotations": annotations,
+        "startsAt": starts_at,
+        "endsAt": "0001-01-01T00:00:00Z"
+    }
+
+    if fingerprint is not None:
+        alert["fingerprint"] = fingerprint
+
+    if rule_uid is not None:
+        alert["generatorURL"] = f"http://grafana.test/alerting/grafana/{rule_uid}/view?orgId=1"
+
+    if generator_url is not None:
+        alert["generatorURL"] = generator_url
+
+    payload: dict[str, Any] = {
+        "receiver": "argus-webhook",
+        "status": status,
+        "alerts": [alert]
+    }
+
+    if group_key is not None:
+        payload["groupKey"] = group_key
+
+    return payload

@@ -5,6 +5,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from core.models.metrics import SeriesQuery
+from core.models.unit import Unit
+
 
 class AlertRuleStanding(BaseModel):
     """Whether an alert rule has stopped firing, as of an evaluation that can be
@@ -36,15 +39,21 @@ class AlertRuleStanding(BaseModel):
     over - what the series is, where the alert's words say only when it pages -
     and `None` where no one series could be followed to.
 
-    `series_unit` is the unit that series is in, as Grafana names a unit
-    (`ms`, `s`, `percentunit`), and `None` where nothing said one: unknown,
-    never guessed, since a level said in the wrong unit is wrong by its scale.
+    `series_unit` is the unit that series is in, and `None` where nothing said
+    one: unknown, never guessed, since a level said in the wrong unit is wrong
+    by its scale.
 
     `series_is_the_error_rate` is that series being the very query the error
     rate is read by: then what the rule watched is a figure every reader is
     already given as the error rate, and saying both says it twice.
     `series_is_a_latency` is the same for the queries a latency is read by:
     then what the rule watched is how long requests took.
+
+    Two parties answer for it, which is why it is composed rather than read:
+    whatever evaluates the rules says where the rule stands and which series it
+    watches, and the unit its dashboard shows that series in; whatever reads the
+    metrics says what the series measures, and the unit its metric's name
+    carries where the dashboard shows none.
     """
 
     rule: str
@@ -54,7 +63,7 @@ class AlertRuleStanding(BaseModel):
     interval_seconds: int = Field(ge=0)
     keep_firing_for_seconds: int = Field(ge=0)
     pending_seconds: int = Field(ge=0)
-    series_query: str | None = None
-    series_unit: str | None = None
+    series_query: SeriesQuery | None = None
+    series_unit: Unit | None = None
     series_is_the_error_rate: bool = False
     series_is_a_latency: bool = False

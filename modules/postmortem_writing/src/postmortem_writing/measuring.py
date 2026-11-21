@@ -45,7 +45,7 @@ from typing import NamedTuple
 
 from core import parse_iso, to_iso
 from core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
-from core.models import MetricBucket
+from core.models import MetricBucket, SeriesQuery, Unit
 from pydantic import BaseModel, Field
 
 from postmortem_writing.estimate import (
@@ -192,10 +192,10 @@ class Measurements(BaseModel):
     # series: the alert's words are its condition. `None` where no rule paged,
     # where the rule could not be read, or where no one series could be
     # followed in it.
-    rule_series_query: str | None = None
-    # The unit that series is in, as Grafana names a unit - read off the rule's
-    # panel or its metric's name - and `None` where neither said one.
-    rule_series_unit: str | None = None
+    rule_series_query: SeriesQuery | None = None
+    # The unit that series is in - read off the rule's panel or its metric's
+    # name - and `None` where neither said one.
+    rule_series_unit: Unit | None = None
     # Whether that series is the very query the error rate is read by: then what
     # the rule watched is the error rate, already said as one.
     rule_series_is_the_error_rate: bool = False

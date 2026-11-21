@@ -8,25 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Protocol
 
 from core import SettingsSlice
-from core.models import MetricBucket, RuleLine, WorseWhen
-
-
-@dataclass(frozen=True)
-class RuleSeries:
-    """The series a paging rule evaluates, as the source is asked for it: the
-    rule's own query, which side of its threshold is worse, and the threshold
-    itself where it could be read.
-
-    Carried down from whoever read the rule, so that the source reads one more
-    series without learning what a rule is.
-    """
-
-    query: str
-    worse_when: WorseWhen
-    line: RuleLine | None = None
+from core.models import MetricBucket, RuleSeries, SeriesQuery, Unit
 
 
 class MetricsSource(Protocol):
@@ -46,6 +32,42 @@ class MetricsSource(Protocol):
                  started_at: datetime,
                  ended_at: datetime,
                  rule_series: RuleSeries | None = None) -> list[MetricBucket]: ...
+
+
+class Measure(StrEnum):
+    """What a series measures, as far as anything that reads the incident
+    needs to know: the error rate every reader is already given, a latency
+    every reader is already given at its levels, or something else."""
+
+    ERROR_RATE = "error_rate"
+    LATENCY = "latency"
+    OTHER = "other"
+
+
+@dataclass(frozen=True)
+class SeriesKind:
+    """What a rule's series is, said by the source that runs its query.
+
+    `unit` is the unit the query's own metric carries, and `None` where the
+    query does something to it that may change the unit, or the metric carries
+    none - unknown, never guessed.
+    """
+
+    measures: Measure
+    unit: Unit | None
+
+
+class SeriesClassifier(Protocol):
+    """How the read tier learns what a rule's series measures.
+
+    The query is in the source's own language, so only the source's adapter
+    can say what it means. A `Protocol` so a test stands it in with
+    `create_autospec`; bound where the process starts to the one adapter this
+    deployment reads metrics through. Never raises: a query it cannot read
+    measures something else, in no unit it can say.
+    """
+
+    def __call__(self, query: SeriesQuery, /) -> SeriesKind: ...
 
 
 class MetricsSettings(SettingsSlice):

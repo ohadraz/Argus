@@ -27,7 +27,7 @@ See [`AGENTS.md`](AGENTS.md) for the full, tool-agnostic policy and its rational
 
 ## Architecture at a glance
 
-- **`web_app`** - the only HTTP surface. Receives the alert webhook, normalizes it into Argus's own domain object (currently: a deterministic Grafana unified-alerting parser), and calls the Orchestrator in-process.
+- **`web_app`** - the only HTTP surface. Receives the alert webhook on each sender's route, has that sender's adapter behind the `alert_source` port read it into Argus's own domain object (currently: a deterministic Grafana unified-alerting parser), and calls the Orchestrator in-process.
 - **`orchestrator`** - a LangGraph `StateGraph` implementing the incident state machine (`investigating -> mitigating -> resolved`, with `fixing`/`escalated` branches), Postgres-backed and checkpointed.
 - **`investigation_agent`, `mitigation`, `codefix_agent`, `communication`, `postmortem_writing`** - the five delegates, each its own workspace package; the Investigator and Code-Fix are the agents among them.
 - **`core`** - shared domain models, Postgres schema, and configuration.

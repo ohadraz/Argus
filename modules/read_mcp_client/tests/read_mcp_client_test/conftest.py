@@ -18,6 +18,7 @@ from typing import Final
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from alerting_platform.grafana import RULE_DEFINITION_PATH
 from argus_testkit import a_free_port
 from core import get_settings, parse_iso
 from mcp.server.streamable_http import CONTENT_TYPE_JSON, CONTENT_TYPE_SSE
@@ -32,7 +33,6 @@ from mcp.types import (
     JSONRPCResponse,
 )
 from metrics_source.prometheus_adapter import QUERIES
-from read_mcp_server.alert_rules import RULE_DEFINITION_PATH
 
 # Where the fakes listen: loopback, on whatever port the operating system hands
 # out. A port written here is shared by every copy of this suite running at

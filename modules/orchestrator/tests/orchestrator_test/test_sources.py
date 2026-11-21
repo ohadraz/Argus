@@ -23,7 +23,7 @@ from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, th
 from core import Connections, get_settings, to_iso
 from core.anomaly import AnomalyThresholds
 from core.mcp_transport import McpClient, McpToolError, McpUnreachable
-from core.models import AlertRuleStanding, MetricBucket
+from core.models import AlertRuleStanding, MetricBucket, SeriesQuery
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
 from orchestrator.sources import the_real_sources
@@ -191,7 +191,7 @@ def test_the_paging_rule_is_asked_of_the_read_tier() -> None:
                                       interval_seconds=60,
                                       keep_firing_for_seconds=0,
                                       pending_seconds=300,
-                                      series_query="avg(some_confident_ratio)")
+                                      series_query=SeriesQuery("avg(some_confident_ratio)"))
 
     Scenario() \
         .given(

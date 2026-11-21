@@ -26,9 +26,9 @@ from argus_testkit import (
     the_answer_was,
     the_error_mentioned,
 )
-from core.models import MetricBucket, RuleLine, RuleReading
-from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
-from metrics_source.prometheus_adapter import buckets_between, is_a_latency, is_the_error_rate
+from core.models import MetricBucket, RuleLine, RuleReading, RuleSeries, SeriesQuery, Unit
+from metrics_source.minutes import Measure, MetricsSettings, MetricsUnavailable, SeriesKind
+from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
 
 # Prometheus's own vocabulary, spelled out here rather than shared with the
 # module under test: the assertion is that Argus speaks *these* words, and a
@@ -350,7 +350,7 @@ def test_the_paging_rules_query_rides_on_the_buckets_with_its_direction() -> Non
     # answers for carries its reading - with the direction the rule judges it
     # in, so whatever reads the bucket next judges it the rule's way round.
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "avg(categoriser_confident_ratio)"
+    some_rule_query = SeriesQuery("avg(categoriser_confident_ratio)")
 
     Scenario() \
         .given(
@@ -376,7 +376,7 @@ def test_the_paging_rules_line_rides_on_the_buckets_with_its_reading() -> None:
     # Carried down from whoever read the rule, as the direction is, so the
     # reading can be judged against the line the rule pages past.
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "avg(categoriser_confident_ratio)"
+    some_rule_query = SeriesQuery("avg(categoriser_confident_ratio)")
     some_line = RuleLine(at=0.8, fires_on_it=False)
 
     Scenario() \
@@ -406,7 +406,7 @@ def test_a_rules_query_prometheus_refuses_leaves_the_fixed_window_intact() -> No
     # disproof rests on are still there, and the window reads as one with no
     # rule reading - which disproves nothing - rather than as no window at all.
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "avg(categoriser_confident_ratio)"
+    some_rule_query = SeriesQuery("avg(categoriser_confident_ratio)")
 
     Scenario() \
         .given(
@@ -435,7 +435,7 @@ def test_a_rules_reading_that_is_no_number_leaves_its_minute_without_one() -> No
     # NaN is clear of a rule firing above its line and past one firing below,
     # since it compares false with both - a verdict nobody measured.
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "avg(categoriser_confident_ratio)"
+    some_rule_query = SeriesQuery("avg(categoriser_confident_ratio)")
 
     Scenario() \
         .given(
@@ -462,7 +462,7 @@ def test_a_rules_reading_that_is_no_number_leaves_its_minute_without_one() -> No
 @pytest.mark.unit
 def test_a_rules_query_with_no_samples_leaves_every_minute_without_a_reading() -> None:
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "avg(categoriser_confident_ratio)"
+    some_rule_query = SeriesQuery("avg(categoriser_confident_ratio)")
 
     Scenario() \
         .given(
@@ -492,7 +492,7 @@ def test_a_rules_query_answered_in_several_series_leaves_every_minute_without_a_
     # the answer happened to list them in. Read as one series, it would be
     # whichever came last.
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "categoriser_confident_ratio"
+    some_rule_query = SeriesQuery("categoriser_confident_ratio")
 
     Scenario() \
         .given(
@@ -527,7 +527,7 @@ def test_a_rules_query_prometheus_refuses_is_logged_as_a_warning(
     # wrote the rule is the one person who can fix it, and this line is where
     # they find out.
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "avg(categoriser_confident_ratio)"
+    some_rule_query = SeriesQuery("avg(categoriser_confident_ratio)")
 
     Scenario() \
         .given(
@@ -558,7 +558,7 @@ def test_a_rules_query_answered_in_several_series_is_logged_as_a_warning(
     # The rule's query wants an aggregation it does not have, and how many
     # series it matched is what says so.
     some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-    some_rule_query = "categoriser_confident_ratio"
+    some_rule_query = SeriesQuery("categoriser_confident_ratio")
 
     Scenario() \
         .given(
@@ -585,38 +585,66 @@ def test_a_rules_query_answered_in_several_series_is_logged_as_a_warning(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("query", "expected"), [
-    (QUERY_FOR["error_rate"], True),
-    ('sum(rate(http_requests_total{code=~"5.."}[1m]))\n  /\n  sum(rate(http_requests_total[1m]))',
-     True),
-    (QUERY_FOR["p95_ms"], False)
-])
-def test_a_query_is_the_error_rate_only_where_it_is_the_one_asked_for_it(query: str,
-                                                                        expected: bool) -> None:
+@pytest.mark.parametrize("query", [
+    QUERY_FOR["error_rate"],
+    'sum(rate(http_requests_total{code=~"5.."}[1m]))\n  /\n  sum(rate(http_requests_total[1m]))'
+], ids=["as-asked", "laid-out-differently"])
+def test_a_query_measures_the_error_rate_where_it_is_the_one_asked_for_it(query: str) -> None:
     # A rule over the error rate itself pages on the figure the postmortem
     # already gives as the error rate, and said twice it is a repeat. Laid out
     # differently it is the same query - PromQL reads nothing into spaces.
     Scenario() \
-        .when(lambda: is_the_error_rate(query)) \
-        .then(the_answer_was(expected))
+        .when(lambda: what_the_series_is(SeriesQuery(query))) \
+        .then(_it_measures(Measure.ERROR_RATE))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("query", "expected"), [
-    (QUERY_FOR["p50_ms"], True),
-    (QUERY_FOR["p95_ms"], True),
-    ('max(http_request_duration_seconds{quantile="0.99"})\n  * 1000', True),
-    (QUERY_FOR["error_rate"], False),
-    (QUERY_FOR["memory_used_bytes"], False)
-])
-def test_a_query_is_a_latency_only_where_it_is_one_asked_for_a_quantile(query: str,
-                                                                       expected: bool) -> None:
+@pytest.mark.parametrize("query", [
+    QUERY_FOR["p50_ms"],
+    QUERY_FOR["p95_ms"],
+    'max(http_request_duration_seconds{quantile="0.99"})\n  * 1000'
+], ids=["the-median", "one-in-twenty", "one-in-a-hundred-laid-out-differently"])
+def test_a_query_measures_a_latency_where_it_is_one_asked_for_a_quantile(query: str) -> None:
     # A rule over a latency pages on how long requests took, which is what the
     # postmortem gives as the latency - said beside the rule's own series, it
     # is said twice. Laid out differently it is the same query.
     Scenario() \
-        .when(lambda: is_a_latency(query)) \
-        .then(the_answer_was(expected))
+        .when(lambda: what_the_series_is(SeriesQuery(query))) \
+        .then(_it_measures(Measure.LATENCY))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("query", [
+    QUERY_FOR["memory_used_bytes"],
+    "avg(categoriser_confident_ratio)"
+], ids=["one-of-the-fixed-queries", "the-rules-own"])
+def test_any_other_query_measures_something_else(query: str) -> None:
+    Scenario() \
+        .when(lambda: what_the_series_is(SeriesQuery(query))) \
+        .then(_it_measures(Measure.OTHER))
+
+
+@pytest.mark.unit
+def test_a_querys_unit_is_the_one_its_metrics_name_carries() -> None:
+    # Followed only through what keeps the unit (`prometheus_units`), and said
+    # in Argus's own words.
+    some_query = SeriesQuery("avg(categoriser_confident_ratio)")
+
+    Scenario() \
+        .when(lambda: what_the_series_is(some_query)) \
+        .then(the_answer_was(SeriesKind(measures=Measure.OTHER, unit=Unit.SHARE_OF_ONE)))
+
+
+def _it_measures(expected: Measure) -> Assertion[SeriesKind]:
+    def assertion(kind: SeriesKind) -> bool:
+        if kind.measures is not expected:
+            raise AssertionError(
+                f"Expected the series to measure [{expected}], got [{kind.measures}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _every_fixed_query_answering_for(minute: datetime) -> dict[str, list[tuple[float, str]]]:

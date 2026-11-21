@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from core import MILLISECONDS_UNIT, level_said_in, said_as_a_share, said_as_a_time
+from core import level_said_in, said_as_a_share, said_as_a_time
 from core.models import (
     AlarmClaim,
     Alert,
@@ -19,6 +19,7 @@ from core.models import (
     ImpactExtent,
     LogsInTheGap,
     PostmortemDocument,
+    Unit,
     said_as_money,
 )
 from pydantic import BaseModel, ConfigDict
@@ -291,7 +292,7 @@ def _the_latency(impact: Impact | None, start: str) -> tuple[Card, ...]:
         return ()
 
     def said(level: float) -> str:
-        return level_said_in(level, MILLISECONDS_UNIT)
+        return level_said_in(level, Unit.MILLISECONDS)
 
     return tuple(Card(value=f"{said(latency.before)} to {said(latency.while_broken)}",
                       label=f"{latency.quantile} latency, {_before_and_while_broken(start)}",

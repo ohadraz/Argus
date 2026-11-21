@@ -21,6 +21,7 @@ from core.models import (
     DetectionMeasuredFrom,
     HypothesisConsidered,
     RuleSeriesHarm,
+    Unit,
     shorter_than_the_rules_wait,
     the_detection_lesson_said,
     whether_it_can_be_put_back,
@@ -214,8 +215,8 @@ def test_an_alert_is_within_what_was_accounted_for_to_the_second(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("unit", ["ms", None], ids=["named", "unnamed"])
-def test_the_harm_to_the_paging_rule_s_series_carries_its_unit(unit: str | None) -> None:
+@pytest.mark.parametrize("unit", [Unit.MILLISECONDS, None], ids=["named", "unnamed"])
+def test_the_harm_to_the_paging_rule_s_series_carries_its_unit(unit: Unit | None) -> None:
     # The page says the levels in it, as the brief does; unnamed is unknown,
     # which a document written before the unit was carried reads as.
     Scenario() \

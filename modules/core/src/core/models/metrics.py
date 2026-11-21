@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Final, Literal
+from dataclasses import dataclass
+from typing import Final, Literal, NewType
 
 from pydantic import BaseModel, ConfigDict
 
@@ -9,6 +10,15 @@ from pydantic import BaseModel, ConfigDict
 # reading, the series a source is asked for and every level measured from them
 # all carry it, and four spellings of one fact are four places to drift.
 type WorseWhen = Literal["above", "below"]
+
+# The query of the series a paging rule evaluates, in whatever language the
+# metrics source speaks, exactly as the rule says it.
+#
+# Opaque to everyone but the metrics source's adapter, which runs it and says
+# what it measures. The alerting platform's adapter reads it out of a rule and
+# hands it on; everything else carries it as text, and the postmortem writes it
+# into a prompt as the rule said it - so it is never normalised on the way.
+SeriesQuery = NewType("SeriesQuery", str)
 
 # A quantile of how long requests took, as a minute's reading carries each
 # (`p50_ms`, `p95_ms`, `p99_ms`). Named once, because the levels measured from
@@ -29,6 +39,22 @@ class RuleLine(BaseModel):
 
     at: float
     fires_on_it: bool
+
+
+@dataclass(frozen=True)
+class RuleSeries:
+    """The series a paging rule evaluates, as the metrics source is asked for
+    it: the rule's own query, which side of its threshold is worse, and the
+    threshold itself where it could be read.
+
+    A contract because two ports name it: the alerting platform's adapter reads
+    it out of the rule, and the metrics source's reads one more series by it
+    without learning what a rule is.
+    """
+
+    query: SeriesQuery
+    worse_when: WorseWhen
+    line: RuleLine | None = None
 
 
 class RuleReading(BaseModel):

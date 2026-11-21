@@ -1,4 +1,4 @@
-"""The unit a series is in, as its metric's name carries it.
+"""The unit a series is in, as its metric's name carries it - PromQL read.
 
 Prometheus hard-codes no unit. Its naming convention is a metric in base units
 with the unit as a suffix of its name - `_seconds`, `_bytes`, `_ratio` - so a
@@ -9,8 +9,9 @@ not, and neither does any function this does not know. So what is followed is
 an allowlist, from the outside in, and anything off it is no unit rather than
 the name's - a level said in the wrong unit is wrong by its scale.
 
-The fallback, where the rule's panel names no unit. Said as Grafana names a
-unit, so the two routes answer in one vocabulary.
+The fallback, where the rule's panel names no unit. Part of the Prometheus
+adapter, because only it may read a query: everything above the port carries
+one as text.
 """
 
 from __future__ import annotations
@@ -18,11 +19,13 @@ from __future__ import annotations
 import re
 from typing import Final
 
-# Each base-unit suffix the convention lists, and Grafana's id for that unit.
+from core.models import Unit
+
+# Each base-unit suffix the convention lists, and the unit it names.
 _UNIT_OF_A_SUFFIX: Final = {
-    "_seconds": "s",
-    "_bytes": "bytes",
-    "_ratio": "percentunit"
+    "_seconds": Unit.SECONDS,
+    "_bytes": Unit.BYTES,
+    "_ratio": Unit.SHARE_OF_ONE
 }
 
 # What a histogram's buckets are named: the measured metric with this after it.
@@ -57,7 +60,7 @@ _A_RATE_OF_BUCKETS: Final = re.compile(
 _A_METRIC: Final = re.compile(r"^(?P<name>[A-Za-z_:][A-Za-z0-9_:]*)\s*(?:\{[^}]*\})?$")
 
 
-def the_unit_its_name_carries(query: str) -> str | None:
+def the_unit_its_name_carries(query: str) -> Unit | None:
     """The unit of the series `query` makes, as its metric's name carries it,
     or `None` where something between the two may have changed it, or the
     name carries none."""

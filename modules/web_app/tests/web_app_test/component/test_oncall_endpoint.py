@@ -51,6 +51,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from web_app.app import app, oncall_platform_of
 
 from web_app_test.framework.assertions import the_response_was
+from web_app_test.framework.event_loop import handed_off_the_event_loop, on_an_event_loop
 from web_app_test.framework.observing import observing_the_app, the_span_named
 
 ONCALL_WEBHOOK = "/webhooks/oncall"
@@ -111,6 +112,31 @@ def test_a_delivery_about_anything_else_is_accepted() -> None:
         Scenario() \
             .when(lambda: client.post(ONCALL_WEBHOOK, content=DONT_CARE_BODY)) \
             .then(the_response_was(HttpStatus.ACCEPTED))
+
+
+@pytest.mark.component
+def test_the_platform_is_handed_the_bytes_that_arrived_off_the_event_loop() -> None:
+    # The signature is over those bytes. And what follows them - the platform's
+    # API read, the incident record's writes - blocks, so it runs in the
+    # threadpool: on the loop it would hold every other request being served.
+    some_body = b'{"event": {"event_type": "incident.annotated"}}'
+    asked: list[tuple[bytes, bool]] = []
+
+    def parse_delivery(body: bytes, headers: Mapping[str, str]) -> Delivery:
+        asked.append((body, on_an_event_loop()))
+
+        return Irrelevant(event="incident.annotated")
+
+    platform = create_autospec(OnCallPlatform, instance=True)
+    platform.parse_delivery.side_effect = parse_delivery
+
+    with _the_platform_being(platform), TestClient(app) as client:
+        Scenario() \
+            .when(lambda: client.post(ONCALL_WEBHOOK, content=some_body)) \
+            .then(all_of(
+                the_response_was(HttpStatus.ACCEPTED),
+                handed_off_the_event_loop(asked, some_body)
+            ))
 
 
 @pytest.mark.component

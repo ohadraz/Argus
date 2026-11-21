@@ -23,6 +23,7 @@ from core.models import (
     LogsInTheGap,
     RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
+    Unit,
     WorseWhen,
 )
 from postmortem_rendering.impact import Card, the_impact
@@ -213,7 +214,7 @@ def test_a_disproven_alarm_shows_there_was_none_and_the_minutes_its_claim_was_ju
                               before_the_alert=RuleSeriesBeforeTheAlert(
                                   lowest=0.0, highest=0.015, first_minute=SOME_MINUTE,
                                   last_minute=SOME_MINUTE + timedelta(minutes=6), line=0.1,
-                                  unit="percentunit", is_the_error_rate=True)))
+                                  unit=Unit.SHARE_OF_ONE, is_the_error_rate=True)))
         ) \
         .when(
             lambda: the_impact(some_postmortem, an_alert()).cards
@@ -701,7 +702,7 @@ def test_a_series_that_is_the_error_rate_leaves_its_worst_minute_to_the_peak_car
                               rule_series_harm=RuleSeriesHarm(before=0.00992, while_broken=0.276,
                                                               at_its_worst=0.38,
                                                               worse_when="above", line=0.1,
-                                                              unit="percentunit",
+                                                              unit=Unit.SHARE_OF_ONE,
                                                               is_the_error_rate=True)))
         ) \
         .when(
@@ -724,7 +725,7 @@ def test_a_series_that_is_the_error_rate_is_said_on_its_card_as_the_error_rate_i
                               rule_series_harm=RuleSeriesHarm(before=0.00992, while_broken=0.276,
                                                               at_its_worst=0.38,
                                                               worse_when="above", line=0.1,
-                                                              unit="percentunit",
+                                                              unit=Unit.SHARE_OF_ONE,
                                                               is_the_error_rate=True)))
         ) \
         .when(
@@ -737,10 +738,10 @@ def test_a_series_that_is_the_error_rate_is_said_on_its_card_as_the_error_rate_i
 @pytest.mark.unit
 @pytest.mark.parametrize(("harm", "value", "note"), [
     (RuleSeriesHarm(before=120.0, while_broken=640.0, at_its_worst=910.0,
-                    worse_when="above", line=600.0, unit="ms"),
+                    worse_when="above", line=600.0, unit=Unit.MILLISECONDS),
      "120 ms to 640 ms", "worst minute 910 ms; the rule's line is 600 ms"),
     (RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
-                    worse_when="below", line=0.8, unit="percentunit"),
+                    worse_when="below", line=0.8, unit=Unit.SHARE_OF_ONE),
      "89.9% to 45.9%", "worst minute 39.1%; the rule's line is 80%")
 ], ids=["milliseconds", "a-share-of-one"])
 def test_a_series_card_says_its_levels_in_their_unit(harm: RuleSeriesHarm, value: str,

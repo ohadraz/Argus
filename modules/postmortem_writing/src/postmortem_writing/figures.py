@@ -33,7 +33,6 @@ from typing import Final
 
 from core import (
     A_DAY_SAID,
-    MILLISECONDS_UNIT,
     level_given_in,
     level_said_in,
     parse_iso,
@@ -52,6 +51,7 @@ from core.models import (
     DetectionPart,
     FirstTold,
     Quantile,
+    Unit,
     said_as_money,
     the_detection_lesson_said,
 )
@@ -220,8 +220,9 @@ _SPELLINGS_LONGEST_FIRST: Final = sorted(_UNITS, key=len, reverse=True)
 
 # What a sentence says straight after a figure's name or a working, which may
 # be its unit again: a percent sign, with or without a space, a unit `_UNITS`
-# spells, or any other word - a unit as Grafana names it ("bytes", "reqps") is
-# the figure's own where the figure ends in it, and the writer's where not.
+# spells, or any other word - a unit's symbol as a level is written in it
+# ("bytes") is the figure's own where the figure ends in it, and the writer's
+# where not.
 _A_UNIT_AFTER: Final = (
     r"(?P<after>\s*%|\s+(?:"
     + "|".join(re.escape(spelling).replace(r"\ ", r"\s+")
@@ -530,7 +531,7 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
                              (LATENCY_WHILE_BROKEN, latency.while_broken),
                              (LATENCY_AT_WORST, latency.at_its_worst)):
             figures[latency_figure(latency.quantile, level)] = _a_level(
-                value, MILLISECONDS_UNIT, is_the_error_rate=False)
+                value, Unit.MILLISECONDS, is_the_error_rate=False)
 
     # A loss of nothing is said in words, as the page says it: "0.00 USD"
     # reads as a figure nobody filled in.
@@ -1347,7 +1348,7 @@ def _a_share(rate: float) -> Figure:
     return Figure(given=said, written=said)
 
 
-def _a_level(level: float, unit: str | None, is_the_error_rate: bool) -> Figure:
+def _a_level(level: float, unit: Unit | None, is_the_error_rate: bool) -> Figure:
     """A level in the unit the paging rule's series is in, where anything named
     one - given as measured, and written as a person says it: as the error
     rate is written, where the series is the error rate, since the page says

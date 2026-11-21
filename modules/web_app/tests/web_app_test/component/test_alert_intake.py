@@ -5,6 +5,7 @@ from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import pytest
+from alert_source import AlertUnreadable
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from core import connect_from_env
 from core.models import IncidentStatus
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 from incident_record.repository import events, incidents, runs
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
-from web_app.app import app
+from web_app.app import GRAFANA_ALERTS, app
 
 from web_app_test.framework.assertions import the_response_was
 from web_app_test.framework.builders import a_grafana_payload
@@ -167,9 +168,62 @@ def test_an_alert_that_cannot_be_read_is_refused_and_logged_as_a_warning(
             ) \
             .then(all_of(
                 the_response_was(HttpStatus.UNPROCESSABLE_ENTITY),
+                _it_was_refused_saying(f"the alert could not be read: {KeyError('labels')!r}"),
                 one_record_was_logged(caplog, "web_app.app", logging.WARNING,
-                                      "alert payload rejected", failure=KeyError)
+                                      "alert payload rejected", failure=AlertUnreadable)
             ))
+
+
+@pytest.mark.component
+def test_an_alert_delivered_on_its_sender_s_own_route_opens_an_incident() -> None:
+    # One route per sender, named for it, and read by the adapter that knows
+    # its shape. The unnamed route is the same sender's, for whoever configured
+    # it before senders had routes of their own.
+    some_service = "kuki-named-route"
+    some_payload = a_grafana_payload(service=some_service)
+
+    with TestClient(app) as client:
+        Scenario() \
+            .when(
+                lambda: client.post(f"/webhooks/alerts/{GRAFANA_ALERTS}", json=some_payload)
+            ) \
+            .then(all_of(
+                _the_alert_was_accepted(),
+                _an_incident_was_created_for(some_service)
+            ))
+
+
+@pytest.mark.component
+def test_an_alert_delivered_on_a_route_no_sender_is_named_by_is_not_found() -> None:
+    # Read by an adapter that does not know its shape, it would be refused as
+    # unreadable - and whoever configured the sender would chase the payload
+    # rather than the address.
+    some_service = "kuki-unknown-sender"
+    some_payload = a_grafana_payload(service=some_service)
+
+    with TestClient(app) as client:
+        Scenario() \
+            .when(
+                lambda: client.post("/webhooks/alerts/somebody-nobody-configured",
+                                    json=some_payload)
+            ) \
+            .then(all_of(
+                the_response_was(HttpStatus.NOT_FOUND),
+                _no_incident_is_open_for(some_service)
+            ))
+
+
+def _it_was_refused_saying(expected: str) -> Assertion[Any]:
+    """The detail the sender is told, which names the field that was missing."""
+    def assertion(response: Any) -> bool:
+        said = response.json().get("detail")
+
+        if said != expected:
+            raise AssertionError(f"Expected the refusal to say [{expected}], got [{said}].")
+
+        return True
+
+    return assertion
 
 
 def _the_incident_is_acknowledged() -> Assertion[Any]:

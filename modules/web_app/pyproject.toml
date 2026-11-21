@@ -20,6 +20,10 @@ dependencies = [
     # delivered here, and only the adapter can tell a person's reply from
     # anything else the platform sends.
     "argus-chat_platform",
+    # The senders of alerts and of pushes: each port and its adapter. A
+    # sender's delivery is read here, and only its adapter knows its shape.
+    "argus-alert_source",
+    "argus-push_source",
     # What the postmortem says, in the words the PDF says it in, and the PDF.
     "argus-postmortem_rendering",
     "fastapi>=0.115",
@@ -51,6 +55,8 @@ argus-telemetry = { workspace = true }
 argus-repository_index = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-chat_platform = { workspace = true }
+argus-alert_source = { workspace = true }
+argus-push_source = { workspace = true }
 argus-postmortem_rendering = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

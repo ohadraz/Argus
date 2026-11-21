@@ -5,11 +5,11 @@ One rule in one place, because the postmortem's prose and its impact cards
 each write the series a paging rule watches, and a level written two ways is
 two figures to a reader comparing them.
 
-And in its unit, where the rule's panel or its metric's name says one. A unit
-is named as Grafana names it, and two of Grafana's are percentages: a share of
-one, which is said moved two places so it reads as the alert that pages on it
-reads, and a percentage already. Any other is written after the number as
-Grafana spells it; none is no unit, never a guess at one.
+And in its unit, where the rule's panel or its metric's name says one. Two
+units are percentages: a share of one, which is said moved two places so it
+reads as the alert that pages on it reads, and a percentage already. Any other
+is written after the number by its symbol; none is no unit, never a guess at
+one.
 """
 
 from __future__ import annotations
@@ -17,17 +17,20 @@ from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final
 
+from core.models.unit import Unit
+
 # How many figures a level is written to, as a reader compares two.
 _LEVEL_FIGURES: Final = 3
 
-# Grafana's unit ids for a percentage: of one, and of a hundred.
-PERCENT_OF_ONE_UNIT: Final = "percentunit"
-PERCENT_UNIT: Final = "percent"
 _PERCENT_SIGN: Final = "%"
 _A_HUNDRED: Final = Decimal(100)
 
-# Grafana's unit id for milliseconds, which a latency is measured in.
-MILLISECONDS_UNIT: Final = "ms"
+# How each unit that is not a percentage is written after a number, and a space.
+_SYMBOLS: Final = {
+    Unit.MILLISECONDS: "ms",
+    Unit.SECONDS: "s",
+    Unit.BYTES: "bytes"
+}
 
 # A reading that is no number, as Prometheus writes one: its arithmetic is IEEE
 # 754's, so 0 / 0 answers NaN and 3 / 0 answers +Inf.
@@ -54,36 +57,36 @@ def said_as_a_share(rate: float) -> str:
     return f"{rate:.1%}"
 
 
-def level_said_in(level: float, unit: str | None) -> str:
+def level_said_in(level: float, unit: Unit | None) -> str:
     """A level to three figures, in its unit - a share of one as the
     percentage it is, scaled exactly before it is cut."""
     exact = Decimal(str(level))
 
-    if unit == PERCENT_OF_ONE_UNIT:
+    if unit is Unit.SHARE_OF_ONE:
         return f"{_to_three_figures(exact * _A_HUNDRED)}{_PERCENT_SIGN}"
 
     return _in(_to_three_figures(exact), unit)
 
 
-def level_given_in(level: float, unit: str | None) -> str:
+def level_given_in(level: float, unit: Unit | None) -> str:
     """A level as measured, in its unit: reformatted, never rounded - a share
     of one moves its point two places and loses no digit."""
     exact = Decimal(str(level))
 
-    if unit == PERCENT_OF_ONE_UNIT:
+    if unit is Unit.SHARE_OF_ONE:
         return f"{_plainly(exact * _A_HUNDRED)}{_PERCENT_SIGN}"
 
     return _in(_plainly(exact), unit)
 
 
-def _in(number: str, unit: str | None) -> str:
+def _in(number: str, unit: Unit | None) -> str:
     if unit is None:
         return number
 
-    if unit == PERCENT_UNIT:
+    if unit is Unit.PERCENT:
         return f"{number}{_PERCENT_SIGN}"
 
-    return f"{number} {unit}"
+    return f"{number} {_SYMBOLS[unit]}"
 
 
 def _to_three_figures(exact: Decimal) -> str:

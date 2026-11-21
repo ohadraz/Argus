@@ -56,6 +56,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from web_app.app import app, chat_platform_of
 
 from web_app_test.framework.assertions import the_response_was
+from web_app_test.framework.event_loop import handed_off_the_event_loop, on_an_event_loop
 from web_app_test.framework.observing import observing_the_app, the_span_named
 
 EVENTS_WEBHOOK = "/webhooks/slack/events"
@@ -85,6 +86,34 @@ def test_a_person_writing_in_an_incidents_thread_is_heard_on_that_incident() -> 
             .then(all_of(
                 the_response_was(HttpStatus.OK),
                 _the_incident_heard(incident_id, a_message, SOME_PERSON, SOME_WORDS)
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("door", [EVENTS_WEBHOOK, INTERACTIONS_WEBHOOK],
+                         ids=["events", "interactions"])
+def test_the_platform_is_handed_the_bytes_that_arrived_off_the_event_loop(door: str) -> None:
+    # The signature is over those bytes. And what follows them - the incident
+    # record's writes, the platform's reads - blocks, so it runs in the
+    # threadpool: on the loop it would hold every other request being served,
+    # and the platform's three seconds with them.
+    some_body = b'{"type": "url_verification", "challenge": "some-challenge"}'
+    asked: list[tuple[bytes, bool]] = []
+
+    def parse_delivery(body: bytes, headers: Mapping[str, str]) -> Delivery:
+        asked.append((body, on_an_event_loop()))
+
+        return Handshake(challenge="some-challenge")
+
+    platform = create_autospec(ChatPlatformReads, instance=True)
+    platform.parse_delivery.side_effect = parse_delivery
+
+    with _the_platform_being(platform), TestClient(app) as client:
+        Scenario() \
+            .when(lambda: client.post(door, content=some_body)) \
+            .then(all_of(
+                the_response_was(HttpStatus.OK),
+                handed_off_the_event_loop(asked, some_body)
             ))
 
 

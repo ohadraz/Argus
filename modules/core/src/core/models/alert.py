@@ -33,9 +33,9 @@ class AlarmClaim(StrEnum):
 class Alert(BaseModel):
     """Argus's own normalized alert shape (spec §7.9, §25).
 
-    Built by a vendor-specific adapter (e.g. web_app's Grafana parser) at
-    the system boundary - nothing past that boundary ever sees a vendor's
-    raw payload shape.
+    Built by a sender's adapter behind the `AlertSource` port (e.g.
+    `alert_source.grafana`) at the system boundary - nothing past that
+    boundary ever sees a vendor's raw payload shape.
     """
 
     service: str

@@ -134,6 +134,8 @@ markers = [
 # be broken by it.
 [tool.importlinter]
 root_packages = [
+    "alert_source",
+    "alerting_platform",
     "chat_platform",
     "code_host",
     "codefix_agent",
@@ -154,6 +156,7 @@ root_packages = [
     "pay_band_source",
     "postmortem_rendering",
     "postmortem_writing",
+    "push_source",
     "read_mcp_client",
     "read_mcp_server",
     "repository_index",
@@ -473,6 +476,13 @@ ignore_imports = [
     # in the app's lifespan and nowhere else, for the on-call platform's reason.
     "web_app.** -> chat_platform",
     "web_app.app -> chat_platform.slack",
+    # The senders' ports, which an alert and a push arrive through - and their
+    # Grafana and GitHub adapters, built in the app's lifespan and nowhere else,
+    # for the on-call platform's reason.
+    "web_app.** -> alert_source",
+    "web_app.app -> alert_source.grafana",
+    "web_app.** -> push_source",
+    "web_app.app -> push_source.github",
     # The process's `main`, and only it, installs the telemetry SDK.
     "web_app.serving -> telemetry",
 ]
@@ -507,6 +517,55 @@ forbidden_modules = ["flag_provider.unleash"]
 ignore_imports = [
     "read_mcp_server.server -> flag_provider.unleash",
     "write_mcp_server.server -> flag_provider.unleash",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "Argus knows the alerting platform by its port, and only the read server's wiring knows the vendor"
+type = "forbidden"
+source_modules = ["*"]
+forbidden_modules = ["alerting_platform.grafana"]
+# Where the adapter is built and handed out, typed as `AlertingPlatform`.
+# Everything else - the read tier's standing, its metrics read - reaches the
+# rules through what it was handed, so a route, a field of a rule's definition
+# or a unit id spelled anywhere else is a contract broken here rather than a
+# second copy of Grafana's shapes found in review.
+ignore_imports = [
+    "read_mcp_server.server -> alerting_platform.grafana",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "Argus reads metrics through their port, and only the read server's wiring knows the vendor"
+type = "forbidden"
+source_modules = ["*"]
+forbidden_modules = [
+    "metrics_source.prometheus_adapter",
+    "metrics_source.prometheus_units",
+]
+# Where the adapter is bound and handed out: the minutes as `MetricsSource`, and
+# what a rule's series measures as `SeriesClassifier`. A query is the adapter's
+# to read and nobody else's - so a comparison of PromQL, or a metric's name
+# taken apart, written anywhere else is a contract broken here. The adapter's
+# own modules reach each other.
+ignore_imports = [
+    "metrics_source.prometheus_adapter -> metrics_source.prometheus_units",
+    "read_mcp_server.server -> metrics_source.prometheus_adapter",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "the senders' ports and adapters know only the kernel"
+type = "forbidden"
+source_modules = ["alert_source", "push_source"]
+forbidden_modules = ["*"]
+# `web_app` hears every sender, so whatever these import the web process
+# installs - and a port that reached into the incident record or an agent would
+# be a port that decided something, where its job is to say what the sender
+# said. The alert's model, which is what an alert source answers in; a push
+# source answers in values of its own and needs nothing.
+ignore_imports = [
+    "alert_source.** -> core.models",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

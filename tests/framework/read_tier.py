@@ -18,6 +18,7 @@ import asyncio
 from collections.abc import Collection, Mapping
 from unittest.mock import create_autospec
 
+from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
 from core.mcp_transport import McpClient
@@ -25,9 +26,8 @@ from core.models import CodeSearch, ToolDefinition
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
 from mcp.server.fastmcp import FastMCP
-from metrics_source import MetricsSettings
+from metrics_source import MetricsSettings, SeriesClassifier
 from read_mcp_client import offered
-from read_mcp_server.alert_rules import AlertRuleReadSettings
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
@@ -81,7 +81,7 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           repository_index_collection="dont-care-collection",
                           code_search=mode),
-        AlertRuleReadSettings(grafana_base_url="http://grafana.invalid",
-                              grafana_auth_token="dont-care-token"),
+        create_autospec(AlertingPlatform, instance=True),
+        create_autospec(SeriesClassifier, instance=True),
         create_autospec(Connections, instance=True)
     )

@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
-from core.models import AlertRuleStanding
+from core.models import AlertRuleStanding, Unit
 from pydantic import ValidationError
 
 DURATIONS = ["range_seconds", "interval_seconds", "keep_firing_for_seconds", "pending_seconds"]
@@ -58,10 +58,25 @@ def test_a_standing_that_names_no_unit_leaves_the_unit_unknown() -> None:
 
 @pytest.mark.unit
 def test_the_unit_a_standing_names_is_the_unit_it_holds() -> None:
+    # Named as it crosses the wire from the read tier, by the unit's own value.
     Scenario() \
-        .given(in_milliseconds := {"series_unit": "ms"}) \
+        .given(in_milliseconds := {"series_unit": Unit.MILLISECONDS.value}) \
         .when(lambda: AlertRuleStanding.model_validate(a_standing(**in_milliseconds))) \
-        .then(_its_unit_is("ms"))
+        .then(_its_unit_is(Unit.MILLISECONDS))
+
+
+@pytest.mark.unit
+def test_a_unit_argus_does_not_name_is_refused() -> None:
+    # A vendor's id is its adapter's to translate. One arriving untranslated is
+    # a unit nothing here knows how to say a level in.
+    some_vendors_unit_id = "percentunit"
+
+    Scenario() \
+        .given(untranslated := {"series_unit": some_vendors_unit_id}) \
+        .when(
+            attempting(lambda: AlertRuleStanding.model_validate(a_standing(**untranslated)))
+        ) \
+        .then(an_error_was_raised(ValidationError))
 
 
 def a_standing(**overrides: Any) -> dict[str, Any]:
@@ -77,7 +92,7 @@ def a_standing(**overrides: Any) -> dict[str, Any]:
     }
 
 
-def _its_unit_is(expected: str | None) -> Assertion[AlertRuleStanding]:
+def _its_unit_is(expected: Unit | None) -> Assertion[AlertRuleStanding]:
     def assertion(standing: AlertRuleStanding) -> bool:
         if standing.series_unit != expected:
             raise AssertionError(

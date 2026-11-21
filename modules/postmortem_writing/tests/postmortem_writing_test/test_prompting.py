@@ -50,6 +50,7 @@ from core.models import (
     Ownership,
     ReportChannel,
     RevisionSource,
+    SeriesQuery,
     ServiceDependency,
     Standing,
     ToolCall,
@@ -57,6 +58,7 @@ from core.models import (
     ToolResults,
     Transcript,
     Turn,
+    Unit,
     Verdict,
     Weighing,
 )
@@ -3487,7 +3489,7 @@ def test_the_rules_series_is_named_by_its_query_as_written() -> None:
     # the series is, said as written: its numbers are none of the incident's,
     # and tagged as figures they would be offered as some. Said in words in the
     # document, since a reader does not read PromQL.
-    some_query = 'max(http_request_duration_seconds{quantile="0.99"}) * 1000'
+    some_query = SeriesQuery('max(http_request_duration_seconds{quantile="0.99"}) * 1000')
 
     Scenario() \
         .given(
@@ -3757,7 +3759,7 @@ def test_a_rules_series_in_a_named_unit_is_not_said_to_be_in_none() -> None:
     Scenario() \
         .given(
             an_incident_whose_series_is_in_milliseconds := a_measured_incident(
-                rule_series=SOME_RULE_SERIES, rule_series_unit="ms")
+                rule_series=SOME_RULE_SERIES, rule_series_unit=Unit.MILLISECONDS)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(),

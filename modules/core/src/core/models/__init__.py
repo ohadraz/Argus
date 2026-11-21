@@ -93,6 +93,8 @@ from core.models.metrics import (
     Quantile,
     RuleLine,
     RuleReading,
+    RuleSeries,
+    SeriesQuery,
     WorseWhen,
 )
 from core.models.model_policy import ModelPolicy, Reasoning
@@ -222,6 +224,7 @@ from core.models.undo_descriptor import (
     parse_undo_descriptor,
 )
 from core.models.undone import Undone
+from core.models.unit import Unit
 
 __all__ = [
     "CACHE",
@@ -390,7 +393,9 @@ __all__ = [
     "RetrievalChannel",
     "RuleLine",
     "RuleReading",
+    "RuleSeries",
     "RULE_READING_FIELD",
+    "SeriesQuery",
     "PinAutoscaler",
     "PinToAccelerator",
     "Planned",
@@ -425,6 +430,7 @@ __all__ = [
     "Turn",
     "UndoDescriptor",
     "Undone",
+    "Unit",
     "Weighing",
     "WhatArgusDid",
     "WhatWasTried",

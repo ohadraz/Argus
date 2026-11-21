@@ -13,17 +13,89 @@ the time anybody noticed.
 
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
-from argus_testkit import Assertion, Scenario, one_record_was_logged
+from alert_source import AlertUnreadable, OnlyResolved
+from alert_source.grafana import (
+    GRAFANA_SOURCE,
+    GrafanaAlerts,
+    parse_grafana_alert,
+    reports_only_resolutions,
+)
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    one_record_was_logged,
+    the_answer_was,
+)
 from core import to_iso
 from core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
-from web_app.grafana import GRAFANA_SOURCE, parse_grafana_alert, reports_only_resolutions
 
-from web_app_test.framework.builders import a_grafana_payload
+from alert_source_test.framework.builders import a_grafana_payload
 
 SOME_RULE = "some-rule"
+DONT_CARE_HEADERS: dict[str, str] = {}
+
+
+@pytest.mark.unit
+def test_a_delivery_is_read_as_the_alert_it_carries() -> None:
+    # The port's question: the bytes that arrived, read as Argus's own alert.
+    some_payload = a_grafana_payload(service="kuki-service", rule_uid=SOME_RULE)
+
+    Scenario() \
+        .when(
+            lambda: GrafanaAlerts().parse_delivery(json.dumps(some_payload).encode(),
+                                                   DONT_CARE_HEADERS)
+        ) \
+        .then(the_answer_was(parse_grafana_alert(some_payload)))
+
+
+@pytest.mark.unit
+def test_a_delivery_of_resolutions_alone_is_read_as_only_resolved() -> None:
+    a_resolution = a_grafana_payload(rule_uid=SOME_RULE, status="resolved")
+
+    Scenario() \
+        .when(
+            lambda: GrafanaAlerts().parse_delivery(json.dumps(a_resolution).encode(),
+                                                   DONT_CARE_HEADERS)
+        ) \
+        .then(the_answer_was(OnlyResolved()))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("body", [
+    b"not json at all",
+    b"[]",
+    json.dumps({"alerts": [{"status": "firing"}]}).encode(),
+    json.dumps({"alerts": "firing"}).encode(),
+    json.dumps({"alerts": ["firing"]}).encode()
+], ids=["not-json", "not-an-object", "an-alert-naming-no-service", "alerts-that-are-a-string",
+        "alerts-that-are-not-objects"])
+def test_a_delivery_not_in_grafana_s_shape_is_unreadable(body: bytes) -> None:
+    # The sender's input rather than a fault here: refused, and said why.
+    Scenario() \
+        .when(attempting(lambda: GrafanaAlerts().parse_delivery(body, DONT_CARE_HEADERS))) \
+        .then(an_error_was_raised(AlertUnreadable))
+
+
+@pytest.mark.unit
+def test_a_delivery_it_cannot_read_says_what_was_wrong_as_the_error_that_found_it() -> None:
+    # What the sender is told after "the alert could not be read: ", so whoever
+    # configured it can find the field.
+    an_alert_naming_no_labels = json.dumps({"alerts": [{"status": "firing"}]}).encode()
+
+    Scenario() \
+        .when(attempting(lambda: GrafanaAlerts().parse_delivery(an_alert_naming_no_labels,
+                                                                DONT_CARE_HEADERS))) \
+        .then(all_of(
+            an_error_was_raised(AlertUnreadable),
+            _it_says(repr(KeyError("labels")))
+        ))
 
 
 @pytest.mark.unit
@@ -510,7 +582,7 @@ def test_a_claim_it_does_not_recognise_is_logged_as_a_warning(
             lambda: parse_grafana_alert(payload)
         ) \
         .then(
-            one_record_was_logged(caplog, "web_app.grafana", logging.WARNING,
+            one_record_was_logged(caplog, "alert_source.grafana", logging.WARNING,
                                   "unknown claim annotation",
                                   values={"claim": some_unrecognised_claim})
         )
@@ -531,9 +603,19 @@ def test_a_notification_of_no_alerts_is_logged_as_a_warning(
             lambda: reports_only_resolutions(payload)
         ) \
         .then(
-            one_record_was_logged(caplog, "web_app.grafana", logging.WARNING,
+            one_record_was_logged(caplog, "alert_source.grafana", logging.WARNING,
                                   "notification carried no alerts")
         )
+
+
+def _it_says(expected: str) -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        if str(error) != expected:
+            raise AssertionError(f"Expected the refusal to say [{expected}], got [{error}].")
+
+        return True
+
+    return assertion
 
 
 def _it_read(service: str, alert_name: str, severity: str) -> Assertion[Alert]:

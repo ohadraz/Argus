@@ -26,7 +26,7 @@ from math import isclose
 
 import pytest
 from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
-from core.models import MetricBucket, RuleLine, RuleReading, Verdict
+from core.models import MetricBucket, RuleLine, RuleReading, SeriesQuery, Unit, Verdict
 from postmortem_writing import IncidentEvidence
 from postmortem_writing.estimate import (
     DemandLevels,
@@ -1448,7 +1448,7 @@ def test_how_often_the_paging_rule_is_evaluated_is_read_off_the_rule_that_paged(
 def test_the_query_of_the_rules_series_is_read_off_the_rule_that_paged() -> None:
     # What the series is. The alert's words say when the rule pages, and only
     # the rule's query says what it pages on.
-    some_query = "avg(some_confident_ratio)"
+    some_query = SeriesQuery("avg(some_confident_ratio)")
 
     Scenario() \
         .given(
@@ -1473,10 +1473,10 @@ def test_the_unit_of_the_rules_series_is_read_off_the_rule_that_paged() -> None:
         ) \
         .when(
             lambda: measure(evidence, some_sources(
-                alert_rule=an_alert_rule(300, series_unit="ms"))).rule_series_unit
+                alert_rule=an_alert_rule(300, series_unit=Unit.MILLISECONDS))).rule_series_unit
         ) \
         .then(
-            the_answer_was("ms")
+            the_answer_was(Unit.MILLISECONDS)
         )
 
 

@@ -6,8 +6,8 @@ from typing import Final, Protocol
 
 import httpx2
 from core import SettingsSlice, parse_iso, to_iso, utc_now
-from core.models import ChangeEvent, MetricBucket
-from metrics_source import MetricsSource, RuleSeries
+from core.models import ChangeEvent, MetricBucket, RuleSeries
+from metrics_source import MetricsSource
 
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.window import (
@@ -41,8 +41,8 @@ class SeriesTheRuleWatches(Protocol):
     """How the metrics read learns which series a rule is evaluated over.
 
     A `Protocol` so a test stands it in with `create_autospec`; bound where the
-    process starts to the Grafana this deployment reads its rules from. `None`
-    where the rule's series cannot be followed.
+    process starts to the alerting platform this deployment reads its rules
+    from. `None` where the rule's series cannot be followed.
     """
 
     def __call__(self, rule: str, /) -> RuleSeries | None: ...

@@ -35,8 +35,8 @@ from argus_testkit import (
     returning,
 )
 from core import parse_iso, to_iso
-from core.models import ChangeEvent, ChangeKind, MetricBucket
-from metrics_source.minutes import MetricsSource, MetricsUnavailable, RuleSeries
+from core.models import ChangeEvent, ChangeKind, MetricBucket, RuleSeries, SeriesQuery
+from metrics_source import MetricsSource, MetricsUnavailable
 from read_mcp_server.change_source import ChangeSource, ChangeSourceUnavailable
 from read_mcp_server.retrieval import (
     SeriesTheRuleWatches,
@@ -212,7 +212,7 @@ def test_get_metrics_summary_returns_what_the_source_reports() -> None:
                 alert_time=an_iso_minute(some_alert_time),
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
-                series_of=_a_grafana_following_nothing()
+                series_of=_a_platform_following_nothing()
             )
         ) \
         .then(
@@ -238,7 +238,7 @@ def test_get_metrics_summary_asks_the_source_for_the_window_around_the_alert() -
                 alert_time=an_iso_minute(some_alert_time),
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
-                series_of=_a_grafana_following_nothing()
+                series_of=_a_platform_following_nothing()
             )
         ) \
         .then(
@@ -267,7 +267,7 @@ def test_get_metrics_summary_without_a_window_asks_for_the_span_up_to_now() -> N
             lambda: get_metrics_summary(
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
-                series_of=_a_grafana_following_nothing(),
+                series_of=_a_platform_following_nothing(),
                 now=lambda: some_now
             )
         ) \
@@ -297,7 +297,7 @@ def test_an_unreadable_metrics_source_surfaces_as_a_failure() -> None:
                     alert_time=an_iso_minute(_an_alert_time()),
                     settings=CONFIGURED_WINDOWS,
                     source=metrics_source,
-                    series_of=_a_grafana_following_nothing()
+                    series_of=_a_platform_following_nothing()
                 )
             )
         ) \
@@ -312,7 +312,7 @@ def test_get_metrics_summary_for_a_rule_asks_the_source_for_the_rules_series() -
     # rule's own series beside the five - so a rule paging on something none of
     # them can show is judged on what it fired on.
     some_rule = "some-rule"
-    some_series = RuleSeries(query="avg(some_confident_ratio)", worse_when="below")
+    some_series = RuleSeries(query=SeriesQuery("avg(some_confident_ratio)"), worse_when="below")
     metrics_source = _a_mock_metrics_source()
 
     Scenario() \
@@ -325,7 +325,7 @@ def test_get_metrics_summary_for_a_rule_asks_the_source_for_the_rules_series() -
                 rule=some_rule,
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
-                series_of=_a_grafana_following(some_rule, to=some_series)
+                series_of=_a_platform_following(some_rule, to=some_series)
             )
         ) \
         .then(
@@ -340,7 +340,7 @@ def test_get_metrics_summary_without_a_window_still_asks_for_the_rules_series() 
     # is the recovery. Read without it, five series that never moved would say
     # the service recovered the moment anything was done.
     some_rule = "some-rule"
-    some_series = RuleSeries(query="avg(some_confident_ratio)", worse_when="below")
+    some_series = RuleSeries(query=SeriesQuery("avg(some_confident_ratio)"), worse_when="below")
     metrics_source = _a_mock_metrics_source()
 
     Scenario() \
@@ -352,7 +352,7 @@ def test_get_metrics_summary_without_a_window_still_asks_for_the_rules_series() 
                 rule=some_rule,
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
-                series_of=_a_grafana_following(some_rule, to=some_series)
+                series_of=_a_platform_following(some_rule, to=some_series)
             )
         ) \
         .then(
@@ -373,7 +373,7 @@ def test_get_metrics_summary_for_no_rule_asks_for_no_rules_series() -> None:
                 alert_time=an_iso_minute(_an_alert_time()),
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
-                series_of=_a_grafana_following_nothing()
+                series_of=_a_platform_following_nothing()
             )
         ) \
         .then(
@@ -398,7 +398,7 @@ def test_a_rule_whose_series_cannot_be_followed_reads_the_window_without_it() ->
                 rule=some_rule,
                 settings=CONFIGURED_WINDOWS,
                 source=metrics_source,
-                series_of=_a_grafana_following(some_rule, to=None)
+                series_of=_a_platform_following(some_rule, to=None)
             )
         ) \
         .then(
@@ -691,7 +691,7 @@ def _the_metrics_source_was_asked_for(metrics_source: Any,
     return assertion
 
 
-def _a_grafana_following(rule: str, to: RuleSeries | None) -> SeriesTheRuleWatches:
+def _a_platform_following(rule: str, to: RuleSeries | None) -> SeriesTheRuleWatches:
     """A rule follower that knows one rule, and follows it to `to`."""
     def follow(asked: str) -> RuleSeries | None:
         if asked != rule:
@@ -705,7 +705,7 @@ def _a_grafana_following(rule: str, to: RuleSeries | None) -> SeriesTheRuleWatch
     return cast(SeriesTheRuleWatches, follower)
 
 
-def _a_grafana_following_nothing() -> SeriesTheRuleWatches:
+def _a_platform_following_nothing() -> SeriesTheRuleWatches:
     """A rule follower that fails the test if it is asked anything."""
     def follow(asked: str) -> RuleSeries | None:
         raise AssertionError(f"No rule was named, and [{asked}] was followed anyway.")

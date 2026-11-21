@@ -47,8 +47,8 @@ from argus_testkit import (
     the_error_mentioned,
 )
 from core import get_settings
-from core.models import MetricBucket, WorseWhen
-from metrics_source import MetricsSettings, MetricsUnavailable, RuleSeries
+from core.models import MetricBucket, RuleSeries, SeriesQuery, WorseWhen
+from metrics_source import MetricsSettings, MetricsUnavailable
 from metrics_source.prometheus_adapter import buckets_between
 
 # Where each half answers. The real one is the `prometheus` service in Argus's
@@ -155,13 +155,13 @@ def test_a_rules_series_prometheus_watched_reads_as_the_stand_in_reads_it(
     Scenario() \
         .when(lambda: buckets_between(
             *_the_last_few_minutes(), _settings_for(THE_REAL_ONE),
-            rule_series=RuleSeries(rules_query, DONT_CARE_DIRECTION)
+            rule_series=RuleSeries(SeriesQuery(rules_query), DONT_CARE_DIRECTION)
         )) \
         .then(all_of(
             _the_rules_series_came_back(),
             _it_reads_as(buckets_between(
                 *_the_last_few_minutes(), _settings_for(THE_STAND_IN),
-                rule_series=RuleSeries(rules_query, DONT_CARE_DIRECTION)
+                rule_series=RuleSeries(SeriesQuery(rules_query), DONT_CARE_DIRECTION)
             ))
         ))
 

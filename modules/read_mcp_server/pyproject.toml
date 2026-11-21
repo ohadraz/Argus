@@ -4,6 +4,8 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-core",
+    # The alerting platform's adapter, built in `server.py` and handed on as the port.
+    "argus-alerting_platform",
     "argus-telemetry",
     "argus-repository_index[store]",
     "argus-deployment_platform",
@@ -23,6 +25,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-alerting_platform = { workspace = true }
 argus-telemetry = { workspace = true }
 argus-repository_index = { workspace = true }
 argus-deployment_platform = { workspace = true }

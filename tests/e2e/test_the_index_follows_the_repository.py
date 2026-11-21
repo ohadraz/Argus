@@ -39,17 +39,17 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, eventually
 from core import get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
-from repository_index.records import RepositoryIndex
-from repository_index.records import get as the_index_recorded_for
-from web_app.pushes import (
+from push_source.github import (
     AFTER_FIELD,
-    BRANCH_REF_PREFIX,
     FULL_NAME_FIELD,
     REF_FIELD,
     REPOSITORY_FIELD,
     SIGNATURE_HEADER,
     SIGNATURE_PREFIX,
 )
+from repository_index.records import RepositoryIndex
+from repository_index.records import get as the_index_recorded_for
+from web_app.pushes import BRANCH_REF_PREFIX
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
