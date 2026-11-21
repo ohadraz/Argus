@@ -5,8 +5,9 @@ process that has a database, a model and two tiers. The only thing here that
 knows a database can be had is `against`.
 
 Outside the walk rather than in it, because it names the repositories and the
-gathering, and they name the walk's ports: a wiring kept inside the walk made
-the walk and its own repositories import each other.
+gathering, and each of those names the walk - the repositories its ports, the
+gathering what its investigation says it asked for: a wiring kept inside the
+walk made the walk and both of them import one another.
 """
 
 from __future__ import annotations

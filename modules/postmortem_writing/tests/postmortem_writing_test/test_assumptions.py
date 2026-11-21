@@ -44,9 +44,7 @@ from postmortem_writing import (
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
-from postmortem_writing.answer import (
-    SubmittedPostmortem,
-)
+from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.assumptions import assumptions_of
 from postmortem_writing.estimate import Unmeasured
 from postmortem_writing.measuring import Measurements

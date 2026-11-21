@@ -24,9 +24,7 @@ from typing import Final
 from core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable
 from core.models import Ask, ToolDefinition, Transcript, Turn
 
-from postmortem_writing.answer import (
-    SubmittedStep,
-)
+from postmortem_writing.answer import SubmittedStep
 
 ORDER_TOOL_NAME: Final = "order_chain"
 ORDER_FIELD: Final = "order"

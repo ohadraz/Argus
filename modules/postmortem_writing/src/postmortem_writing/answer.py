@@ -3,7 +3,8 @@
 Beneath the prompt and everything that rewrites the answer: the prompt offers
 these fields, the conversation reads the call into this shape, and the figures,
 the revisions and the checks each take it as it stands. Kept in the prompt, it
-made each of those and the prompt import one another.
+made the figures and the revisions - which the prompt reads - import the prompt
+back.
 """
 
 from __future__ import annotations
@@ -86,21 +87,9 @@ LOGS_SHOW_SERVING_AS_BEFORE_FIELD: Final = "logs_show_serving_as_before"
 # that did not help - asked only where one was put back while nothing ended the
 # harm, and listed after the model's own proposals.
 STOPS_THE_HARM_FIELD: Final = "stops_the_harm"
-# How long that item is kept, said by the document after the model's own words
-# rather than asked of them: asked, a write-up dropped it two times in five.
-# A sentence of its own, so it reads right whatever clause the model ends on.
-KEPT_UNTIL_THE_FAULT_IS_FIXED: Final = "Keep it in place until the fault is fixed."
 # The item to find out why that change did not help - asked wherever the item
 # that stops the harm is, and listed after it.
 WHY_IT_DID_NOT_HELP_FIELD: Final = "why_it_did_not_help"
-# The item listed after that one, by the document rather than the model: asked
-# what to find out about the change, a write-up answered whether it reached the
-# service there and dropped the check for next time - three in four on the
-# field's input - which every write-up of the incident before it had.
-CONFIRM_IT_REACHED_THE_SERVICE: Final = (
-    "Before the Mitigator judges a change it made, have it confirm from the "
-    "service's own logs that the change reached the service."
-)
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,

@@ -28,9 +28,7 @@ from datetime import timedelta
 
 from core.models import said_as_money
 
-from postmortem_writing.answer import (
-    SubmittedPostmortem,
-)
+from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.estimate import Unmeasured, weeks_back_for
 from postmortem_writing.measuring import Measurements
 from postmortem_writing.sources import EngagementAnswer, NotPaged

@@ -15,9 +15,7 @@ import pytest
 from argus_testkit import Assertion, Scenario, the_answer_was
 from core.llm import LLMClient, ModelRefused, ModelUnavailable
 from core.models import ToolDefinition, Transcript, Turn
-from postmortem_writing.answer import (
-    SubmittedStep,
-)
+from postmortem_writing.answer import SubmittedStep
 from postmortem_writing.ordering import (
     ORDER_FIELD,
     ORDER_TOOL_NAME,

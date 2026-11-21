@@ -1,4 +1,4 @@
-"""What the model is asked, and the one shape its answer may take.
+"""What the model is asked.
 
 The model is handed the incident and the figures Argus already computed, and
 asked only for the parts prose can carry - what went wrong, in what words, for
@@ -11,7 +11,7 @@ where the figure goes; code writes the figure in (`figures`).
 The answer arrives as a tool call rather than as prose. A document parsed back
 out of paragraphs is a document that can be parsed wrongly, and the failure is
 silent: a summary that mentions a figure in passing becomes the figure. A tool
-call has fields.
+call has fields, and the shape they are read into is `answer`'s.
 
 What it reads is said the way a reader says it: every instant to the second,
 and every span in days, hours and minutes. The record keeps what it measured -

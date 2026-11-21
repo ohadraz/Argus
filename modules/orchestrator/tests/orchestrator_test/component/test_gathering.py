@@ -132,8 +132,8 @@ from incident_record.repository import (
     taken_actions,
 )
 from narration import what_to_do
-from orchestrator.asking import ASKING_THE_FLAG_PROVIDER
 from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
+from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
 from postmortem_writing.grounding import FLAGS_FIELD
 from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD

@@ -1,13 +1,14 @@
 """What a deployment supplies a walk with, and when it is allowed to reach out.
 
 `against` is the only thing in the Orchestrator that knows a database can be
-had, so it is the only place a graph could quietly acquire one. Three properties
-keep the walk testable without infrastructure, and none is visible from inside a
-node: assembling touches nothing, nothing on the record has a default that a
-forgetful test could fall through to, and every collaborator bound here is bound
-*whole*.
+had, so it is the only place a graph could quietly acquire one. Two properties
+of it keep the walk testable without infrastructure, and neither is visible from
+inside a node: assembling touches nothing, and every collaborator bound here is
+bound *whole*. That nothing on the record has a default a forgetful test could
+fall through to is the record's own, and is held where it is declared
+(`test_collaborators`).
 
-The third is the one no type checker does for us. A collaborator is bound with
+The second is the one no type checker does for us. A collaborator is bound with
 `functools.partial`, and a partial that leaves a required keyword unsupplied is
 a perfectly well-typed object that raises `TypeError` the first time a node
 calls it - which is in the middle of an incident, after the model has been paid
@@ -22,7 +23,6 @@ import inspect
 import logging
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import MISSING
 from typing import Any
 
 import psycopg
@@ -87,22 +87,6 @@ def test_assembling_the_collaborators_opens_no_connection() -> None:
                               None,
                               Holding())) \
         .then(_every_collaborator_was_supplied())
-
-
-@pytest.mark.unit
-def test_no_collaborator_may_be_left_out() -> None:
-    # A default would be the real Anthropic-backed investigator quietly reached
-    # by a test that forgot to name one, and forgetting is what this record
-    # exists to make impossible. Asserted against the whole record, so a
-    # collaborator added later with a convenient default is caught the day it
-    # lands rather than by the run that spends money.
-    Scenario() \
-        .given(the_record := Collaborators) \
-        .when(lambda: [
-            field.name for field in dataclasses.fields(the_record)
-            if field.default is not MISSING or field.default_factory is not MISSING
-        ]) \
-        .then(_nothing_is_defaulted())
 
 
 @pytest.mark.unit
@@ -341,19 +325,6 @@ def _every_collaborator_was_supplied() -> Assertion[Collaborators]:
 
         if missing:
             raise AssertionError(f"Assembled without {sorted(missing)}")
-
-        return True
-
-    return assertion
-
-
-def _nothing_is_defaulted() -> Assertion[list[str]]:
-    def assertion(defaulted: list[str]) -> bool:
-        if defaulted:
-            raise AssertionError(
-                "Every collaborator must be named at the point of assembly, "
-                f"but these default themselves: {sorted(defaulted)}"
-            )
 
         return True
 

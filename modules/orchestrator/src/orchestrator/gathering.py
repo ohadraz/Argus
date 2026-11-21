@@ -127,7 +127,7 @@ from postmortem_writing import (
     write_postmortem,
 )
 
-from orchestrator.asking import ASKING_THE_FLAG_PROVIDER
+from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 
 # The kind a line telling an announcement carries: the event's own, read off
 # its type rather than spelled a second time.

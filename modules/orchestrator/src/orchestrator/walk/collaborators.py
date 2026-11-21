@@ -2,8 +2,8 @@
 
 `ports` says what each collaborator's shape is; this says that the list of them
 is the Orchestrator's whole contract with the process running it. One record
-rather than nineteen arguments: a node names what it needs, and the graph hands
-it over.
+rather than an argument for each of them: a node names what it needs, and the
+graph hands it over.
 
 Which is what makes the walk testable without a database. A test builds its own
 record and gets the real nodes, the real state machine and the real routers,

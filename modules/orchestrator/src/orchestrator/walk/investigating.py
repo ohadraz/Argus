@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from functools import partial
+from typing import Final
 
 from core import to_iso
 from core.events import (
@@ -48,7 +49,6 @@ from incident_memory.ordering import demoting_what_was_refuted
 from incident_record import IsStillWanted
 from narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
 
-from orchestrator.asking import ASKING_THE_DEPLOYMENT_PLATFORM, ASKING_THE_FLAG_PROVIDER
 from orchestrator.walk.candidates import (
     the_circumstances,
     the_next_worth_trying,
@@ -70,6 +70,12 @@ from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_R
 from orchestrator.walk.state import IncidentState
 
 _logger = logging.getLogger(__name__)
+
+# What the walk says it asked for when the flag provider would not answer. Public
+# because no request is published before the flags are read, so this is how
+# whoever reads the account tells a history asked for and never answered from
+# one nobody asked for.
+ASKING_THE_FLAG_PROVIDER: Final = "what the flag provider recorded changing"
 
 
 def _nobody_stops_it(incident_id: str, /) -> bool:
@@ -433,7 +439,7 @@ def _what_the_platform_recorded(state: IncidentState,
         publish(
             RetrievalUnanswered(
                 incident_id=state.incident_id,
-                what_was_asked=ASKING_THE_DEPLOYMENT_PLATFORM,
+                what_was_asked="what the platform recorded deploying",
                 because=str(unanswered)
             ),
             publisher

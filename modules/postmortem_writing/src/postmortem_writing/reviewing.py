@@ -23,12 +23,8 @@ from core.models import (
     why_it_was_refused,
 )
 
-from postmortem_writing.labels import (
-    is_a_code_reading,
-)
-from postmortem_writing.sections import (
-    was_never_tried,
-)
+from postmortem_writing.labels import is_a_code_reading
+from postmortem_writing.sections import was_never_tried
 
 KEY_DATA_COLLECTED: Final = "Key incident data collected"
 IMPACT_ASSESSED: Final = "Impact assessed"

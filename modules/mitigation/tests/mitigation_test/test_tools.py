@@ -51,9 +51,7 @@ from mitigation.tools import (
 )
 from pydantic import BaseModel
 
-from mitigation_test.framework.builders import (
-    a_deployment,
-)
+from mitigation_test.framework.builders import a_deployment
 
 SOME_FLAG = "kukibuki"
 SOME_ARGUS_USER = "Shuki Tuki"

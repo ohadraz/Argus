@@ -70,11 +70,7 @@ from incident_record.repository import runs, synopses
 from incident_record.repository.runs import RunState
 from investigation_agent.tools.answer import ANSWER_TOOL
 from postmortem_writing import WRITE_UP_TOOLS
-from postmortem_writing.answer import (
-    LESSONS_FIELD,
-    SUBMIT_TOOL_NAME,
-    WENT_WELL_FIELD,
-)
+from postmortem_writing.answer import LESSONS_FIELD, SUBMIT_TOOL_NAME, WENT_WELL_FIELD
 from postmortem_writing.grounding import (
     FLAGS_FIELD,
     JUDGE_TOOL_NAME,

@@ -605,11 +605,18 @@ def guard_layering(session: nox.Session) -> None:
     """
     Registers `guard_layering` as a nox session, i.e., runnable via
     `uv run python -m nox -s guard_layering`.
-    Fails if a module imports something its layer may not know about, per the
-    import-linter contracts in the root `pyproject.toml`: the kernel depends on
-    nothing here, the incident record knows only the kernel, the page serves
-    HTML without installing an agent, no agent knows another agent, and the
-    kernel is reached through its front doors rather than by module path.
+    Fails if a module imports something its layer may not know about, or a
+    package's modules import one another in a circle, per the import-linter
+    contracts in the root `pyproject.toml`: no cycle among the siblings inside
+    any package, the kernel depends on nothing here, the incident record, the
+    chat platform and telemetry know only the kernel, long-term memory holds
+    records rather than reading the incident record, the postmortem's rendering
+    works from values it is handed, the page serves HTML without installing an
+    agent, the chat platform, the deployment platform and the flag provider are
+    each known by their port with only a process's wiring knowing the vendor,
+    the walk writes to no store the fence cannot reach, no agent knows another
+    agent, and the kernel is reached through its front doors rather than by
+    module path.
 
     It also holds the suites to the last two rules, which the contracts cannot:
     import-linter analyzes the packages named in `root_packages`, and a test

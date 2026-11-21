@@ -49,9 +49,7 @@ from investigation_agent.tools.answer import ANSWER_TOOL
 from investigation_agent.tools.changes import CHANGES_TOOL
 from investigation_agent.tools.logs import LOGS_TOOL
 from investigation_agent.tools.metrics import METRICS_TOOL
-from postmortem_writing.answer import (
-    SUBMIT_TOOL_NAME,
-)
+from postmortem_writing.answer import SUBMIT_TOOL_NAME
 from postmortem_writing.grounding import JUDGE_TOOL_NAME
 
 from tests.framework.assertions import (

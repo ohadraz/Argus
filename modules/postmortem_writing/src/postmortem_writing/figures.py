@@ -29,7 +29,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 from core import (
     A_DAY_SAID,
@@ -57,17 +57,13 @@ from core.models import (
 )
 from pydantic import BaseModel
 
+from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.detection_lesson import no_start_from_the_line, the_detection_lesson
 from postmortem_writing.estimate import QUANTILES, LatencyLevels
 from postmortem_writing.evidence import IncidentEvidence
 from postmortem_writing.measuring import Measurements
 from postmortem_writing.sources import NotPaged
 from postmortem_writing.stamps import the_last_minute_logged_inside
-
-if TYPE_CHECKING:
-    from postmortem_writing.answer import (
-        SubmittedPostmortem,
-    )
 
 # What each figure Argus measured is named, as the model writes it between
 # braces. Named for what it is rather than numbered: a recorded answer naming

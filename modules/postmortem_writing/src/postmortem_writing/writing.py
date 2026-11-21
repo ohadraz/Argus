@@ -18,7 +18,7 @@ is.
 from __future__ import annotations
 
 import logging
-from typing import Protocol
+from typing import Final, Protocol
 
 from core.llm import LLMClient
 from core.models import (
@@ -35,19 +35,13 @@ from core.models import (
     labelled,
 )
 
-from postmortem_writing.answer import (
-    CONFIRM_IT_REACHED_THE_SERVICE,
-    KEPT_UNTIL_THE_FAULT_IS_FIXED,
-    SubmittedPostmortem,
-)
+from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.assumptions import assumptions_of
 from postmortem_writing.conversation import answer_worth_writing
 from postmortem_writing.detection_lesson import the_detection_lesson
 from postmortem_writing.evidence import IncidentEvidence
 from postmortem_writing.figures import the_day_it_began, the_latency_told
-from postmortem_writing.labels import (
-    action_item_number,
-)
+from postmortem_writing.labels import action_item_number
 from postmortem_writing.log_groups import grouped
 from postmortem_writing.measuring import Measurements, measure
 from postmortem_writing.prompting import (
@@ -76,6 +70,21 @@ from postmortem_writing.sources import EngagementAnswer, NotPaged, Sources
 from postmortem_writing.summary import the_executive_summary
 
 logger = logging.getLogger(__name__)
+
+# How long the item that stops the harm is kept, said by the document after the
+# model's own words rather than asked of them: asked, a write-up dropped it two
+# times in five. A sentence of its own, so it reads right whatever clause the
+# model ends on.
+_KEPT_UNTIL_THE_FAULT_IS_FIXED: Final = "Keep it in place until the fault is fixed."
+# The item listed after the one to find out why the change put back did not
+# help, by the document rather than the model: asked what to find out about the
+# change, a write-up answered whether it reached the service there and dropped
+# the check for next time - three in four on the field's input - which every
+# write-up of the incident before it had.
+_CONFIRM_IT_REACHED_THE_SERVICE: Final = (
+    "Before the Mitigator judges a change it made, have it confirm from the "
+    "service's own logs that the change reached the service."
+)
 
 
 class Measure(Protocol):
@@ -325,11 +334,11 @@ def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
     if answer.stops_the_harm is not None:
         said = answer.stops_the_harm.rstrip()
         ended = said if said.endswith((".", "!", "?")) else f"{said}."
-        proposed_items.append((f"{ended} {KEPT_UNTIL_THE_FAULT_IS_FIXED}",
+        proposed_items.append((f"{ended} {_KEPT_UNTIL_THE_FAULT_IS_FIXED}",
                                ActionItemType.MITIGATE))
     if answer.why_it_did_not_help is not None:
         proposed_items.append((answer.why_it_did_not_help.rstrip(), ActionItemType.MITIGATE))
-        proposed_items.append((CONFIRM_IT_REACHED_THE_SERVICE, ActionItemType.PROCESS))
+        proposed_items.append((_CONFIRM_IT_REACHED_THE_SERVICE, ActionItemType.PROCESS))
 
     return [
         *on_record,

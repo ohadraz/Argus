@@ -164,11 +164,14 @@ root_packages = [
     "write_mcp_server",
 ]
 
-# No import cycle anywhere: at every level of every package, the siblings beneath
-# it import one another in one direction only. Annotation-only imports count -
-# a type kept where its users' own dependants live is a cycle that merely has not
-# run yet, and one that did run hid behind whichever module a caller imported
-# first. `*` rather than a list, so a module added tomorrow is held to it too.
+# No import cycle inside any package: at every level of every package, the
+# siblings beneath it import one another in one direction only. Inside a package
+# and nowhere else - two top-level packages share no ancestor to be compared
+# under, so a cycle between packages is outside this contract. Annotation-only
+# imports count - a type kept where its users' own dependants live is a cycle
+# that merely has not run yet, and one that did run hid behind whichever module
+# a caller imported first. `*` rather than a list, so a module added tomorrow is
+# held to it too.
 [[tool.importlinter.contracts]]
 name = "no package's modules import one another in a circle"
 type = "acyclic_siblings"

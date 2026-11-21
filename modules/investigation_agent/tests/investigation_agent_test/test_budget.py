@@ -21,9 +21,7 @@ from core.budget import Budget
 from core.models import ToolCall, Turn
 from investigation_agent.budget import Bound, a_budget_for
 
-from investigation_agent_test.framework.builders.configuration import (
-    some_investigation_settings,
-)
+from investigation_agent_test.framework.builders.configuration import some_investigation_settings
 
 
 @pytest.mark.unit

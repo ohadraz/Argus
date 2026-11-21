@@ -17,19 +17,12 @@ than one, is left as written for the check to send back to the model
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 from core import A_REVISION, short_form, the_revision_named
 
+from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.evidence import IncidentEvidence
-
-# For the annotations alone: the prompt labels each change with its revision's
-# short form for the document's rows, so it imports this module, and the
-# answer's type is the prompt's.
-if TYPE_CHECKING:
-    from postmortem_writing.answer import (
-        SubmittedPostmortem,
-    )
 
 # How many leading characters a misremembered revision has to share with a real
 # one to be read as it: one chance in sixty-five thousand by accident.

@@ -13,16 +13,11 @@ written: nothing here can say which one it meant.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 from core.models import OpenedPullRequest
 
-# For the annotations alone, as in `revisions`: the answer's type is the
-# prompt's.
-if TYPE_CHECKING:
-    from postmortem_writing.answer import (
-        SubmittedPostmortem,
-    )
+from postmortem_writing.answer import SubmittedPostmortem
 
 # A pull request as prose names it: by Argus's name for it, in words, or by its
 # address - each with its number, and the number whole.
