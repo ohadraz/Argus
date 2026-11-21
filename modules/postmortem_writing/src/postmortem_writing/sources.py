@@ -62,7 +62,9 @@ type Rates = Callable[[], RateTable | None]
 # Pre-aggregated service metrics over a window - the same channel the
 # Investigator reads, asked for a wider window than it ever had reason to, and
 # for the same rule: the one that paged, whose own series each minute then
-# carries beside the five. `None` for an incident paged by no rule.
+# carries beside the five. `None` for an incident paged by no rule. Empty where
+# it could not be read, which is what an empty read already says on the page -
+# no minute of the metrics read - and never raised.
 type Metrics = Callable[[datetime, datetime, str | None], list[MetricBucket]]
 
 # The paging rule as the read tier reads it - how long its condition has to hold

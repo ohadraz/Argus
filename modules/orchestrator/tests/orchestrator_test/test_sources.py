@@ -117,6 +117,55 @@ def test_the_minute_two_windows_share_is_read_once() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("failure", [McpToolError(SOME_FAILURE),
+                                     McpUnreachable(SOME_FAILURE),
+                                     McpError(ErrorData(code=httpx.codes.REQUEST_TIMEOUT,
+                                                        message=SOME_FAILURE))],
+                         ids=["tool-failed", "unreachable", "timed-out"])
+def test_metrics_the_read_tier_cannot_read_are_answered_as_none_read(
+    failure: Exception,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Nothing read, which the document already says in its own words: no minute
+    # of the service's metrics could be read. Raised instead, a read of the shop
+    # that timed out failed the run of an incident already mitigated, and no
+    # postmortem was written for it.
+    Scenario() \
+        .given(read := _a_session_whose_tool_fails(failure)) \
+        .when(lambda: _the_sources_over(read).metrics(DONT_CARE_START, DONT_CARE_END,
+                                                      DONT_CARE_RULE)) \
+        .then(
+            all_of(
+                the_answer_was([]),
+                one_record_was_logged(caplog, "orchestrator.sources", logging.WARNING,
+                                      "metrics could not be read",
+                                      failure=type(failure))
+            )
+        )
+
+
+@pytest.mark.unit
+def test_metrics_one_window_of_which_cannot_be_read_are_none_read() -> None:
+    # Never the windows that answered alone. A read whose rows stop where the
+    # failed window begins is what a metrics outage looks like, and the document
+    # would say the service's metrics stopped where only the read did.
+    span = timedelta(minutes=get_settings().metrics_window_minutes)
+    some_end = DONT_CARE_START + 2 * span
+
+    Scenario() \
+        .given(
+            read := _a_session_answering([_a_minute(DONT_CARE_START)],
+                                         McpToolError(SOME_FAILURE))
+        ) \
+        .when(
+            lambda: _the_sources_over(read).metrics(DONT_CARE_START, some_end, None)
+        ) \
+        .then(
+            the_answer_was([])
+        )
+
+
+@pytest.mark.unit
 def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -254,8 +303,9 @@ def _the_windows_asked_for_were(read: Mock,
     return assertion
 
 
-def _a_session_answering(*answers: list[MetricBucket]) -> Mock:
-    """A client answering each call with the next of `answers`, in turn."""
+def _a_session_answering(*answers: list[MetricBucket] | Exception) -> Mock:
+    """A client answering each call with the next of `answers`, in turn - or
+    raising it, where it is a failure."""
     client: Mock = create_autospec(McpClient, instance=True)
     client.call.side_effect = list(answers)
 

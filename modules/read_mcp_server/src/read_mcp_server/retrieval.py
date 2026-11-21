@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Final, Protocol
 
 import httpx2
 from core import SettingsSlice, parse_iso, to_iso, utc_now
@@ -31,6 +31,10 @@ class TargetServiceSettings(SettingsSlice):
 
 
 FetchLogs = Callable[[], list[str]]
+
+# How long one read of the service's logs may take, as every other read this
+# tier makes of somebody else's API is bounded (`alert_rules`, `registry`).
+LOGS_REQUEST_TIMEOUT_SECONDS: Final = 10.0
 
 
 class SeriesTheRuleWatches(Protocol):
@@ -81,7 +85,8 @@ def target_service_logs(settings: TargetServiceSettings) -> FetchLogs:
     with a lambda. The address is bound once, where the server is built.
     """
     def fetch() -> list[str]:
-        response = httpx2.get(f"{settings.target_service_url}/logs", timeout=10.0)
+        response = httpx2.get(f"{settings.target_service_url}/logs",
+                              timeout=LOGS_REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
         logs: list[str] = response.json()
 

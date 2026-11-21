@@ -346,17 +346,31 @@ def _metrics_between(window_start: datetime,
     A range read answers for both its ends, so the minute two windows share
     comes back from each - and is kept once, or it would weigh double in every
     level the document reports.
+
+    Nothing where any window could not be read, however the read failed - a
+    refusal, no server, or an answer that never came back in time - which the
+    document already says as no minute of the metrics read. Never raised, for
+    `_the_alert_rule`'s reason: raised, a read of the shop that timed out failed
+    the run of an incident already over, and nothing was written up. And never
+    the windows that answered alone: rows stopping where a failed window begins
+    are what a metrics outage looks like, and the document would say the
+    service's metrics stopped where only the read did.
     """
     read: dict[str, MetricBucket] = {}
     start = window_start
 
-    while start < window_end:
-        end = min(start + served, window_end)
-        for bucket in get_metrics_summary(window_start=to_iso(start),
-                                          window_end=to_iso(end),
-                                          rule=rule,
-                                          client=client):
-            read.setdefault(bucket.bucket_id, bucket)
-        start = end
+    try:
+        while start < window_end:
+            end = min(start + served, window_end)
+            for bucket in get_metrics_summary(window_start=to_iso(start),
+                                              window_end=to_iso(end),
+                                              rule=rule,
+                                              client=client):
+                read.setdefault(bucket.bucket_id, bucket)
+            start = end
+    except Exception:
+        logger.warning("metrics could not be read", exc_info=True, extra={"rule": rule})
+
+        return []
 
     return list(read.values())

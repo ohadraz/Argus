@@ -868,6 +868,26 @@ _NO_EVALUATION_SINCE_THE_CHANGE = _Settled(
     "before the time allowed ran out - so nothing was measured either way"
 )
 
+# What a wait settles as where the service was read before the deadline and
+# could not be read from it on, for as long as a read may go unanswered.
+# `ESCALATED`, not `REFUTED`: a look that landed before the deadline could have
+# confirmed a recovery, but none was late enough to rule one out.
+_NOT_READ_SINCE_THE_DEADLINE = _Settled(
+    Verdict.ESCALATED,
+    "the service could not be read once the time allowed had run out, and every "
+    "look before then was too early to rule a recovery out - so nothing was "
+    "measured either way"
+)
+
+# The same, on the rule's path: an evaluation since the change was read before
+# the deadline, and the rule could not be read from it on.
+_RULE_NOT_READ_SINCE_THE_DEADLINE = _Settled(
+    Verdict.ESCALATED,
+    "the rule that fired could not be read once the time it allows had run out, "
+    "and every evaluation before then was too early to rule its stopping out - "
+    "so nothing was measured either way"
+)
+
 
 def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBucket]],
                                        has_arrived: HasArrived,
@@ -936,9 +956,23 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     `ESCALATED` where the window ran out with the service never once read. That
     is the same expiry and the opposite finding: the first is a measurement that
     went against the hypothesis, this is no measurement at all, and only one of
-    them is evidence. They are separated on whether any reading ever landed
-    rather than on how the last pass went, because a wait that read the shop
-    nine times and failed on the tenth did measure it.
+    them is evidence.
+
+    And a look is owed at the deadline, not only before it. The deadline is where
+    the minutes a recovery would show in have all been reported, so a look before
+    it can confirm one but is too early to rule one out - and a refutation read
+    off the last of them, because the look at the deadline timed out, put back
+    a change whose recovery the next look would have read. So a look that fails
+    from the deadline on is taken again, for as long as a read may go unanswered
+    (`mitigation_verification_timeout_seconds`); the look that lands decides, and
+    where none does it is `ESCALATED`, since nothing measured what the change
+    did. The rule's path owes the same look: its deadline is the evaluation from
+    which a rule still firing rules its stopping out, and an evaluation before
+    it can confirm the change but not refute it.
+
+    Nor does a read of whether the change has arrived end the walk where it
+    fails: it costs its pass, as a read of the service does, and the wait for the
+    change still ends at the configured bound.
 
     `STOPPED` where a person ended the incident while this was waiting. The
     loop already wakes every ten seconds to re-read the metrics, so asking here
@@ -955,10 +989,12 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     # read off the window below, and until a window has come back there is
     # nothing to read it off - the only facts are that an action was taken and
     # that nothing has answered, and a configured figure is all either of them
-    # supports.
-    nothing_measured_by = started_at + timedelta(
+    # supports. The same figure bounds the looks owed at the deadline: a look
+    # that fails there is a service that will not answer a read, again.
+    a_read_may_go_unanswered_for = timedelta(
         seconds=settings.mitigation_verification_timeout_seconds
     )
+    nothing_measured_by = started_at + a_read_may_go_unanswered_for
 
     arrived_at = _when_the_change_reached_the_service(
         has_arrived, now, sleep, started_at, nothing_measured_by
@@ -1060,9 +1096,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         elif buckets is None:
             # The deadline still decides, and it is held to the moment this look
             # was asked, as an answered one is. A failure asked for in time is
-            # owed the look after it, as a late answer would have been. One
-            # asked after the deadline buys nothing: it is checked before
-            # sleeping, so failing gains no interval that answering would not.
+            # owed the look after it, as a late answer would have been.
             #
             # What it decides, though, is not `REFUTED` where nothing was ever
             # read. That word means the explanation was tested and did not hold,
@@ -1073,25 +1107,25 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             # stack the service had in fact recovered. `ESCALATED` is the member
             # that already means no verdict was reached at all, and the one this
             # is: Argus cannot say, so a person is asked.
-            if asked_at >= watch_until:
-                if not anything_was_read:
-                    logger.warning("nothing was measured before the deadline")
+            if asked_at >= watch_until and not anything_was_read:
+                logger.warning("nothing was measured before the deadline")
 
-                # What is known is the last look's finding: this read failed,
-                # so the one before it is the last the service was seen at.
-                return (
-                    _Settled(
-                        Verdict.REFUTED,
-                        "the service was still at the incident's level at the last "
-                        "look before the verification wait ran out"
-                    )
-                    if anything_was_read else
-                    _Settled(
-                        Verdict.ESCALATED,
-                        "the service could not be read once before the time "
-                        "allowed ran out - so nothing was measured either way"
-                    )
+                return _Settled(
+                    Verdict.ESCALATED,
+                    "the service could not be read once before the time "
+                    "allowed ran out - so nothing was measured either way"
                 )
+
+            # Nor where the service was read, but only before the deadline. Each
+            # of those looks could have confirmed a recovery, and none that did
+            # not was late enough to rule one out - so refuting on the last of
+            # them judged the change on minutes it had not had. The look owed is one
+            # from the deadline on, and it is asked again until one lands or a
+            # read has gone unanswered as long as one may.
+            if asked_at >= watch_until + a_read_may_go_unanswered_for:
+                logger.warning("nothing was measured after the deadline")
+
+                return _NOT_READ_SINCE_THE_DEADLINE
 
             sleep(_SECONDS_BETWEEN_METRIC_READS)
             continue
@@ -1155,29 +1189,29 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                         minute=first_whole_minute
                     ))
 
-                # Not refuted where no evaluation since the change was read:
-                # nothing said the rule was still firing on the change's
-                # minutes, and refuting puts the change back on a measurement
-                # nobody took.
-                if asked_at >= watch_until:
-                    if an_evaluation_since_the_change_was_read:
-                        return _Settled(
-                            Verdict.REFUTED,
-                            "the rule that fired was still firing when the time "
-                            "it allows ran out"
-                        )
-
+                # Never refuted on a failed read. An evaluation read before the
+                # deadline could have confirmed the change, but one still firing
+                # was too early to rule its stopping out - and refuting on it
+                # puts the change back on a measurement nobody took.
+                # The look owed is one from the deadline on, asked again as the
+                # levels' is.
+                if asked_at >= watch_until and not the_rule_was_read:
                     logger.warning("nothing was measured before the deadline")
 
+                    return _Settled(
+                        Verdict.ESCALATED,
+                        "the rule that fired could not be read once before "
+                        "the time allowed ran out - so nothing was measured "
+                        "either way"
+                    )
+
+                if asked_at >= watch_until + a_read_may_go_unanswered_for:
+                    logger.warning("nothing was measured after the deadline")
+
                     return (
+                        _RULE_NOT_READ_SINCE_THE_DEADLINE
+                        if an_evaluation_since_the_change_was_read else
                         _NO_EVALUATION_SINCE_THE_CHANGE
-                        if the_rule_was_read else
-                        _Settled(
-                            Verdict.ESCALATED,
-                            "the rule that fired could not be read once before "
-                            "the time allowed ran out - so nothing was measured "
-                            "either way"
-                        )
                     )
 
                 sleep(_SECONDS_BETWEEN_METRIC_READS)
@@ -1443,11 +1477,21 @@ def _when_the_change_reached_the_service(has_arrived: HasArrived,
     the first ask was in force when the action was performed, so reading the clock
     again would date it later than it happened - and this is what the minute a
     verdict is read from is counted from.
+
+    A read of the platform that fails costs its pass and nothing more, as a read
+    of the service does. Raised, it ended the walk mid-action, and the worker put
+    the change back and handed the incident to a person - a rollback undone on
+    no measurement. At the bound it is `ESCALATED` too, said as a question nobody
+    could answer rather than as a change that had not arrived.
     """
     moment = started_at
 
     while True:
-        arrival = has_arrived()
+        try:
+            arrival: Arrival | None = has_arrived()
+        except Exception:
+            logger.warning("arrival could not be read", exc_info=True)
+            arrival = None
 
         if arrival is Arrival.ARRIVED:
             return moment
@@ -1463,7 +1507,18 @@ def _when_the_change_reached_the_service(has_arrived: HasArrived,
 
         # Checked before sleeping for the reason every other wait here checks it
         # first: a window that has run out must not buy another interval by having
-        # been busy.
+        # been busy. Said as what the last read found: a change still arriving,
+        # or a platform nobody could ask, which is not a change that had not
+        # arrived.
+        if moment >= no_later_than and arrival is None:
+            logger.warning("nothing was measured before the deadline")
+
+            return _Settled(
+                Verdict.ESCALATED,
+                "whether the change had reached the service could not be read "
+                "before the time allowed ran out - so nothing about it was measured"
+            )
+
         if moment >= no_later_than:
             logger.warning("change did not arrive in time")
 

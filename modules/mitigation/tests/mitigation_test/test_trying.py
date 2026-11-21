@@ -155,12 +155,14 @@ _AN_EVALUATION_OVER_THE_ACTIONS_MINUTE = _THE_FIRST_WHOLE_MINUTE
 _AN_EVALUATION_SINCE_THE_CHANGE = _AN_EVALUATION_OVER_THE_ACTIONS_MINUTE + _A_MINUTE
 _THE_EVALUATION_AFTER_THAT = _AN_EVALUATION_SINCE_THE_CHANGE + _A_MINUTE
 
-# Words nothing reads: what a kind said it did, why a tier refused, why a
-# rule could not be read, how a kind usually puts a change back, and what an
-# undo found.
+# Words nothing reads: what a kind said it did, why a tier refused, why the
+# service, a rule or a rollout could not be read, how a kind usually puts a
+# change back, and what an undo found.
 DONT_CARE_WHAT_IT_DID = "dont care what it did"
 DONT_CARE_REFUSAL = "dont care why it refused"
+DONT_CARE_READ_FAILURE = "the service could not be read"
 DONT_CARE_RULE_FAILURE = "the rule could not be read"
+DONT_CARE_ARRIVAL_FAILURE = "the rollout could not be read"
 DONT_CARE_HOW_IT_IS_PUT_BACK = "to dont care"
 DONT_CARE_WHAT_THE_UNDO_FOUND = "dont care what the undo found"
 
@@ -257,6 +259,16 @@ A_SHORT_WAIT_IN_SECONDS = 180.0
 # A look past the configured wait and inside the one a rule asks for. Twenty
 # seconds past is not a relation: any moment between the two would do.
 _A_LOOK_PAST_THE_CONFIGURED_WAIT = A_SHORT_WAIT_IN_SECONDS + 20
+# Where the wait on `a_still_failing_window` ends, in seconds from the action:
+# the one clear minute that window asks for is the first whole minute after the
+# action, and it has ended a minute after it began.
+_THE_STILL_FAILING_WINDOWS_DEADLINE_IN_SECONDS = (
+    _THE_FIRST_WHOLE_MINUTE + _A_MINUTE - ACTION_TIME
+).total_seconds()
+# Where the wait on the rule `_a_rule_standing` reads ends, in seconds from the
+# action: its range and one interval after the action, carried to the
+# evaluation after that.
+_THE_RULES_DEADLINE_IN_SECONDS = (_THE_EVALUATION_AFTER_THAT - ACTION_TIME).total_seconds()
 
 # The rule that paged, for an alert about a series. What an action on one is
 # judged by: the rule defines what "acceptable" is for the service, as it would
@@ -3134,6 +3146,163 @@ def test_a_read_failing_after_the_deadline_it_was_asked_before_is_not_the_last_l
 
 
 @pytest.mark.unit
+def test_a_look_failing_at_the_deadline_is_taken_again_and_the_one_that_lands_decides() -> None:
+    # The deadline is where the minutes a recovery would show in have all been
+    # reported, so a look before it that finds the service still failing is too
+    # early to rule a recovery out. A look that timed out at the deadline left
+    # only those, and the wait refuted on the last of them - putting back a
+    # change whose recovery the next look read. A look at the deadline is owed,
+    # and one that fails is taken again.
+    some_seconds_in = 10
+    the_deadline = _THE_STILL_FAILING_WINDOWS_DEADLINE_IN_SECONDS
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_reads := _the_service_read_in_turn(
+                a_still_failing_window(),
+                McpToolError(DONT_CARE_READ_FAILURE),
+                a_recovered_window()
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=the_reads,
+                now=a_clock_reading_at(ACTION_TIME, some_seconds_in, the_deadline,
+                                       the_deadline + some_seconds_in),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_service_was_looked_at(the_reads, times=3)
+        ))
+
+
+@pytest.mark.unit
+def test_a_service_unread_from_its_deadline_as_long_as_a_read_may_wait_is_not_refuted() -> None:
+    # The look owed at the deadline never landed, so nothing measured the
+    # minutes a recovery would show in - and the looks before it were too early
+    # to rule one out. Refuting puts back a change that may have worked on a
+    # measurement nobody took, so this is no verdict, as a wait that never read
+    # the service at all is: the change stays where the action left it, carrying
+    # what would put it back. How long a read may go unanswered is the
+    # configured wait, the one bound there is for a service that will not answer.
+    some_seconds_in = 10
+    the_deadline = _THE_STILL_FAILING_WINDOWS_DEADLINE_IN_SECONDS
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            set_state := _a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=some_old_state),
+            undo := an_undo_nobody_calls()
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=_the_service_read_in_turn(
+                    a_still_failing_window(),
+                    McpToolError(DONT_CARE_READ_FAILURE)
+                ),
+                now=a_clock_reading_at(ACTION_TIME, some_seconds_in, the_deadline,
+                                       the_deadline + A_SHORT_WAIT_IN_SECONDS),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _it_says_nothing_was_judged(),
+            _the_detail_mentions("could not be read once the time allowed had run out"),
+            _nothing_was_put_back_through(undo),
+            _the_undo_carried_is(an_undo_descriptor_for(DONT_CARE_FLAG,
+                                                        was_enabled=some_old_state))
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_whose_arrival_cannot_be_read_is_asked_about_again() -> None:
+    # A read of the platform that timed out while a rollback was arriving
+    # ended the walk: nothing caught it, the run failed mid-action, and the
+    # worker put the change back and handed the incident to a person - a
+    # rollback undone on no measurement. It costs its pass, as a read of the
+    # service does.
+    Scenario() \
+        .given(
+            some_old_state := False
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                arrivals=lambda _action: _a_platform_unreadable_once_then_applying_it(),
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_change_whose_arrival_could_not_be_read_by_the_deadline_reaches_no_verdict() -> None:
+    # Not a change that had not arrived: nobody could say whether it had. No
+    # verdict either way, and the change left where the action put it.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            set_state := _a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=some_old_state),
+            undo := an_undo_nobody_calls()
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                arrivals=lambda _action: _a_platform_nobody_can_read(),
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _it_says_nothing_was_judged(),
+            _the_detail_mentions("whether the change had reached the service could not be read"),
+            _nothing_was_put_back_through(undo),
+            _the_undo_carried_is(an_undo_descriptor_for(DONT_CARE_FLAG,
+                                                        was_enabled=some_old_state))
+        ))
+
+
+@pytest.mark.unit
 def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there() -> None:
     # Whether this incident's own minutes were ever published is measured over
     # the span from the onset to the action, and this is the case that says where
@@ -3396,6 +3565,48 @@ def _a_platform_that_takes_two_passes_to_apply_it() -> Callable[[], Arrival]:
     answers = iter([Arrival.STILL_ARRIVING, Arrival.STILL_ARRIVING])
 
     return lambda: next(answers, Arrival.ARRIVED)
+
+
+def _a_platform_unreadable_once_then_applying_it() -> Callable[[], Arrival]:
+    """A read of the rollout that fails once - the read tier timing out on the
+    platform - and answers arrived from then on."""
+    failures = iter([McpToolError(DONT_CARE_ARRIVAL_FAILURE)])
+
+    def arrival() -> Arrival:
+        failure = next(failures, None)
+
+        if failure is not None:
+            raise failure
+
+        return Arrival.ARRIVED
+
+    return arrival
+
+
+def _a_platform_nobody_can_read() -> Callable[[], Arrival]:
+    """A read of the rollout that fails every time it is asked."""
+    def arrival() -> Arrival:
+        raise McpToolError(DONT_CARE_ARRIVAL_FAILURE)
+
+    return arrival
+
+
+def _the_service_read_in_turn(*answers: list[MetricBucket] | Exception) -> MagicMock:
+    """The service read once per answer, in order, sticking at the last - as the
+    clocks here stick - and raising an answer that is a failure."""
+    remaining = list(answers)
+
+    def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+        answer = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+        if isinstance(answer, Exception):
+            raise answer
+
+        return answer
+
+    fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True, side_effect=read)
+
+    return fetch_metrics
 
 
 def _the_looks_published_number(published: list[IncidentEvent],
@@ -5525,9 +5736,42 @@ def test_a_rule_unreadable_at_first_is_judged_once_it_can_be_read() -> None:
 
 
 @pytest.mark.unit
-def test_a_rule_read_firing_and_unreadable_at_its_deadline_refutes() -> None:
-    # Unlike a rule never read: the last thing it said was that it was firing,
-    # and the deadline it set has passed.
+def test_a_rule_read_firing_and_unreadable_at_its_deadline_is_read_again() -> None:
+    # The levels' defect on the rule's path. The deadline is the evaluation from
+    # which a rule still firing rules its stopping out, so an evaluation read
+    # before it firing was too early to rule that out - and refuted on it, a
+    # revert whose rule stopped at the deadline was put back.
+    some_seconds_in = 10
+    the_deadline = _THE_RULES_DEADLINE_IN_SECONDS
+
+    Scenario() \
+        .given(
+            the_rule_stops_after_a_failed_read := _a_rule_reading_in_turn(
+                _a_rule_standing(is_normal=False, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE),
+                McpToolError(DONT_CARE_RULE_FAILURE),
+                _a_rule_standing(is_normal=True, evaluated_at=_THE_EVALUATION_AFTER_THAT)
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_stops_after_a_failed_read,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, some_seconds_in, the_deadline,
+                                         the_deadline + some_seconds_in)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_read_firing_and_unreadable_past_its_deadline_reaches_no_verdict() -> None:
+    # Unlike a rule never read, its last word was that it was firing - but
+    # said too early to rule its stopping out, and nothing from the deadline on
+    # was ever read.
+    # Nothing measured it, as nothing measures a service unread past its
+    # deadline, so nothing is put back.
     some_seconds_in = 10
 
     Scenario() \
@@ -5544,9 +5788,11 @@ def test_a_rule_read_firing_and_unreadable_at_its_deadline_refutes() -> None:
                 clock=a_clock_reading_at(ACTION_TIME, some_seconds_in, _AN_HOUR_IN_SECONDS)
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.REFUTED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _it_says_nothing_was_judged(),
+            _the_detail_mentions("could not be read once the time it allows had run out")
+        ))
 
 
 @pytest.mark.unit
@@ -6044,6 +6290,43 @@ def test_a_wait_that_never_read_the_service_is_logged_as_a_warning(
 
 
 @pytest.mark.unit
+def test_a_service_unread_from_its_deadline_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The change is left where it is with nobody knowing whether it helped, as
+    # it is where the service was never read - but this wait did read it, and
+    # the line says where the measurement went missing.
+    some_seconds_in = 10
+    the_deadline = _THE_STILL_FAILING_WINDOWS_DEADLINE_IN_SECONDS
+
+    Scenario() \
+        .given(
+            reads := _the_service_read_in_turn(a_still_failing_window(),
+                                               McpToolError(DONT_CARE_READ_FAILURE))
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=reads,
+                now=a_clock_reading_at(ACTION_TIME, some_seconds_in, the_deadline,
+                                       the_deadline + A_SHORT_WAIT_IN_SECONDS),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "nothing was measured after the deadline")
+        )
+
+
+@pytest.mark.unit
 def test_a_rule_that_could_not_be_read_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -6148,6 +6431,36 @@ def test_a_change_that_had_not_arrived_by_the_deadline_is_logged_as_a_warning(
         .then(
             one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
                                   "change did not arrive in time")
+        )
+
+
+@pytest.mark.unit
+def test_an_arrival_that_could_not_be_read_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    Scenario() \
+        .given(
+            unreadable_once := (lambda _action: _a_platform_unreadable_once_then_applying_it())
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                arrivals=unreadable_once,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.WARNING,
+                                  "arrival could not be read", failure=McpToolError)
         )
 
 
