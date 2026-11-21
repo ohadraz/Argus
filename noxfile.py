@@ -3,6 +3,7 @@ import contextlib
 import ctypes
 import enum
 import functools
+import hashlib
 import json
 import os
 import signal
@@ -16,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Final
@@ -176,15 +177,17 @@ def test_module(session: nox.Session, module: str) -> None:
     filter rather than left to `test_all`: a marker a session does not select is a
     marker whose tests quietly never run.
 
-    Runs against a database and a vector store of this module's own, so it can
-    run beside `e2e_replay` - or beside another module's suite - rather than
-    stop the database either of them is using or lose the bind to the store
-    either of them is talking to. The conftests that bring postgres and the
-    store up inherit this environment; none of them is handed one. A server a
-    suite runs itself - a double, a fake, an MCP tier - takes a port the
-    operating system hands it, and is given none here.
+    Runs against a database and a vector store of this module's own - in this
+    checkout, at ports the operating system hands this run (`_the_places_for`)
+    - so it can run beside `e2e_replay`, beside another module's suite, or
+    beside this same suite in another checkout, rather than stop the database
+    any of them is using or lose the bind to the store any of them is talking
+    to. The conftests that bring postgres and the store up inherit this
+    environment; none of them is handed one. A server a suite runs itself - a
+    double, a fake, an MCP tier - takes a port the operating system hands it,
+    and is given none here.
     """
-    os.environ.update(_a_database_for(module) | _a_qdrant_for(module))
+    os.environ.update(_the_places_for(module))
     session.run(
         # Its own declared dependencies, and deliberately not `--all-extras`.
         # Installing every optional dependency would make this pass for the one
@@ -218,12 +221,13 @@ def test_all(session: nox.Session) -> None:
     failures, then fails the session listing every module that failed -
     full-picture visibility, intended for CI.
 
-    Concurrent because no two suites share anything: each runs with the
-    database and vector store port `test_module` gives that module, and every
-    server it runs itself on a port the operating system hands it, so none
-    binds another's port or stops another's containers. Which
-    is also why `test_all` and `test_module` for the same module cannot run at
-    once - they are the same suite in the same places.
+    Concurrent because no two suites share anything: each runs under the
+    compose project `test_module` gives that module, with its database and
+    store on ports no suite still running was handed, and every server it runs
+    itself on a port the operating system hands it, so none binds another's
+    port or stops another's containers. `test_all` and `test_module` for the
+    same module cannot run at once: they are the same suite under one project,
+    and the first to finish stops the other's containers.
     """
     options = _test_all_options(session.posargs)
     started = time.monotonic()
@@ -269,12 +273,13 @@ class _TestAllOptions:
 @dataclass(frozen=True)
 class _RunningSuite:
     """One module's suite in flight: its process, where its output is going,
-    and when it started."""
+    when it started, and the ports its database and store were handed."""
 
     module: str
     process: subprocess.Popen[bytes]
     output: IO[bytes]
     started: float
+    ports: frozenset[str]
 
 
 def _a_positive_count(text: str) -> int:
@@ -304,26 +309,31 @@ def _test_all_options(posargs: list[str]) -> _TestAllOptions:
     return _TestAllOptions(workers=parsed.workers, keep_going=parsed.ci or parsed.aggregate)
 
 
-def _start_suite(module: str, output: IO[bytes]) -> _RunningSuite:
+def _start_suite(module: str, output: IO[bytes], besides: Collection[str]) -> _RunningSuite:
     """Starts one module's suite, its output captured to `output`.
 
     The command is the one a serial run made: the module's own declared
     dependencies (`uv run --package`) and every marker its suite holds. The
-    environment is `test_module`'s for that module. A file rather than a pipe,
-    because a pipe nobody reads until the end fills, and a suite blocked
-    writing to it never ends.
+    environment is `test_module`'s for that module, its ports none of
+    `besides` - the ones the suites already running were handed. A file rather
+    than a pipe, because a pipe nobody reads until the end fills, and a suite
+    blocked writing to it never ends.
     """
+    places = _the_places_for(module, besides)
     process = _start_process(
         ["uv", "run", "--package", f"argus-{module}",
          "python", "-m", "pytest", _SUITES[module], "-v"],
-        env=_a_database_for(module) | _a_qdrant_for(module),
+        env=places,
         output=output
     )
     # Said as it starts, so a suite that never ends is one a reader can name
     # while the rest are still finishing.
     print(f"----- {module}: started -----", flush=True)
 
-    return _RunningSuite(module, process, output, time.monotonic())
+    return _RunningSuite(
+        module, process, output, time.monotonic(),
+        frozenset({places["ARGUS_POSTGRES_PORT"], places["ARGUS_QDRANT_PORT"]})
+    )
 
 
 def _report(suite: _RunningSuite, verdict: _Verdict) -> None:
@@ -371,7 +381,8 @@ def _run_every_suite(workers: int, stop_at_first_failure: bool) -> dict[str, _Ve
             while waiting or running:
                 while waiting and len(running) < workers:
                     output = outputs.enter_context(tempfile.TemporaryFile())
-                    running.append(_start_suite(waiting.pop(0), output))
+                    handed_out = {port for suite in running for port in suite.ports}
+                    running.append(_start_suite(waiting.pop(0), output, handed_out))
 
                 for suite in _the_finished(running):
                     passed = suite.process.returncode == 0
@@ -388,7 +399,7 @@ def _run_every_suite(workers: int, stop_at_first_failure: bool) -> dict[str, _Ve
         finally:
             for suite in running:
                 _stop_service(suite.process)
-                _remove_the_containers_of(_a_database_for(suite.module)["COMPOSE_PROJECT_NAME"])
+                _remove_the_containers_of(_the_project_of(suite.module))
                 verdicts[suite.module] = _Verdict.STOPPED
                 _report(suite, _Verdict.STOPPED)
 
@@ -422,10 +433,10 @@ def sweep(session: nox.Session) -> None:
     stops the lot the moment one of them fails.
 
     They can share a machine because none of them shares infrastructure: each
-    brings up a database under a compose project of its own, the stores they
-    publish bind ports of their own (`_INTEGRATION_STACK`, and `_a_database_for`
-    and its sibling per module), and every server a suite starts itself listens
-    on a port the operating system hands it. A project is not
+    brings up a database under a compose project of its own, the databases and
+    stores they publish bind ports the operating system hands them
+    (`integration`'s, and `_the_places_for` per module), and every server a
+    suite starts itself listens on a port handed it the same way. A project is not
     enough on its own - it decides whose container a container is, and the
     published port is still the host's
     one address - which is what a vector store on the default 6333 in both
@@ -893,20 +904,21 @@ def integration(session: nox.Session) -> None:
     each other here and at nothing real - a pull request opened against GitHub
     is numbered out of a counter that never goes back.
 
-    Its database is its own (`_INTEGRATION_STACK`), and its doubles and its
-    write tier listen on ports the operating system hands this run
-    (`_free_ports`), so this can run beside an `e2e` or `e2e_replay` session
-    rather than behind it - and beside another copy of itself, a second
-    checkout's or a WSL run's, without either suite reaching the other's
-    servers. Set on this process's environment rather than passed to each
+    Its database is its own - this checkout's compose project
+    (`_INTEGRATION_PROJECT`) - and it, its doubles and its write tier listen
+    on ports the operating system hands this run (`_free_ports`), so this can
+    run beside an `e2e` or `e2e_replay` session rather than behind it - and
+    beside another copy of itself, a second checkout's or a WSL run's, without
+    either suite reaching the other's servers or resetting the other's
+    database. Set on this process's environment rather than passed to each
     call, because the `conftest` that starts postgres, and the doubles' own
     modules that the tests read their addresses from, cannot be handed an
     environment of their own - they inherit this one.
     """
-    anthropic_double_port, github_double_port, write_mcp_port = _free_ports(3)
+    anthropic_double_port, github_double_port, write_mcp_port, postgres_port = _free_ports(4)
     anthropic_double_at = f"http://{_LOOPBACK}:{anthropic_double_port}"
     github_double_at = f"http://{_LOOPBACK}:{github_double_port}"
-    os.environ.update(_INTEGRATION_STACK | {
+    os.environ.update(_a_suites_database(_INTEGRATION_PROJECT, postgres_port) | {
         "ANTHROPIC_DOUBLE_PORT": anthropic_double_port,
         # By address, as every port here is addressed: found free on it, and a
         # name resolving to IPv6 first would reach whatever holds the number on
@@ -1646,9 +1658,10 @@ def _started_with_a_token(env: dict[str, str] | None = None) -> tuple[dict[str, 
     return {**(env or {}), _DOUBLE_TOKEN_SETTING: token}, token
 
 
-def _free_ports(how_many: int) -> list[str]:
+def _free_ports(how_many: int, besides: Collection[str] = frozenset()) -> list[str]:
     """`how_many` loopback ports nothing was listening on a moment ago, no two
-    the same, for services a session starts that no stack shares.
+    the same and none of them in `besides`, for services a session starts that
+    no stack shares.
 
     Asked of the operating system rather than written here. A written port is
     shared by every copy of a session running at once - a second checkout's,
@@ -1658,18 +1671,29 @@ def _free_ports(how_many: int) -> list[str]:
     Held together until all are found, so none is handed out twice, and let go
     before they are returned, so the services can bind them.
 
+    `besides` is the ports this process has already handed out and whose
+    services may not have bound them yet - `test_all`'s, for the suites it
+    is running. Nothing is listening on such a port, so the operating system
+    may well offer it again (on Linux and macOS it picks at random), and the
+    second suite to bind it would die at setup. A draw that repeats one is
+    asked again.
+
     Written here rather than imported from the testkit's `a_free_port`, which
     is not necessarily installed when this file is read.
     """
-    asking = [socket.socket(socket.AF_INET, socket.SOCK_STREAM) for _ in range(how_many)]
-    try:
-        for one in asking:
-            one.bind((_LOOPBACK, 0))
+    while True:
+        asking = [socket.socket(socket.AF_INET, socket.SOCK_STREAM) for _ in range(how_many)]
+        try:
+            for one in asking:
+                one.bind((_LOOPBACK, 0))
 
-        return [str(one.getsockname()[1]) for one in asking]
-    finally:
-        for one in asking:
-            one.close()
+            ports = [str(one.getsockname()[1]) for one in asking]
+        finally:
+            for one in asking:
+                one.close()
+
+        if not any(port in besides for port in ports):
+            return ports
 
 
 # Where a port from `_free_ports` is found free, and so where it is addressed:
@@ -1719,28 +1743,41 @@ _INTENT_ANTHROPIC_DOUBLE_BASE_URL = f"http://{_LOOPBACK}:{_INTENT_ANTHROPIC_DOUB
 _JUDGE_ANTHROPIC_DOUBLE_PORT = "8088"
 _JUDGE_ANTHROPIC_DOUBLE_BASE_URL = f"http://{_LOOPBACK}:{_JUDGE_ANTHROPIC_DOUBLE_PORT}"
 
-# Where the sessions that can run beside an e2e stack put the things that would
-# otherwise collide with it. Every collision is a port or a database: a second
-# double dies on the bind, and a second suite emptying tables between tests
-# would truncate the other run's incident mid-walk.
-#
-# Not 5433, which reads as "the second postgres" and is already the flag
-# provider's database in the e2e stack. Far enough from both that nothing else
-# here claims them.
-_INTEGRATION_POSTGRES_PORT = "5544"
-# Where one module's own database goes, counted from the module's place in
-# `MODULES`. Derived rather than listed, because a module is discovered rather
-# than declared and a table of ports would be one more place to remember to add
-# it to. Adding a module shifts the numbers after it, which costs nothing: no
-# port here outlives the session that publishes it.
-_MODULE_SUITE_PORT_BASE = 5546
-# Where a suite's own vector store listens, for the reason its database has a
-# port of its own. Three module suites want one - the code index, long-term
-# memory and the store's own adapter - and the e2e stack runs a fourth on 6333,
-# so a sweep is four stores at once and the second to bind dies. A compose project
-# of one's own is not enough here: it makes the *container* somebody else's, and
-# the published port is still the host's one address.
-_MODULE_SUITE_QDRANT_PORT_BASE = 6350
+# How many hex digits of `_this_checkouts_mark` a suite's compose project
+# carries: enough that two checkouts on one machine never draw the same, short
+# enough that a container's name still reads as the suite's.
+_CHECKOUT_MARK_LENGTH: Final = 8
+
+
+def _this_checkouts_mark() -> str:
+    """What tells this checkout's suites apart from another's on the same Docker:
+    a digest of where the checkout is.
+
+    A suite's containers belong to its compose project, and a project is found
+    by name alone - wherever the command naming it was run from. Named only for
+    the suite, every checkout of this repository - a second clone, a worktree,
+    a WSL clone talking to Docker Desktop's daemon - named the same project:
+    `up` adopted the other checkout's running database, the schema reset emptied
+    it under the other suite, and the teardown stopped it. Free ports could not
+    help, because the project, not the port, is what decides whose container it is.
+
+    The path rather than a name drawn per run, because the project has to be
+    found again by a *different* process - the sweep that removes what a
+    killed suite left (`_SWEEP_PROJECTS`) - and because a suite ends with `stop`
+    rather than `down`, so a name drawn per run would leave a stopped
+    container behind per run. Two runs of one suite in one checkout still
+    share a project, as they always have: they are the same suite under one
+    project (see `test_all`).
+
+    Case-folded where the platform's paths are, so a drive letter spelled
+    either way is one checkout.
+    """
+    where = os.path.normcase(str(Path(__file__).resolve().parent))
+
+    return hashlib.sha256(where.encode()).hexdigest()[:_CHECKOUT_MARK_LENGTH]
+
+
+_THIS_CHECKOUT: Final = _this_checkouts_mark()
 
 
 def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
@@ -1774,9 +1811,16 @@ def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
 # given there.
 _SUITE_COMPOSE_FILES: Final = os.pathsep.join(["docker-compose.yml", "docker-compose.suites.yml"])
 
-_INTEGRATION_STACK = _a_database_of_its_own(
-    "argus-integration", _INTEGRATION_POSTGRES_PORT
-) | {"COMPOSE_FILE": _SUITE_COMPOSE_FILES}
+
+def _a_suites_database(project: str, port: str) -> dict[str, str]:
+    """A suite's database - a module suite's or `integration`'s: its own
+    project and port, held in memory (`_SUITE_COMPOSE_FILES`)."""
+    return _a_database_of_its_own(project, port) | {"COMPOSE_FILE": _SUITE_COMPOSE_FILES}
+
+
+# `integration`'s compose project: the suite's, in this checkout
+# (`_this_checkouts_mark`).
+_INTEGRATION_PROJECT: Final = f"argus-integration-{_THIS_CHECKOUT}"
 
 # Where the stack `e2e`, `e2e_replay`, `record` and `stack` bring up lives: its
 # compose project, its database, its store, and the port of every process of it
@@ -1797,40 +1841,43 @@ _THE_STACKS_OWN_PLACES: Final = _a_database_of_its_own("argus", _STACK_POSTGRES_
 }
 
 
-def _a_database_for(module: str) -> dict[str, str]:
-    """One module's own database, so two module suites can run at once.
+def _the_project_of(module: str) -> str:
+    """The compose project one module's suite brings its containers up under:
+    the module's, in this checkout (`_this_checkouts_mark`).
 
     A module rather than the session, because `test_module` is parametrized
     and `test_all` runs every module at once: two suites in flight are two
     processes each bringing postgres up and each stopping it afterwards, and
-    the one that finishes first stops the other's.
-
-    A module nobody discovered has no place to count from, which would silently
-    become somebody else's port. Nothing can ask for one - the parametrization
-    comes from `MODULES` - so this says so rather than defending against it.
-
-    Held in memory rather than on a volume - see `_SUITE_COMPOSE_FILES`.
+    under one project the one that finishes first stops the other's.
     """
-    return _a_database_of_its_own(
-        f"argus-module-{module}",
-        str(_MODULE_SUITE_PORT_BASE + MODULES.index(module))
-    ) | {"COMPOSE_FILE": _SUITE_COMPOSE_FILES}
+    return f"argus-module-{module}-{_THIS_CHECKOUT}"
 
 
-def _a_qdrant_for(module: str) -> dict[str, str]:
-    """One module's own vector store, counted the way its database is.
+def _the_places_for(module: str, besides: Collection[str] = frozenset()) -> dict[str, str]:
+    """One module's own database and vector store, for one run of its suite:
+    its project, and ports the operating system hands this run (`_free_ports`),
+    none of them in `besides` - the ports `test_all` has handed the suites it
+    is running.
 
-    Set for every module rather than for the three that open one, because which
-    modules those are is a fact about their conftests rather than about this
-    file, and a port nobody binds costs nothing.
+    Ports drawn rather than written, for `_free_ports`' reason: a written port
+    is every checkout's at once, and a WSL run's too through `wslrelay.exe`, so
+    the second suite to bind dies on it. With the project this checkout's own,
+    a port drawn twice is a bind that fails loudly, never a suite talking to
+    another's database. Drawn when the suite starts rather than once for a
+    whole `test_all`, so the moments between finding a port free and docker
+    binding it are a suite's start rather than a queue's wait.
 
-    The port alone. Every conftest that wants a store derives its URL from this
-    and falls back to 6333, so a port published here and not read there would
-    move the container and leave the client talking to whatever else holds the
-    default.
+    The store's port set for every module rather than for the three that open
+    one, because which modules those are is a fact about their conftests rather
+    than about this file, and a port nobody binds costs nothing. The port
+    alone: every conftest that wants a store derives its URL from it and falls
+    back to 6333, so a port published here and not read there would move the
+    container and leave the client talking to whatever else holds the default.
     """
-    return {
-        "ARGUS_QDRANT_PORT": str(_MODULE_SUITE_QDRANT_PORT_BASE + MODULES.index(module))
+    database_port, store_port = _free_ports(2, besides)
+
+    return _a_suites_database(_the_project_of(module), database_port) | {
+        "ARGUS_QDRANT_PORT": store_port
     }
 
 
@@ -1839,10 +1886,11 @@ def _a_qdrant_for(module: str) -> dict[str, str]:
 # once and any of them may have been mid-run when it was killed. Read only when
 # a suite had to be killed: it is what lets the sweep finish a teardown that
 # never ran, and the reason a suite's projects have to be stated somewhere a
-# *different* process can find them.
+# *different* process can find them - which is why they are named for the
+# checkout rather than for the run.
 _SWEEP_PROJECTS: Final[dict[str, tuple[str, ...]]] = {
-    "test_all": tuple(_a_database_for(module)["COMPOSE_PROJECT_NAME"] for module in MODULES),
-    "integration": (_INTEGRATION_STACK["COMPOSE_PROJECT_NAME"],),
+    "test_all": tuple(_the_project_of(module) for module in MODULES),
+    "integration": (_INTEGRATION_PROJECT,),
     _E2E_REPLAY_IN_PRODUCTION_MODE: (_THE_STACKS_OWN_PLACES["COMPOSE_PROJECT_NAME"],)
 }
 
