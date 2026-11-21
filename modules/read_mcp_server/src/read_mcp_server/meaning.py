@@ -27,14 +27,11 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
-from collections.abc import Callable
 from typing import Final, Protocol
 
 from core import Connections, SettingsSlice
 from core.models import CodeSearch
-from core.source_scope import belongs_to_the_service
-from qdrant_client import QdrantClient
+from core.vector_store import VectorSearch
 from repository_index import records
 from repository_index.freshness import Freshness
 from repository_index.indexing import Embedder
@@ -139,15 +136,26 @@ class IndexUnreachable(Exception):
 
 
 class NearestPassages(Protocol):
-    """How this module asks the store what is near a vector.
+    """How this module asks the store what is near a vector, inside a scope and
+    above a floor.
 
-    The seam is the query rather than the client under it: what Qdrant does with
-    a vector belongs to `repository_index` and is asserted there against a real one.
-    The collection and the connection are bound where the server is built, so
-    what arrives here is the question and nothing about where it is asked.
+    The seam is the query rather than the store under it: what a store does with
+    a vector, a scope and a floor belongs to `repository_index` and the store's
+    adapter, and is asserted there against a real one. The collection and the
+    connection are bound where the server is built, so what arrives here is the
+    question and nothing about where it is asked.
+
+    `floor` of `None` asks for every score the ranking reaches, which a
+    measurement of where scores land needs and no answer to a model does.
     """
 
-    def __call__(self, vector: list[float], limit: int, /) -> list[Found]: ...
+    def __call__(self,
+                 vector: list[float],
+                 limit: int,
+                 /,
+                 *,
+                 floor: float | None,
+                 source_paths: str) -> list[Found]: ...
 
 
 class IndexedSha(Protocol):
@@ -172,43 +180,21 @@ class HeadOf(Protocol):
     def __call__(self, branch: str, /) -> str: ...
 
 
-def _a_client_at(url: str) -> QdrantClient:
-    return QdrantClient(url=url)
+def passages_in(search: VectorSearch) -> NearestPassages:
+    """The real query, asked of the store this deployment keeps its index in.
 
-
-def the_index_at(settings: IndexReadSettings,
-                 client_for: Callable[[str], QdrantClient] = _a_client_at) -> NearestPassages:
-    """The real query, aimed at the store this deployment keeps its index in.
-
-    A factory rather than a function taking the address, so what the tool is
-    handed stays the two-argument `NearestPassages` a test can stand in for.
-
-    The client is built once, on the first search rather than here - opening
-    one per call would pay for a connection on every question a model asks,
-    and building one reaches out: its version check runs on a thread of its own
-    and swallows every failure into a warning. So a server built and never
-    asked reaches nothing, as the embedder beside it loads nothing, and the
-    warning about the store's version arrives with the first search instead of
-    at startup.
-
-    Built under a lock, because FastMCP answers tools on a pool of threads and
-    two first searches would otherwise build two clients, one of them never
-    closed. A client that failed to build is not kept: the next search tries
-    again, so a store that was down for the first question is not down for the
-    life of the server.
+    Handed the store rather than an address: the adapter is built where the
+    server is wired, and what reaches this module is the port. A function of
+    its own so that what the tool is handed stays the `NearestPassages` a test
+    can stand in for.
     """
-    built: list[QdrantClient] = []
-    building = threading.Lock()
-
-    def the_client() -> QdrantClient:
-        with building:
-            if not built:
-                built.append(client_for(settings.qdrant_url))
-
-            return built[0]
-
-    def find(vector: list[float], limit: int, /) -> list[Found]:
-        return nearest(the_client(), settings.repository_index_collection, vector, limit)
+    def find(vector: list[float],
+             limit: int,
+             /,
+             *,
+             floor: float | None,
+             source_paths: str) -> list[Found]:
+        return nearest(search, vector, limit, floor=floor, source_paths=source_paths)
 
     return find
 
@@ -252,18 +238,19 @@ def search_repository_by_meaning(description: str,
     told only "possibly stale" cannot.
 
     Scoped by the same configuration the substring channel is, so a file one
-    channel will not answer from is a file the other will not either. Applied
-    here as well as at indexing time because the two are configured separately:
-    an index built under a wider scope than this reader is asked about must not
-    answer outside it.
+    channel will not answer from is a file the other will not either. Asked for
+    here as well as applied at indexing time because the two are configured
+    separately: an index built under a wider scope than this reader is asked
+    about must not answer outside it. Asked of the store, with the floor, rather
+    than applied to what it ranked - the nearest passages outside the scope
+    would otherwise take the places the service's own were owed.
 
     Raises `IndexUnreachable` when the store could not be asked.
     """
     passages = [
         _located(found)
-        for found in _the_nearest_to(description, embed, find)
-        if found.score >= NEAR_ENOUGH_TO_ANSWER
-        if belongs_to_the_service(found.chunk.path, settings.github_source_paths)
+        for found in _the_nearest_to(description, embed, find,
+                                     source_paths=settings.github_source_paths)
     ]
     notice = the_index_notice(ref=ref, head_of=head_of, indexed_sha=indexed_sha)
 
@@ -311,8 +298,11 @@ def the_index_notice(*, ref: str, head_of: HeadOf, indexed_sha: IndexedSha) -> s
 
 def _the_nearest_to(description: str,
                     embed: Embedder,
-                    find: NearestPassages) -> list[Found]:
-    """What the store offers for this description, ranked as it ranked them.
+                    find: NearestPassages,
+                    *,
+                    source_paths: str) -> list[Found]:
+    """What the store offers for this description inside the service's source
+    and near enough to answer, ranked as it ranked them.
 
     The description is embedded outside the attempt, because a model that
     failed to load is this process's own problem and reporting it as an
@@ -321,7 +311,8 @@ def _the_nearest_to(description: str,
     vector = embed([description])[0]
 
     try:
-        return find(vector, MOST_PASSAGES_WORTH_ANSWERING)
+        return find(vector, MOST_PASSAGES_WORTH_ANSWERING,
+                    floor=NEAR_ENOUGH_TO_ANSWER, source_paths=source_paths)
     except Exception as error:
         raise IndexUnreachable(
             f"could not search the index for [{description}]: {error}"

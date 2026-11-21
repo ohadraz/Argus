@@ -33,18 +33,16 @@ dependencies = [
 # contains it.
 #
 # Every caller that writes or searches declares `argus-incident_memory[store]`.
-# The kernel's `vector_store` and `embedding` doors are open only to the modules
-# that declare their extras, this one among them, so any other module reaching
-# them is a broken front-door contract rather than an ImportError at the close
-# of a live incident.
+# The kernel's `embedding` door is open only to the modules that declare its
+# extra, this one among them, so any other module reaching it is a broken
+# front-door contract rather than an ImportError at the close of a live incident.
+# The store's port is the kernel's and installs nothing; its adapter is the
+# deliverer's to build, and is what this extra installs.
 [project.optional-dependencies]
 store = [
-    # Pinned to the minor the server is pinned to in `docker-compose.yml`, and
-    # to the same minor `repository_index` pins: one Qdrant serves both collections,
-    # and two clients a minor apart against one server is a mismatch nobody
-    # sees until a payload field is refused.
-    "qdrant-client>=1.19,<1.20",
-    "argus-core[vector_store]",
+    # The vector store's adapter, which the deliverer's `main` builds. The
+    # vendor's client comes with it, pinned there once for both corpora.
+    "argus-vector_store_qdrant",
     # The same local, free, keyless embedder the repository index uses, and
     # the same one: it is the kernel's, behind the kernel's door. Chosen for
     # costing nothing and waiting on nobody rather than for retrieval quality -
@@ -59,13 +57,13 @@ store = [
 
 [dependency-groups]
 dev = [
-    # The schema, because the component tests file records in a database
-    # started from an empty one rather than adopting whatever the container
-    # came up with.
+    # The schema, because the component and integration tests file records in
+    # a database started from an empty one rather than adopting whatever the
+    # container came up with.
     "argus-core[migrations]",
     "argus-argus_testkit",
     # Its own store extra, for the reason `repository_index` declares its: the
-    # component tests write to a real Qdrant and embed with the real model,
+    # integration tests write to a real Qdrant through the store's adapter,
     # which is the only way to answer whether a record written can be found.
     "argus-incident_memory[store]",
 ]
@@ -74,6 +72,7 @@ dev = [
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-telemetry = { workspace = true }
+argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

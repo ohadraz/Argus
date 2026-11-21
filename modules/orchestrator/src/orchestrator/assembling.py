@@ -17,7 +17,6 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import partial
-from typing import TYPE_CHECKING
 
 from codefix_agent import FixSettings, fixes_over
 from core import Connections, Holding, LLMSettings, SettingsSlice, get_settings
@@ -26,6 +25,7 @@ from core.autonomy import admit
 from core.embedding import an_embedder
 from core.llm import build_llm_client
 from core.mcp_transport import McpClient
+from core.vector_store import VectorSearch
 from incident_memory.records import RememberedIncident
 from incident_record import (
     calls_into,
@@ -76,9 +76,6 @@ from orchestrator.sources import the_real_sources
 from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.ports import RecallSimilar, Resuming
 
-if TYPE_CHECKING:
-    from incident_memory.recalling import MemoryStore
-
 _logger = logging.getLogger(__name__)
 
 
@@ -91,12 +88,9 @@ class IncidentMemorySettings(SettingsSlice):
     only those should be able to name a credential.
 
     Declared here rather than in `incident_memory`, whose walk-side modules
-    read no configuration at all - they are handed a client, a collection and
-    an embedder, and deciding what those are for a walk is this module's job.
-    The deliverer reads a slice of its own, being a process of its own. Putting
-    this one there would also mean importing a module that imports Qdrant in
-    order to name six strings, which is the deferral in the factory below
-    undone by its own settings.
+    read no configuration at all - they are handed a store and an embedder,
+    and deciding what those are for a walk is this module's job. The deliverer
+    reads a slice of its own, being a process of its own.
     """
 
     incident_memory_enabled: bool
@@ -110,7 +104,7 @@ class IncidentMemorySettings(SettingsSlice):
 
 
 @contextmanager
-def the_store_for(settings: IncidentMemorySettings) -> Generator[MemoryStore | None]:
+def the_store_for(settings: IncidentMemorySettings) -> Generator[VectorSearch | None]:
     """The one vector store a process holds, for as long as it runs. Or none.
 
     Opened where a process starts and closed when it stops, beside the pool and
@@ -123,8 +117,11 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[MemoryStore | N
     Read here rather than by the factory below, so that whether there is a
     store to speak of is settled once, by the process, before a graph exists.
 
-    Opened through the reading side of the store, which is the only side a walk
-    may know: the walk searches what is there and files the rest.
+    Opened through the reading side of the store's adapter, which is the only
+    side a walk may know, and yielded as the port, which can only search: the
+    walk searches what is there and files the rest. The adapter is imported
+    here, where it is built, and only once memory is on - a worker with memory
+    off loads no store's client.
     """
     if not settings.incident_memory_enabled:
         _logger.info("incident memory disabled")
@@ -133,16 +130,16 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[MemoryStore | N
 
         return
 
-    from incident_memory.recalling import the_store_at
+    from vector_store_qdrant.searching import the_search_at
 
-    with the_store_at(settings.qdrant_url) as store:
+    with the_search_at(settings.qdrant_url, settings.incident_memory_collection) as store:
         yield store
 
 
 def against(connections: Connections,
             read: McpClient,
             write: McpClient,
-            store: MemoryStore | None,
+            store: VectorSearch | None,
             holding: Holding) -> Collaborators:
     """The real ones, for a process that has a database, a model and two tiers.
 
@@ -156,7 +153,7 @@ def against(connections: Connections,
     the incident tried is a row, written through `connections` like every other.
 
     Being handed the store is what keeps a test off the network, and not only
-    tidy. Constructing a `QdrantClient` starts a daemon thread that asks the
+    tidy. Opening the store's client starts a daemon thread that asks the
     configured address for its version, and every failure of that thread is
     swallowed into a warning - so a unit test that built one reached out, and
     reached out silently. Passing `None`, or a double, is the only way that
@@ -386,7 +383,7 @@ def _the_page_of(argus_at: str, incident_id: str) -> str:
 
 
 def _recalling(settings: IncidentMemorySettings,
-               store: MemoryStore | None) -> RecallSimilar:
+               store: VectorSearch | None) -> RecallSimilar:
     """What earlier incidents this one resembles, or nothing at all.
 
     Nothing where the process holds no store, and nothing where the store
@@ -406,7 +403,6 @@ def _recalling(settings: IncidentMemorySettings,
 
     recall = recalling_from(
         store,
-        settings.incident_memory_collection,
         an_embedder(settings.incident_memory_embedding_model),
         limit=settings.incident_memory_recall_limit,
         floor=settings.incident_memory_similarity_floor,

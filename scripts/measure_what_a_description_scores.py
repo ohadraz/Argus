@@ -35,10 +35,12 @@ from read_mcp_server.meaning import (  # noqa: E402
     NEAR_ENOUGH_TO_ANSWER,
     IndexReadSettings,
     NearestPassages,
-    the_index_at,
+    passages_in,
 )
 from repository_index.embedding import an_embedder  # noqa: E402
 from repository_index.indexing import Embedder  # noqa: E402
+from repository_index.store import Found  # noqa: E402
+from vector_store_qdrant import SearchOpenedOnFirstUse  # noqa: E402
 
 from tests.framework.measuring import the_measurement_of  # noqa: E402
 
@@ -135,7 +137,7 @@ def _scored(kind: str,
         # The embedder takes and returns a batch, as indexing wants it; one
         # description is a batch of one and its vector the only one back.
         vector, = embed([description])
-        found = find(vector, MOST_PASSAGES_WORTH_ANSWERING)
+        found = _unfloored(find, vector)
 
         if every_hit:
             print(f"\n{scenario}: {description[:78]}")
@@ -168,9 +170,16 @@ def _every_score(descriptions: tuple[tuple[str, str], ...],
 
     for _, description in descriptions:
         vector, = embed([description])
-        scores.extend(hit.score for hit in find(vector, MOST_PASSAGES_WORTH_ANSWERING))
+        scores.extend(hit.score for hit in _unfloored(find, vector))
 
     return scores
+
+
+def _unfloored(find: NearestPassages, vector: list[float]) -> list[Found]:
+    """The passages a search would rank, before any floor or scope - which is
+    the whole of what this measures: where scores land, on both sides of the
+    floor in use."""
+    return find(vector, MOST_PASSAGES_WORTH_ANSWERING, floor=None, source_paths="")
 
 
 def _swept(answered: list[float], unanswered: list[float], passages: int) -> None:
@@ -209,7 +218,9 @@ def main() -> None:
     """Scores what the shop answers and what nothing answers, and compares them."""
     settings = IndexReadSettings.of(get_settings())
     embed = an_embedder()
-    find = the_index_at(settings)
+    find = passages_in(
+        SearchOpenedOnFirstUse(settings.qdrant_url, settings.repository_index_collection)
+    )
     answered = the_descriptions_code_fix_searched_with()
 
     if not answered:

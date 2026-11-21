@@ -14,6 +14,9 @@ dependencies = [
     # not do is import them. `incident_memory`'s own extra says why the trade
     # is taken this way round.
     "argus-incident_memory[store]",
+    # The vector store's adapter, whose reading side the worker builds and
+    # hands the walk as the port. Opened only where memory is on.
+    "argus-vector_store_qdrant",
     "argus-investigation_agent",
     "argus-mitigation",
     "argus-codefix_agent",
@@ -56,6 +59,7 @@ dev = [
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-incident_memory = { workspace = true }
+argus-vector_store_qdrant = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
 argus-telemetry = { workspace = true }

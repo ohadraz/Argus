@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import Any, Final, cast
 
 import psycopg
 from core import Connections, Holding, get_settings
@@ -29,6 +29,7 @@ from core.telemetry import (
     UNIT_SECONDS,
     UNIT_WALKS,
 )
+from core.vector_store import VectorSearch
 from incident_record import events_into_connection, publish_beside
 from incident_record.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -42,9 +43,6 @@ from psycopg_pool import ConnectionPool
 from orchestrator.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.state import IncidentState
-
-if TYPE_CHECKING:
-    from incident_memory.recalling import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +80,7 @@ def graph_for(connections: Connections,
               checkpoints: ConnectionPool,
               read: McpClient,
               write: McpClient,
-              store: MemoryStore | None,
+              store: VectorSearch | None,
               holding: Holding) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 

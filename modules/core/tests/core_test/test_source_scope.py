@@ -21,8 +21,8 @@ answering it with no files at all would report an empty repository.
 from __future__ import annotations
 
 import pytest
-from argus_testkit import Assertion, Scenario
-from core.source_scope import belongs_to_the_service
+from argus_testkit import Assertion, Scenario, the_answer_was
+from core.source_scope import belongs_to_the_service, the_prefixes_of
 
 SOME_SERVICE_DIRECTORY = "src/io_shop"
 SOME_SERVICE_MODULE = "spend_summary.py"
@@ -107,6 +107,26 @@ def test_a_setting_of_separators_alone_is_the_same_as_no_setting() -> None:
             )
         ) \
         .then(_the_path_was_in_scope())
+
+
+@pytest.mark.unit
+def test_the_prefixes_a_setting_names_are_read_as_the_rule_reads_them() -> None:
+    # What a store is asked to match by when the scope is applied inside a
+    # search rather than to its answer. Read any other way, a passage the
+    # substring channel answers from would be one the index never offers.
+    Scenario() \
+        .given(the_service_lives_in := f"{SOME_SERVICE_DIRECTORY}, {SOME_TESTS_DIRECTORY}") \
+        .when(lambda: the_prefixes_of(the_service_lives_in)) \
+        .then(the_answer_was((SOME_SERVICE_DIRECTORY, SOME_TESTS_DIRECTORY)))
+
+
+@pytest.mark.unit
+def test_a_setting_of_separators_alone_names_no_prefix() -> None:
+    # No prefix is no condition: everything is the service's, as the rule says.
+    Scenario() \
+        .given(the_entries_were_deleted := " , , ") \
+        .when(lambda: the_prefixes_of(the_entries_were_deleted)) \
+        .then(the_answer_was(()))
 
 
 def _the_path_was_in_scope() -> Assertion[bool]:

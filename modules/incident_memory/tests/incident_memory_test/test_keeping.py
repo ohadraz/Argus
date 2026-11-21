@@ -20,26 +20,29 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
 from core.embedding import Embedder
 from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
+from core.vector_store import VectorSearch
 from incident_memory.keeping import kept_in
 from incident_memory.recalling import SERVICE_FIELD, Recaller, recalling_from
 from incident_memory.records import RememberedIncident
 from qdrant_client import QdrantClient
 from qdrant_client.models import CollectionInfo, PayloadSchemaType
+from vector_store_qdrant.indexing import QdrantIndex
 
 from incident_memory_test.framework.assertions import these_incidents_come_back
 
-SOME_COLLECTION = "incidents"
+# The collection conftest's `store` keeps records in, mirrored for the one case
+# that asks the vendor what it made of it.
+THE_STORES_COLLECTION = "incidents"
 SOME_SERVICE = "io-shop"
-
+DONT_CARE_INCIDENT = "the-flag-one"
+DONT_CARE_ALERT = "HighErrorRate"
 ENOUGH_ROOM_FOR_THEM_ALL = 10
 NO_FLOOR_WORTH_MENTIONING = 0.0
-
 # What each text embeds to, under the stand-in below. Two descriptions that
 # should match sit near each other; the third sits well away from both.
 WHAT_HAPPENED_HERE = "checkout began failing after a flag was switched on"
 WHAT_HAPPENED_BEFORE = "checkout failures followed a feature flag change"
 SOMETHING_ELSE_ENTIRELY = "the warehouse label printer ran out of paper"
-
 _VECTORS = {
     WHAT_HAPPENED_HERE: [1.0, 0.0, 0.0, 0.0],
     WHAT_HAPPENED_BEFORE: [0.9, 0.1, 0.0, 0.0],
@@ -47,60 +50,54 @@ _VECTORS = {
 }
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_a_record_is_found_by_a_description_that_means_the_same_thing(
-    store: QdrantClient
+    store: QdrantIndex
 ) -> None:
     # The whole arrangement in one case: a record kept under one description is
     # reached by a different description that embeds near it. Neither end names
     # a vector, which is what the binding is for.
     the_incident_that_happened_before = "the-flag-one"
 
-    kept_in(store, SOME_COLLECTION, _an_embedder())(
-        _an_incident(the_incident_that_happened_before, WHAT_HAPPENED_BEFORE)
-    )
-
     Scenario() \
-        .given(store) \
+        .given(calling(lambda: kept_in(store, _an_embedder())(
+            _an_incident(the_incident_that_happened_before, WHAT_HAPPENED_BEFORE)
+        ))) \
         .when(lambda: _recalling(store)(WHAT_HAPPENED_HERE, SOME_SERVICE)) \
         .then(these_incidents_come_back([the_incident_that_happened_before]))
 
 
-@pytest.mark.component
-def test_a_record_about_something_else_is_not_reached(store: QdrantClient) -> None:
+@pytest.mark.integration
+def test_a_record_about_something_else_is_not_reached(store: QdrantIndex) -> None:
     # The other half of the same claim. A search that returned this one would
     # mean the description was never what the record was stored under - which a
     # test asserting only the match above would not notice.
     the_one_about_something_else = "the-printer-one"
     a_floor_it_does_not_clear = 0.5
 
-    kept_in(store, SOME_COLLECTION, _an_embedder())(
-        _an_incident(the_one_about_something_else, SOMETHING_ELSE_ENTIRELY)
-    )
-
     Scenario() \
-        .given(store) \
+        .given(calling(lambda: kept_in(store, _an_embedder())(
+            _an_incident(the_one_about_something_else, SOMETHING_ELSE_ENTIRELY)
+        ))) \
         .when(lambda: _recalling(store, floor=a_floor_it_does_not_clear)(
             WHAT_HAPPENED_HERE, SOME_SERVICE
         )) \
         .then(these_incidents_come_back([]))
 
 
-@pytest.mark.component
-def test_the_whole_record_comes_back_not_just_what_it_was_found_by(store: QdrantClient) -> None:
+@pytest.mark.integration
+def test_the_whole_record_comes_back_not_just_what_it_was_found_by(store: QdrantIndex) -> None:
     # The record goes through an embedder and a store and comes back whole. It
     # is the list of attempts that a later ordering reads, and a binding that
     # kept only what it searched by would be a memory of nothing.
     the_flag_that_did_not_help = "new-checkout-flow"
 
-    kept_in(store, SOME_COLLECTION, _an_embedder())(
-        _an_incident("the-flag-one",
-                     WHAT_HAPPENED_BEFORE,
-                     tried=[(the_flag_that_did_not_help, Verdict.REFUTED)])
-    )
-
     Scenario() \
-        .given(store) \
+        .given(calling(lambda: kept_in(store, _an_embedder())(
+            _an_incident(DONT_CARE_INCIDENT,
+                         WHAT_HAPPENED_BEFORE,
+                         tried=[(the_flag_that_did_not_help, Verdict.REFUTED)])
+        ))) \
         .when(lambda: _recalling(store)(WHAT_HAPPENED_HERE, SOME_SERVICE)) \
         .then(all_of(
             _it_remembers_trying(the_flag_that_did_not_help),
@@ -108,8 +105,8 @@ def test_the_whole_record_comes_back_not_just_what_it_was_found_by(store: Qdrant
         ))
 
 
-@pytest.mark.component
-def test_one_incident_kept_twice_is_one_record(store: QdrantClient) -> None:
+@pytest.mark.integration
+def test_one_incident_kept_twice_is_one_record(store: QdrantIndex) -> None:
     # A record refiled is delivered again. Two copies of one incident would
     # count twice in an ordering, which is a past incident given a second vote
     # for having been interrupted.
@@ -117,10 +114,10 @@ def test_one_incident_kept_twice_is_one_record(store: QdrantClient) -> None:
 
     Scenario() \
         .given(
-            calling(lambda: kept_in(store, SOME_COLLECTION, _an_embedder())(
+            calling(lambda: kept_in(store, _an_embedder())(
                 _an_incident(the_same_incident, WHAT_HAPPENED_BEFORE)
             )),
-            calling(lambda: kept_in(store, SOME_COLLECTION, _an_embedder())(
+            calling(lambda: kept_in(store, _an_embedder())(
                 _an_incident(the_same_incident, WHAT_HAPPENED_HERE)
             ))
         ) \
@@ -128,8 +125,9 @@ def test_one_incident_kept_twice_is_one_record(store: QdrantClient) -> None:
         .then(these_incidents_come_back([the_same_incident]))
 
 
-@pytest.mark.component
-def test_the_field_every_search_narrows_by_is_indexed(store: QdrantClient) -> None:
+@pytest.mark.integration
+def test_the_field_every_search_narrows_by_is_indexed(store: QdrantIndex,
+                                                      client: QdrantClient) -> None:
     # Every search here narrows to one service before anything is compared, and
     # narrowing during the search rather than after it is why a store like this
     # was chosen. Without the payload index the answers are the same and the
@@ -142,11 +140,11 @@ def test_the_field_every_search_narrows_by_is_indexed(store: QdrantClient) -> No
     # so keeping one is what brings it into existence.
     Scenario() \
         .given(
-            calling(lambda: kept_in(store, SOME_COLLECTION, _an_embedder())(
+            calling(lambda: kept_in(store, _an_embedder())(
                 _an_incident("the-one-that-made-the-collection", WHAT_HAPPENED_BEFORE)
             ))
         ) \
-        .when(lambda: store.get_collection(SOME_COLLECTION)) \
+        .when(lambda: client.get_collection(THE_STORES_COLLECTION)) \
         .then(_the_payload_field_indexed_is(SERVICE_FIELD))
 
 
@@ -163,11 +161,10 @@ def _an_embedder() -> Embedder:
     return embed
 
 
-def _recalling(store: QdrantClient,
+def _recalling(store: VectorSearch,
                floor: float = NO_FLOOR_WORTH_MENTIONING) -> Recaller:
     return recalling_from(
         store,
-        SOME_COLLECTION,
         _an_embedder(),
         limit=ENOUGH_ROOM_FOR_THEM_ALL,
         floor=floor
@@ -181,7 +178,7 @@ def _an_incident(incident_id: str,
         incident_id=incident_id,
         described_as=described_as,
         service=SOME_SERVICE,
-        alert_name="HighErrorRate",
+        alert_name=DONT_CARE_ALERT,
         tried=[
             WhatWasTried(
                 identity=ActionIdentity(

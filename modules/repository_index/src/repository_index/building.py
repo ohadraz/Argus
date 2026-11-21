@@ -22,7 +22,7 @@ from typing import Protocol
 
 import psycopg
 from core import SettingsSlice
-from qdrant_client import QdrantClient
+from core.vector_store import VectorIndex
 from repository_source import RepositorySourceSettings, the_source_at
 
 from repository_index.indexing import Candidate, Embedder, candidates_for, points_of
@@ -77,7 +77,7 @@ def index_repository(repository: str,
                      *,
                      settings: IndexSettings,
                      conn: psycopg.Connection,
-                     store: QdrantClient,
+                     store: VectorIndex,
                      embed: Embedder,
                      read_source: SourceReader = the_source_at,
                      paths: list[str] | None = None) -> None:
@@ -99,7 +99,7 @@ def index_repository(repository: str,
 def _bring_one_file_up_to_date(path: str,
                                source: Mapping[str, str],
                                settings: IndexSettings,
-                               store: QdrantClient,
+                               store: VectorIndex,
                                embed: Embedder) -> None:
     """One file, brought to what it now says - including saying nothing.
 
@@ -107,15 +107,11 @@ def _bring_one_file_up_to_date(path: str,
     and it reaches here as a file that yields no passages. Nothing else would
     ever forget it: the file is gone, so no later pass considers it.
     """
-    held = ids_held_for(store, settings.repository_index_collection, path)
+    held = ids_held_for(store, path)
     wanted = _the_passages_of(path, source, settings)
 
     _put_in_what_is_missing(wanted, held, settings, store, embed)
-    forget(
-        store,
-        settings.repository_index_collection,
-        [one for one in held if one not in {candidate.id for candidate in wanted}]
-    )
+    forget(store, [one for one in held if one not in {candidate.id for candidate in wanted}])
 
 
 def _the_passages_of(path: str,
@@ -143,7 +139,7 @@ def _the_passages_of(path: str,
 def _put_in_what_is_missing(wanted: list[Candidate],
                             held: set[str],
                             settings: IndexSettings,
-                            store: QdrantClient,
+                            store: VectorIndex,
                             embed: Embedder) -> None:
     """Embeds and stores the passages the store does not already hold.
 
@@ -156,12 +152,7 @@ def _put_in_what_is_missing(wanted: list[Candidate],
     if not points:
         return
 
-    store_points(
-        store,
-        settings.repository_index_collection,
-        points,
-        width=len(points[0].vector)
-    )
+    store_points(store, points, width=len(points[0].vector))
 
 
 def _the_source_settings(settings: IndexSettings) -> RepositorySourceSettings:

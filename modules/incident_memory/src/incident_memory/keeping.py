@@ -25,15 +25,13 @@ from typing import Final
 from uuid import UUID, uuid5
 
 from core.embedding import Embedder
-from core.vector_store import a_collection_that_exists
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct
+from core.vector_store import StoredVector, VectorIndex
 
 from incident_memory.recalling import RECORD_FIELD, SERVICE_FIELD
 from incident_memory.records import RememberedIncident
 
-# The namespace an incident's id is hashed into to make a point id. Qdrant takes
-# a UUID or an integer and an incident id is neither by guarantee, so the id is
+# The namespace an incident's id is hashed into to make a point id. A store may
+# take a UUID and nothing freer, and an incident id is not one by guarantee, so the id is
 # derived rather than required to be one - and derived rather than generated, so
 # that a record delivered twice leaves one record instead of two votes.
 POINT_NAMESPACE: Final = UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")
@@ -41,8 +39,7 @@ POINT_NAMESPACE: Final = UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")
 type Keeper = Callable[[RememberedIncident], None]
 
 
-def remember(client: QdrantClient,
-             collection: str,
+def remember(index: VectorIndex,
              record: RememberedIncident,
              vector: list[float]) -> None:
     """Keeps this record, making the collection if it is not there yet.
@@ -52,26 +49,20 @@ def remember(client: QdrantClient,
     one incident would count twice in an ordering - a past incident given a
     second vote for having been interrupted.
     """
-    a_collection_that_exists(
-        client, collection, width=len(vector), indexed_field=SERVICE_FIELD
-    )
-
-    client.upsert(
-        collection_name=collection,
-        points=[
-            PointStruct(
-                id=str(uuid5(POINT_NAMESPACE, record.incident_id)),
-                vector=vector,
-                payload={
-                    SERVICE_FIELD: record.service,
-                    RECORD_FIELD: record.model_dump(mode="json")
-                }
-            )
-        ]
-    )
+    index.ensure(width=len(vector), indexed_field=SERVICE_FIELD)
+    index.upsert([
+        StoredVector(
+            id=str(uuid5(POINT_NAMESPACE, record.incident_id)),
+            vector=vector,
+            payload={
+                SERVICE_FIELD: record.service,
+                RECORD_FIELD: record.model_dump(mode="json")
+            }
+        )
+    ])
 
 
-def kept_in(client: QdrantClient, collection: str, embed: Embedder) -> Keeper:
+def kept_in(index: VectorIndex, embed: Embedder) -> Keeper:
     """Keeping a record: embed what it is described as, then store it.
 
     Embedded on the way in, so the store never holds a record without its
@@ -81,6 +72,6 @@ def kept_in(client: QdrantClient, collection: str, embed: Embedder) -> Keeper:
     """
 
     def keep(record: RememberedIncident) -> None:
-        remember(client, collection, record, embed([record.described_as])[0])
+        remember(index, record, embed([record.described_as])[0])
 
     return keep

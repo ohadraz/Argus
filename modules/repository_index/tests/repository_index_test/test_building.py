@@ -26,40 +26,38 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from qdrant_client import QdrantClient
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting, calling
 from repository_index.building import IndexSettings, SourceReader, index_repository
 from repository_index.indexing import Embedder
 from repository_index.records import get
 from repository_index.store import chunks_held_for, ids_held_for
 from repository_source import RepositoryUnreadable
+from vector_store_qdrant.indexing import QdrantIndex
 
 # What a file this cannot parse is cut by. The fixtures here are Python and are
 # cut at their own definitions, so these govern nothing in this suite - they are
 # a pair `Settings` would accept, said out loud rather than defaulted.
 SOME_MAX_LINES = 60
 SOME_OVERLAP = 10
-
-SOME_COLLECTION = "repository_index_building_test"
+# Required by the settings and read by nothing here: the store a pass is handed
+# is bound to its collection where it is built.
+DONT_CARE_COLLECTION = "repository_index_building_test"
 SOME_REPOSITORY = "owner/some-service"
 SOME_DIRECTORY = "src/shop"
-
 SOME_PATH = f"{SOME_DIRECTORY}/summary.py"
 ANOTHER_PATH = f"{SOME_DIRECTORY}/accounts.py"
 SOME_PATH_OUT_OF_SCOPE = "harness/scenarios.py"
-
 SOME_SHA = "9abaec7"
 A_LATER_SHA = "cbe7bc3"
 DONT_CARE_BRANCH = "main"
-
 SOME_SOURCE = "def summary() -> None:\n    return None\n"
 ANOTHER_SOURCE = "def accounts() -> None:\n    return None\n"
 SOME_EDITED_SOURCE = "def summary() -> int:\n    return 1\n"
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_every_file_in_the_repository_ends_up_in_the_store(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     Scenario() \
         .when(
@@ -75,9 +73,9 @@ def test_every_file_in_the_repository_ends_up_in_the_store(
         )
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_a_finished_index_records_the_commit_it_was_built_from(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     # Without this the index is current and cannot say so, and the catch-up pass
     # rebuilds it on every pass forever.
@@ -86,9 +84,9 @@ def test_a_finished_index_records_the_commit_it_was_built_from(
         .then(_the_recorded_commit_is(records, SOME_SHA))
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_a_file_outside_the_scope_never_reaches_the_store(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     # The harness that stages incidents. An agent retrieving it is retrieving
     # how its own incidents are made.
@@ -103,24 +101,26 @@ def test_a_file_outside_the_scope_never_reaches_the_store(
         .then(_the_store_holds_nothing_for(store, SOME_PATH_OUT_OF_SCOPE))
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_a_second_pass_over_unchanged_source_embeds_nothing(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     # The common case on every push: one file changed and the rest did not. The
     # rest must cost nothing, which is what the content-derived id is for.
     some_files = {SOME_PATH: SOME_SOURCE, ANOTHER_PATH: ANOTHER_SOURCE}
-    _indexed(store, records, some_files)
-    embed = _an_embedder()
 
     Scenario() \
+        .given(
+            calling(lambda: _indexed(store, records, some_files)),
+            embed := _an_embedder()
+        ) \
         .when(lambda: _indexed(store, records, some_files, embed=embed)) \
         .then(_the_embedder_was_never_called(embed))
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_reindexing_a_changed_file_removes_the_old_version(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     # The delete side. Without it the store answers with the passage as it was
     # as well as the passage as it is, and a reader cannot tell which is which.
@@ -140,9 +140,9 @@ def test_reindexing_a_changed_file_removes_the_old_version(
         )
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_naming_the_paths_that_changed_leaves_the_others_alone(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     # What a push gives you. A pass told which files moved must not re-examine
     # the rest - and must not drop them either, which is the failure mode worth
@@ -161,9 +161,9 @@ def test_naming_the_paths_that_changed_leaves_the_others_alone(
         .then(_the_store_holds_something_for(store, ANOTHER_PATH))
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_a_file_a_push_removed_is_forgotten(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     # A path named by the push and absent from the source is a deletion. Nothing
     # else would ever forget it: the file is gone, so no later pass considers it.
@@ -178,9 +178,9 @@ def test_a_file_a_push_removed_is_forgotten(
         .then(_the_store_holds_nothing_for(store, SOME_PATH))
 
 
-@pytest.mark.component
+@pytest.mark.integration
 def test_a_repository_that_could_not_be_read_does_not_move_the_mark(
-    store: QdrantClient, records: psycopg.Connection
+    store: QdrantIndex, records: psycopg.Connection
 ) -> None:
     # The level-triggered guarantee. Nothing counts attempts, so a pass that
     # failed must leave the difference between the two commits exactly where it
@@ -203,7 +203,7 @@ def test_a_repository_that_could_not_be_read_does_not_move_the_mark(
         )
 
 
-def _indexed(store: QdrantClient,
+def _indexed(store: QdrantIndex,
              records: psycopg.Connection,
              files: dict[str, str],
              sha: str = SOME_SHA,
@@ -228,14 +228,14 @@ def _indexed(store: QdrantClient,
     )
 
 
-def _indexed_then_read(store: QdrantClient,
+def _indexed_then_read(store: QdrantIndex,
                        records: psycopg.Connection,
                        files: dict[str, str],
                        path: str) -> list[str]:
     """A pass, then what the store says about one file - one subject to assert."""
     _indexed(store, records, files)
 
-    return [chunk.text for chunk in chunks_held_for(store, SOME_COLLECTION, path)]
+    return [chunk.text for chunk in chunks_held_for(store, path)]
 
 
 def _some_settings() -> IndexSettings:
@@ -245,7 +245,7 @@ def _some_settings() -> IndexSettings:
         github_read_token="ghp_dont-care-read-token",
         github_source_paths=SOME_DIRECTORY,
         github_base_branch=DONT_CARE_BRANCH,
-        repository_index_collection=SOME_COLLECTION,
+        repository_index_collection=DONT_CARE_COLLECTION,
         repository_index_max_lines=SOME_MAX_LINES,
         repository_index_chunk_overlap=SOME_OVERLAP
     )
@@ -276,10 +276,10 @@ def _an_embedder() -> Any:
     return embed
 
 
-def _the_store_holds_something_for(store: QdrantClient,
+def _the_store_holds_something_for(store: QdrantIndex,
                                    path: str) -> Assertion[object]:
     def the_store_holds_something_for(_: object) -> bool:
-        if not ids_held_for(store, SOME_COLLECTION, path):
+        if not ids_held_for(store, path):
             raise AssertionError(
                 f"Expected the store to hold passages for [{path}], "
                 f"and it held none."
@@ -290,10 +290,10 @@ def _the_store_holds_something_for(store: QdrantClient,
     return the_store_holds_something_for
 
 
-def _the_store_holds_nothing_for(store: QdrantClient,
+def _the_store_holds_nothing_for(store: QdrantIndex,
                                  path: str) -> Assertion[object]:
     def the_store_holds_nothing_for(_: object) -> bool:
-        held = ids_held_for(store, SOME_COLLECTION, path)
+        held = ids_held_for(store, path)
 
         if held:
             raise AssertionError(

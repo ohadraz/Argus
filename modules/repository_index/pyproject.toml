@@ -21,11 +21,9 @@ dependencies = [
 # layering contract here rather than an ImportError in a live incident.
 [project.optional-dependencies]
 store = [
-    # Pinned to the minor the server is pinned to in `docker-compose.yml` - the
-    # two are released together, and a client a minor ahead of its store is a
-    # mismatch nobody sees until a payload field is refused.
-    "qdrant-client>=1.19,<1.20",
-    "argus-core[vector_store]",
+    # The vector store's adapter, which the catch-up loop's `main` builds. The
+    # vendor's client comes with it, pinned there once for both corpora.
+    "argus-vector_store_qdrant",
     # The model runs in this process. Chosen for being local, free and
     # dependent on nothing external - not for retrieval quality, which a
     # code-trained hosted model would beat. What it buys instead is that
@@ -43,15 +41,16 @@ store = [
 
 [dependency-groups]
 dev = [
-    # The schema, because the component tests start from an empty one rather
-    # than adopting whatever the container came up with.
+    # The schema, because the component and integration tests start from an
+    # empty one rather than adopting whatever the container came up with.
     "argus-core[migrations]",
     "argus-argus_testkit",
-    # Its own store extra. The component tests open a real Qdrant and load the
-    # real model - they are what the extra exists to be tested through - so the
-    # suite declares it rather than relying on a developer's `.venv` happening
-    # to hold it from an `--all-packages` sync. Without this the module passes
-    # locally and fails on a clean runner, which is the worst way round.
+    # Its own store extra. The integration tests open a real Qdrant through the
+    # store's adapter and the component tests load the real model - they are
+    # what the extra exists to be tested through - so the suite declares it
+    # rather than relying on a developer's `.venv` happening to hold it from an
+    # `--all-packages` sync. Without this the module passes locally and fails
+    # on a clean runner, which is the worst way round.
     "argus-repository_index[store]",
 ]
 
@@ -60,6 +59,7 @@ dev = [
 argus-core = { workspace = true }
 argus-telemetry = { workspace = true }
 argus-repository_source = { workspace = true }
+argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

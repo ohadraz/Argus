@@ -3,9 +3,9 @@
 The walk reads memory and never writes it. What it files is a row the fence can
 refuse (`filing`), and the store is filled from the rows by a process of its own
 (`delivering`) - so everything here is a read, and a read made for a run that
-was since taken back changes nothing anybody else holds. That is why this is
-the one module of the store's that a walk may reach, and the layering guard
-holds every other way to the store shut.
+was since taken back changes nothing anybody else holds. That is why this is the
+side of memory a walk may reach, and why what it is handed is a `VectorSearch`:
+a write typed here does not type-check.
 
 Two halves. `recalled` is the search itself, in the store's vocabulary: a vector
 in, records out. `recalling_from` binds the model and the store into the
@@ -13,21 +13,18 @@ question the walk actually asks, which is text: the same model has to embed the
 question as embedded the records, and binding it here, once, is what stops two
 callers arranging that separately.
 
-The client is opened here too, for the process that holds one: the walk's
-worker opens it when it starts and closes it when it stops, beside its pool.
+No store is opened here. The process that holds one opens it where it is wired,
+through the vendor's adapter, and hands it in typed as the port.
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from core.embedding import Embedder
-from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from core.vector_store import Equals, VectorSearch, VectorStoreUnavailable
 
 from incident_memory.records import RememberedIncident
 
@@ -40,36 +37,11 @@ from incident_memory.records import RememberedIncident
 SERVICE_FIELD: Final = "service"
 RECORD_FIELD: Final = "record"
 
-# The store a process holds, by the name the walk knows it by. The client itself,
-# named here so that a process typing what it holds reaches the store through
-# the one module of it the walk may know.
-type MemoryStore = QdrantClient
-
 type Recaller = Callable[[str, str], list[RememberedIncident]]
 
-# Where a status says the store failed for itself rather than refused the
-# question: from here up, the same search asked again can be answered.
-_THE_STORE_FAILED: Final = 500
 
-
-@contextmanager
-def the_store_at(url: str) -> Generator[MemoryStore]:
-    """One client onto the store, for as long as the block runs.
-
-    Not a `with` around the client itself: `QdrantClient` closes but is not a
-    context manager, which is the same bargain `repository_index`'s catch-up makes.
-    """
-    store = QdrantClient(url=url)
-
-    try:
-        yield store
-    finally:
-        store.close()
-
-
-def recalled(client: QdrantClient,
-             collection: str,
-             vector: list[float],
+def recalled(store: VectorSearch,
+             vector: Sequence[float],
              *,
              service: str,
              limit: int,
@@ -79,24 +51,24 @@ def recalled(client: QdrantClient,
              sleep: Callable[[float], None] = time.sleep) -> list[RememberedIncident]:
     """The incidents most like this one, nearest first, at most `limit` of them.
 
-    Narrowed to one service before anything is compared. Whether two incidents
-    happened to the same service is an exact question, and a description that
-    merely mentions a service name is not an answer to it.
+    Narrowed to one service inside the search, before anything is compared.
+    Whether two incidents happened to the same service is an exact question,
+    and a description that merely mentions a service name is not an answer to
+    it - and narrowed afterwards, the nearest incidents of other services would
+    take places this service's own were owed.
 
-    `floor` is the caller's policy, applied here so that nothing above ever sees
-    a record it was meant to ignore. A nearest-neighbour search always answers:
-    without a floor, a corpus holding one unrelated incident hands it back as the
-    nearest thing it has, and an ordering would demote a candidate on it.
+    `floor` is the caller's policy, applied inside the search so that nothing
+    above ever sees a record it was meant to ignore. A nearest-neighbour search
+    always answers: without a floor, a corpus holding one unrelated incident
+    hands it back as the nearest thing it has, and an ordering would demote a
+    candidate on it.
 
-    A store with no collection yet finds nothing, which is an answer rather than
-    a failure - it is the ordinary state before the first incident ends.
-
-    A search the store failed for itself (a 5xx) is asked again, up to
-    `attempts` in all, `retry_seconds` apart: Qdrant answered one with "Expected
-    at least one response for one query" while the record searched for was
-    there. A refusal of the question (a 4xx) is raised at once, since the same
-    question gets the same answer; and the last failure is raised, since the
-    caller is the one who knows what to do without memory.
+    A search the store failed for itself is asked again, up to `attempts` in
+    all, `retry_seconds` apart: Qdrant answered one with "Expected at least one
+    response for one query" while the record searched for was there. A refusal
+    of the question is raised at once, since the same question gets the same
+    answer; and the last failure is raised, since the caller is the one who knows
+    what to do without memory.
 
     Fewer than one attempt is refused rather than read as asking nothing: a
     search that never ran has no answer to give, and an empty one would read as
@@ -105,23 +77,15 @@ def recalled(client: QdrantClient,
     if attempts < 1:
         raise ValueError(f"a search needs at least one attempt, and was allowed {attempts}")
 
-    if not client.collection_exists(collection):
-        return []
-
     def searched() -> list[RememberedIncident]:
-        found = client.query_points(
-            collection_name=collection,
-            query=vector,
-            query_filter=Filter(
-                must=[FieldCondition(key=SERVICE_FIELD, match=MatchValue(value=service))]
-            ),
-            limit=limit,
-            score_threshold=floor,
-            with_payload=True
-        )
         return [
-            RememberedIncident.model_validate((point.payload or {})[RECORD_FIELD])
-            for point in found.points
+            RememberedIncident.model_validate(hit.payload[RECORD_FIELD])
+            for hit in store.nearest(
+                vector,
+                limit=limit,
+                where=[Equals(field=SERVICE_FIELD, value=service)],
+                floor=floor
+            )
         ]
 
     # Every attempt but the last may be asked again; the last one's failure is
@@ -129,16 +93,13 @@ def recalled(client: QdrantClient,
     for _ in range(attempts - 1):
         try:
             return searched()
-        except UnexpectedResponse as failure:
-            if (failure.status_code or 0) < _THE_STORE_FAILED:
-                raise
+        except VectorStoreUnavailable:
             sleep(retry_seconds)
 
     return searched()
 
 
-def recalling_from(client: QdrantClient,
-                   collection: str,
+def recalling_from(store: VectorSearch,
                    embed: Embedder,
                    *,
                    limit: int,
@@ -159,8 +120,7 @@ def recalling_from(client: QdrantClient,
 
     def recall(described_as: str, service: str) -> list[RememberedIncident]:
         return recalled(
-            client,
-            collection,
+            store,
             embed([described_as])[0],
             service=service,
             limit=limit,

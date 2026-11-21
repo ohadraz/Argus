@@ -438,7 +438,7 @@ def an_indexer() -> Any:
     """A stand-in for the pass itself.
 
     The seam is the call rather than the store under it: what indexing does is
-    asserted in this module's own component tests against a real Qdrant, and
+    asserted in this module's own integration tests against a real Qdrant, and
     what belongs here is which commit it is aimed at and with which paths.
     """
     return create_autospec(Indexer, instance=True)

@@ -16,26 +16,21 @@ code".
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from typing import Any
-from unittest.mock import Mock, create_autospec
+from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
-from core.models import CodeSearch
-from qdrant_client import QdrantClient
 from read_mcp_server.meaning import (
     NEAR_ENOUGH_TO_ANSWER,
     HeadOf,
     IndexedSha,
-    IndexReadSettings,
     IndexUnreachable,
     NearestPassages,
     search_repository_by_meaning,
-    the_index_at,
     the_index_notice,
 )
 from read_mcp_server.repository import RepositoryReadSettings
@@ -51,10 +46,6 @@ THE_BRANCH_DEPLOYED = "main"
 
 DONT_CARE_DESCRIPTION = "something the service does"
 SOME_VECTOR = [0.1, 0.2, 0.3]
-
-SOME_INDEX_SETTINGS = IndexReadSettings(qdrant_url="http://qdrant.invalid",
-                                        repository_index_collection="dont-care-collection",
-                                        code_search=CodeSearch.MEANING)
 
 _THE_DIVISION = "def average_spend(purchases):\n    return total(purchases) / len(purchases)"
 
@@ -160,18 +151,14 @@ def test_what_is_searched_for_is_the_description_that_was_asked_about() -> None:
 
 
 @pytest.mark.unit
-def test_a_passage_no_nearer_than_anything_else_is_not_offered() -> None:
+def test_nothing_further_off_than_near_enough_is_asked_for() -> None:
     # A store always answers its k nearest, however far away they are: ask an
     # index of a shop about kernel scheduling and it returns the shop's checkout
     # with a low score. Offered unfiltered, that is a model reading three
-    # irrelevant files and concluding the retriever found the cause.
-    index = an_index_holding(
-        a_passage(path="src/io_shop/spend_summary.py", first_line=14, last_line=15,
-                  text=_THE_DIVISION, score=NEAR_ENOUGH_TO_ANSWER + 0.1),
-        a_passage(path="src/io_shop/accounts.py", first_line=3, last_line=4,
-                  text="def owner_of(account):\n    return account.owner",
-                  score=NEAR_ENOUGH_TO_ANSWER - 0.1)
-    )
+    # irrelevant files and concluding the retriever found the cause. Asked of
+    # the store rather than applied to its answer, so a passage too far off
+    # never takes a place a nearer one was owed.
+    index = an_index_holding()
 
     Scenario() \
         .when(
@@ -185,7 +172,7 @@ def test_a_passage_no_nearer_than_anything_else_is_not_offered() -> None:
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
-        .then(_the_passages_answered_are(["src/io_shop/spend_summary.py:14-15"]))
+        .then(_the_store_was_asked_above(index, NEAR_ENOUGH_TO_ANSWER))
 
 
 @pytest.mark.unit
@@ -236,36 +223,32 @@ def test_a_store_that_could_not_be_reached_is_not_answered_as_nothing_found() ->
 
 
 @pytest.mark.unit
-def test_a_passage_outside_the_service_s_own_source_is_not_answered() -> None:
+def test_only_the_service_s_own_source_is_asked_for() -> None:
     # The same scope the substring channel applies, and for the same reason: the
-    # repository carries the harness that stages incidents against the shop, and
-    # that harness describes in prose what it is staging. Searched by meaning it
-    # is the *best* match for a description of the fault - the answer rather
-    # than the evidence.
+    # repository carries the harness that stages incidents against the shop,
+    # and a passage of it is the answer rather than the evidence.
     #
-    # Applied here as well as at indexing time because the two are configured
-    # separately: an index built under a wider scope than the reader is asked
-    # about must not answer outside it.
-    index = an_index_holding(
-        a_passage(path="src/io_shop/spend_summary.py", first_line=14, last_line=15,
-                  text=_THE_DIVISION),
-        a_passage(path="src/target_app/scenarios.py", first_line=8, last_line=9,
-                  text="# divides the discount by a count that can be zero")
-    )
+    # Asked for here as well as applied at indexing time because the two are
+    # configured separately: an index built under a wider scope than the reader
+    # is asked about must not answer outside it. And asked of the store rather
+    # than applied to its answer: the wider index's passages, where nearer,
+    # would otherwise take the places the service's own passages were owed.
+    index = an_index_holding()
+    the_service_lives_in = "src/io_shop"
 
     Scenario() \
         .when(
             lambda: search_repository_by_meaning(
                 DONT_CARE_DESCRIPTION,
                 ref=THE_COMMIT_DEPLOYED,
-                settings=some_settings(source_paths="src/io_shop"),
+                settings=some_settings(source_paths=the_service_lives_in),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
                 head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
-        .then(_the_passages_answered_are(["src/io_shop/spend_summary.py:14-15"]))
+        .then(_the_store_was_asked_within(index, the_service_lives_in))
 
 
 @pytest.mark.unit
@@ -613,64 +596,6 @@ def test_a_branch_that_could_not_be_looked_up_is_logged_as_a_warning(
         )
 
 
-@pytest.mark.unit
-def test_an_index_nobody_has_searched_has_reached_for_no_store() -> None:
-    # A client reaches out as it is built - its version check runs on a thread
-    # of its own and swallows every failure into a warning - so a server built
-    # and never asked to search by meaning, a test's or a deployment's, reaches
-    # nothing, as the embedder beside it loads nothing until it is asked.
-    client_for = a_store_with_no_index()
-
-    Scenario() \
-        .when(lambda: the_index_at(SOME_INDEX_SETTINGS, client_for=client_for)) \
-        .then(_stores_reached_for(client_for, 0))
-
-
-@pytest.mark.unit
-def test_an_index_searched_twice_reaches_for_one_store() -> None:
-    # One client for the life of the server: a connection per question is one
-    # a model waits through on every search.
-    client_for = a_store_with_no_index()
-    find = the_index_at(SOME_INDEX_SETTINGS, client_for=client_for)
-
-    Scenario() \
-        .when(lambda: [find(SOME_VECTOR, 1), find(SOME_VECTOR, 1)]) \
-        .then(_stores_reached_for(client_for, 1))
-
-
-@pytest.mark.unit
-def test_a_store_that_could_not_be_reached_for_is_reached_for_again() -> None:
-    # A store down when the first search came is not down for the life of the
-    # server: what failed to be built is not kept, so the next search tries.
-    client_for = a_store_with_no_index()
-    client_for.side_effect = [ConnectionError("no route to qdrant"), client_for.return_value]
-    find = the_index_at(SOME_INDEX_SETTINGS, client_for=client_for)
-
-    Scenario() \
-        .when(lambda: _searched_again_after_a_failure(find)) \
-        .then(_stores_reached_for(client_for, 2))
-
-
-def _searched_again_after_a_failure(find: NearestPassages) -> list[Found]:
-    with contextlib.suppress(ConnectionError):
-        find(SOME_VECTOR, 1)
-
-    return find(SOME_VECTOR, 1)
-
-
-def _stores_reached_for(client_for: Mock, times: int) -> Assertion[Any]:
-    def assertion(_: Any) -> bool:
-        if client_for.call_count != times:
-            raise AssertionError(
-                f"Expected a store reached for {times} time(s), and it was reached for "
-                f"{client_for.call_count}."
-            )
-
-        return True
-
-    return assertion
-
-
 def _what_was_said_names(indexed: str, deployed: str) -> Assertion[str]:
     """Both commits, so a reader can judge the gap rather than fear it."""
     def assertion(said: str) -> bool:
@@ -818,6 +743,32 @@ def _what_was_embedded_was(embed: Any, description: str) -> Assertion[Any]:
     return assertion
 
 
+def _the_store_was_asked_above(index: Any, floor: float) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        asked = index.call_args.kwargs.get("floor")
+
+        if asked != floor:
+            raise AssertionError(f"Expected the search asked above [{floor}], got [{asked}].")
+
+        return True
+
+    return assertion
+
+
+def _the_store_was_asked_within(index: Any, source_paths: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        asked = index.call_args.kwargs.get("source_paths")
+
+        if asked != source_paths:
+            raise AssertionError(
+                f"Expected the search asked within [{source_paths}], got [{asked}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _what_was_searched_for_was(index: Any, vector: list[float]) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         searched = index.call_args.args[0]
@@ -878,15 +829,6 @@ def a_branch_nobody_can_look_up() -> Any:
     head_of.side_effect = ConnectionError("no route to the repository")
 
     return head_of
-
-
-def a_store_with_no_index() -> Mock:
-    """What builds a client, building one whose store holds no index - so a
-    search through it answers nothing, and reaches nowhere."""
-    client = create_autospec(QdrantClient, instance=True)
-    client.collection_exists.return_value = False
-
-    return Mock(return_value=client)
 
 
 def an_embedder_answering(vector: list[float]) -> Any:

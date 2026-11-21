@@ -48,6 +48,7 @@ from pydantic import Field
 from repository_index.embedding import an_embedder
 from repository_source import the_branch_contains, the_head_of
 from telemetry import start_telemetry
+from vector_store_qdrant import SearchOpenedOnFirstUse
 
 from read_mcp_server import (
     alert_rules,
@@ -464,11 +465,16 @@ def build_server(endpoint: ReadMcpEndpoint,
 
         return mcp
 
-    # Bound once, like the fetchers above. The embedder is the odd one: it
-    # loads a model on first use rather than here, so a server that is started
-    # and never asked to search by meaning never pays for it.
+    # Bound once, like the fetchers above. The embedder and the store are the
+    # odd ones: each opens on first use rather than here, so a server that is
+    # started and never asked to search by meaning loads no model and reaches
+    # no store. The store's adapter is built here and nowhere else in this
+    # tier, and handed on as the port, which can only search.
     embed = an_embedder()
-    find_passages = meaning.the_index_at(index_settings)
+    find_passages = meaning.passages_in(
+        SearchOpenedOnFirstUse(index_settings.qdrant_url,
+                               index_settings.repository_index_collection)
+    )
     indexed_sha = meaning.the_commit_indexed_for(
         repository_settings.github_repository, connections
     )

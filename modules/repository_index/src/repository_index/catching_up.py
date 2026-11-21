@@ -44,13 +44,13 @@ from core import (
 )
 from core.models import CodeSearch
 from core.schema import require_schema
-from qdrant_client import QdrantClient
 from repository_source import (
     RepositorySourceSettings,
     paths_changed_between,
     the_head_of,
 )
 from telemetry import start_telemetry
+from vector_store_qdrant.indexing import the_index_at
 
 from repository_index.building import IndexSettings, index_repository
 from repository_index.embedding import an_embedder
@@ -278,12 +278,14 @@ def main(argv: list[str] | None = None) -> None:
         )
         repository = index_settings.github_repository
 
-        # The client is closed in a `finally` rather than a `with`: it holds a
-        # session like a pool does, and unlike a pool it is not a context
-        # manager.
-        store = QdrantClient(url=catch_up_settings.qdrant_url)
-
-        with open_pool(DatabaseSettings.of(settings)) as pool:
+        # The adapter is built here and nowhere else in this process, and
+        # handed on as the port: a pass writes through a `VectorIndex`, and the
+        # vendor is this line's alone.
+        with (
+            the_index_at(catch_up_settings.qdrant_url,
+                         index_settings.repository_index_collection) as store,
+            open_pool(DatabaseSettings.of(settings)) as pool
+        ):
             with pool.connection() as conn:
                 require_schema(conn)
 
@@ -318,15 +320,12 @@ def main(argv: list[str] | None = None) -> None:
 
             logger.info("index catch-up started", extra={"repository": repository, "once": once})
 
-            try:
-                if once:
-                    pass_over()
-                else:
-                    catch_up_forever(
-                        catch_up_settings.repository_index_interval_seconds, pass_over
-                    )
-            finally:
-                store.close()
+            if once:
+                pass_over()
+            else:
+                catch_up_forever(
+                    catch_up_settings.repository_index_interval_seconds, pass_over
+                )
 
 
 if __name__ == "__main__":

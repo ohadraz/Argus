@@ -37,10 +37,22 @@ def belongs_to_the_service(path: str, source_paths: str) -> bool:
     no files at all would report an empty repository - which is a different
     thing from a repository with nothing in scope, and the wrong one.
     """
-    scoped = [
+    scoped = the_prefixes_of(source_paths)
+
+    return not scoped or any(path.startswith(prefix) for prefix in scoped)
+
+
+def the_prefixes_of(source_paths: str) -> tuple[str, ...]:
+    """The prefixes a deployment's setting names, as `belongs_to_the_service`
+    matches them.
+
+    For a caller that asks a store to do the matching rather than doing it
+    itself: the index is searched inside the scope, and the scope it is searched
+    inside has to be read exactly as this module reads it. Empty where the
+    setting scopes nothing, which admits everything.
+    """
+    return tuple(
         prefix.strip()
         for prefix in source_paths.split(SCOPE_SEPARATOR)
         if prefix.strip()
-    ]
-
-    return not scoped or any(path.startswith(prefix) for prefix in scoped)
+    )

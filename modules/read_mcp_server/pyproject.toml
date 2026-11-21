@@ -10,6 +10,8 @@ dependencies = [
     "argus-flag_provider",
     "argus-metrics_source",
     "argus-repository_source",
+    # The vector store's adapter, built in `server.py` and handed on as the port.
+    "argus-vector_store_qdrant",
     "httpx2",
     "mcp>=1.29.0",
 ]
@@ -27,6 +29,7 @@ argus-deployment_platform = { workspace = true }
 argus-flag_provider = { workspace = true }
 argus-metrics_source = { workspace = true }
 argus-repository_source = { workspace = true }
+argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 [build-system]

@@ -26,10 +26,11 @@ restating it: two lists of one thing is one of them going stale.
 
 And it holds the walk to the half of its own contract that import-linter cannot
 see: no package that walks an incident reaches a vendor's SDK for a store the
-fence cannot reach. import-linter sees a third party only with
+fence cannot reach. And it holds every module to a vendor's SDK being imported
+by that vendor's adapter alone. import-linter sees a third party only with
 `include_external_packages`, which is global, and turns every `["*"]` contract
 against the standard library - so the graph with third parties in it is built
-here, for this rule alone.
+here, for these two rules alone.
 
 And it holds who may make an admission, which import-linter cannot say either.
 The Mitigator imports the autonomy policy (`core.autonomy`) because its write
@@ -92,16 +93,24 @@ WALK_CONTRACT = "the walk writes to no store the fence cannot reach"
 # The vendors' SDKs a walk may not reach: the vector store long-term memory is
 # searched in, and the chat platform people are told in. Neither has a fence, so
 # a write through either from a walk whose run was taken back is a write nothing
-# refuses. Named here rather than in the contract, which cannot name a third
-# party at all.
+# refuses. Named here rather than in the contract, which would see a third party
+# only with `include_external_packages` - a setting that is global.
 STORES_THE_FENCE_CANNOT_REACH = ("qdrant_client", "slack_sdk")
 
 # The one way a walk reaches one of them, and why it may: recall reads, and a
 # read made for a run since taken back changes nothing anybody else holds. The
-# reading side of the store is the module the walk searches through, and nothing
-# beyond it - the writing side reaches the same SDK, and is the contract's to
-# forbid.
-THE_WAY_RECALL_READS = ("incident_memory.recalling", "qdrant_client")
+# reading side of the store's adapter is what the walk's wiring builds, and
+# nothing beyond it - the writing side reaches the same SDK, and is the
+# contract's to forbid.
+THE_WAY_RECALL_READS = ("vector_store_qdrant.searching", "qdrant_client")
+
+# Each vendor's SDK, by the one package allowed to import it: the adapter named
+# for that vendor. Anything else importing the SDK is reaching past the port -
+# typing a store by the vendor's client again, which is how the port came to be
+# missing in the first place. Held here rather than by a contract for the reason
+# the walk's SDK rule is: import-linter sees a third party only with
+# `include_external_packages`, which is global (see the docstring above).
+SPOKEN_ONLY_BY_ITS_ADAPTER = {"qdrant_client": "vector_store_qdrant"}
 
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests
 # the modules behind the front doors, and a test that could only reach them
@@ -284,19 +293,54 @@ def the_chains_to_a_store_the_fence_cannot_reach(
     )
 
 
-def _the_walk_reaches_no_store_the_fence_cannot_reach(walk: set[str]) -> None:
-    """Refuses a walk that can write somewhere the fence cannot stop it.
+def the_vendors_spoken_past_their_adapter(graph: ImportGraph) -> list[tuple[str, str]]:
+    """Every module that imports a vendor's SDK without being its adapter, with
+    the SDK it imports.
 
-    Over the graph of the whole workspace, with the third parties in it - built
-    here and nowhere else, because import-linter's would then hold every one of
-    its contracts against them too.
+    Direct imports only: a module reaching the SDK through its adapter is using
+    the port's other side, which is what the adapter is for. Empty where every
+    SDK is spoken by its adapter alone.
     """
-    graph = grimp.build_graph(
+    return sorted(
+        (importer, vendor)
+        for vendor, adapter in SPOKEN_ONLY_BY_ITS_ADAPTER.items() if vendor in graph.modules
+        for importer in graph.find_modules_that_directly_import(vendor)
+        if importer != adapter and not importer.startswith(f"{adapter}.")
+    )
+
+
+def _the_whole_graph() -> ImportGraph:
+    """The workspace's import graph with the third parties in it - built here
+    and nowhere else, because import-linter's would then hold every one of its
+    contracts against them too."""
+    return grimp.build_graph(
         *sorted(_the_modules_the_contracts_see()),
         include_external_packages=True,
         cache_dir=None
     )
-    reached = the_chains_to_a_store_the_fence_cannot_reach(graph, walk)
+
+
+def _every_vendor_is_spoken_by_its_adapter_alone() -> None:
+    """Refuses a module that reaches a vendor's SDK past the port."""
+    spoken = the_vendors_spoken_past_their_adapter(_the_whole_graph())
+
+    if spoken:
+        print(
+            "these import a vendor's SDK that only its adapter may:\n"
+            + "\n".join(
+                f"  {importer} -> {vendor}\n      only {SPOKEN_ONLY_BY_ITS_ADAPTER[vendor]} may"
+                for importer, vendor in spoken
+            )
+            + "\nHold the port, and let the process's wiring build the adapter.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
+def _the_walk_reaches_no_store_the_fence_cannot_reach(walk: set[str]) -> None:
+    """Refuses a walk that can write somewhere the fence cannot stop it, over the
+    graph of the whole workspace with the third parties in it."""
+    reached = the_chains_to_a_store_the_fence_cannot_reach(_the_whole_graph(), walk)
 
     if reached:
         print(
@@ -646,9 +690,9 @@ def _only_the_walk_admits() -> None:
 
 
 def main() -> None:
-    """Checks the graph is whole, the suites behave, no repository commits,
-    the walk reaches no unfenced store and only the walk admits, then runs
-    every contract.
+    """Checks the graph is whole, the suites behave, no repository commits, every
+    vendor's SDK is spoken by its adapter alone, the walk reaches no unfenced
+    store and only the walk admits, then runs every contract.
 
     Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
@@ -663,6 +707,7 @@ def main() -> None:
     _the_suites_use_the_front_doors(_the_front_doors())
     _the_suites_keep_the_agents_apart(_the_independent_modules())
     _no_repository_commits()
+    _every_vendor_is_spoken_by_its_adapter_alone()
     _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
     _only_the_walk_admits()
     sys.exit(lint_imports_command())

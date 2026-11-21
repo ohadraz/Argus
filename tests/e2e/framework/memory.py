@@ -26,7 +26,7 @@ from core.embedding import an_embedder
 from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
 from incident_memory.keeping import kept_in
 from incident_memory.records import RememberedIncident
-from qdrant_client import QdrantClient
+from vector_store_qdrant.indexing import the_index_at
 
 from tests.e2e.framework.argus import THE_SERVICE_NAME
 from tests.e2e.framework.flags import THE_DEMO_FLAG
@@ -62,14 +62,9 @@ def that_flag_was_tried_before_and_did_not_help() -> None:
     the two call sites, and the adapter is where the two worlds drift apart again.
     """
     settings = get_settings()
-    store = QdrantClient(url=settings.qdrant_url)
 
-    try:
-        kept_in(
-            store,
-            settings.incident_memory_collection,
-            an_embedder(settings.incident_memory_embedding_model)
-        )(
+    with the_index_at(settings.qdrant_url, settings.incident_memory_collection) as store:
+        kept_in(store, an_embedder(settings.incident_memory_embedding_model))(
             RememberedIncident(
                 incident_id=AN_EARLIER_INCIDENT,
                 described_as=AS_IT_WAS_DESCRIBED,
@@ -85,5 +80,3 @@ def that_flag_was_tried_before_and_did_not_help() -> None:
                 ]
             )
         )
-    finally:
-        store.close()

@@ -36,10 +36,10 @@ from core import (
 from core.embedding import an_embedder
 from core.schema import require_schema
 from telemetry import start_telemetry
+from vector_store_qdrant.indexing import the_index_at
 
 from incident_memory.filing import get_undelivered, record_delivered
 from incident_memory.keeping import Keeper, kept_in
-from incident_memory.recalling import the_store_at
 
 logger = logging.getLogger(__name__)
 
@@ -183,16 +183,15 @@ def main() -> None:
 
         with (
             open_pool(DatabaseSettings.of(settings)) as pool,
-            the_store_at(delivery.qdrant_url) as store
+            # The adapter is built here and nowhere else in this process, and
+            # handed on as the port: what `keeping` writes through is a
+            # `VectorIndex`, and the vendor is this line's alone.
+            the_index_at(delivery.qdrant_url, delivery.incident_memory_collection) as store
         ):
             with pool.connection() as conn:
                 require_schema(conn)
 
-            keep = kept_in(
-                store,
-                delivery.incident_memory_collection,
-                an_embedder(delivery.incident_memory_embedding_model)
-            )
+            keep = kept_in(store, an_embedder(delivery.incident_memory_embedding_model))
 
             def pass_over() -> int:
                 """One pass, on a connection of its own for the whole of it -

@@ -612,8 +612,9 @@ def guard_layering(session: nox.Session) -> None:
     chat platform and telemetry know only the kernel, long-term memory holds
     records rather than reading the incident record, the postmortem's rendering
     works from values it is handed, the page serves HTML without installing an
-    agent, the chat platform, the deployment platform and the flag provider are
-    each known by their port with only a process's wiring knowing the vendor,
+    agent, the chat platform, the deployment platform, the flag provider and the
+    vector store are each known by their port with only a process's wiring
+    knowing the vendor,
     the walk writes to no store the fence cannot reach, no agent knows another
     agent, and the kernel is reached through its front doors rather than by
     module path.
@@ -623,14 +624,17 @@ def guard_layering(session: nox.Session) -> None:
     package is not one of them - which is how one agent's suite came to build
     a double out of another agent's code while every contract held. And it
     holds the walk to the SDK half of its own contract: no package that walks
-    an incident reaches a vendor's store the fence cannot reach.
+    an incident reaches a vendor's store the fence cannot reach. And it holds
+    every module to a vendor's SDK being imported by that vendor's adapter
+    alone - a contract would see a third party only with a setting that is
+    global.
 
     A guard rather than a note in `CLAUDE.md`, because the note was there while
     `incident_record` depended on an agent - a documented invariant nothing
     checks is one nobody finds out about.
 
     Then runs the guard's own suite, which builds the import graphs the SDK
-    rule is about and asks it what it makes of them. Here, because what it
+    rules are about and asks it what it makes of them. Here, because what it
     proves is that this session's check is still a check: a rule that stopped
     matching passes every build while the import it was written against comes
     back.
@@ -1637,9 +1641,9 @@ _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_ANTHRO
 # that had nothing to do with Slack takes down the run that did.
 _MODULE_SUITE_SLACK_PORT_BASE = 8100
 # Where a suite's own vector store listens, for the reason its database and its
-# Slack double have ports of their own. Two module suites want one - the code
-# index and long-term memory - and the e2e stack runs a third on 6333, so a
-# sweep is three stores at once and the second to bind dies. A compose project
+# Slack double have ports of their own. Three module suites want one - the code
+# index, long-term memory and the store's own adapter - and the e2e stack runs a
+# fourth on 6333, so a sweep is four stores at once and the second to bind dies. A compose project
 # of one's own is not enough here: it makes the *container* somebody else's, and
 # the published port is still the host's one address.
 _MODULE_SUITE_QDRANT_PORT_BASE = 6350
@@ -1746,12 +1750,12 @@ def _a_slack_double_for(module: str) -> dict[str, str]:
 def _a_qdrant_for(module: str) -> dict[str, str]:
     """One module's own vector store, counted the way its database is.
 
-    Set for every module rather than for the two that open one, for the reason
+    Set for every module rather than for the three that open one, for the reason
     the Slack double is: which modules those are is a fact about their conftests
     rather than about this file, and a port nobody binds costs nothing.
 
-    The port alone. Both conftests that want a store derive its URL from this
-    and fall back to 6333, so a port published here and not read there would
+    The port alone. Every conftest that wants a store derives its URL from this
+    and falls back to 6333, so a port published here and not read there would
     move the container and leave the client talking to whatever else holds the
     default.
     """

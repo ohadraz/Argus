@@ -4,13 +4,18 @@ Against a real Postgres, because what these cases are about is the database's
 half: an upsert that bumps a version only when the record changed, and a mark
 that moves only as far as the version it was given. A stand-in would answer both
 the way its author expected.
+
+And the reason the walk files a row rather than writing the store: a filing the
+fence refused, for a run since taken back, leaves nothing for a deliverer to
+carry.
 """
 
 from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, attempting, calling
+from core import Fence, connect_from_env, fence, was_lost
 from core.models import Verdict
 from incident_memory.filing import Filed, file, get_undelivered, record_delivered
 from incident_memory.records import RememberedIncident
@@ -20,7 +25,10 @@ from incident_memory_test.framework.builders import (
     a_remembered_incident,
     an_identity,
 )
-from incident_memory_test.framework.database import an_incident_on_record
+from incident_memory_test.framework.database import (
+    a_claim_since_taken_back,
+    an_incident_on_record,
+)
 
 ENOUGH_ROOM_FOR_THEM_ALL = 10
 
@@ -155,6 +163,26 @@ def test_the_oldest_filing_is_handed_over_first(records: psycopg.Connection) -> 
         .then(_these_wait(a_remembered_incident(filed_first), at_version=1))
 
 
+@pytest.mark.component
+def test_a_record_a_lost_run_could_not_file_leaves_nothing_to_deliver(
+    records: psycopg.Connection
+) -> None:
+    # The reason the walk writes a row rather than the store. A walk paused
+    # past its lease, its run taken back, wakes and files what it tried: the
+    # fence refuses the row, and a deliverer carries only rows, so nothing
+    # reaches the store over the record of the walk that holds the run now.
+    Scenario() \
+        .given(
+            an_incident := an_incident_on_record(records, SOME_INCIDENT),
+            stale := a_claim_since_taken_back(records, an_incident)
+        ) \
+        .when(attempting(lambda: _filed_for(stale, a_remembered_incident(SOME_INCIDENT)))) \
+        .then(all_of(
+            _the_run_was_lost(),
+            _nothing_is_waiting_in(records)
+        ))
+
+
 def _a_record_trying(subject: str, verdict: Verdict) -> RememberedIncident:
     return a_remembered_incident(SOME_INCIDENT, tried=[(an_identity(subject), verdict)])
 
@@ -205,12 +233,41 @@ def _the_version_waiting_is(version: int) -> Assertion[list[Filed]]:
     return assertion
 
 
+def _nothing_is_waiting_in(records: psycopg.Connection) -> Assertion[object]:
+    """Nothing waiting, read from the database rather than from what the case
+    returned - which, for a filing refused, is the refusal."""
+    def assertion(dont_care_result: object) -> bool:
+        return _nothing_waits()(get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL))
+
+    return assertion
+
+
 def _nothing_waits() -> Assertion[list[Filed]]:
     def assertion(waiting: list[Filed]) -> bool:
         if waiting:
             raise AssertionError(
                 f"Expected nothing waiting to be delivered, got "
                 f"{[(one.record.incident_id, one.version) for one in waiting]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _filed_for(claim: Fence, record: RememberedIncident) -> None:
+    """Files `record` on a connection fenced with `claim`, as a worker's is."""
+    with connect_from_env() as the_walks:
+        fence(the_walks, claim)
+        file(the_walks, record)
+
+
+def _the_run_was_lost() -> Assertion[Exception | None]:
+    """Refused as a lost run, and not for anything else a write can fail for."""
+    def assertion(refused: Exception | None) -> bool:
+        if refused is None or not was_lost(refused):
+            raise AssertionError(
+                f"Expected the write refused because the run was lost, got [{refused!r}]."
             )
 
         return True

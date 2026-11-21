@@ -1,4 +1,6 @@
-"""The store this module's component tests run against, and its state between them.
+"""The store and the database this module's integration and component cases
+run against, and their state between them. Nothing here is used unless asked
+for, so the unit cases beside them start nothing.
 
 A real Qdrant rather than a double, because what these tests are about is the
 half that cannot be faked: whether a payload survives a round trip, whether a
@@ -37,6 +39,7 @@ from core import connect_from_env
 from core.schema import reset_schema
 from psycopg import sql
 from qdrant_client import QdrantClient
+from vector_store_qdrant.indexing import QdrantIndex
 
 # How long a cold container may take to answer. Generous, because the first
 # start on a machine that has never pulled the image is the slow one, and a
@@ -53,6 +56,10 @@ _ITS_CLOCK: Final = "sim-clock"
 
 # The session that gives this suite a compose project of its own.
 _THIS_SUITES_SESSION: Final = "test_module(module='repository_index')"
+
+# The one collection these cases keep passages in. Bound into the store each case
+# is handed, as the catch-up loop binds its own where it builds the adapter.
+THE_COLLECTION: Final = "repository_index_test"
 
 
 def _the_stores_url() -> str:
@@ -108,13 +115,18 @@ def postgres() -> Iterator[None]:
         subprocess.run(["docker", "compose", "stop", _POSTGRES, _ITS_CLOCK], check=True)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def a_clean_database(postgres: None) -> Iterator[None]:
-    """Empties every table after each test.
+    """Empties every table after each test that asks for the database - which a
+    test does by asking for `records`.
 
     After rather than before, so a test that failed leaves nothing for the next
     one to trip over - and so its rows are still there to look at while the
     failure is being read.
+
+    Asked for rather than applied to every test: the unit cases beside the ones
+    that need a database share this suite, and bringing Postgres up for them
+    would make a test of a function wait on a container.
 
     What to empty is asked of the database rather than listed here. A list would
     be a second statement of the schema, and the day a table is added the suite
@@ -137,7 +149,7 @@ def a_clean_database(postgres: None) -> Iterator[None]:
 
 
 @pytest.fixture
-def records() -> Iterator[psycopg.Connection]:
+def records(a_clean_database: None) -> Iterator[psycopg.Connection]:
     """A connection to the database the index keeps its mark in."""
     with connect_from_env() as conn:
         yield conn
@@ -175,13 +187,16 @@ def _drop_every_collection(url: str) -> None:
 
 
 @pytest.fixture
-def store(qdrant: str) -> Iterator[QdrantClient]:
+def client(qdrant: str) -> Iterator[QdrantClient]:
     """A client onto a store holding nothing, emptied again after the test.
 
     After rather than before, as the database is: a test leaves the store as it
     found it - the last test of the suite included - and what a failed test
     wrote is still there to read while the failure is. The suite's own start
     empties it once, for whatever a killed run left.
+
+    Asked for directly only by a case about what the store made of a write -
+    the index on a field - which is the vendor's account and no port's.
     """
     client = QdrantClient(url=qdrant)
 
@@ -190,3 +205,9 @@ def store(qdrant: str) -> Iterator[QdrantClient]:
     finally:
         client.close()
         _drop_every_collection(qdrant)
+
+
+@pytest.fixture
+def store(client: QdrantClient) -> QdrantIndex:
+    """The store as the catch-up loop holds it: the adapter, over `THE_COLLECTION`."""
+    return QdrantIndex(client, THE_COLLECTION)

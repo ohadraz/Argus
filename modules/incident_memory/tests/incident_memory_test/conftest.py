@@ -1,5 +1,6 @@
-"""The store and the database this module's component tests run against, and
-their state between them.
+"""The store and the database this module's integration and component cases
+run against, and their state between them. Nothing here is used unless asked
+for, so the unit cases beside them start nothing.
 
 A real Qdrant rather than a double, because what these tests are about is the
 half that cannot be faked: whether a payload survives a round trip, whether a
@@ -45,6 +46,7 @@ from core import connect_from_env
 from core.schema import reset_schema
 from psycopg import sql
 from qdrant_client import QdrantClient
+from vector_store_qdrant.indexing import QdrantIndex
 
 # How long a cold container may take to answer. Generous, because the first
 # start on a machine that has never pulled the image is the slow one, and a
@@ -61,6 +63,10 @@ _ITS_CLOCK: Final = "sim-clock"
 
 # The session that gives this suite a compose project of its own.
 _THIS_SUITES_SESSION: Final = "test_module(module='incident_memory')"
+
+# The one collection these cases keep records in. Bound into the store each case
+# is handed, as a process binds its own where it builds the adapter.
+THE_COLLECTION: Final = "incidents"
 
 
 def _the_stores_url() -> str:
@@ -121,9 +127,10 @@ def a_clean_database(postgres: None) -> Iterator[None]:
     one to trip over - and so its rows are still there to look at while the
     failure is being read.
 
-    Asked for rather than applied to every test, unlike the index's: most of
-    these cases are about the store alone, and bringing a database up for them
-    would make a suite about vectors wait on Postgres.
+    Asked for rather than applied to every test, as the index's is: most of
+    these cases are about the store alone, or about no store at all, and
+    bringing a database up for them would make a suite about vectors wait on
+    Postgres.
 
     What to empty is asked of the database rather than listed here. A list would
     be a second statement of the schema, and the day a table is added the suite
@@ -184,13 +191,16 @@ def _drop_every_collection(url: str) -> None:
 
 
 @pytest.fixture
-def store(qdrant: str) -> Iterator[QdrantClient]:
+def client(qdrant: str) -> Iterator[QdrantClient]:
     """A client onto a store holding nothing, emptied again after the test.
 
     After rather than before, as the database is: a test leaves the store as it
     found it - the last test of the suite included - and what a failed test
     wrote is still there to read while the failure is. The suite's own start
     empties it once, for whatever a killed run left.
+
+    Asked for directly only by a case about what the store made of a write -
+    the index on a field - which is the vendor's account and no port's.
     """
     client = QdrantClient(url=qdrant)
 
@@ -199,3 +209,9 @@ def store(qdrant: str) -> Iterator[QdrantClient]:
     finally:
         client.close()
         _drop_every_collection(qdrant)
+
+
+@pytest.fixture
+def store(client: QdrantClient) -> QdrantIndex:
+    """The store as the deliverer holds it: the adapter, over `THE_COLLECTION`."""
+    return QdrantIndex(client, THE_COLLECTION)

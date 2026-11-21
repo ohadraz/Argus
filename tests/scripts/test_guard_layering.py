@@ -1,15 +1,17 @@
-"""The layering guard's own rules about the walk, asked of graphs and sources
-built here.
+"""The layering guard's own rules that import-linter cannot hold, asked of
+graphs and sources built here.
 
-Two rules import-linter cannot hold. No package that walks an incident may
-reach a store the fence cannot reach - a vector store, a chat platform's SDK -
-except recall's one read. And no module outside the walk and the kernel may
-make an admission: the Mitigator imports the autonomy policy for the type its
-write accepts, and import-linter cannot allow the type and forbid `admit`
-beside it. Their failure is silent, like every guard's: a rule that stopped
-matching passes every build while the import it was written against comes
-back. So each case builds the graph or the source it is about, and asks the
-rule what it makes of it.
+Three rules. No package that walks an incident may reach a store the fence
+cannot reach - a vector store, a chat platform's SDK - except recall's one read.
+No module but a vendor's adapter may import that vendor's SDK. Both are about
+third parties, which import-linter sees only with a setting that is global and
+turns every other contract against the standard library. And no module outside
+the walk and the kernel may make an admission: the Mitigator imports the
+autonomy policy for the type its write accepts, and import-linter cannot allow
+the type and forbid `admit` beside it. Their failure is silent, like every
+guard's: a rule that stopped matching passes every build while the import it
+was written against comes back. So each case builds the graph or the source it
+is about, and asks the rule what it makes of it.
 
 Built by hand rather than read from the workspace, because the cases are about
 imports the workspace must not have.
@@ -24,6 +26,7 @@ from grimp import ImportGraph
 from scripts.guard_layering import (
     the_admissions_made_outside_the_walk,
     the_chains_to_a_store_the_fence_cannot_reach,
+    the_vendors_spoken_past_their_adapter,
 )
 
 THE_WALK = {"orchestrator"}
@@ -44,27 +47,27 @@ def test_a_walk_module_importing_the_vector_store_is_refused() -> None:
 
 @pytest.mark.unit
 def test_a_walk_module_reaching_the_vector_store_through_the_writing_side_is_refused() -> None:
-    # Indirectly is no better: a walk that calls the keeper writes to the store
-    # as surely as one that holds the client.
+    # Indirectly is no better: a walk that builds the writing side of the
+    # adapter writes to the store as surely as one that holds the client.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.assembling", "incident_memory.keeping"),
-            ("incident_memory.keeping", "qdrant_client")
+            ("orchestrator.assembling", "vector_store_qdrant.indexing"),
+            ("vector_store_qdrant.indexing", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([
-            ("orchestrator.assembling", "incident_memory.keeping", "qdrant_client")
+            ("orchestrator.assembling", "vector_store_qdrant.indexing", "qdrant_client")
         ]))
 
 
 @pytest.mark.unit
 def test_a_walk_module_recalling_through_the_reading_side_passes() -> None:
     # Recall is a read, and a read for a lost run changes nothing anybody else
-    # holds - which is why the walk keeps it.
+    # holds - which is why the walk's wiring may build the adapter's reading side.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.assembling", "incident_memory.recalling"),
-            ("incident_memory.recalling", "qdrant_client")
+            ("orchestrator.assembling", "vector_store_qdrant.searching"),
+            ("vector_store_qdrant.searching", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([]))
@@ -78,14 +81,14 @@ def test_a_way_to_the_writing_side_through_the_reading_side_is_refused() -> None
     # every chain passing the reading side would never say so.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.assembling", "incident_memory.recalling"),
-            ("incident_memory.recalling", "incident_memory.keeping"),
-            ("incident_memory.keeping", "qdrant_client")
+            ("orchestrator.assembling", "vector_store_qdrant.searching"),
+            ("vector_store_qdrant.searching", "vector_store_qdrant.indexing"),
+            ("vector_store_qdrant.indexing", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([
-            ("orchestrator.assembling", "incident_memory.recalling",
-             "incident_memory.keeping", "qdrant_client")
+            ("orchestrator.assembling", "vector_store_qdrant.searching",
+             "vector_store_qdrant.indexing", "qdrant_client")
         ]))
 
 
@@ -104,9 +107,57 @@ def test_a_module_that_walks_nothing_may_import_the_vector_store() -> None:
     # The deliverer is the store's writer by design: it writes outside any run,
     # from rows the fence has already let through.
     Scenario() \
-        .given(a_graph := _a_graph_with(("incident_memory.delivering", "qdrant_client"))) \
+        .given(a_graph := _a_graph_with(
+            ("incident_memory.delivering", "vector_store_qdrant.indexing"),
+            ("vector_store_qdrant.indexing", "qdrant_client")
+        )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([]))
+
+
+@pytest.mark.unit
+def test_a_module_importing_a_vendors_sdk_past_its_adapter_is_refused() -> None:
+    # Typing a store by the vendor's client again, which is how the port came
+    # to be missing in the first place.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("repository_index.store", "qdrant_client"))) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([("repository_index.store", "qdrant_client")]))
+
+
+@pytest.mark.unit
+def test_the_vendors_adapter_importing_its_sdk_passes() -> None:
+    # The adapter is the one place the vendor is spoken: both of its sides.
+    Scenario() \
+        .given(a_graph := _a_graph_with(
+            ("vector_store_qdrant.searching", "qdrant_client"),
+            ("vector_store_qdrant.indexing", "qdrant_client")
+        )) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([]))
+
+
+@pytest.mark.unit
+def test_a_module_reaching_a_vendors_sdk_through_its_adapter_passes() -> None:
+    # A process's wiring builds the adapter, and the adapter speaks the vendor:
+    # that is the port working, not reached past.
+    Scenario() \
+        .given(a_graph := _a_graph_with(
+            ("incident_memory.delivering", "vector_store_qdrant.indexing"),
+            ("vector_store_qdrant.indexing", "qdrant_client")
+        )) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([]))
+
+
+@pytest.mark.unit
+def test_a_package_named_like_the_adapter_is_not_the_adapter() -> None:
+    # The allowance is the adapter's package and what is inside it, never a
+    # package whose name merely begins the same way.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("vector_store_qdrant_tools.export", "qdrant_client"))) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([("vector_store_qdrant_tools.export", "qdrant_client")]))
 
 
 # The Mitigator's write, which accepts an admission and must never make one.
