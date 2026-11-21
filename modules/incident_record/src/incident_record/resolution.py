@@ -18,9 +18,10 @@ from __future__ import annotations
 import logging
 
 from core import Connections, unit_of_work
-from core.events import Publisher, StatusChanged, publish
+from core.events import StatusChanged
 from core.models import IncidentStatus, Report
 
+from incident_record.publishing import PublisherFor, publish_beside
 from incident_record.repository import incidents, taken_actions
 from incident_record.repository.taken_actions import NoLongerOpen
 
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 def resolve_incident(incident_id: str,
                      reported: Report,
                      connections: Connections,
-                     publisher: Publisher) -> bool:
+                     publisher_for: PublisherFor) -> bool:
     """Records that a person reported the incident resolved, and says whether
     it took effect.
 
@@ -50,6 +51,12 @@ def resolve_incident(incident_id: str,
     write (spec §11.1): Argus never puts back a resolved incident's changes,
     so nothing of its could undo another incident's, and what it left standing
     is the person's now. Another incident may then act on those subjects.
+
+    The account is written beside the change, on its connection and inside its
+    transaction: the two commit together, so no crash leaves an incident
+    resolved that no reader is told of. And beside it rather than within it - in
+    a savepoint of its own - so an account that cannot be written fails alone,
+    and the person's resolution stands.
     """
     narrating = StatusChanged(incident_id=incident_id,
                               to_status=IncidentStatus.RESOLVED,
@@ -61,12 +68,12 @@ def resolve_incident(incident_id: str,
         if resolved:
             taken_actions.no_longer_open(conn, incident_id, narrating.at,
                                          which=NoLongerOpen.EVERY_ROW)
+            publish_beside(conn, narrating, publisher_for(conn))
 
     if resolved:
         # The channel and not the name: which door the report came through is
         # what an operator reading the log needs, and the name is in the
         # account for anybody who needs that.
         logger.info("incident resolved", extra={"channel": reported.channel})
-        publish(narrating, publisher)
 
     return resolved

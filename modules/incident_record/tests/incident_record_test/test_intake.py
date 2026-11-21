@@ -12,20 +12,41 @@ firing, which has nothing to be joined by.
 A new incident keeps the trace its alert arrived in. Every walk of it, every
 unwind and every withdrawal continues that trace, so the incident's whole story
 is one trace, and it starts at the alert.
+
+An incident and its walk are one write: an incident nothing will ever walk is
+one its rule joins for good, silencing it. And deliveries for one service are
+taken one at a time, so a delivery arriving while another is still writing
+finds that one's incident rather than opening a second beside it.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 
+import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
-from core import connect_from_env, utc_now
-from core.events import AlertAcknowledged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    attempting,
+    calling,
+    one_record_was_logged,
+    the_same_error_reached_the_caller,
+)
+from core import Connections, connect_from_env, utc_now
+from core.events import AlertAcknowledged, IncidentEvent, Publisher
 from core.models import ALERT_FIRING, Alert, IncidentStatus, Reference
 from core.telemetry import ARGUS_INCIDENT_ID
 from incident_record import events_into_connection, start_incident
-from incident_record.repository import events, incidents, references
+from incident_record.intake import Enqueue
+from incident_record.repository import events, incidents, references, runs
+
+from incident_record_test.framework.transactions import failing_on_its_connection
 
 # Two carriers as a W3C propagator writes them: what the alert arrived in, and
 # what a later alert for the same incident arrived in.
@@ -39,6 +60,12 @@ SOME_OTHER_TRACE_CONTEXT = {
 # One firing of one alert, as a monitor names it.
 SOME_FIRING = Reference(source="some-monitor", kind=ALERT_FIRING,
                         value="fp-1@2026-10-14T15:59:00Z")
+
+# How long a delivery caught writing is held, at most, for another to be seen
+# waiting on it. Only a delivery nobody waits for - the failure the case is
+# there to show - is held for all of it.
+LONGEST_HOLD_SECONDS = 5.0
+HOW_OFTEN_TO_LOOK_SECONDS = 0.01
 
 
 @pytest.mark.component
@@ -427,6 +454,240 @@ def test_an_alert_joining_an_open_incident_is_logged(caplog: pytest.LogCaptureFi
         )
 
 
+@pytest.mark.component
+def test_an_incident_whose_walk_could_not_be_put_in_line_is_not_opened() -> None:
+    # An incident with no walk is one nobody looks at - and, never ending, one
+    # its rule firing again joins for good, which silences the rule. So the row
+    # and its walk are one write: both, or neither.
+    some_service = "kuki-service"
+    some_alert = Alert(service=some_service, alert_name="HighErrorRate", rule="some-rule")
+    some_failure = RuntimeError("the line refused the walk")
+
+    Scenario() \
+        .given(
+            some_alert
+        ) \
+        .when(
+            attempting(lambda: start_incident(some_alert, connect_from_env,
+                                              events_into_connection,
+                                              enqueue=_failing_with(some_failure)))
+        ) \
+        .then(all_of(
+            the_same_error_reached_the_caller(some_failure),
+            _incidents_were_opened_for(some_service, count=0)
+        ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("first_alert", "second_alert"), [
+    (Alert(service="kuki-service", alert_name="HighErrorRate", rule="some-rule"),
+     Alert(service="kuki-service", alert_name="HighErrorRate", rule="some-rule")),
+    (Alert(service="kuki-service", alert_name="HighErrorRate", references=(SOME_FIRING,)),
+     Alert(service="kuki-service", alert_name="HighErrorRate", references=(SOME_FIRING,))),
+    (Alert(service="kuki-service", alert_name="HighErrorRate", rule="some-rule",
+           references=(SOME_FIRING,)),
+     Alert(service="kuki-service", alert_name="HighErrorRate", references=(SOME_FIRING,)))
+], ids=["a rule firing twice", "a firing reminded of twice",
+        "a rule's firing, then a reminder naming no rule"])
+def test_a_delivery_arriving_while_another_is_writing_its_incident_joins_it(
+        first_alert: Alert, second_alert: Alert) -> None:
+    # A monitor sends a delivery again when it believes the first went
+    # unanswered, and two of its replicas can each send one. Each finding no
+    # incident because the other had not finished writing would leave the
+    # service with two incidents walking one fault. The last pair is why the
+    # two wait for each other by service alone: the reminder names no rule, so
+    # waiting by rule as well would leave it waiting for nobody.
+    Scenario() \
+        .given(
+            first := _a_delivery_caught_writing(first_alert)
+        ) \
+        .when(
+            lambda: _started(second_alert)
+        ) \
+        .then(all_of(
+            _it_is_the_one(first),
+            _incidents_were_opened_for(second_alert.service, count=1)
+        ))
+
+
+@pytest.mark.component
+def test_an_incident_whose_account_fails_still_opens_and_is_put_in_line() -> None:
+    # The account is written inside the write that opens the incident and puts
+    # its walk in line, so one that fails there must fail alone - not abort the
+    # transaction and take the incident and its walk with it.
+    some_service = "kuki-service"
+    some_alert = Alert(service=some_service, alert_name="HighErrorRate", rule="some-rule")
+
+    Scenario() \
+        .given(
+            some_alert
+        ) \
+        .when(
+            lambda: start_incident(some_alert, connect_from_env, failing_on_its_connection)
+        ) \
+        .then(all_of(
+            _incidents_were_opened_for(some_service, count=1),
+            _it_is_put_in_line()
+        ))
+
+
+@pytest.mark.component
+def test_deliveries_wait_for_one_another_only_until_the_write_commits() -> None:
+    # A process keeps its connections between requests. A wait held until the
+    # connection closed would leave every later delivery for the service
+    # waiting on a connection nobody is using.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate", rule="some-rule")
+
+    with connect_from_env() as kept:
+        Scenario() \
+            .given(
+                some_alert
+            ) \
+            .when(
+                lambda: start_incident(some_alert, _always(kept), events_into_connection)
+            ) \
+            .then(
+                _it_holds_no_lock(kept)
+            )
+
+
+class _ADeliveryCaughtWriting:
+    """A delivery of an alert, stopped inside its own write - the incident
+    created and its account being written, nothing committed - until another
+    delivery is seen waiting for it, or `LONGEST_HOLD_SECONDS` have passed.
+
+    Stopped in the account because that is the one seam inside the write a
+    caller hands in. The account is still written; it is only late.
+    """
+
+    def __init__(self, alert: Alert) -> None:
+        self._inside = threading.Event()
+        self._answered: list[str] = []
+        self._raised: list[Exception] = []
+        self._delivering = threading.Thread(target=lambda: self._deliver(alert), daemon=True)
+        self._delivering.start()
+
+        if not self._inside.wait(LONGEST_HOLD_SECONDS):
+            raise AssertionError(
+                "Expected the first delivery to reach its incident's account; it did not."
+            )
+
+    def _deliver(self, alert: Alert) -> None:
+        try:
+            self._answered.append(
+                start_incident(alert, connect_from_env, self._held_while_writing)
+            )
+        except Exception as raised:
+            self._raised.append(raised)
+
+    def _held_while_writing(self, conn: psycopg.Connection) -> Publisher:
+        def publisher(event: IncidentEvent) -> None:
+            events.record(conn, event)
+            self._inside.set()
+            _until_another_waits()
+
+        return publisher
+
+    def answer(self) -> str:
+        """The incident the first delivery landed in, once it has."""
+        self._delivering.join(2 * LONGEST_HOLD_SECONDS)
+
+        if self._raised:
+            raise AssertionError(
+                f"Expected the first delivery to land in an incident; it raised "
+                f"[{self._raised[0]!r}]."
+            ) from self._raised[0]
+
+        if not self._answered:
+            raise AssertionError("Expected the first delivery to have finished; it had not.")
+
+        return self._answered[0]
+
+
+def _a_delivery_caught_writing(alert: Alert) -> _ADeliveryCaughtWriting:
+    return _ADeliveryCaughtWriting(alert)
+
+
+def _until_another_waits() -> None:
+    """Returns once any session is waiting for an advisory lock, or once
+    `LONGEST_HOLD_SECONDS` have passed with none."""
+    deadline = time.monotonic() + LONGEST_HOLD_SECONDS
+
+    with connect_from_env() as conn:
+        while time.monotonic() < deadline:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
+                )
+                waiting = cursor.fetchone()
+
+            if waiting is not None and waiting[0] > 0:
+                return
+
+            time.sleep(HOW_OFTEN_TO_LOOK_SECONDS)
+
+
+def _it_is_the_one(first: _ADeliveryCaughtWriting) -> Assertion[str]:
+    """That the alert landed in the incident the first delivery opened."""
+    def assertion(incident_id: str) -> bool:
+        return _it_is(first.answer())(incident_id)
+
+    return assertion
+
+
+def _always(conn: psycopg.Connection) -> Connections:
+    """Connections that hand out `conn` every time and never close it, as a
+    process's pool keeps its own."""
+    @contextmanager
+    def lending() -> Iterator[psycopg.Connection]:
+        yield conn
+
+    return lending
+
+
+def _it_holds_no_lock(conn: psycopg.Connection) -> Assertion[str]:
+    def assertion(_incident_id: str) -> bool:
+        with connect_from_env() as looking, looking.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = %s",
+                (conn.info.backend_pid,)
+            )
+            held = cursor.fetchone()
+
+        if held is None or held[0] != 0:
+            raise AssertionError(
+                f"Expected the connection the incident was opened on to hold no "
+                f"advisory lock once its write committed; it holds "
+                f"[{held[0] if held is not None else 'unknown'}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_put_in_line() -> Assertion[str]:
+    def assertion(incident_id: str) -> bool:
+        with connect_from_env() as conn:
+            run = runs.get_run_for_incident(conn, incident_id)
+
+        if run is None:
+            raise AssertionError(
+                f"Expected the incident [{incident_id}] to have its walk in line; it has none."
+            )
+
+        return True
+
+    return assertion
+
+
+def _failing_with(failure: Exception) -> Enqueue:
+    def enqueue(_conn: psycopg.Connection, _incident_id: str) -> str:
+        raise failure
+
+    return enqueue
+
+
 def _it_opened_when_its_account_did() -> Assertion[str]:
     def assertion(incident_id: str) -> bool:
         with connect_from_env() as conn:
@@ -546,8 +807,8 @@ def _it_is_not(other: str) -> Assertion[str]:
     return assertion
 
 
-def _incidents_were_opened_for(service: str, count: int) -> Assertion[str]:
-    def assertion(_: str) -> bool:
+def _incidents_were_opened_for(service: str, count: int) -> Assertion[object]:
+    def assertion(_: object) -> bool:
         with connect_from_env() as conn:
             opened = [
                 incident

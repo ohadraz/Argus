@@ -15,8 +15,10 @@ What walks is the worker's, in its own process.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 
+import psycopg
 from core import Connections, unit_of_work, utc_now
 from core.models import ALERT_FIRING, Alert, IncidentStatus
 from core.telemetry import ARGUS_INCIDENT_ID
@@ -26,11 +28,26 @@ from incident_record.repository import incidents, references, runs
 
 logger = logging.getLogger(__name__)
 
+# Puts one incident's walk in line, on the connection it is handed, inside its
+# transaction, and returns the run's id.
+type Enqueue = Callable[[psycopg.Connection, str], str]
+
+
+@dataclass(frozen=True)
+class _Joined:
+    """An incident already there that an alert belongs to, and the line saying
+    why that one."""
+
+    incident_id: str
+    said: str
+    because: Mapping[str, object]
+
 
 def start_incident(alert: Alert,
                    connections: Connections,
                    publisher_for: PublisherFor,
-                   trace_context: Mapping[str, str] = incidents.NO_TRACE_CONTEXT) -> str:
+                   trace_context: Mapping[str, str] = incidents.NO_TRACE_CONTEXT,
+                   enqueue: Enqueue = runs.enqueue) -> str:
     """The Orchestrator's entrypoint (spec §7.1): creates the `Incident` row
     and puts its walk in line - or, for a rule whose incident is still open or
     a firing an incident already holds, answers with that incident - called by
@@ -52,31 +69,65 @@ def start_incident(alert: Alert,
     an incident - an open one, or one holding its firing - keeps nothing: the
     incident's trace is the first alert's.
 
+    One transaction, from the look for an incident already there to the walk
+    put in line. An incident written without its walk would be one nobody
+    walks and, never ending, one its rule joins for good, silencing the rule.
+    And one delivery for a service at a time (`incidents.take_in_alone`): a
+    delivery deciding while another is still writing would find nothing, and
+    open a second incident for one fault. `enqueue` is the walk's half of that
+    write, a seam so a failure inside it can be brought about on purpose.
+
     Its lines name the incident themselves, under the key a walk's lines are
     stamped with: nothing is walking it yet, so there is no baggage to stamp
-    them from.
+    them from. They are said once the write has committed, so none speaks of
+    an incident that was rolled back.
     """
+    with unit_of_work(connections) as conn:
+        incidents.take_in_alone(conn, alert.service)
+
+        joined = _the_incident_it_belongs_to(conn, alert)
+
+        if joined is not None:
+            incident_id = joined.incident_id
+            # A rule firing again can come from a new alert group, which the
+            # monitor pages for under a key of its own, and a reminder can carry
+            # firings the first notification did not. Either is about this
+            # incident, so its names are this incident's too.
+            references.add(conn, incident_id, alert.references)
+        else:
+            # One instant for the row and the sentence opening its account,
+            # taken once the wait for any other delivery is over. Published
+            # from here because by the time a node runs the alert has already
+            # been received; published before the commit because an incident
+            # whose account begins nowhere is the failure `publish_beside`
+            # exists to prevent.
+            opened_at = utc_now()
+            incident_id = incidents.create(conn, alert, trace_context, at=opened_at)
+            references.add(conn, incident_id, alert.references)
+            acknowledge_alert(conn, incident_id, alert, publisher_for, at=opened_at)
+            enqueue(conn, incident_id)
+
+    if joined is not None:
+        logger.info(joined.said, extra={ARGUS_INCIDENT_ID: incident_id, **joined.because})
+    else:
+        logger.info("incident opened", extra={
+            ARGUS_INCIDENT_ID: incident_id, "service": alert.service, "rule": alert.rule
+        })
+
+    return incident_id
+
+
+def _the_incident_it_belongs_to(conn: psycopg.Connection, alert: Alert) -> _Joined | None:
+    """The incident already there that `alert` is about, if there is one."""
     # A rule that fired again for a service while its incident there is still
     # going on is that incident, not a second one. An alert naming no rule has
     # nothing to be joined by.
     if alert.rule is not None:
-        with connections() as conn:
-            already_open = incidents.get_open_by_rule_and_service(
-                conn, alert.rule, alert.service
-            )
+        already_open = incidents.get_open_by_rule_and_service(conn, alert.rule, alert.service)
 
         if already_open is not None:
-            # A rule firing again can come from a new alert group, which the
-            # monitor pages for under a key of its own. That page is about this
-            # incident, so its names are this incident's too.
-            with connections() as conn:
-                references.add(conn, str(already_open.id), alert.references)
-                conn.commit()
-
-            logger.info("alert joined open incident", extra={
-                ARGUS_INCIDENT_ID: str(already_open.id), "rule": alert.rule
-            })
-            return str(already_open.id)
+            return _Joined(str(already_open.id), "alert joined open incident",
+                           {"rule": alert.rule})
 
     # A firing an incident already holds is the monitor reminding Argus of an
     # alert it was told about, and is that incident however it ended - the
@@ -88,41 +139,12 @@ def start_incident(alert: Alert,
                if reference.kind == ALERT_FIRING]
 
     if firings:
-        with connections() as conn:
-            belongs_to = incidents.get_newest_by_names_and_service(
-                conn, ALERT_FIRING, firings, alert.service
-            )
+        belongs_to = incidents.get_newest_by_names_and_service(
+            conn, ALERT_FIRING, firings, alert.service
+        )
 
         if belongs_to is not None and belongs_to.status != IncidentStatus.MITIGATED:
-            # A reminder can carry firings the first notification did not, and
-            # each is this incident's to be found by too.
-            with connections() as conn:
-                references.add(conn, str(belongs_to.id), alert.references)
-                conn.commit()
+            return _Joined(str(belongs_to.id), "alert joined the incident of its firing",
+                           {"status": belongs_to.status})
 
-            logger.info("alert joined the incident of its firing", extra={
-                ARGUS_INCIDENT_ID: str(belongs_to.id), "status": belongs_to.status
-            })
-            return str(belongs_to.id)
-
-    # The row, the names other tools know it by, and the story's first line, in
-    # one transaction. Published from here because by the time a node runs the
-    # alert has already been received; published before the commit because an
-    # incident whose account begins nowhere is the failure `publish_beside`
-    # exists to prevent.
-    # One instant for the row and the sentence opening its account, taken once.
-    opened_at = utc_now()
-
-    with unit_of_work(connections) as conn:
-        incident_id = incidents.create(conn, alert, trace_context, at=opened_at)
-        references.add(conn, incident_id, alert.references)
-        acknowledge_alert(conn, incident_id, alert, publisher_for, at=opened_at)
-
-    with unit_of_work(connections) as conn:
-        runs.enqueue(conn, incident_id)
-
-    logger.info("incident opened", extra={
-        ARGUS_INCIDENT_ID: incident_id, "service": alert.service, "rule": alert.rule
-    })
-
-    return incident_id
+    return None

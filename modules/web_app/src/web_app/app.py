@@ -16,7 +16,6 @@ from core import (
     open_pool,
     said_as_a_time,
 )
-from core.events import Publisher
 from core.models import (
     Incident,
     IncidentStatus,
@@ -32,7 +31,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from incident_record import (
-    events_into,
     events_into_connection,
     ingest_a_message,
     inside_the_incidents_trace,
@@ -104,7 +102,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     with open_pool(DatabaseSettings.of(get_settings())) as pool:
         app.state.connections = pool.connection
-        app.state.publisher = events_into(pool.connection)
         app.state.push_settings = PushSettings.of(get_settings())
         # `None` where the deployment has no on-call platform, which is how
         # its webhook comes to answer as though it did not exist.
@@ -134,13 +131,6 @@ def connections_of(request: Request) -> Connections:
     connections: Connections = request.app.state.connections
 
     return connections
-
-
-def publisher_of(request: Request) -> Publisher:
-    """The subscriber this process files events through, for the same reason."""
-    publisher: Publisher = request.app.state.publisher
-
-    return publisher
 
 
 def push_settings_of(request: Request) -> PushSettings:
@@ -188,7 +178,6 @@ def tracer_of() -> Tracer:
 
 
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
-type Publishing = Annotated[Publisher, Depends(publisher_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
 type UsingOnCallPlatform = Annotated[OnCallPlatform | None, Depends(oncall_platform_of)]
 type UsingChatPlatform = Annotated[ChatPlatformReads | None, Depends(chat_platform_of)]
@@ -220,7 +209,6 @@ templates.env.filters["from_markdown"] = from_markdown
 @app.post("/webhooks/alerts", status_code=202)
 def receive_alert(payload: dict[str, Any],
                   connections: UsingConnections,
-                  publisher: Publishing,
                   tracer: Tracing) -> dict[str, str | None]:
     """`web_app`'s only incident-domain entrypoint (spec §7.9): validates
     and normalizes the payload into an `Alert` domain object, then calls the
@@ -299,7 +287,6 @@ async def receive_github_push(request: Request,
 async def receive_oncall_delivery(request: Request,
                                   platform: UsingOnCallPlatform,
                                   connections: UsingConnections,
-                                  publisher: Publishing,
                                   tracer: Tracing) -> dict[str, str]:
     """Where the on-call platform tells Argus what happened to its incidents.
 
@@ -325,7 +312,7 @@ async def receive_oncall_delivery(request: Request,
             await request.body(),
             request.headers,
             platform=platform,
-            record=_TheIncidentRecord(connections, publisher, tracer)
+            record=_TheIncidentRecord(connections, tracer)
         )
     except OnCallDeliveryUnverified as refused:
         # Most often the deployment holding a different secret from the
@@ -344,7 +331,6 @@ async def receive_oncall_delivery(request: Request,
 async def receive_chat_event(request: Request,
                              platform: UsingChatPlatform,
                              connections: UsingConnections,
-                             publisher: Publishing,
                              tracer: Tracing) -> dict[str, str]:
     """Where the chat platform tells Argus what was posted where it can see.
 
@@ -353,14 +339,13 @@ async def receive_chat_event(request: Request,
     `chat.receive_chat_delivery`; this is registration and the answer the
     platform acts on.
     """
-    return await _a_chat_delivery(request, platform, connections, publisher, tracer)
+    return await _a_chat_delivery(request, platform, connections, tracer)
 
 
 @app.post("/webhooks/slack/interactions")
 async def receive_chat_interaction(request: Request,
                                    platform: UsingChatPlatform,
                                    connections: UsingConnections,
-                                   publisher: Publishing,
                                    tracer: Tracing) -> dict[str, str]:
     """Where the chat platform tells Argus a button on one of its messages was
     pressed.
@@ -368,13 +353,12 @@ async def receive_chat_interaction(request: Request,
     A door of its own only because Slack is configured with a separate address
     for interactions; what is behind it is the same handling as the events'.
     """
-    return await _a_chat_delivery(request, platform, connections, publisher, tracer)
+    return await _a_chat_delivery(request, platform, connections, tracer)
 
 
 async def _a_chat_delivery(request: Request,
                            platform: ChatPlatformReads | None,
                            connections: Connections,
-                           publisher: Publisher,
                            tracer: Tracer) -> dict[str, str]:
     """Both chat doors' handling, and the answer the platform acts on.
 
@@ -398,8 +382,7 @@ async def _a_chat_delivery(request: Request,
             await request.body(),
             request.headers,
             platform=platform,
-            record=_TheChatRecord(_TheIncidentRecord(connections, publisher, tracer),
-                                  connections)
+            record=_TheChatRecord(_TheIncidentRecord(connections, tracer), connections)
         )
     except ChatDeliveryUnverified as refused:
         # Most often the deployment holding a different signing secret from the
@@ -454,9 +437,8 @@ class _TheIncidentRecord:
     story, wherever they said it.
     """
 
-    def __init__(self, connections: Connections, publisher: Publisher, tracer: Tracer) -> None:
+    def __init__(self, connections: Connections, tracer: Tracer) -> None:
         self._connections = connections
-        self._publisher = publisher
         self._tracer = tracer
 
     def incident_known_as(self, kind: str, values: Sequence[str]) -> str | None:
@@ -482,7 +464,8 @@ class _TheIncidentRecord:
 
         with inside_the_incidents_trace(incident_id, kept, RESOLVE_SPAN,
                                         kind=SpanKind.SERVER, tracer=self._tracer):
-            return resolve_incident(incident_id, reported, self._connections, self._publisher)
+            return resolve_incident(incident_id, reported, self._connections,
+                                    events_into_connection)
 
     def withdraw(self, incident_id: str, reported: Report) -> bool:
         """Withdraws the incident inside its own trace, as a resolution is."""
@@ -491,7 +474,8 @@ class _TheIncidentRecord:
 
         with inside_the_incidents_trace(incident_id, kept, WITHDRAW_SPAN,
                                         kind=SpanKind.SERVER, tracer=self._tracer):
-            return withdraw_incident(incident_id, reported, self._connections, self._publisher)
+            return withdraw_incident(incident_id, reported, self._connections,
+                                     events_into_connection)
 
 
 def _the_watermark_kept_by(connections: Connections) -> Watermark:
@@ -512,7 +496,6 @@ def _the_watermark_kept_by(connections: Connections) -> Watermark:
 @app.post("/incidents/{incident_id}/withdraw")
 def withdraw(incident_id: str,
              connections: UsingConnections,
-             publisher: Publishing,
              tracer: Tracing) -> dict[str, str]:
     """Withdraws an incident from Argus, at somebody's say-so.
 
@@ -545,7 +528,7 @@ def withdraw(incident_id: str,
             incident_id,
             Report(by=THE_DEMO_USER, channel=ReportChannel.ARGUS_UI),
             connections,
-            publisher
+            events_into_connection
         )
 
         if not withdrawn:
@@ -564,7 +547,6 @@ def withdraw(incident_id: str,
 def resolve(incident_id: str,
             response: Response,
             connections: UsingConnections,
-            publisher: Publishing,
             tracer: Tracing,
             note: Annotated[str, Form()] = "") -> dict[str, str]:
     """Records that a person reports the incident over, at their say-so.
@@ -598,7 +580,7 @@ def resolve(incident_id: str,
             Report(by=THE_DEMO_USER, channel=ReportChannel.ARGUS_UI,
                    note=note.strip() or None),
             connections,
-            publisher
+            events_into_connection
         )
 
         if not resolved:

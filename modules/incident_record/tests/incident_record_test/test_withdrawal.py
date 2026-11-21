@@ -7,20 +7,33 @@ anything `web_app` can import must reach nothing that walks a graph.
 It publishes, which the repository beneath it does not. A page watching an
 incident finds out that somebody stopped it the same way it finds out anything
 else - from the event stream - and a withdrawal that only wrote a row would
-leave that page polling an incident that had already ended.
+leave that page polling an incident that had already ended. So the change and
+its account are one write: a crash between the two would leave an incident
+withdrawn that nothing watching it is ever told of. And the account cannot take
+the change down with it: a person who stopped Argus has stopped it, whether or
+not the sentence saying so could be written.
 """
 
 from __future__ import annotations
 
 import logging
 
+import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from core import connect_from_env, utc_now
-from core.events import IncidentEvent, StatusChanged
+from core.events import IncidentEvent, Publisher, StatusChanged
 from core.models import Alert, IncidentStatus, Report, ReportChannel
+from incident_record import PublisherFor
 from incident_record.repository import incidents
 from incident_record.withdrawal import withdraw_incident
+
+from incident_record_test.framework.assertions import the_account_was_written_inside_the_change
+from incident_record_test.framework.transactions import (
+    Seen,
+    failing_on_its_connection,
+    seen_from_both_sides,
+)
 
 # The withdraw button takes no note, so the report it makes carries none.
 SOME_REPORT = Report(by="some person", channel=ReportChannel.ARGUS_UI)
@@ -43,7 +56,7 @@ def test_a_withdrawal_that_took_effect_is_published_with_who_reported_it(
         ) \
         .when(
             lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
-                                      publisher=published.append)
+                                      publisher_for=_into(published))
         ) \
         .then(all_of(
             _it_reports(True),
@@ -75,7 +88,7 @@ def test_a_withdrawal_that_changed_nothing_publishes_nothing(a_clean_database: N
         ) \
         .when(
             lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
-                                      publisher=published.append)
+                                      publisher_for=_into(published))
         ) \
         .then(all_of(
             _it_reports(False),
@@ -98,7 +111,7 @@ def test_a_withdrawal_reaches_the_incident_itself(a_clean_database: None) -> Non
         ) \
         .when(
             lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
-                                      publisher=_nobody_is_listening)
+                                      publisher_for=_nobody_is_listening)
         ) \
         .then(
             _the_incident_is(incident_id, IncidentStatus.WITHDRAWN)
@@ -122,7 +135,7 @@ def test_a_withdrawal_that_took_effect_is_logged_with_where_it_came_from(
         ) \
         .when(
             lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
-                                      publisher=_nobody_is_listening)
+                                      publisher_for=_nobody_is_listening)
         ) \
         .then(
             one_record_was_logged(caplog, "incident_record.withdrawal", logging.INFO,
@@ -149,11 +162,67 @@ def test_a_withdrawal_ends_the_incident_at_the_moment_it_is_published(
         ) \
         .when(
             lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
-                                      publisher=published.append)
+                                      publisher_for=_into(published))
         ) \
         .then(
             _it_ended_when_it_was_said_to(published, incident_id)
         )
+
+
+@pytest.mark.component
+def test_a_withdrawal_and_its_account_are_one_write(a_clean_database: None) -> None:
+    # Written inside the withdrawal's own transaction: seen there as withdrawn,
+    # and by nobody else until the change and its account commit together.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    seen: list[Seen] = []
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
+                                      publisher_for=seen_from_both_sides(seen, incident_id))
+        ) \
+        .then(
+            the_account_was_written_inside_the_change(seen, IncidentStatus.WITHDRAWN)
+        )
+
+
+@pytest.mark.component
+def test_a_withdrawal_whose_account_fails_still_withdraws(a_clean_database: None) -> None:
+    # The account is written inside the withdrawal's own transaction, so one
+    # that fails there must fail alone - not abort the transaction and lose the
+    # person's withdrawal with it.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
+                                      publisher_for=failing_on_its_connection)
+        ) \
+        .then(all_of(
+            _it_reports(True),
+            _the_incident_is(incident_id, IncidentStatus.WITHDRAWN)
+        ))
+
+
+def _into(published: list[IncidentEvent]) -> PublisherFor:
+    """A publisher that keeps what it is told, on whichever connection."""
+    def publisher_for(_conn: psycopg.Connection) -> Publisher:
+        return published.append
+
+    return publisher_for
 
 
 def _it_ended_when_it_was_said_to(published: list[IncidentEvent],
@@ -178,8 +247,12 @@ def _it_ended_when_it_was_said_to(published: list[IncidentEvent],
     return assertion
 
 
-def _nobody_is_listening(_event: IncidentEvent) -> None:
+def _nobody_is_listening(_conn: psycopg.Connection) -> Publisher:
     """A publisher for a case that is not about publishing."""
+    def publisher(_event: IncidentEvent) -> None:
+        return None
+
+    return publisher
 
 
 def _it_reports(expected: bool) -> Assertion[bool]:

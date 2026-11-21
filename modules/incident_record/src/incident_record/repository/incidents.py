@@ -10,9 +10,34 @@ from core.models import Alert, Incident, IncidentStatus
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 
+from incident_record.repository.advisory_locks import AdvisoryLock
+
 # What an incident started outside any trace keeps: nothing, and nothing a
 # caller could add to by holding on to the default.
 NO_TRACE_CONTEXT: Final[Mapping[str, str]] = MappingProxyType({})
+
+
+def take_in_alone(conn: psycopg.Connection, service: str) -> None:
+    """Waits until no other transaction is taking in an alert for `service`,
+    then holds that off until this transaction ends.
+
+    Whether an alert opens an incident or joins one is decided by what is
+    already there, so two deliveries deciding at once would each find nothing
+    and open two. One at a time, the second finds the first's incident.
+
+    By service alone, not by rule as well: a reminder of a firing names no rule,
+    and must wait for the delivery of that firing all the same.
+
+    Held by the transaction rather than the session, so it is let go at the
+    commit or the rollback. A process keeps its connections between requests,
+    and a hold that lasted as long as the connection would keep the service's
+    alerts waiting on a connection nobody is using. Two services whose names
+    hash alike wait for each other - never two incidents for one fault.
+    """
+    conn.execute(
+        f"SELECT pg_advisory_xact_lock({int(AdvisoryLock.INTAKE_FOR_A_SERVICE)}, hashtext(%s))",
+        (service,)
+    )
 
 
 def create(conn: psycopg.Connection,

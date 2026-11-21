@@ -24,3 +24,5 @@ class AdvisoryLock(IntEnum):
 
     # A run the write tier is changing the world for (`runs.hold_for_a_change`).
     RUN_HELD_FOR_A_CHANGE = 1
+    # A service whose alerts are being taken in (`incidents.take_in_alone`).
+    INTAKE_FOR_A_SERVICE = 2

@@ -15,9 +15,10 @@ from __future__ import annotations
 import logging
 
 from core import Connections, unit_of_work
-from core.events import Publisher, StatusChanged, publish
+from core.events import StatusChanged
 from core.models import IncidentStatus, Report
 
+from incident_record.publishing import PublisherFor, publish_beside
 from incident_record.repository import incidents
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 def withdraw_incident(incident_id: str,
                       reported: Report,
                       connections: Connections,
-                      publisher: Publisher) -> bool:
+                      publisher_for: PublisherFor) -> bool:
     """Stops Argus working on an incident, and says whether it took effect.
 
     `reported` is who withdrew it and through which door. It travels on the
@@ -42,6 +43,12 @@ def withdraw_incident(incident_id: str,
 
     The change is built before the row is written, so the row ends at the
     moment the account says it ended.
+
+    The account is written beside the change, on its connection and inside its
+    transaction: the two commit together, so no crash leaves an incident
+    withdrawn that nothing watching it is told of. And beside it rather than
+    within it - in a savepoint of its own - so an account that cannot be written
+    fails alone, and the person's withdrawal stands.
     """
     narrating = StatusChanged(incident_id=incident_id,
                               to_status=IncidentStatus.WITHDRAWN,
@@ -50,10 +57,12 @@ def withdraw_incident(incident_id: str,
     with unit_of_work(connections) as conn:
         withdrawn = incidents.withdraw(conn, incident_id, at=narrating.at)
 
+        if withdrawn:
+            publish_beside(conn, narrating, publisher_for(conn))
+
     if withdrawn:
         # The channel and not the name, as for a resolution: which door it came
         # through is what an operator reading the log needs.
         logger.info("incident withdrawn", extra={"channel": reported.channel})
-        publish(narrating, publisher)
 
     return withdrawn

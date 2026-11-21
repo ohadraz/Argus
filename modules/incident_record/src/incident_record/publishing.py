@@ -38,8 +38,8 @@ def events_into_connection(conn: psycopg.Connection) -> Publisher:
     What makes a decision and its account one write: the event goes onto the
     connection the decision was written on, so both commit together or neither
     does. `events_into` below is the same subscriber for a caller that has
-    nothing to join - an alert being acknowledged, a withdrawal arriving from
-    outside a walk.
+    nothing to join - the walk's own publisher (`orchestrator.assembling`) and
+    the reader of people's messages (`message_intent.watching`).
     """
 
     def record_event(event: IncidentEvent) -> None:
