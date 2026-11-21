@@ -24,7 +24,12 @@ from slack_double import DEFAULT_BASE_URL, DEFAULT_PORT
 from slack_double import app as slack_double_app
 
 _A_MOMENT = 0.05
-_LONG_ENOUGH_TO_COME_UP = 10.0
+# How long the double has to answer before it is taken to hang. A guard against
+# a hang and nothing tighter: a double that fails to start is seen ending and
+# said at once, and a start on a machine every suite is loading at once takes
+# many times what it takes on an idle one.
+_LONG_PAST_ANY_START = 180.0
+_LONG_ENOUGH_TO_STOP = 10.0
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -38,11 +43,11 @@ def slack() -> Iterator[str]:
     serving = threading.Thread(target=server.run, daemon=True)
     serving.start()
     try:
-        _once_it_answers()
+        _once_it_answers(serving)
         yield DEFAULT_BASE_URL
     finally:
         server.should_exit = True
-        serving.join(timeout=_LONG_ENOUGH_TO_COME_UP)
+        serving.join(timeout=_LONG_ENOUGH_TO_STOP)
 
 
 @pytest.fixture(autouse=True)
@@ -59,15 +64,20 @@ def nothing_left_posted(slack: str) -> Iterator[None]:
     httpx2.post(f"{slack}/double-control/reset").raise_for_status()
 
 
-def _once_it_answers() -> None:
-    """Waits for the port, rather than guessing at how long a thread takes.
+def _once_it_answers(serving: threading.Thread) -> None:
+    """Waits for the port, rather than guessing at how long a thread takes -
+    and says at once that it will never answer where `serving` has ended.
 
     A fixed sleep is either too short on a loaded machine - where the first
     test fails on a connection refused that says nothing about the code - or
     too long on every run that did not need it.
     """
-    giving_up_at = time.monotonic() + _LONG_ENOUGH_TO_COME_UP
+    giving_up_at = time.monotonic() + _LONG_PAST_ANY_START
     while time.monotonic() < giving_up_at:
+        if not serving.is_alive():
+            raise RuntimeError(
+                f"the slack double stopped before it answered on {DEFAULT_BASE_URL}"
+            )
         try:
             httpx2.get(f"{DEFAULT_BASE_URL}/health", timeout=_A_MOMENT).raise_for_status()
             return
@@ -76,5 +86,5 @@ def _once_it_answers() -> None:
 
     raise RuntimeError(
         f"the slack double did not answer on {DEFAULT_BASE_URL} within "
-        f"{_LONG_ENOUGH_TO_COME_UP:.0f}s"
+        f"{_LONG_PAST_ANY_START:.0f}s"
     )

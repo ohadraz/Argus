@@ -119,6 +119,17 @@ SHUTDOWN_SECONDS: Final = 5.0
 # it, would end as lost after sending.
 PING_SECONDS: Final = 5.0
 
+# How long every request over a session that is not a tool call waits for its
+# answer: the handshake that opens the session, a list of its tools - the
+# client's own or the one the SDK makes after a session's first call to a tool
+# - and the ping's ceiling. None of it is a tool's work, so none of it may take
+# as long as the slowest tool: a server that took the connection and never
+# finished the handshake would otherwise hold every call waiting on it for the
+# whole of the tool bound, and be found unreachable only then. Generous beside
+# the milliseconds a live server takes, because a loaded machine is still a
+# live one.
+NOT_A_CALL_SECONDS: Final = 30.0
+
 # How long an HTTP request waits for everything but a read - connecting,
 # writing, a connection from the pool: the SDK's own bound for them
 # (`mcp.shared._httpx_utils.MCP_DEFAULT_TIMEOUT`). The read is the answer bound.
@@ -387,6 +398,20 @@ class Asking(Enum):
     READ = "read"
     CHANGE = "change"
     CHANGE_ASKED_ONCE = "change asked once"
+
+
+class WhichAsking(Enum):
+    """Which asking of a call is being sent: its first, or the one sent again
+    over a new session after the first failed
+    (`_asked_again_if_the_connection_failed`)."""
+
+    FIRST = "first"
+    SECOND = "second"
+
+
+# How long one asking of a tool waits for its answer, given the tool's name and
+# which asking of its call it is.
+AskingBound = Callable[[str, WhichAsking], float]
 
 
 class LostAfterSending(RuntimeError):
@@ -660,10 +685,30 @@ class McpClient:
     its own where it builds its client. A call that meets it was sent, and is
     asked again only where asking again is harmless (`call`).
 
+    `answered_within_for` says how long one asking waits for its answer, asked
+    for every asking sent with the tool's name and which asking of the call it
+    is (`WhichAsking`); left out, every asking waits `answered_within`. It can
+    shorten a wait and never lengthen one: `answered_within` is the longest any
+    asking waits. Each asking of a call asked again waits its own bound - the
+    first's having run out is what has the second asked.
+
+    `not_a_call_within` is how long every request over a session that is not a
+    tool call waits (`NOT_A_CALL_SECONDS`): the handshake opening it, and a list
+    of its tools - the client's own (`list_tools`) or the SDK's after a
+    session's first call to a tool. A session that does not open within it is a
+    server unreachable, and a call asked again waits it for its new session on
+    top of its two askings' bounds. `pinged_within` is how long the ping before
+    a change asked once waits (`PING_SECONDS`), and never longer than
+    `not_a_call_within`: a ping whose connection is refused is left unanswered
+    by the SDK, not failed, so a session whose server has gone is found gone
+    only once this has passed.
+
     `http_client_waiting` builds the HTTP client each session is opened over,
-    handed `answered_within`; it defaults to `an_http_client_waiting`, and is a
-    parameter so that what a session travels over, and that it is closed with
-    the session, can be asserted.
+    handed the longer of `answered_within` and `not_a_call_within` - what it
+    reads for is the longest any request over it may wait, and each request's
+    own bound is the SDK's to keep; it defaults to `an_http_client_waiting`,
+    and is a parameter so that what a session travels over, and that it is
+    closed with the session, can be asserted.
     """
 
     def __init__(self,
@@ -675,9 +720,15 @@ class McpClient:
                  holding: Holding | None = None,
                  http_client_waiting: Callable[[float], httpx.AsyncClient] = (
                      an_http_client_waiting
-                 )) -> None:
+                 ),
+                 answered_within_for: AskingBound | None = None,
+                 not_a_call_within: float = NOT_A_CALL_SECONDS,
+                 pinged_within: float = PING_SECONDS) -> None:
         self._url = url
         self._answered_within = answered_within
+        self._answered_within_for = answered_within_for
+        self._not_a_call_within = not_a_call_within
+        self._pinged_within = pinged_within
         self._http_client_waiting = http_client_waiting
         self._holding = holding
         self._tracer = tracer if tracer is not None else trace.get_tracer(_SCOPE)
@@ -931,21 +982,26 @@ class McpClient:
         is not coming, and the next rebuild request tries again.
 
         Its HTTP client is one this opens and closes itself, waiting to read as
-        long as an answer may take (`an_http_client_waiting`): one the SDK
-        built would drop an answer after five minutes and leave its call
-        waiting for ever. Every request over the session waits that long too,
-        and no longer, so a call that got no answer ends rather than waits.
+        long as any answer over it may take (`an_http_client_waiting`): one
+        that stopped reading sooner would drop the answer, and the SDK, which
+        swallows a read that timed out, would leave its request waiting out its
+        own bound for nothing. A tool call over the session waits as long as
+        `_ask` says and no longer, and every other request - the handshake
+        first - `not_a_call_within`, so neither a call nor a session that got no
+        answer waits for ever.
         """
+        reads_for = max(self._answered_within, self._not_a_call_within)
+
         while True:
             try:
                 async with (
-                    self._http_client_waiting(self._answered_within) as http_client,
+                    self._http_client_waiting(reads_for) as http_client,
                     streamable_http_client(
                         self._url, http_client=http_client
                     ) as (read, write, _),
                     ClientSession(
                         read, write,
-                        read_timeout_seconds=timedelta(seconds=self._answered_within)
+                        read_timeout_seconds=timedelta(seconds=self._not_a_call_within)
                     ) as session
                 ):
                     await session.initialize()
@@ -1024,9 +1080,15 @@ class McpClient:
         So is a second asking of a change that failed without proving it never
         ran, after a first that provably did not: it was sent, and there is no
         third.
+
+        A first asking that waited out its bound is one of the failures asked
+        again, since an answer that never came is how a session gone dead looks
+        from here too. Each asking waits the bound `answered_within_for` gives
+        it as the first or the second, over a session that took
+        `not_a_call_within` at most to open.
         """
         try:
-            return await self._ask(name, arguments, meta, asking)
+            return await self._ask(name, arguments, meta, asking, WhichAsking.FIRST)
         except (McpToolError, RunLost):
             raise
         except Exception as failed:
@@ -1040,7 +1102,7 @@ class McpClient:
         await self._rebuilt()
 
         try:
-            return await self._ask(name, arguments, meta, asking)
+            return await self._ask(name, arguments, meta, asking, WhichAsking.SECOND)
         except (ChangedSince, RunLost):
             raise
         except McpToolError as refused:
@@ -1069,18 +1131,27 @@ class McpClient:
                    name: str,
                    arguments: dict[str, object],
                    meta: dict[str, Any],
-                   asking: Asking) -> object:
+                   asking: Asking,
+                   which: WhichAsking) -> object:
         """Calls the tool over whatever session is currently published - one
-        found answering first, for a change asked once."""
+        found answering first, for a change asked once - as the `which` asking
+        of its call, waiting as long as that asking may."""
         session = await self._the_session_for(name)
 
         if asking is Asking.CHANGE_ASKED_ONCE:
             session = await self._still_answering(session, name)
 
-        return _answered(name, await session.call_tool(name, arguments=arguments, meta=meta))
+        waits = self._answered_within
+
+        if self._answered_within_for is not None:
+            waits = min(waits, self._answered_within_for(name, which))
+
+        return _answered(name, await session.call_tool(
+            name, arguments=arguments, read_timeout_seconds=timedelta(seconds=waits), meta=meta
+        ))
 
     async def _still_answering(self, session: ClientSession, asking: str) -> ClientSession:
-        """`session`, where it answers a ping within `PING_SECONDS` - or the
+        """`session`, where it answers a ping within `pinged_within` - or the
         session that replaces it.
 
         Asked before a change asked once, because a held session whose server
@@ -1091,7 +1162,7 @@ class McpClient:
         the same way costs nothing, and nothing has been sent.
         """
         try:
-            async with asyncio.timeout(PING_SECONDS):
+            async with asyncio.timeout(self._pinged_within):
                 await session.send_ping()
         except Exception:
             logger.warning("held session did not answer a ping, opened another",

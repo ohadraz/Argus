@@ -21,6 +21,12 @@ from core import get_settings
 
 FAKE_UNLEASH_PORT = 8181
 WRITE_MCP_TEST_PORT = 8192
+# How long a started server has to answer before it is taken to hang. A guard
+# against a hang and nothing tighter: a server that fails to start is seen
+# exiting and said at once, and with every suite running at once a start that
+# takes three seconds idle has been measured at over fifteen.
+LONG_PAST_ANY_START_SECONDS = 180.0
+A_MOMENT_BETWEEN_KNOCKS_SECONDS = 0.2
 
 DONT_CARE_ADMIN_TOKEN = "*:*.dont-care-admin-token"
 DONT_CARE_FRONTEND_TOKEN = "default:production.dont-care-frontend-token"
@@ -172,7 +178,7 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     get_settings.cache_clear()
 
     try:
-        _wait_for_write_mcp()
+        _wait_for_write_mcp(write_mcp_process)
         yield FakeUnleashHandler
     finally:
         write_mcp_process.terminate()
@@ -211,14 +217,25 @@ def _flag_and_state_in(path: str) -> tuple[str | None, str]:
     return segments[5], segments[-1]
 
 
-def _wait_for_write_mcp(timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
+def _wait_for_write_mcp(process: subprocess.Popen[bytes]) -> None:
+    """Waits until the server answers, and says at once that it never will
+    where its process has ended."""
+    deadline = time.monotonic() + LONG_PAST_ANY_START_SECONDS
     while time.monotonic() < deadline:
+        ended_with = process.poll()
+        if ended_with is not None:
+            raise RuntimeError(
+                f"write_mcp test server ended with [{ended_with}] before it answered"
+            )
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{WRITE_MCP_TEST_PORT}/mcp", timeout=1.0)
             return
         except urllib.error.HTTPError:
             return  # a real HTTP response (even an error one) means the server is up
-        except (urllib.error.URLError, ConnectionError):
-            time.sleep(0.2)
-    raise TimeoutError("write_mcp test server did not become ready within the timeout")
+        except OSError:
+            # Not answering yet: refused, or taken and not answered within the
+            # knock's second - which `urlopen` raises bare, not as a `URLError`.
+            time.sleep(A_MOMENT_BETWEEN_KNOCKS_SECONDS)
+    raise TimeoutError(
+        f"write_mcp test server did not answer within {LONG_PAST_ANY_START_SECONDS:.0f}s"
+    )

@@ -23,6 +23,12 @@ from read_mcp_server.alert_rules import RULE_DEFINITION_PATH
 
 FAKE_TARGET_SERVICE_PORT = 8180
 READ_MCP_TEST_PORT = 8190
+# How long a started server has to answer before it is taken to hang. A guard
+# against a hang and nothing tighter: a server that fails to start is seen
+# exiting and said at once, and with every suite running at once a start that
+# takes three seconds idle has been measured at over fifteen.
+LONG_PAST_ANY_START_SECONDS = 180.0
+A_MOMENT_BETWEEN_KNOCKS_SECONDS = 0.2
 
 # Where the fake answers as Prometheus: under a prefix, the way the Target
 # Environment's own stand-in does, so the setting carries a path and the
@@ -214,7 +220,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     get_settings.cache_clear()
 
     try:
-        _wait_for_read_mcp()
+        _wait_for_read_mcp(read_mcp_process)
         yield FakeTargetServiceHandler
     finally:
         read_mcp_process.terminate()
@@ -236,14 +242,25 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
         get_settings.cache_clear()
 
 
-def _wait_for_read_mcp(timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
+def _wait_for_read_mcp(process: subprocess.Popen[bytes]) -> None:
+    """Waits until the server answers, and says at once that it never will
+    where its process has ended."""
+    deadline = time.monotonic() + LONG_PAST_ANY_START_SECONDS
     while time.monotonic() < deadline:
+        ended_with = process.poll()
+        if ended_with is not None:
+            raise RuntimeError(
+                f"read_mcp test server ended with [{ended_with}] before it answered"
+            )
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{READ_MCP_TEST_PORT}/mcp", timeout=1.0)
             return
         except urllib.error.HTTPError:
             return  # a real HTTP response (even an error one) means the server is up
-        except (urllib.error.URLError, ConnectionError):
-            time.sleep(0.2)
-    raise TimeoutError("read_mcp test server did not become ready within the timeout")
+        except OSError:
+            # Not answering yet: refused, or taken and not answered within the
+            # knock's second - which `urlopen` raises bare, not as a `URLError`.
+            time.sleep(A_MOMENT_BETWEEN_KNOCKS_SECONDS)
+    raise TimeoutError(
+        f"read_mcp test server did not answer within {LONG_PAST_ANY_START_SECONDS:.0f}s"
+    )

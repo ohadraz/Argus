@@ -27,6 +27,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
+from collections import Counter
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -51,14 +53,27 @@ from mcp.server.fastmcp import Context
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 TRANSPORT_DOUBLE_PORT = 8194
 
-STARTUP_TIMEOUT_SECONDS = 15.0
+# How long a started double has to answer before it is taken to hang. A guard
+# against a hang and nothing tighter: a process that fails to start is seen
+# exiting and said at once, and on a machine loaded by every suite at once a
+# start that takes a second idle has been measured at many times that.
+STARTUP_TIMEOUT_SECONDS = 180.0
 SHUTDOWN_TIMEOUT_SECONDS = 10.0
+# How long the server, asked to stop, gives a request still in hand before it
+# cancels it - a whole number, as uvicorn takes it.
+GRACEFUL_SHUTDOWN_SECONDS = 1
 POLL_SECONDS = 0.2
+# How long one knock on a starting double waits for its answer before knocking
+# again.
+KNOCK_TIMEOUT_SECONDS = 1.0
+# How long a test's own call to the double's control routes waits: past any
+# answer, since they answer at once and are never held.
+CONTROL_TIMEOUT_SECONDS = 30.0
 
 # Counted in the server's own process, and asked for over MCP like anything
 # else. It is what lets a test say a refusal was *not* retried: a client that
@@ -77,6 +92,18 @@ _times_asked_stalling_first = 0
 # a server that forgot them answers whatever arrives over one with the 404 a
 # server answers a session it does not hold.
 _forgetting_after_the_next_ping = False
+# The requests over MCP to hold before passing them on, by JSON-RPC method: how
+# many more of each, and for how long - a server that took the connection and
+# has not answered. And every request seen and held, by method. Armed and read
+# over the double's own control routes rather than over MCP, because a session
+# opened to arm or read them has a handshake of its own that an armed hold
+# would hold.
+_to_hold: dict[str, tuple[int, float]] = {}
+_seen: Counter[str] = Counter()
+_held: Counter[str] = Counter()
+# What this process was started to answer its control route with, so the handle
+# that started it can tell it from any other copy of the double on the port.
+_token = ""
 # What a tool refusing as a lost run says, as a write tier refuses one.
 A_NEWER_CLAIM_HOLDS_THE_RUN: Final = "a newer claim holds this run"
 _sessions_forgotten: set[bytes] = set()
@@ -91,6 +118,11 @@ _SESSION_NOT_FOUND = (
     b'"error":{"code":-32600,"message":"Session not found"}}'
 )
 _A_PING: Final = "ping"
+# Where the double's own control routes are, beside `/mcp` and never reaching
+# the SDK: one that arms a hold (`hold_the_next`), and one that says what was
+# seen and held (`requests_seen`, `requests_held`).
+_HOLDING_PATH: Final = "/double-control/holding"
+_REQUESTS_PATH: Final = "/double-control/requests"
 
 # What the refusals that changed something leave behind: one suspension, as the
 # rollback's shape leaves it.
@@ -428,6 +460,58 @@ class _ForgettingSessionsAfterAPing:
         await self._app(scope, receive_again, send)
 
 
+class _HoldingRequestsWhenTold:
+    """The server's app behind a door that counts every request over MCP by its
+    method, and holds the next ones of a method before passing them on when
+    told to - and that answers the two control routes that tell and ask it.
+
+    In front of the SDK rather than inside it, because what it holds - the
+    handshake, a list of tools, a ping - is the SDK's own and answered before
+    any tool is asked anything: what a client meets is a connection taken and
+    no answer to its request.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        if scope["path"] == _HOLDING_PATH:
+            body, _ = await _read_whole(receive)
+            told = json.loads(body)
+            _to_hold[told["method"]] = (told["times"], told["seconds"])
+            await JSONResponse({})(scope, receive, send)
+            return
+
+        if scope["path"] == _REQUESTS_PATH:
+            await JSONResponse(
+                {"token": _token, "seen": _seen, "held": _held}
+            )(scope, receive, send)
+            return
+
+        if scope["method"] != "POST":
+            await self._app(scope, receive, send)
+            return
+
+        body, receive_again = await _read_whole(receive)
+        asked = json.loads(body) if body else None
+        method = asked.get("method") if isinstance(asked, dict) else None
+
+        if isinstance(method, str):
+            _seen[method] += 1
+            times, seconds = _to_hold.get(method, (0, 0.0))
+
+            if times > 0:
+                _to_hold[method] = (times - 1, seconds)
+                _held[method] += 1
+                await asyncio.sleep(seconds)
+
+        await self._app(scope, receive_again, send)
+
+
 async def _read_whole(receive: Receive) -> tuple[bytes, Receive]:
     """A request's whole body, and a `receive` that hands it over again before
     whatever arrives after it."""
@@ -466,30 +550,69 @@ class RunningDouble:
     def __init__(self, port: int) -> None:
         self._port = port
         self._process: subprocess.Popen[bytes] | None = None
+        self._token = ""
 
     @property
     def url(self) -> str:
         """Where the double serves MCP, in the form a client is given."""
         return f"http://127.0.0.1:{self._port}/mcp"
 
+    def hold_the_next(self, method: str, times: int, seconds: float) -> None:
+        """Has the next `times` requests over MCP whose JSON-RPC method is
+        `method` held `seconds` before the server is handed them."""
+        told = json.dumps({"method": method, "times": times, "seconds": seconds}).encode()
+        urllib.request.urlopen(
+            urllib.request.Request(self._control(_HOLDING_PATH), data=told, method="POST"),
+            timeout=CONTROL_TIMEOUT_SECONDS
+        ).close()
+
+    def requests_seen(self, method: str) -> int:
+        """How many requests whose JSON-RPC method is `method` the server has
+        been sent since it started, held ones included."""
+        return int(self._requests(CONTROL_TIMEOUT_SECONDS)["seen"].get(method, 0))
+
+    def requests_held(self, method: str) -> int:
+        """How many requests whose JSON-RPC method is `method` were held."""
+        return int(self._requests(CONTROL_TIMEOUT_SECONDS)["held"].get(method, 0))
+
     def start(self) -> None:
-        """Starts the server and waits until it is answering."""
+        """Starts the server and waits until it is answering - and stops it
+        again where waiting fails, so a server that never answered is not left
+        holding the port.
+
+        Each process is started with a token of its own to answer its control
+        route with. Not its process id: on Windows a venv's `python.exe` starts
+        the interpreter as a child of its own, so the id `Popen` has is not the
+        server's."""
         if self._process is not None:
             return
 
+        self._token = uuid.uuid4().hex
         self._process = subprocess.Popen(
-            [sys.executable, "-m", __name__, str(self._port)],
+            [sys.executable, "-m", __name__, str(self._port), self._token],
             env={**os.environ, "PYTHONPATH": str(_suite_root())}
         )
-        self._wait_until_listening()
+
+        try:
+            self._wait_until_listening()
+        except BaseException:
+            self.stop()
+            raise
 
     def stop(self) -> None:
-        """Stops the server and waits for it to give the port back."""
+        """Stops the server and waits for it to give the port back - killing
+        it where it has not stopped once asked to."""
         if self._process is None:
             return
 
         self._process.terminate()
-        self._process.wait(timeout=SHUTDOWN_TIMEOUT_SECONDS)
+
+        try:
+            self._process.wait(timeout=SHUTDOWN_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.wait(timeout=SHUTDOWN_TIMEOUT_SECONDS)
+
         self._process = None
 
     def restart(self) -> None:
@@ -512,19 +635,53 @@ class RunningDouble:
                  traceback: TracebackType | None) -> None:
         self.stop()
 
+    def _control(self, path: str) -> str:
+        return f"http://127.0.0.1:{self._port}{path}"
+
+    def _requests(self, timeout: float) -> dict[str, Any]:
+        """What the control route answers: the token the process answering was
+        started with, and the requests it saw and held."""
+        with urllib.request.urlopen(self._control(_REQUESTS_PATH), timeout=timeout) as answered:
+            counted: dict[str, Any] = json.loads(answered.read())
+
+        return counted
+
     def _wait_until_listening(self) -> None:
+        """Waits until the server answers, and says at once that it never will
+        where its process has ended."""
         deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
 
         while time.monotonic() < deadline:
-            try:
-                urllib.request.urlopen(self.url, timeout=1.0)
+            ended_with = self._process.poll() if self._process is not None else None
 
-                return
-            except urllib.error.HTTPError:
-                # A real HTTP response, even a refusing one, means it is up: a
-                # bare GET is not a shape this endpoint serves.
-                return
-            except (urllib.error.URLError, ConnectionError):
+            if ended_with is not None:
+                raise RuntimeError(
+                    f"the transport double for {self.url} ended with [{ended_with}] "
+                    f"before it answered"
+                )
+
+            try:
+                # Its own control route, answered with the token this process
+                # was started with: any other answer on the port says only that
+                # something is listening there - on a machine whose WSL forwards
+                # its own listeners to this one's loopback, another suite's
+                # double, or one a killed run left behind - while this one may
+                # have failed to take the port.
+                if self._requests(KNOCK_TIMEOUT_SECONDS).get("token") == self._token:
+                    return
+
+                # Another copy of the double answered: this one has not, and
+                # will be seen ending if it could not take the port.
+                time.sleep(POLL_SECONDS)
+            except (urllib.error.HTTPError, ValueError):
+                # Something that is no double answered on the port - refusing,
+                # or with something that is not JSON: this double has not, and
+                # will be seen ending if it could not take the port.
+                time.sleep(POLL_SECONDS)
+            except OSError:
+                # Not answering yet: refused, or taken and not answered within
+                # the knock's second - which `urlopen` raises bare, not as a
+                # `URLError`, and which a loaded machine's server does.
                 time.sleep(POLL_SECONDS)
 
         raise TimeoutError(
@@ -553,10 +710,16 @@ if __name__ == "__main__":
     # An SDK of the double's own, exporting nowhere: what makes the server's
     # span a real one with a parent to report, rather than the API's no-op.
     trace.set_tracer_provider(TracerProvider())
-    # Served as FastMCP serves itself over streamable HTTP, behind the door that
-    # can forget a session.
+    # Served as FastMCP serves itself over streamable HTTP, behind the doors
+    # that can hold a request and forget a session. Asked to stop, it gives a
+    # request it is still holding a moment and then cancels it: uvicorn would
+    # otherwise wait for every one with no limit at all.
+    _token = sys.argv[2]
     double = build_double(int(sys.argv[1]))
-    uvicorn.run(_ForgettingSessionsAfterAPing(double.streamable_http_app()),
+    uvicorn.run(_HoldingRequestsWhenTold(
+                    _ForgettingSessionsAfterAPing(double.streamable_http_app())
+                ),
+                timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
                 host=double.settings.host,
                 port=double.settings.port,
                 log_level=double.settings.log_level.lower())
