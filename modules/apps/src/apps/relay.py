@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from chat_platform.slack import ChatSettings, slack_from
+from chat_platform.slack import SlackSettings, slack_from
 from communication.relaying import CHAT_RELAY
 from communication.saying import (
     a_briefing,
@@ -27,6 +27,7 @@ from core import (
 )
 from incident_record import events_since, place_for
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -51,16 +52,18 @@ def main() -> None:
     this run's logs as well as on the console.
     """
     settings = get_settings()
+    slack = SlackSettings()
 
-    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
-        if not settings.slack_war_room_channel:
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                         also=to_langfuse(LangfuseSettings())):
+        if not slack.slack_war_room_channel:
             logger.warning("no war-room channel configured")
             return
 
         # The chat platform's adapter, built here and nowhere else in this
         # process: one client for the whole relay, built where the process
         # starts, and everything below it holds only the port.
-        chat = slack_from(ChatSettings.of(settings))
+        chat = slack_from(slack)
 
         if chat is None:
             logger.warning("no chat platform configured")
@@ -69,15 +72,15 @@ def main() -> None:
         with open_pool(DatabaseSettings.of(settings)) as pool:
             connections: Connections = pool.connection
 
-            logger.info("relay started", extra={"channel": settings.slack_war_room_channel})
+            logger.info("relay started", extra={"channel": slack.slack_war_room_channel})
 
             # Where write-ups go, which is the war room unless a team said
             # otherwise. Falling back rather than going silent: a postmortem
             # nobody was told about is the one thing worse than one in the
             # wrong channel, and leaving the setting empty is not a decision
             # to say nothing.
-            war_room = settings.slack_war_room_channel
-            archive = settings.slack_postmortem_channel or war_room
+            war_room = slack.slack_war_room_channel
+            archive = slack.slack_postmortem_channel or war_room
 
             watch_forever(
                 events_since(connections),
@@ -86,7 +89,7 @@ def main() -> None:
                     a_chat_destination(connections, channel=war_room, chat=chat),
                     a_chat_destination(connections, channel=archive, chat=chat),
                     a_briefing(connections,
-                               sent_to=settings.executive_synopsis_slack_to,
+                               sent_to=slack.executive_synopsis_slack_to,
                                chat=chat,
                                argus_at=settings.argus_base_url),
                     argus_at=settings.argus_base_url,
@@ -95,7 +98,7 @@ def main() -> None:
                     # and a line saying where to find it would point at itself.
                     filed_in=archive if archive != war_room else ""
                 ),
-                pause=settings.slack_relay_poll_seconds
+                pause=slack.slack_relay_poll_seconds
             )
 
 

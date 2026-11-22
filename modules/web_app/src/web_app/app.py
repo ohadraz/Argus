@@ -12,7 +12,6 @@ from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from core import (
     Connections,
     DatabaseSettings,
-    get_settings,
     open_pool,
     said_as_a_time,
 )
@@ -84,6 +83,8 @@ router = APIRouter()
 
 
 def an_app(*,
+           database: DatabaseSettings,
+           push_settings: PushSettings,
            alert_sources: Mapping[str, AlertSource],
            the_unnamed_senders_name: str,
            push_source: PushSource,
@@ -101,6 +102,10 @@ def an_app(*,
     deployment was given for it, and nothing that reads a repository. The
     on-call and the chat platform are `None` where the deployment has none,
     which is how each one's webhook comes to answer as though it did not exist.
+
+    `database` is where the pool opens, and `push_settings` what the push
+    webhook watches - both read from the environment by the root, as everything
+    this process is configured with is.
 
     The pool is opened by the lifespan and closed by it, which is the whole of
     why it is one: a process that serves requests wants connections ready
@@ -122,9 +127,9 @@ def an_app(*,
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         """What this process holds for as long as it is up."""
-        with open_pool(DatabaseSettings.of(get_settings())) as pool:
+        with open_pool(database) as pool:
             app.state.connections = pool.connection
-            app.state.push_settings = PushSettings.of(get_settings())
+            app.state.push_settings = push_settings
 
             with pool.connection() as conn:
                 require_schema(conn)
@@ -159,7 +164,7 @@ def connections_of(request: Request) -> Connections:
 
 
 def push_settings_of(request: Request) -> PushSettings:
-    """What the push webhook trusts and watches, read once at startup.
+    """What the push webhook watches, read once at startup.
 
     A dependency for the reason the connections are one: the route says in its
     signature that it is configured, and a test can hand it a different

@@ -27,6 +27,7 @@ from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTri
 from incident_memory.keeping import kept_in
 from incident_memory.records import RememberedIncident
 from vector_store_qdrant.indexing import the_index_at
+from vector_store_qdrant.settings import QdrantSettings
 
 from tests.e2e.framework.argus import THE_SERVICE_NAME
 from tests.e2e.framework.flags import THE_DEMO_FLAG
@@ -63,7 +64,8 @@ def that_flag_was_tried_before_and_did_not_help() -> None:
     """
     settings = get_settings()
 
-    with the_index_at(settings.qdrant_url, settings.incident_memory_collection) as store:
+    with the_index_at(QdrantSettings().qdrant_url,
+                      settings.incident_memory_collection) as store:
         kept_in(store, an_embedder(settings.incident_memory_embedding_model))(
             RememberedIncident(
                 incident_id=AN_EARLIER_INCIDENT,

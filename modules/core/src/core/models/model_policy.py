@@ -32,16 +32,14 @@ class Reasoning(StrEnum):
     HIGHEST = "highest"
 
 
-# What an agent gets when its deployment names nothing, and the one place
-# either value is written down. Here rather than in the adapter that renders
-# them or the configuration that reads them: the adapter imports a vendor's
-# SDK, so anything naming it drags Anthropic along, and configuration is read
-# by every module there is.
-DEFAULT_MODEL: Final = "claude-opus-5-5"
-
-# Stated rather than left to a provider's own default. A default that moved
-# under us would change what every agent costs and how long it takes with
-# nothing here mentioning it.
+# How hard an agent is asked to think when its deployment names nothing, and
+# the one place it is written down. Stated rather than left to a provider's own
+# default. A default that moved under us would change what every agent costs
+# and how long it takes with nothing here mentioning it.
+#
+# There is no default model beside it. A model is named in one provider's
+# catalogue, so its defaults are that provider's settings', and every agent's
+# policy names its own.
 DEFAULT_EFFORT: Final = Reasoning.HIGH
 
 # How much room an answer gets. Sixteen thousand is what every agent had
@@ -76,7 +74,9 @@ class ModelPolicy(BaseModel):
     agent it is assembling.
     """
 
-    model: str = DEFAULT_MODEL
+    # Required: a model is a name in the answering provider's catalogue, and a
+    # default here would be a vendor's name in a kernel that names none.
+    model: str
     effort: Reasoning = DEFAULT_EFFORT
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     # What this agent is told about itself, once, ahead of every incident it

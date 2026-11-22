@@ -2,10 +2,12 @@
 
 `orchestrator.walk.collaborators` says what a walk takes; this builds the real
 ones, for a process that has a database, a model and two tiers - and is the
-one place in the worker that names a vendor: the model provider, the on-call
-platform, the payment provider, the rate provider, the HR source and the store
-long-term memory is searched in. Every one of them is built here and handed to
-the agents and the postmortem's sources as its port.
+one place in the worker that builds what a walk reaches a vendor through: the
+model provider, the on-call platform, the payment provider, the rate provider,
+the HR source and the store long-term memory is searched in. Every one of them
+is built here and handed to the agents and the postmortem's sources as its port.
+The backends telemetry sends to are the process's, not the walk's, and are
+named where it starts (`apps.worker.process`).
 
 Part of the worker's root rather than of the Orchestrator, because choosing
 what a process runs against is the root's: a library that built its own
@@ -17,18 +19,19 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import timedelta
 from functools import partial
 
 from codefix_agent import FixSettings, fixes_over
-from core import Connections, Holding, LLMSettings, Settings, SettingsSlice
+from core import Connections, Holding, Settings, SettingsSlice
 from core.anomaly import AnomalyThresholds
 from core.autonomy import admit
 from core.embedding import an_embedder
 from core.llm import ModelProvider, build_llm_client, conversations_through
-from core.llm.adapters.anthropic_adapter import AnthropicProvider
+from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.vector_store import VectorSearch
-from exchange_rate_source.frankfurter import ExchangeRateSettings, rates_published_for
+from exchange_rate_source.frankfurter import FrankfurterSettings, rates_published_for
 from incident_memory.records import RememberedIncident
 from incident_record import (
     calls_into,
@@ -61,8 +64,8 @@ from orchestrator.records import Records
 from orchestrator.sources import the_real_sources
 from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.ports import RecallSimilar, Resuming
-from pay_band_source import PayBandSettings
 from pay_band_source.bamboohr_adapter import pay_bands
+from pay_band_source.bamboohr_settings import BambooHrSettings
 from postmortem_writing import Sources, judge_policy, postmortem_policy, synopsis_policy
 from read_mcp_client import ReadTier
 from revenue_source.stripe_adapter import charges_between
@@ -72,13 +75,42 @@ from write_mcp_client import WriteTier
 _logger = logging.getLogger(__name__)
 
 
-class IncidentMemorySettings(SettingsSlice):
-    """Whether earlier incidents are searched, where, and how forgivingly.
+@dataclass(frozen=True)
+class Vendors:
+    """Every vendor's settings a walk is built from, beside the kernel's: the
+    model provider's, and those of the four sources a postmortem reads.
+    Telemetry's backends are the process's and are read where it starts.
 
-    Six fields rather than the whole of `Settings`, for the reason every other
+    Read once, where the process starts (`read`), and handed to `against` with
+    the kernel's - so a test hands over the ones it means, and nothing below
+    reads the environment. The vector store's is read only where memory is on
+    (`the_store_for`).
+    """
+
+    model_settings: AnthropicSettings
+    oncall: PagerDutySettings
+    revenue: StripeSettings
+    rates: FrankfurterSettings
+    pay_bands: BambooHrSettings
+
+    @classmethod
+    def read(cls) -> Vendors:
+        """Each vendor's settings, as this process's environment says them."""
+        return cls(model_settings=AnthropicSettings(),
+                   oncall=PagerDutySettings(),
+                   revenue=StripeSettings(),
+                   rates=FrankfurterSettings(),
+                   pay_bands=BambooHrSettings())
+
+
+class IncidentMemorySettings(SettingsSlice):
+    """Whether earlier incidents are searched, in what, and how forgivingly.
+
+    Seven fields rather than the whole of `Settings`, for the reason every other
     slice is narrow: what it takes to ask whether an incident like this one has
-    been seen before is a URL, a collection and a model, and nothing that reads
-    only those should be able to name a credential.
+    been seen before is a collection and a model, and nothing that reads only
+    those should be able to name a credential. Which store holds the collection
+    is the store's adapter's.
 
     Declared here rather than in `incident_memory`, whose walk-side modules
     read no configuration at all - they are handed a store and an embedder,
@@ -87,7 +119,6 @@ class IncidentMemorySettings(SettingsSlice):
     """
 
     incident_memory_enabled: bool
-    qdrant_url: str
     incident_memory_collection: str
     incident_memory_embedding_model: str
     incident_memory_recall_limit: int
@@ -114,7 +145,8 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[VectorSearch | 
     side a walk may know, and yielded as the port, which can only search: the
     walk searches what is there and files the rest. The adapter is imported
     here, where it is built, and only once memory is on - a worker with memory
-    off loads no store's client.
+    off loads no store's client. So are its settings, which name where the
+    store is: importing them imports the client.
     """
     if not settings.incident_memory_enabled:
         _logger.info("incident memory disabled")
@@ -124,12 +156,14 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[VectorSearch | 
         return
 
     from vector_store_qdrant.searching import the_search_at
+    from vector_store_qdrant.settings import QdrantSettings
 
-    with the_search_at(settings.qdrant_url, settings.incident_memory_collection) as store:
+    with the_search_at(QdrantSettings().qdrant_url,
+                       settings.incident_memory_collection) as store:
         yield store
 
 
-def the_models_at(settings: LLMSettings) -> ModelProvider:
+def the_models_at(settings: AnthropicSettings) -> ModelProvider:
     """Whoever answers this process's model calls, reached where `settings` say.
 
     The one place the worker names a model vendor. Built here and handed to
@@ -148,7 +182,8 @@ def against(connections: Connections,
             store: VectorSearch | None,
             holding: Holding,
             *,
-            settings: Settings) -> Collaborators:
+            settings: Settings,
+            vendors: Vendors) -> Collaborators:
     """The real ones, for a process that has a database, a model and two tiers.
 
     Built once where the process starts. Everything derived from `connections`
@@ -172,10 +207,10 @@ def against(connections: Connections,
     `holding` is the run the process is walking, which is all a walk asking
     whether its run is still its own needs to be answered.
 
-    `settings` is the deployment's configuration, handed in by whoever started
-    the process rather than read here, so that what a binding was given - the
-    address each model provider reaches, above all - can be told apart in a
-    test that names two.
+    `settings` is the deployment's configuration and `vendors` each vendor's,
+    handed in by whoever started the process rather than read here, so that what
+    a binding was given - the address each model provider reaches, above all -
+    can be told apart in a test that names two.
 
     Which tier answers which question is decided here and nowhere else. A seam
     that is one tool's call is bound to the tier's own method for it; one that
@@ -217,16 +252,17 @@ def against(connections: Connections,
     # Built once rather than per postmortem: which provider answers which
     # question is a fact about the deployment, and the only thing that differs
     # between two incidents is which incident is being written up.
-    sources = the_sources_for(settings, connections, read, thresholds)
+    sources = the_sources_for(settings, vendors, connections, read, thresholds)
     # Whoever answers every agent's model calls, chosen once for the process.
-    models = the_models_at(LLMSettings.of(settings))
+    models = the_models_at(vendors.model_settings)
     # The grounding judge both writers are read by, at its own model and
     # address. Its address is settled here, where the process starts, so one
     # pointed at the agents' stand-in and at nothing for the judge refuses to
     # start rather than judging out of the writer's recordings.
     judging = partial(build_llm_client,
-                      the_models_at(LLMSettings.for_the_judge(settings)),
-                      policy=judge_policy(settings.judge_model, settings.judge_effort))
+                      the_models_at(vendors.model_settings.for_the_judge()),
+                      policy=judge_policy(vendors.model_settings.judge_model,
+                                          settings.judge_effort))
 
     return Collaborators(
         # Bound here because this is where a deployment's configuration meets
@@ -235,7 +271,7 @@ def against(connections: Connections,
         # everything but name.
         investigate=partial(
             _investigate,
-            settings=InvestigationSettings.of(settings),
+            settings=InvestigationSettings.of(settings, vendors.model_settings),
             thresholds=thresholds,
             # The six channels, each over the tier that answers it. The change
             # channel takes both, because a deploy and a flag flip are recorded
@@ -342,7 +378,7 @@ def against(connections: Connections,
         # Both tiers, because proposing a fix is the one act that spans them:
         # the repository is read from the process that cannot write, and the
         # branch and the draft pull request come from the one that can (§13).
-        propose_fix=fixes_over(read, write, FixSettings.of(settings),
+        propose_fix=fixes_over(read, write, FixSettings.of(settings, vendors.model_settings),
                                conversations_through(models), recorder),
         actions_taken=records.actions_taken,
         recall_similar=_recalling(memory, store),
@@ -362,7 +398,7 @@ def against(connections: Connections,
             client_for=partial(
                 build_llm_client,
                 models,
-                policy=postmortem_policy(settings.postmortem_model,
+                policy=postmortem_policy(vendors.model_settings.postmortem_model,
                                          settings.postmortem_effort)
             ),
             judge_for=judging,
@@ -377,7 +413,7 @@ def against(connections: Connections,
             client_for=partial(
                 build_llm_client,
                 models,
-                policy=synopsis_policy(settings.postmortem_model,
+                policy=synopsis_policy(vendors.model_settings.postmortem_model,
                                        settings.postmortem_effort)
             ),
             judge_for=judging,
@@ -398,30 +434,30 @@ def against(connections: Connections,
 
 
 def the_sources_for(settings: Settings,
+                    vendors: Vendors,
                     connections: Connections,
                     read: ReadTier,
                     thresholds: AnomalyThresholds) -> Sources:
     """Every source a postmortem reads, each answered by the provider this
     deployment is configured for.
 
-    The configuration is sliced once, here, and each provider is handed only
-    its own slice. A provider that never learns a credential's name cannot leak
-    it into a postmortem, and one holding the whole of `Settings` would be able
-    to read every credential Argus has in order to ask about money. Which is
-    why this takes the whole of it, and is meant to: it is the narrowing
-    itself, and the one place each provider's vendor is named. Binding a
-    provider to its slice reaches nothing; each asks only when a postmortem
-    does.
+    Each provider is handed only its own vendor's settings. A provider that
+    never learns a credential's name cannot leak it into a postmortem, and one
+    holding every vendor's would be able to read every credential Argus has in
+    order to ask about money. Which is why this takes all of them, and is meant
+    to: it is the narrowing itself, and the one place each provider's vendor is
+    named. Binding a provider to its settings reaches nothing; each asks only
+    when a postmortem does.
     """
     return the_real_sources(
         settings, connections, read, thresholds,
         # The worker reads the platform and never hears from it, so it holds
         # no webhook secret - an empty one refuses every delivery, and none
         # ever reaches this process to refuse.
-        oncall=pagerduty_from(PagerDutySettings.of(settings), webhook_secret=""),
-        charges=partial(charges_between, settings=StripeSettings.of(settings)),
-        published=partial(rates_published_for, settings=ExchangeRateSettings.of(settings)),
-        bands=partial(pay_bands, PayBandSettings.of(settings))
+        oncall=pagerduty_from(vendors.oncall, webhook_secret=""),
+        charges=partial(charges_between, settings=vendors.revenue),
+        published=partial(rates_published_for, settings=vendors.rates),
+        bands=partial(pay_bands, vendors.pay_bands)
     )
 
 

@@ -22,7 +22,7 @@ from functools import partial
 from typing import Any, Final, assert_never
 
 import httpx2
-from core import SettingsSlice
+from core import AdapterSettings
 from core.applying import known_not_applied
 from core.models import PodPlacement, RolloutProgress
 
@@ -230,43 +230,85 @@ ANOTHER_OPERATION_IN_PROGRESS: Final = "another operation is already in progress
 _THE_SERVERS_OWN_FAULT: Final = 500
 
 
-class ArgoCdSettings(SettingsSlice):
+class ArgoCdSettings(AdapterSettings):
     """Where the Argo CD server is, under what credential, and its routes.
 
-    One slice for every request, where there used to be one per action each
-    redeclaring the server and the credential. The routes are templates over the
-    application, so the demo's stand-in and a real server's
-    `/api/v1/applications/{application}` are one setting with two values.
+    One set for every request, where there used to be one per action each
+    redeclaring the server and the credential. Read by each tier's root. The
+    routes are templates over the application, so the demo's stand-in and a
+    real server's `/api/v1/applications/{application}` are one setting with two
+    values; a path carrying no placeholder is formatted to itself.
 
-    The token may be empty, which sends no credential at all rather than a
-    placeholder a real server would reject as meaningless. The demo's stand-in
-    then answers reads and refuses a rollback, which needs a token it issued.
+    The defaults are the demo Target Service, which stands in for a real Argo CD
+    server - but the adapter makes the request a real Argo CD answers, and
+    pointing these at one is the only change needed.
 
     The two namespaces are the restart's and the scale-out's, each addressing the
     Deployment its action is run against. The autoscaler has none, because its
     address is read from the tree rather than configured.
-
-    `argocd_actor` is the account Argus signs in as, which is how a deployment it
-    started is told from anybody else's. Empty where Argus shares its credential
-    with people, and then no deployment is said to be anybody's in particular.
     """
 
-    argocd_base_url: str
-    argocd_auth_token: str
-    argocd_actor: str
-    argocd_application_path: str
+    argocd_base_url: str = "http://localhost:8080"
+    # Empty means no credential is sent at all, rather than an invented one a
+    # real server would reject as meaningless. The demo's stand-in answers
+    # reads without one and refuses a rollback that carries no token it issued.
+    argocd_auth_token: str = ""
+    # The name the platform records Argus's own actions under - the account the
+    # credential above belongs to, which Argo CD writes on each history entry as
+    # `initiatedBy.username`. The counterpart of the flag provider's
+    # `UNLEASH_ACTOR`, for the same reason: a rollback Argus made lands in the
+    # deploy history a later round reads, and kept there it is offered as the
+    # change to undo. Empty switches the filtering off, the honest setting where
+    # the credential is shared - and leaves every rollback put-back to a person,
+    # since whether a rollback is still Argus's is asked by this name.
+    argocd_actor: str = "Argus"
+    argocd_application_path: str = "/argocd/{application}"
     # Where the platform says what is actually *running*, and where an autoscaler
-    # is patched. The values file says what git asks for.
-    argocd_resource_path: str
-    argocd_resource_action_path: str
-    argocd_rollback_path: str
-    # What an application is made of: its pods, and its autoscaler's own name.
-    argocd_resource_tree_path: str
+    # is patched - the only place a live replica count can be read, since the
+    # values file says what git asks for and the two differ the moment anybody
+    # scales.
+    argocd_resource_path: str = "/argocd/{application}/resource"
+    # Where a resource action is run. A real Argo CD's is
+    # `/api/v1/applications/{application}/resource/actions/v2` - v2 rather than
+    # the original, which takes the same fields as query parameters and is
+    # deprecated since Argo CD 3.1. One setting for every action rather than one
+    # per action, because it is one endpoint: `restart` and `scale` are both
+    # built-in resource actions for a Deployment, dispatched by the name in the
+    # body.
+    argocd_resource_action_path: str = "/argocd/{application}/resource/actions/v2"
+    # Where a rollback is asked for. A real Argo CD's is
+    # `/api/v1/applications/{application}/rollback`.
+    #
+    # A rollback is three requests, not one - the application is read for which
+    # entry is running and whether the platform is reconciling it,
+    # reconciliation is suspended because a real server refuses a rollback while
+    # it is on, and only then is the rollback asked for. The first two go to
+    # the application path: the suspension is a merge patch of the application
+    # itself (`PATCH /api/v1/applications/{application}`, Argo CD 3.1 or later),
+    # never a write to its spec route, which replaces the whole spec with
+    # whatever it is sent.
+    argocd_rollback_path: str = "/argocd/{application}/rollback"
+    # What an application is made of: its pods, and its autoscaler's own name. A
+    # pod's creation time is what confirms a restart landed, and it is per
+    # application - restarting a dependency is confirmed by looking at the
+    # dependency.
+    argocd_resource_tree_path: str = "/argocd/{application}/resource-tree"
     # What the platform renders an application as at a revision - what git ships,
-    # where the resource route says what is running.
-    argocd_manifests_path: str
-    restart_namespace: str
-    scale_namespace: str
+    # where the resource route says what is running. A put-back of a rollback
+    # compares the two's images, because a `kubectl set image` leaves no history
+    # entry to find it by. A real Argo CD's is
+    # `/api/v1/applications/{application}/manifests`.
+    argocd_manifests_path: str = "/argocd/{application}/manifests"
+    # Which namespace the deployment being restarted lives in. The resource
+    # itself is not configured: it is the service being restarted, because a
+    # fixed name would carry the alerting service's deployment into a request
+    # addressed at one of its dependencies.
+    restart_namespace: str = "production"
+    # And which namespace the one being scaled lives in. Its own setting rather
+    # than the restart's reused: a restart may be addressed at a dependency in
+    # somebody else's namespace, where a scale-out only ever reaches the
+    # deployment Argus was paged about.
+    scale_namespace: str = "production"
 
 
 class ArgoCd:

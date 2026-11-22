@@ -19,15 +19,15 @@ from typing import Final
 
 import uvicorn
 from alert_source.grafana import GrafanaAlerts
-from chat_platform.slack import ChatSettings, slack_from
-from core import Settings, TelemetrySettings, get_settings
+from chat_platform.slack import SlackSettings, slack_from
+from core import DatabaseSettings, Settings, TelemetrySettings, get_settings
 from fastapi import FastAPI
 from oncall_source.pagerduty_adapter import pagerduty_from
-from oncall_source.pagerduty_settings import PagerDutySettings
-from push_source.github import GitHubPushes
+from oncall_source.pagerduty_settings import PagerDutyDeliverySettings
+from push_source.github import GitHubPushes, GitHubPushSettings
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 from web_app.app import an_app
-from web_app.oncall import OnCallDeliverySettings
 from web_app.pushes import PushSettings
 
 # What this process is called in its telemetry, and the directory its runs are
@@ -41,25 +41,30 @@ _SERVICE: Final = "argus-web"
 GRAFANA_ALERTS: Final = "grafana"
 
 
-def the_app_for(settings: Settings) -> FastAPI:
+def the_app_for(settings: Settings,
+                *,
+                pushes: GitHubPushSettings,
+                oncall: PagerDutyDeliverySettings,
+                chat: SlackSettings) -> FastAPI:
     """The application, hearing from what this deployment is configured for.
 
-    Each sender's and platform's adapter is built here and nowhere else, and
-    handed to the application as its port. The push source holds the secret
-    the deployment was given for it, and nothing that reads a repository. The
-    on-call and the chat platform are `None` where the deployment has none.
-    Building any of them reaches nothing: each asks its vendor only when a
-    delivery arrives.
+    Each sender's and platform's adapter is built here and nowhere else, from
+    its own settings, and handed to the application as its port. The push
+    source holds the secret the deployment was given for it, and nothing that
+    reads a repository. The on-call and the chat platform are `None` where the
+    deployment has none. Building any of them reaches nothing: each asks its
+    vendor only when a delivery arrives.
     """
     return an_app(
+        database=DatabaseSettings.of(settings),
+        push_settings=PushSettings(repository=pushes.github_repository,
+                                   deployed_branch=settings.deployed_branch,
+                                   code_search=settings.code_search),
         alert_sources={GRAFANA_ALERTS: GrafanaAlerts()},
         the_unnamed_senders_name=GRAFANA_ALERTS,
-        push_source=GitHubPushes(PushSettings.of(settings).github_webhook_secret),
-        oncall_platform=pagerduty_from(
-            PagerDutySettings.of(settings),
-            webhook_secret=OnCallDeliverySettings.of(settings).pagerduty_webhook_secret
-        ),
-        chat_platform=slack_from(ChatSettings.of(settings))
+        push_source=GitHubPushes(pushes.github_webhook_secret),
+        oncall_platform=pagerduty_from(oncall, webhook_secret=oncall.pagerduty_webhook_secret),
+        chat_platform=slack_from(chat)
     )
 
 
@@ -80,9 +85,13 @@ def main(argv: list[str] | None = None) -> None:
     listening = parser.parse_args(argv)
     settings = get_settings()
 
-    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
-        uvicorn.run(the_app_for(settings), host=listening.host, port=listening.port,
-                    log_config=None)
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                         also=to_langfuse(LangfuseSettings())):
+        app = the_app_for(settings,
+                          pushes=GitHubPushSettings(),
+                          oncall=PagerDutyDeliverySettings(),
+                          chat=SlackSettings())
+        uvicorn.run(app, host=listening.host, port=listening.port, log_config=None)
 
 
 if __name__ == "__main__":

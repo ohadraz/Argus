@@ -25,6 +25,7 @@ from urllib.parse import urlencode
 import httpx2
 import psycopg
 from argus_testkit import Assertion
+from chat_platform.slack import SlackSettings
 from chat_platform.slack_deliveries import (
     ACTION_ID,
     ACTIONS,
@@ -50,7 +51,7 @@ from chat_platform.slack_deliveries import (
     VALUE,
 )
 from chat_platform.slack_posting import ACTIONS_BLOCK, BLOCK_TYPE, BUTTON_ELEMENT, ELEMENTS
-from core import get_settings, utc_now
+from core import utc_now
 from core.models import CHAT_THREAD, the_place_of
 from incident_record.repository import conversation, references
 
@@ -263,7 +264,7 @@ def _deliver(body: bytes, content_type: str, path: str) -> httpx2.Response:
     the stack's own now."""
     timestamp = str(int(utc_now().timestamp()))
     signed = f"{SIGNATURE_VERSION}:{timestamp}:".encode() + body
-    secret = get_settings().slack_signing_secret.encode()
+    secret = SlackSettings().slack_signing_secret.encode()
     signature = f"{SIGNATURE_VERSION}=" + hmac.new(secret, signed, hashlib.sha256).hexdigest()
 
     return httpx2.post(
@@ -278,4 +279,4 @@ def _deliver(body: bytes, content_type: str, path: str) -> httpx2.Response:
 
 def _slack() -> str:
     """Where Slack is, as the relay was told it - the double, in this stack."""
-    return get_settings().slack_base_url
+    return SlackSettings().slack_base_url

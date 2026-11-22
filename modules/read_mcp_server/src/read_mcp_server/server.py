@@ -452,7 +452,7 @@ def build_server(endpoint: ReadMcpEndpoint,
     # odd ones: each opens on first use rather than here, so a server that is
     # started and never asked to search by meaning loads no model and reaches
     # no store. The store arrives as the port, which can only search.
-    embed = an_embedder()
+    embed = an_embedder(index_settings.repository_index_embedding_model)
     find_passages = meaning.passages_in(passages)
     indexed_sha = meaning.the_commit_indexed_for(code.repository, connections)
     head_of = code.head_of

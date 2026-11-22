@@ -37,7 +37,7 @@ from core.llm.adapters.anthropic_adapter import LARGEST_UNSTREAMED_ANSWER, Anthr
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 
-from core_test.framework.llm import settings_that_reach_no_api
+from core_test.framework.llm import a_policy_naming_the_adapters_model, settings_that_reach_no_api
 
 SOME_REQUEST = httpx2.Request("POST", "https://api.invalid/v1/messages")
 
@@ -67,6 +67,7 @@ def test_a_model_that_could_not_be_reached_for_now_is_said_as_unavailable(
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(failure))
         ) \
         .when(
@@ -86,6 +87,7 @@ def test_a_request_the_api_rejected_as_asked_is_not_said_as_unavailable() -> Non
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(a_bad_request))
         ) \
         .when(
@@ -107,6 +109,7 @@ def test_a_rejection_the_api_gave_no_words_for_is_said_in_the_sdks() -> None:
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(a_bad_request))
         ) \
         .when(
@@ -127,6 +130,7 @@ def test_a_model_unavailable_for_now_is_said_in_the_apis_words() -> None:
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(overloaded))
         ) \
         .when(
@@ -145,6 +149,7 @@ def test_a_spending_cap_is_not_said_as_unavailable() -> None:
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(a_spend_cap))
         ) \
         .when(
@@ -163,6 +168,7 @@ def test_a_stream_stopped_by_a_spending_cap_after_it_answered_is_not_said_as_una
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(a_spend_cap))
         ) \
         .when(
@@ -183,6 +189,7 @@ def test_a_stream_that_failed_for_now_after_it_answered_is_said_as_unavailable(
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(failure))
         ) \
         .when(
@@ -201,6 +208,7 @@ def test_a_stream_rejected_as_asked_after_it_answered_is_not_said_as_unavailable
     Scenario() \
         .given(
             client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
                                          client=_an_api_failing_with(failure))
         ) \
         .when(

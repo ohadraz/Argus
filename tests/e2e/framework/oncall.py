@@ -21,7 +21,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx2
-from core import get_settings, to_iso
+from core import to_iso
+from oncall_source.pagerduty_settings import PagerDutyDeliverySettings
 from oncall_source.pagerduty_webhooks import (
     AGENT,
     DATA,
@@ -113,7 +114,7 @@ def a_resolution_by(person: str, person_id: str, incident_id: str) -> dict[str, 
 def the_on_call_platform_delivers(delivery: dict[str, Any]) -> httpx2.Response:
     """Posts one delivery to Argus, signed with the stack's webhook secret."""
     body = json.dumps(delivery).encode()
-    secret = get_settings().pagerduty_webhook_secret.encode()
+    secret = PagerDutyDeliverySettings().pagerduty_webhook_secret.encode()
     signature = SIGNATURE_VERSION + hmac.new(secret, body, hashlib.sha256).hexdigest()
 
     return httpx2.post(

@@ -27,6 +27,7 @@ from core.models import IncidentStatus, Verdict
 from incident_memory.recalling import recalled
 from incident_record.repository import events
 from vector_store_qdrant import the_search_at
+from vector_store_qdrant.settings import QdrantSettings
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
@@ -131,7 +132,8 @@ def _it_was_remembered_as_having_tried(
         incident_id = incident_id_from(response)
         settings = get_settings()
 
-        with the_search_at(settings.qdrant_url, settings.incident_memory_collection) as store:
+        with the_search_at(QdrantSettings().qdrant_url,
+                           settings.incident_memory_collection) as store:
             found = recalled(
                 store,
                 an_embedder(settings.incident_memory_embedding_model)(

@@ -225,8 +225,9 @@ source_modules = ["telemetry"]
 forbidden_modules = ["*"]
 # Every process's root reaches this, the web process's included, so whatever
 # it imports every process installs. The kernel, for the settings slice it is
-# handed and the names telemetry is spelled in - the keys a log record is
-# stamped with are the ones the spans carry - and nothing else.
+# handed, the base Langfuse's settings are declared on (`AdapterSettings`) and
+# the names telemetry is spelled in - the keys a log record is stamped with are
+# the ones the spans carry - and nothing else.
 ignore_imports = [
     "telemetry.** -> core",
     "telemetry.** -> core.telemetry",
@@ -462,9 +463,11 @@ forbidden_modules = ["*"]
 # installs - and a port that reached into the incident record or an agent would
 # be a port that decided something, where its job is to say what the sender
 # said. The alert's model, which is what an alert source answers in; a push
-# source answers in values of its own and needs nothing.
+# source answers in values of its own, and its GitHub adapter declares its
+# settings on the kernel's base for an adapter's.
 ignore_imports = [
     "alert_source.** -> core.models",
+    "push_source.github -> core",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -507,6 +510,7 @@ protected_modules = [
     "oncall_source.pagerduty_settings",
     "oncall_source.pagerduty_webhooks",
     "pay_band_source.bamboohr_adapter",
+    "pay_band_source.bamboohr_settings",
     "push_source.github",
     "revenue_source.stripe_adapter",
     "revenue_source.stripe_settings",
@@ -522,6 +526,7 @@ ignore_imports = [
     "metrics_source.prometheus_adapter -> metrics_source.prometheus_units",
     "oncall_source.pagerduty_adapter -> oncall_source.pagerduty_settings",
     "oncall_source.pagerduty_adapter -> oncall_source.pagerduty_webhooks",
+    "pay_band_source.bamboohr_adapter -> pay_band_source.bamboohr_settings",
     "revenue_source.stripe_adapter -> revenue_source.stripe_settings",
 ]
 

@@ -4184,7 +4184,7 @@ class _Model:
                       incident_id: str,
                       recorder: Recorder,
                       *,
-                      policy: ModelPolicy | None = None) -> Conversation:
+                      policy: ModelPolicy) -> Conversation:
         """The `Conversations` seam, handing back this script whatever it is
         asked to build - which incident, recorder and policy are the subject
         of the tests that hand over a specced double instead."""

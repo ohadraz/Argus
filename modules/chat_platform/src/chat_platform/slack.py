@@ -20,8 +20,9 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Final
 
-from core import SettingsSlice, utc_now
+from core import AdapterSettings, utc_now
 from core.models import the_place_of
+from pydantic import Field
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -51,27 +52,77 @@ DISPLAY_NAME: Final = "display_name"
 # would otherwise cost half a minute a message.
 _TIMEOUT_SECONDS: Final = 5
 
+# How Slack names a channel it can be asked about: a public one's id begins with
+# `C`, a private one's with `G`, and the rest is capitals and digits. Empty is
+# allowed, and means no channel was configured.
+_A_CHANNEL_ID: Final = r"^([CG][A-Z0-9]+)?$"
+
 type ClientOf = Callable[..., Any]
 type Clock = Callable[[], datetime]
 
 
-class ChatSettings(SettingsSlice):
-    """What it takes to talk to Slack, in both directions.
+class SlackSettings(AdapterSettings):
+    """What it takes to talk to Slack, in both directions, and where to.
 
     An empty token is a deployment with no workspace, and builds no platform.
     An empty signing secret is a workspace whose deliveries are all refused.
+    The channels and the synopsis's readers are Slack's ids, so they are Slack's
+    settings too, read by the relay's root and handed to the Communicator as
+    the places it posts.
     """
 
-    slack_bot_token: str
-    slack_base_url: str
-    slack_signing_secret: str
+    # The bot the Communicator posts as. Empty by default, and empty means it
+    # says nothing: a workspace nobody configured is not a workspace to guess
+    # at, and an incident is reported through a channel somebody chose.
+    slack_bot_token: str = Field(default="")
+
+    # Where the SDK sends its requests. Empty means the real workspace, for the
+    # reason the model provider's base URL works that way: pointing this at the
+    # double is the only thing that selects it, so the real adapter, the real
+    # client and the real argument encoding still run in every suite.
+    slack_base_url: str = Field(default="")
+
+    # What a delivery from Slack - a person writing in an incident's thread, a
+    # button pressed - must be signed with to be believed. Empty refuses every
+    # delivery rather than trusting one: what a delivery can say ends an
+    # incident, and a secret nobody set is one anybody can sign under.
+    slack_signing_secret: str = Field(default="")
+
+    # Where an incident is reported and where its postmortem is delivered. Two
+    # channels rather than one: an incident's traffic is for whoever is on, and
+    # a postmortem is read afterwards by people who were not.
+    #
+    # By id (`C...`), never by name. Slack takes a name to post to and for
+    # nothing else: an update needs the id, and every reply and press arrives
+    # naming the id - so a war room configured by name is one whose threads no
+    # reply is ever matched to. The double answers any channel it is given, so
+    # only a real workspace would show it, and only by going quiet.
+    slack_war_room_channel: str = Field(default="", pattern=_A_CHANNEL_ID)
+    slack_postmortem_channel: str = Field(default="", pattern=_A_CHANNEL_ID)
+
+    # Who is sent each incident's executive synopsis, as Slack ids separated by
+    # commas: a member's (`U...`) is sent it as a direct message, a channel's
+    # (`C...`) is posted it in that channel. One list for both, because
+    # `chat.postMessage` takes either as where to post. Empty sends it nowhere -
+    # it is still written, and nobody is told.
+    #
+    # The synopsis states what each title's time on the incident cost, so who
+    # is here is who sees pay. Nothing checks that a member is not one of the
+    # people priced, or that a channel is private: both are the configurer's.
+    executive_synopsis_slack_to: str = Field(default="")
+
+    # How long the relay waits after finding the log unchanged. Short, because
+    # it is the delay between something happening and a person hearing about
+    # it - and paid only when there is nothing to say, since a pass that
+    # delivered anything looks again at once.
+    slack_relay_poll_seconds: float = Field(default=2.0, gt=0.0)
 
 
 class Slack:
     """The chat platform, as Slack answers it - what Argus reads from it and
     what Argus says in it."""
 
-    def __init__(self, settings: ChatSettings, client_of: ClientOf, clock: Clock) -> None:
+    def __init__(self, settings: SlackSettings, client_of: ClientOf, clock: Clock) -> None:
         self._secret = settings.slack_signing_secret
         self._clock = clock
         # The SDK wants no trailing slash and appends `/api/...` itself, so a
@@ -138,7 +189,7 @@ def _the_button_for(offer: Offer, said: str) -> list[dict[str, Any]]:
     return a_line_with_a_button(said, offer.label, CONFIRM_ACTION, written)
 
 
-def slack_from(settings: ChatSettings,
+def slack_from(settings: SlackSettings,
                client_of: ClientOf = WebClient,
                clock: Clock = utc_now) -> Slack | None:
     """Slack as the chat platform, or `None` where the deployment has none.

@@ -7,9 +7,12 @@ call of the first incident - by which point an agent has been assembled, a
 walk has been claimed, and the thing that fails is an investigation somebody
 was waiting on.
 
-The defaults matter as much as the validation. A deployment naming none of
-these gets what every agent got when there was one answer for all of them, so
-adding the choice cannot quietly change what an unconfigured deployment does.
+The defaults matter as much as the validation. An agent naming its model and
+nothing else gets the effort and the room every agent got when there was one
+answer for all of them, so adding the choice cannot quietly change what an
+unconfigured deployment does. The model itself has no default: it is a name in
+one provider's catalogue, and the provider's adapter says which one answers a
+caller with no opinion.
 """
 
 from __future__ import annotations
@@ -26,7 +29,6 @@ from argus_testkit import (
 from core.models.model_policy import (
     DEFAULT_EFFORT,
     DEFAULT_MAX_OUTPUT_TOKENS,
-    DEFAULT_MODEL,
     ModelPolicy,
     Reasoning,
 )
@@ -38,6 +40,9 @@ from pydantic import ValidationError
 # it in the same breath and report nothing. As text, because text is how a
 # level arrives - out of an environment, as words nobody type-checked.
 EVERY_LEVEL_A_DEPLOYMENT_MAY_NAME = ("low", "medium", "high", "higher", "highest")
+
+# Whichever model a policy is for, where the case is about something else.
+DONT_CARE_MODEL = "dont-care-model"
 
 
 @pytest.mark.unit
@@ -57,7 +62,8 @@ def test_an_effort_nobody_implements_is_refused() -> None:
         ) \
         .when(
             attempting(
-                lambda: ModelPolicy.model_validate({"effort": an_effort_nobody_implements})
+                lambda: ModelPolicy.model_validate({"model": DONT_CARE_MODEL,
+                                                    "effort": an_effort_nobody_implements})
             )
         ) \
         .then(
@@ -80,7 +86,8 @@ def test_a_vendors_own_spelling_of_a_level_is_refused() -> None:
         ) \
         .when(
             attempting(
-                lambda: ModelPolicy.model_validate({"effort": a_vendors_own_word})
+                lambda: ModelPolicy.model_validate({"model": DONT_CARE_MODEL,
+                                                    "effort": a_vendors_own_word})
             )
         ) \
         .then(
@@ -92,21 +99,43 @@ def test_a_vendors_own_spelling_of_a_level_is_refused() -> None:
 
 
 @pytest.mark.unit
-def test_a_policy_nobody_configured_asks_what_every_agent_used_to_ask() -> None:
+def test_a_policy_naming_only_its_model_asks_what_every_agent_used_to_ask() -> None:
     # Per-agent policy arrived after a single shared answer, and it must not
-    # have moved the answer on its way in: a deployment that names nothing is
-    # a deployment nothing changed for.
+    # have moved the answer on its way in: a deployment that names only each
+    # agent's model is asked as every agent used to be.
+    some_model = "some-model"
+
     Scenario() \
         .given(
             what_every_agent_used_to_share := (
-                DEFAULT_MODEL, DEFAULT_EFFORT, DEFAULT_MAX_OUTPUT_TOKENS
+                some_model, DEFAULT_EFFORT, DEFAULT_MAX_OUTPUT_TOKENS
             )
         ) \
         .when(
-            lambda: ModelPolicy()
+            lambda: ModelPolicy(model=some_model)
         ) \
         .then(
             _it_asks_for(*what_every_agent_used_to_share)
+        )
+
+
+@pytest.mark.unit
+def test_a_policy_naming_no_model_is_refused() -> None:
+    # A model is a name in one provider's catalogue, so a default here would be
+    # a vendor's name in a kernel that names none - and an agent nobody gave a
+    # model would be answered by whichever one that was.
+    Scenario() \
+        .given(
+            a_policy_naming_only_an_effort := {"effort": "high"}
+        ) \
+        .when(
+            attempting(lambda: ModelPolicy.model_validate(a_policy_naming_only_an_effort))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValidationError),
+                the_error_mentioned("model")
+            )
         )
 
 
@@ -121,7 +150,7 @@ def test_every_level_a_deployment_may_name_is_accepted() -> None:
         ) \
         .when(
             lambda: [
-                ModelPolicy.model_validate({"effort": named}).effort
+                ModelPolicy.model_validate({"model": DONT_CARE_MODEL, "effort": named}).effort
                 for named in EVERY_LEVEL_A_DEPLOYMENT_MAY_NAME
             ]
         ) \
@@ -133,10 +162,10 @@ def test_every_level_a_deployment_may_name_is_accepted() -> None:
 def _it_asks_for(model: str,
                  effort: Reasoning,
                  max_output_tokens: int) -> Assertion[ModelPolicy]:
-    """The three answers an unconfigured policy gives, checked together.
+    """The three answers a policy naming only its model gives, checked together.
 
     Together rather than one at a time, because the claim is about the whole
-    posture towards a deployment that named nothing: a field that quietly
+    posture towards a deployment that named only the model: a field that quietly
     acquired a new default would slip past a run of assertions that stopped at
     the first one to fail, and the field that moved is the one nobody would
     then be looking at.
@@ -152,7 +181,7 @@ def _it_asks_for(model: str,
         }
         if moved:
             raise AssertionError(
-                f"Expected a policy nobody configured to be unchanged, and {moved} "
+                f"Expected a policy naming only its model to be unchanged, and {moved} "
                 f"differed (expected, got)."
             )
 

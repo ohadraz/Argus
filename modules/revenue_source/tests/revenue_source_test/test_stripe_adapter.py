@@ -200,11 +200,11 @@ def test_a_listing_is_read_only_as_far_as_it_is_drawn() -> None:
 
 
 def _settings_with(api_key: str) -> StripeSettings:
-    """The slice these tests hand the reader, built rather than narrowed.
+    """The settings these tests hand the reader, built from values.
 
-    Constructed directly instead of through `StripeSettings.of(Settings())`,
-    so that a unit test of what a listing means does not also depend on what
-    the environment happens to hold. Where the provider is reached is the one
+    Constructed directly rather than read, so that a unit test of what a
+    listing means does not also depend on what the environment happens to
+    hold. Where the provider is reached is the one
     field these never care about: the client is injected, so no address is
     ever dialled.
     """

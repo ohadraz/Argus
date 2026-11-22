@@ -57,7 +57,7 @@ from metrics_source.prometheus_settings import PrometheusSettings
 # suite. The stand-in, and the shop it stands in for, are wherever Argus itself
 # is configured to find them.
 THE_REAL_ONE = "http://localhost:9090"
-THE_STAND_IN = get_settings().prometheus_base_url
+THE_STAND_IN = PrometheusSettings().prometheus_base_url
 THE_SHOP = get_settings().target_service_url
 
 # A generated scenario, because a generated one goes on writing a minute every

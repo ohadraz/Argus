@@ -54,6 +54,19 @@ that installing the web process installs no agent - and import-linter cannot
 read an extra. So every module under `apps.<process>` imports only the
 workspace packages that extra, or the package's own dependencies, name.
 
+And it holds that only a process's root reads the environment, which is a name
+rather than an import: the kernel's settings, a connection to the database they
+name, `os.environ` and its kin, and any class built on `BaseSettings` - found by
+following class bases across the workspace - used anywhere that ships outside
+`apps`, with or without arguments, or handed on to be called. A library that
+read for itself would read what the root that started its process cannot see,
+and a test wanting another value would have to change the environment to say
+so. Where each reader is defined is allowed, with its reason, and an allowance
+that no longer reads anything is reported. And the kernel's settings declare no
+field any adapter's settings declare - a model's name or a namespace as much as
+a `SLACK_` token - since a field in both is a second place to configure the
+vendor, and one every slice of the kernel's could reach.
+
 A script rather than the `lint-imports` shim, for the reason every other tool
 here is invoked as a module: going through the interpreter avoids the
 locally-generated `.exe` stubs in `.venv/Scripts/`, which Windows Smart App
@@ -63,7 +76,7 @@ import ast
 import re
 import sys
 import tomllib
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Any
@@ -194,6 +207,46 @@ VENDORS = {
 # word (`CD` in `ArgoCD`), a word with or without its capital, or a number.
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 
+# What reads the environment by name: the kernel's settings, a connection to the
+# database the environment names, and the environment itself. A process's root
+# reads them, once, and hands each library the part it reads; anywhere else one
+# is a service locator, reached through a default argument as often as through
+# a call.
+READS_THE_ENVIRONMENT = frozenset({"get_settings", "connect_from_env",
+                                   "environ", "environb", "getenv", "getenvb"})
+
+# What every class that reads its fields from the environment is built on,
+# directly or through another such class - the kernel's `Settings`, the base for
+# an adapter's (`core.AdapterSettings`) and every adapter's own. Using one is
+# reading the environment whatever it is handed: each field it is not handed
+# comes from there. A slice is not one, and is built from what it is handed.
+READS_ITS_FIELDS_FROM_THE_ENVIRONMENT = "BaseSettings"
+
+# The kernel's own settings, by module and class, and the base every adapter's
+# settings are declared on: no field of the one is a field of any class built
+# on the other.
+KERNEL_SETTINGS = ("core.config", "Settings")
+ADAPTER_SETTINGS = "AdapterSettings"
+
+# The one annotation whose arguments are not all types: the first is, and what
+# follows it is metadata - often a call, which builds something.
+ANNOTATED = "Annotated"
+
+# Where the environment is read outside a root, and why each may. Each covers its
+# whole module, so one that no longer reads anything is reported as stale.
+READ_WHERE_DEFINED = {
+    "core.__init__": "the kernel's export list, which names both readers",
+    "core.config": "defines `get_settings` and the settings it reads",
+    "core.db": "defines `connect_from_env`, the suites' and the scripts' connection - "
+               "named by no shipped module but this one and the kernel's export list",
+    "core.migrations.env": "Alembic's own entry script, which nothing hands a parameter: "
+                           "`alembic revision` runs it with "
+                           "no root at all, and under the schema job it reads the settings "
+                           "`apps.schema` already read, `get_settings` being cached",
+    "core.timestamps": "the clock the stack runs on, named once, before anything runs - "
+                       "every module's timestamps read it at import"
+}
+
 # Each process's root, and everything beneath it: where adapters are built and
 # handed out as their ports, which is the one job that has to name every vendor
 # it builds. The same package the composition-root contract lets import every
@@ -204,28 +257,8 @@ WIRING = frozenset({APPS})
 # them away. An allowance is a debt with a name on it, and covers the vendors it
 # lists and no other - a module allowed GitHub that starts naming Slack is
 # refused - and each vendor the module stops naming is reported as stale and
-# must go from the list.
-NOT_YET: dict[str, tuple[frozenset[str], str]] = {
-    "core.config": (
-        frozenset({"anthropic", "argocd", "bamboohr", "frankfurter", "github", "grafana",
-                   "langfuse", "pagerduty", "prometheus", "qdrant", "slack", "stripe"}),
-        "item 15: every vendor's settings move into its adapter"),
-    "core.models.model_policy": (
-        frozenset({"anthropic"}),
-        "item 15: the default model is the model provider's, and moves into its adapter"),
-    "read_mcp_server.meaning": (
-        frozenset({"qdrant"}),
-        "item 15: the vector store's URL moves into its adapter"),
-    "telemetry.destinations": (
-        frozenset({"langfuse"}),
-        "item 15: Langfuse's settings move into an adapter of its own"),
-    "web_app.oncall": (
-        frozenset({"pagerduty"}),
-        "item 15: PagerDuty's webhook secret moves into its adapter"),
-    "web_app.pushes": (
-        frozenset({"github"}),
-        "item 15: GitHub's webhook secret and repository move into its adapter")
-}
+# must go from the list. Empty: every debt is paid.
+NOT_YET: dict[str, tuple[frozenset[str], str]] = {}
 
 # Another vendor's name an adapter has to say because its own vendor's wire
 # says it, by adapter: a route of Grafana's is named for the Prometheus-
@@ -1066,11 +1099,271 @@ def _every_root_imports_what_its_process_installs() -> None:
         sys.exit(1)
 
 
+def the_settings_classes_in(trees: Iterable[ast.AST]) -> set[str]:
+    """Every class these modules declare on `BaseSettings`, by name - directly,
+    or on another such class, however many classes down, whether the base is
+    named bare, through its module or under another name it was imported as."""
+    return _the_classes_built_on(trees, READS_ITS_FIELDS_FROM_THE_ENVIRONMENT)
+
+
+def the_kernel_settings_an_adapter_declares_too(
+    sources: Mapping[str, str]
+) -> list[tuple[str, int, str]]:
+    """Every field a class built on `AdapterSettings` declares that the
+    kernel's `Settings` declares too, as the adapter's module, the line and
+    the class's field. Empty where no vendor's setting is also the kernel's.
+
+    Raises `LookupError` where the kernel's settings are not where
+    `KERNEL_SETTINGS` says - a rule that found no kernel would pass on
+    anything.
+    """
+    trees = _the_trees_of(sources)
+    module, name = KERNEL_SETTINGS
+    kernel = [node for node in ast.walk(trees.get(module, ast.Module(body=[], type_ignores=[])))
+              if isinstance(node, ast.ClassDef) and node.name == name]
+
+    if not kernel:
+        raise LookupError(f"no class [{name}] in [{module}]")
+
+    the_kernel_s = {field for cls in kernel for field, _ in _the_fields_of(cls)}
+    adapters = _the_classes_built_on(trees.values(), ADAPTER_SETTINGS)
+
+    return sorted(
+        (owner, line, f"{node.name}.{field}")
+        for owner, tree in trees.items()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name in adapters
+        for field, line in _the_fields_of(node)
+        if field in the_kernel_s
+    )
+
+
+def _the_fields_of(cls: ast.ClassDef) -> list[tuple[str, int]]:
+    """Each field a class declares in its own body, and the line it is on."""
+    return [(node.target.id, node.lineno) for node in cls.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)]
+
+
+def _the_classes_built_on(trees: Iterable[ast.AST], base: str) -> set[str]:
+    """Every class these modules declare on `base`, by name - directly, or on
+    another such class, however many classes down, whether a base is named
+    bare, through its module or under another name it was imported as."""
+    bases_of: dict[str, set[str]] = {}
+
+    for tree in trees:
+        imported_as = _the_names_imported_as(tree)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                bases_of.setdefault(node.name, set()).update(
+                    imported_as.get(name, name) for base in node.bases
+                    if (name := _the_name_referred_to(base)) is not None
+                )
+
+    found = {base}
+    grown = True
+
+    while grown:
+        grown = False
+
+        for name, bases in bases_of.items():
+            if name not in found and bases & found:
+                found.add(name)
+                grown = True
+
+    return found - {base}
+
+
+def the_environment_read_outside_a_root(
+    sources: Mapping[str, str],
+    allowed: Collection[str] = frozenset(READ_WHERE_DEFINED)
+) -> list[tuple[str, int, str]]:
+    """Every place a shipped module outside a process's root reads the
+    environment, as the module, the line and what read it.
+
+    Read means one of `READS_THE_ENVIRONMENT` named - called, passed as a
+    default, imported, an attribute of `os` - or a settings class used at all:
+    called with or without arguments, or passed on to be called, as a
+    `default_factory` or FastAPI's `Depends` is - inside an annotation too.
+    Only a type position says what something is and reads nothing: an
+    annotation's types, a class's bases, an import. Which classes those are is
+    read from `sources` themselves, so a class declared on another settings
+    class is found however far down it sits, and under whatever name a module
+    imported it as. `allowed` is where the readers are defined. Empty where only
+    roots read it.
+    """
+    trees = _the_trees_of(sources)
+    settings_classes = the_settings_classes_in(trees.values())
+    found: set[tuple[str, int, str]] = set()
+
+    for module, tree in sorted(trees.items()):
+        if _is_within(module, {APPS}) or module in allowed:
+            continue
+
+        known_here = settings_classes | {
+            asname for asname, name in _the_names_imported_as(tree).items()
+            if name in settings_classes
+        }
+        saying_what_it_is = _the_type_positions_in(tree)
+
+        for node in ast.walk(tree):
+            line = getattr(node, "lineno", 0)
+            found.update((module, line, name) for name in _the_names_in(node)
+                         if name in READS_THE_ENVIRONMENT)
+
+            if (isinstance(node, ast.Name | ast.Attribute)
+                    and isinstance(node.ctx, ast.Load)
+                    and id(node) not in saying_what_it_is
+                    and (used := _the_name_referred_to(node)) in known_here):
+                found.add((module, line, used))
+
+    return sorted(found)
+
+
+def the_stale_readers(sources: Mapping[str, str],
+                      allowed: Collection[str] = frozenset(READ_WHERE_DEFINED)) -> list[str]:
+    """Every module allowed to read the environment that is not there, or that
+    the rule, allowing nothing, finds reading nothing - an allowance covering a
+    whole module outliving its reason, which would let a read back in there
+    without anybody deciding it should."""
+    reading = {module for module, _, _ in the_environment_read_outside_a_root(sources, ())}
+
+    return sorted(module for module in allowed if module not in reading)
+
+
+def _the_trees_of(sources: Mapping[str, str]) -> dict[str, ast.AST]:
+    """Each module's syntax tree, by its dotted name - but a module that does
+    not parse, which is not this guard's complaint: ruff and mypy both say so
+    first."""
+    trees: dict[str, ast.AST] = {}
+
+    for module, source in sources.items():
+        try:
+            trees[module] = ast.parse(source)
+        except SyntaxError:
+            continue
+
+    return trees
+
+
+def _the_names_imported_as(tree: ast.AST) -> dict[str, str]:
+    """Each name a module imported something under another name as, and what
+    it imported: `Chat` for `from chat_platform.slack import SlackSettings as
+    Chat`."""
+    return {
+        alias.asname: alias.name.rpartition(".")[2]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in node.names
+        if alias.asname is not None
+    }
+
+
+def _the_type_positions_in(tree: ast.AST) -> set[int]:
+    """Every node standing where a type is named - an annotation's types and a
+    class's bases - which says what something is and reads nothing. A call is
+    never a type position, wherever it sits: `Field(default_factory=...)` or
+    `Depends(...)` inside an `Annotated` builds, and the metadata `Annotated`
+    carries after its type is not a type either."""
+    saying: list[ast.expr] = []
+
+    for node in ast.walk(tree):
+        match node:
+            case ast.arg(annotation=ast.expr() as annotation):
+                saying.append(annotation)
+            case ast.FunctionDef(returns=ast.expr() as returns) | ast.AsyncFunctionDef(
+                    returns=ast.expr() as returns):
+                saying.append(returns)
+            case ast.AnnAssign(annotation=annotation):
+                saying.append(annotation)
+            case ast.ClassDef(bases=bases):
+                saying.extend(bases)
+
+    return {id(inner) for outer in saying for inner in _the_types_in(outer)}
+
+
+def _the_types_in(annotation: ast.expr) -> Iterator[ast.expr]:
+    """The nodes of `annotation` that name a type, stopping at a call, and
+    reading only the first argument of an `Annotated`."""
+    match annotation:
+        case ast.Call():
+            return
+        case ast.Subscript(value=value, slice=ast.Tuple(elts=[first, *_])) if (
+                _the_name_referred_to(value) == ANNOTATED):
+            yield annotation
+            yield from _the_types_in(value)
+            yield from _the_types_in(first)
+            return
+
+    yield annotation
+
+    for child in ast.iter_child_nodes(annotation):
+        if isinstance(child, ast.expr):
+            yield from _the_types_in(child)
+
+
+def _the_name_referred_to(node: ast.expr) -> str | None:
+    """The name an expression refers to something by - `Settings` in `Settings`
+    and in `config.Settings` - or `None` where it is not a name."""
+    match node:
+        case ast.Name(id=name) | ast.Attribute(attr=name):
+            return name
+
+    return None
+
+
+def _only_a_root_reads_the_environment() -> None:
+    """Refuses a shipped module outside `apps` that reads the environment, a
+    vendor's setting the kernel's settings declare too, and an allowance to
+    read the environment that nothing uses any more."""
+    modules = _the_shipped_modules()
+    sources = {module: path.read_text(encoding="utf-8") for module, path in modules.items()}
+    read = the_environment_read_outside_a_root(sources)
+    stale = the_stale_readers(sources)
+
+    if read:
+        print(
+            "these read the environment outside a process's root:\n"
+            + "\n".join(
+                f"  {modules[module].relative_to(REPOSITORY).as_posix()}:{line} -> {said}"
+                for module, line, said in read
+            )
+            + f"\nOnly a root, in `{APPS}`, reads the environment; take what it read as "
+              "a parameter, and let the root hand it over.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+    declared_twice = the_kernel_settings_an_adapter_declares_too(sources)
+
+    if declared_twice:
+        print(
+            "these vendors' settings declare a field the kernel's settings declare too:\n"
+            + "\n".join(
+                f"  {modules[module].relative_to(REPOSITORY).as_posix()}:{line} -> {field}"
+                for module, line, field in declared_twice
+            )
+            + "\nA vendor's setting is its adapter's alone; take it out of `Settings`.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+    if stale:
+        print(
+            "these may read the environment and no longer do, or are not there:\n"
+            + "\n".join(f"  {module}" for module in stale)
+            + "\nTake them out of `READ_WHERE_DEFINED` in scripts/guard_layering.py.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
 def main() -> None:
     """Checks the graph is whole, the suites behave, no repository commits, every
     vendor's SDK is spoken by its adapter alone and its name named by it alone,
-    the walk reaches no unfenced store, only the walk admits and every root
-    imports what its process installs, then runs every contract.
+    the walk reaches no unfenced store, only the walk admits, every root
+    imports what its process installs and only a root reads the environment,
+    then runs every contract.
 
     Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
@@ -1090,6 +1383,7 @@ def main() -> None:
     _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
     _only_the_walk_admits()
     _every_root_imports_what_its_process_installs()
+    _only_a_root_reads_the_environment()
     sys.exit(lint_imports_command())
 
 

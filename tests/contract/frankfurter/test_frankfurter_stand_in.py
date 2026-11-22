@@ -30,14 +30,16 @@ from argus_testkit import (
     an_error_was_raised,
     attempting,
 )
-from core import get_settings
 from core.models import PublishedRates, RatesUnavailable
-from exchange_rate_source.frankfurter import ExchangeRateSettings, rates_published_for
+from exchange_rate_source.frankfurter import (
+    FrankfurterSettings,
+    rates_published_for,
+)
 
 # Where each half answers. The real one is the public service; the stand-in is
 # wherever Argus itself is configured to read rates from.
 FRANKFURTER_ITSELF = "https://api.frankfurter.dev"
-THE_STAND_IN = get_settings().exchange_rate_base_url
+THE_STAND_IN = FrankfurterSettings().exchange_rate_base_url
 
 # The shop's own currency, and so the base a postmortem converts from.
 A_BASE_BOTH_QUOTE = "usd"
@@ -78,7 +80,7 @@ def test_a_base_frankfurter_does_not_quote_is_refused_as_the_stand_in_refuses_it
         ))
 
 
-def _settings_for(base_url: str) -> ExchangeRateSettings:
+def _settings_for(base_url: str) -> FrankfurterSettings:
     """Refuses a stand-in configured as the real one - which is the code's own
     default - since the two halves would then be one service compared with
     itself, which passes and proves nothing."""
@@ -88,7 +90,7 @@ def _settings_for(base_url: str) -> ExchangeRateSettings:
             f"Frankfurter itself [{FRANKFURTER_ITSELF}]."
         )
 
-    return ExchangeRateSettings(exchange_rate_base_url=base_url)
+    return FrankfurterSettings(exchange_rate_base_url=base_url)
 
 
 def _it_was_published_by_today() -> Assertion[PublishedRates]:

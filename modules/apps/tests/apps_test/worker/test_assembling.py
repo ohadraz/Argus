@@ -23,6 +23,7 @@ import inspect
 import logging
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import replace
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -30,6 +31,7 @@ import psycopg
 import pytest
 from apps.worker.assembling import (
     IncidentMemorySettings,
+    Vendors,
     against,
     the_models_at,
     the_store_for,
@@ -44,7 +46,8 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
-from core import Connections, Holding, LLMSettings, Settings, get_settings
+from core import Connections, Holding, get_settings
+from core.llm.adapters.anthropic_adapter import AnthropicSettings
 from core.models import ModelPolicy
 from incident_memory.records import RememberedIncident
 from orchestrator.walk.collaborators import Collaborators
@@ -101,7 +104,8 @@ def test_assembling_the_collaborators_opens_no_connection() -> None:
                               _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
-                              settings=get_settings())) \
+                              settings=get_settings(),
+                              vendors=Vendors.read())) \
         .then(_every_collaborator_was_supplied())
 
 
@@ -120,7 +124,8 @@ def test_taking_an_action_is_bound_with_every_tool_it_needs() -> None:
                               _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
-                              settings=get_settings())) \
+                              settings=get_settings(),
+                              vendors=Vendors.read())) \
         .then(all_of(
             _taking_an_action_needs_only(WHAT_THE_MITIGATION_NODE_SUPPLIES),
             _putting_a_change_back_needs_only(WHAT_AN_UNDO_IS_GIVEN),
@@ -141,7 +146,8 @@ def test_the_deploy_history_is_bound_with_everything_but_the_question() -> None:
                               _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
-                              settings=get_settings())) \
+                              settings=get_settings(),
+                              vendors=Vendors.read())) \
         .then(
             _reading_the_deploy_history_needs_only(WHAT_THE_INVESTIGATION_NODE_ASKS)
         )
@@ -160,7 +166,8 @@ def test_the_investigation_is_bound_with_every_channel_it_reads() -> None:
                               _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
-                              settings=get_settings())) \
+                              settings=get_settings(),
+                              vendors=Vendors.read())) \
         .then(
             _investigating_needs_only(WHAT_AN_INVESTIGATION_IS_GIVEN)
         )
@@ -181,7 +188,7 @@ def test_the_investigators_change_channel_asks_each_tier_for_the_history_it_keep
         .when(
             lambda: _the_changes_read_through(
                 against(_connections_that_must_not_be_opened(), read, write,
-                        None, Holding(), settings=get_settings())
+                        None, Holding(), settings=get_settings(), vendors=Vendors.read())
             )
         ) \
         .then(all_of(
@@ -198,6 +205,7 @@ def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
     # still arrive in the right shape and read well, which is why nothing
     # downstream of here would notice.
     settings = get_settings()
+    vendors = Vendors.read()
 
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
@@ -206,10 +214,12 @@ def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
                               _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
-                              settings=get_settings())) \
+                              settings=settings,
+                              vendors=vendors)) \
         .then(
             _the_postmortem_is_asked_under(
-                postmortem_policy(settings.postmortem_model, settings.postmortem_effort))
+                postmortem_policy(vendors.model_settings.postmortem_model,
+                                  settings.postmortem_effort))
         )
 
 
@@ -219,7 +229,8 @@ def test_both_writers_are_read_by_the_judge_at_its_own_model_and_address(writer:
     # Its own address, settled where the process starts, so a replay serves
     # the judge from a stand-in of its own; its own model and effort, since a
     # reading against a record is not the writing it judges.
-    settings = _settings_reaching_two_addresses()
+    settings = get_settings()
+    vendors = _vendors_reaching_two_addresses()
 
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
@@ -228,11 +239,12 @@ def test_both_writers_are_read_by_the_judge_at_its_own_model_and_address(writer:
                               _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
-                              settings=settings)) \
+                              settings=settings,
+                              vendors=vendors)) \
         .then(
             _judged_under(writer,
-                          judge_policy(settings.judge_model, settings.judge_effort),
-                          LLMSettings.for_the_judge(settings))
+                          judge_policy(vendors.model_settings.judge_model, settings.judge_effort),
+                          vendors.model_settings.for_the_judge())
         )
 
 
@@ -244,7 +256,7 @@ def test_every_agent_is_answered_by_the_provider_the_process_chose(agent: str) -
     # of its own to fall back on - so an agent bound without it would not
     # start, and one bound with another would be answered from an address
     # nobody configured for it.
-    settings = _settings_reaching_two_addresses()
+    vendors = _vendors_reaching_two_addresses()
 
     Scenario() \
         .given(no_connections := _connections_that_must_not_be_opened()) \
@@ -253,9 +265,10 @@ def test_every_agent_is_answered_by_the_provider_the_process_chose(agent: str) -
                               _a_write_tier_that_must_not_be_reached(),
                               None,
                               Holding(),
-                              settings=settings)) \
+                              settings=get_settings(),
+                              vendors=vendors)) \
         .then(
-            _answered_by(agent, the_models_at(LLMSettings.of(settings)))
+            _answered_by(agent, the_models_at(vendors.model_settings))
         )
 
 
@@ -273,7 +286,8 @@ def test_a_process_that_searches_no_memory_still_files_what_was_tried() -> None:
                                      _a_write_tier_that_must_not_be_reached(),
                                      None,
                                      Holding(),
-                                     settings=get_settings())
+                                     settings=get_settings(),
+                                     vendors=Vendors.read())
         ) \
         .when(attempting(lambda: collaborators.remember_incident(_a_record()))) \
         .then(an_error_was_raised(_TheDatabaseWasReached))
@@ -293,7 +307,8 @@ def test_the_action_a_walk_acts_for_is_held_by_the_process_holding_its_run() -> 
                                      _a_write_tier_that_must_not_be_reached(),
                                      None,
                                      holding,
-                                     settings=get_settings())
+                                     settings=get_settings(),
+                                     vendors=Vendors.read())
         ) \
         .when(lambda: _the_action_held_while(collaborators, some_action_id, holding)) \
         .then(the_answer_was(some_action_id))
@@ -320,13 +335,15 @@ def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
         )
 
 
-def _settings_reaching_two_addresses() -> Settings:
-    """The process's settings, with the agents' model and the judge's at two
-    different addresses."""
-    return get_settings().model_copy(update={
+def _vendors_reaching_two_addresses() -> Vendors:
+    """The process's vendors' settings, with the agents' model and the judge's
+    at two different addresses."""
+    every_vendor = Vendors.read()
+
+    return replace(every_vendor, model_settings=every_vendor.model_settings.model_copy(update={
         "anthropic_base_url": WHERE_THE_AGENTS_ARE_ANSWERED,
         "judge_anthropic_base_url": WHERE_THE_JUDGE_IS_ANSWERED
-    })
+    }))
 
 
 def _the_action_held_while(collaborators: Collaborators,
@@ -574,7 +591,7 @@ def _the_postmortem_is_asked_under(expected: ModelPolicy) -> Assertion[Collabora
 
 
 def _judged_under(writer: str, policy: ModelPolicy,
-                  settings: LLMSettings) -> Assertion[Collaborators]:
+                  settings: AnthropicSettings) -> Assertion[Collaborators]:
     """The policy and the provider the judge of `writer` is built with, read
     off the binding - where alone they can be seen, as the postmortem's own
     model's are."""

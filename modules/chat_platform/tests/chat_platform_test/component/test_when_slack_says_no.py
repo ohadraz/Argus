@@ -27,7 +27,7 @@ from argus_testkit import (
     one_record_was_logged,
 )
 from chat_platform import Line, Posted
-from chat_platform.slack import ChatSettings, Slack
+from chat_platform.slack import Slack, SlackSettings
 from core import utc_now
 from slack_sdk import WebClient
 
@@ -215,9 +215,9 @@ def _slack_at(base_url: str) -> Slack:
         return WebClient(**{**given, "timeout": NOT_LONG})
 
     return Slack(
-        ChatSettings(slack_bot_token="xoxb-dont-care",
-                     slack_base_url=base_url,
-                     slack_signing_secret=""),
+        SlackSettings(slack_bot_token="xoxb-dont-care",
+                      slack_base_url=base_url,
+                      slack_signing_secret=""),
         client_of=a_client_that_gives_up_soon,
         clock=utc_now
     )

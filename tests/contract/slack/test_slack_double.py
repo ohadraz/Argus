@@ -27,8 +27,7 @@ import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from chat_platform import Line, Offer, Posted
-from chat_platform.slack import ChatSettings, Slack
-from core import get_settings
+from chat_platform.slack import Slack, SlackSettings
 from core.models import a_chat_message
 from slack_double.server import DEFAULT_BASE_URL
 from slack_sdk import WebClient
@@ -73,7 +72,7 @@ MESSAGE_NOT_FOUND = "message_not_found"
 USER_NOT_FOUND = "user_not_found"
 
 needs_a_real_workspace = pytest.mark.skipif(
-    not (get_settings().slack_bot_token and get_settings().slack_war_room_channel),
+    not (SlackSettings().slack_bot_token and SlackSettings().slack_war_room_channel),
     reason="no SLACK_BOT_TOKEN or SLACK_WAR_ROOM_CHANNEL: "
            "the real half of the contract cannot be checked"
 )
@@ -87,7 +86,7 @@ def test_a_message_the_workspace_accepts_comes_back_with_an_id() -> None:
     # double that answered without one would leave every suite believing in
     # conversations that could not exist.
     Scenario() \
-        .given(the_war_room := get_settings().slack_war_room_channel) \
+        .given(the_war_room := SlackSettings().slack_war_room_channel) \
         .when(lambda: _at_the_workspace().post(the_war_room, _said(A_CONTRACT_CHECK))) \
         .then(all_of(_it_landed(), _it_reads_as(_the_double_asked_the_same_way())))
 
@@ -117,7 +116,7 @@ def test_an_offer_and_its_button_are_accepted_by_the_workspace() -> None:
     # `invalid_blocks`. Every suite reading a button back off the double is
     # trusting that the workspace would have drawn it.
     Scenario() \
-        .given(the_war_room := get_settings().slack_war_room_channel) \
+        .given(the_war_room := SlackSettings().slack_war_room_channel) \
         .when(lambda: _at_the_workspace().post(the_war_room, _said(A_CONTRACT_CHECK),
                                                offer=_an_offer())) \
         .then(all_of(_it_landed(), _it_reads_as(_the_double_given_the_button_too())))
@@ -129,7 +128,7 @@ def test_an_offer_can_be_rewritten_with_its_button_taken_away() -> None:
     # What the relay does to every offer when the incident is over. A message
     # the bot posted is one it may rewrite, and the rewrite comes back with the
     # message's id as a post does.
-    the_war_room = get_settings().slack_war_room_channel
+    the_war_room = SlackSettings().slack_war_room_channel
 
     Scenario() \
         .given(
@@ -147,7 +146,7 @@ def test_a_message_the_workspace_does_not_hold_cannot_be_rewritten() -> None:
     # The offer somebody deleted before the incident ended. The relay writes
     # this down and carries on, and every suite that checks it does so against
     # the double's word for it - which has to be the workspace's word.
-    the_war_room = get_settings().slack_war_room_channel
+    the_war_room = SlackSettings().slack_war_room_channel
 
     Scenario() \
         .given(NO_SUCH_MESSAGE) \
@@ -168,7 +167,7 @@ def test_a_person_the_workspace_knows_is_named() -> None:
     # the double is told about somebody, which is the only way it knows anyone.
     Scenario() \
         .given(the_bot := _who_the_bot_is()) \
-        .when(lambda: _the_platform_at(get_settings().slack_bot_token, "").person_named(the_bot)) \
+        .when(lambda: _the_platform_at(SlackSettings().slack_bot_token, "").person_named(the_bot)) \
         .then(all_of(_somebody_was_named(), _named_as(_the_double_naming_somebody())))
 
 
@@ -188,7 +187,7 @@ def test_a_person_the_workspace_does_not_know_is_refused_by_name() -> None:
 def _at_the_workspace() -> Slack:
     """The adapter pointed at the real workspace, built the way the demo builds
     it."""
-    return _the_platform_at(get_settings().slack_bot_token, "")
+    return _the_platform_at(SlackSettings().slack_bot_token, "")
 
 
 def _at_the_double() -> Slack:
@@ -259,8 +258,8 @@ def _the_double_naming_somebody() -> str | None:
 
 
 def _the_platform_at(token: str, base_url: str) -> Slack:
-    return Slack(ChatSettings(slack_bot_token=token, slack_base_url=base_url,
-                              slack_signing_secret=""),
+    return Slack(SlackSettings(slack_bot_token=token, slack_base_url=base_url,
+                               slack_signing_secret=""),
                  client_of=WebClient, clock=lambda: datetime.now(UTC))
 
 
@@ -270,7 +269,7 @@ def _who_the_bot_is() -> str:
 
 
 def _a_client_at_the_workspace() -> WebClient:
-    return WebClient(token=get_settings().slack_bot_token)
+    return WebClient(token=SlackSettings().slack_bot_token)
 
 
 def _a_client_at_the_double() -> WebClient:

@@ -9,12 +9,11 @@ is, as they do for the worker.
 
 from __future__ import annotations
 
-from core import LLMSettings, get_settings
 from core.llm import ModelProvider
-from core.llm.adapters.anthropic_adapter import AnthropicProvider
+from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 
 
 def the_configured_models() -> ModelProvider:
     """The provider the process's settings point at: the double in a suite
     that started one, the real API in an eval."""
-    return AnthropicProvider(LLMSettings.of(get_settings()))
+    return AnthropicProvider(AnthropicSettings())

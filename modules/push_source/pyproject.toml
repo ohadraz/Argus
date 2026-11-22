@@ -3,9 +3,12 @@ name = "argus-push_source"
 version = "0.1.0"
 requires-python = ">=3.14"
 
-# Nothing but the standard library: a push is verified with `hmac` and read
-# with `json`, and what it answers in is its own.
-dependencies = []
+# The standard library, and the kernel for the one base the GitHub adapter
+# declares its settings on: a push is verified with `hmac` and read with
+# `json`, and what it answers in is its own.
+dependencies = [
+    "argus-core",
+]
 
 
 [dependency-groups]
@@ -15,6 +18,7 @@ dev = [
 
 
 [tool.uv.sources]
+argus-core = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

@@ -50,6 +50,9 @@ from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
 
+# Which model a question would be embedded with, where no case embeds one.
+DONT_CARE_EMBEDDING_MODEL = "dont-care-embedding-model"
+
 SEARCHING_BY_GREP_ALONE = CodeSearch.GREP
 
 THE_REGISTER = "get_service_dependencies"
@@ -483,7 +486,7 @@ def _a_read_tier(mode: CodeSearch,
             service_registry_service_path="/registry/services/{service}"
         ),
         RepositoryReadSettings(service_source_paths="src"),
-        IndexReadSettings(qdrant_url="http://qdrant.invalid",
+        IndexReadSettings(repository_index_embedding_model=DONT_CARE_EMBEDDING_MODEL,
                           repository_index_collection="dont-care-collection",
                           code_search=mode),
         create_autospec(VectorSearch, instance=True),

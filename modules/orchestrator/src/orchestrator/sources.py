@@ -68,8 +68,8 @@ def the_real_sources(settings: Settings,
                      bands: PayBandsRead) -> Sources:
     """Every port answered by the provider this deployment is configured for.
 
-    Each provider arrives already built and bound to its own slice of the
-    configuration - `charges` the payment provider's listing, `published` the
+    Each provider arrives already built and bound to its own vendor's settings
+    - `charges` the payment provider's listing, `published` the
     rate provider's latest table, `bands` the HR source's - by the process's
     root, which is the one place that names a vendor. What is read off
     `settings` here is Argus's own: the currency it reports in, the window the

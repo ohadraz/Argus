@@ -43,7 +43,6 @@ from unittest.mock import Mock
 import pytest
 from anthropic.types import Message, TextBlock, Usage
 from argus_testkit import Assertion, Scenario
-from core import LLMSettings
 from core.llm import LLMClient, build_llm_client
 from core.llm.adapters.anthropic_adapter import (
     ASSISTANT_ROLE,
@@ -51,6 +50,7 @@ from core.llm.adapters.anthropic_adapter import (
     MESSAGE_TYPE,
     TEXT_TYPE,
     AnthropicProvider,
+    AnthropicSettings,
 )
 from core.llm.recorded_client import RecordedLLMClient
 from core.models import ModelPolicy, Reasoning
@@ -68,6 +68,10 @@ from core_test.framework.replay import a_recorder_that_keeps_what_it_is_given
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 SOME_KEY = "some-key"
+# Whichever model and policy a client is built under, where the case is about
+# something else.
+DONT_CARE_MODEL = "dont-care-model"
+DONT_CARE_POLICY = ModelPolicy(model=DONT_CARE_MODEL)
 
 # What Code-Fix is configured to get, stated rather than read: the subject here
 # is whether a policy survives the wiring, not what today's deployment sets.
@@ -87,7 +91,8 @@ def test_a_caller_that_asked_for_no_receipt_is_handed_the_client_itself() -> Non
             an_agent_that_is_not_recording := None
         ) \
         .when(
-            lambda: build_llm_client(_a_provider(), an_agent_that_is_not_recording)
+            lambda: build_llm_client(_a_provider(), an_agent_that_is_not_recording,
+                                     DONT_CARE_POLICY)
         ) \
         .then(
             _keeps_no_receipt()
@@ -97,15 +102,16 @@ def test_a_caller_that_asked_for_no_receipt_is_handed_the_client_itself() -> Non
 @pytest.mark.unit
 def test_a_caller_that_asked_to_keep_a_receipt_is_handed_one_that_does() -> None:
     # The wrapping happens in the factory rather than at the call site, because
-    # the recorder has to be told which model it is recording and that is the
-    # one fact a caller managed to avoid knowing.
+    # the recorder has to be told which model it is recording - which the
+    # policy says, and the client it wraps cannot be asked.
     Scenario() \
         .given(
             an_incident_keeping_its_receipts := Replay(
                 SOME_INCIDENT_ID, a_recorder_that_keeps_what_it_is_given().take)
         ) \
         .when(
-            lambda: build_llm_client(_a_provider(), an_incident_keeping_its_receipts)
+            lambda: build_llm_client(_a_provider(), an_incident_keeping_its_receipts,
+                                     DONT_CARE_POLICY)
         ) \
         .then(
             _keeps_a_receipt()
@@ -131,21 +137,6 @@ def test_the_provider_is_asked_for_a_client_under_the_callers_policy() -> None:
         )
 
 
-@pytest.mark.unit
-def test_a_caller_with_no_opinion_asks_the_provider_under_the_default_policy() -> None:
-    # A caller with no opinion is not made to invent one, and gets what every
-    # agent got when there was one answer for all of them.
-    a_provider = _a_provider()
-
-    Scenario() \
-        .when(
-            lambda: build_llm_client(a_provider)
-        ) \
-        .then(
-            _the_provider_was_asked_under(a_provider, ModelPolicy())
-        )
-
-
 @pytest.mark.component
 def test_a_recorded_agent_asks_the_vendor_for_the_room_its_policy_gave_it() -> None:
     # Driven through the whole assembly - factory, recorder, adapter, SDK -
@@ -162,7 +153,8 @@ def test_a_recorded_agent_asks_the_vendor_for_the_room_its_policy_gave_it() -> N
     # runs in: an unrecorded client would traverse the one path where the
     # defect could not occur.
     some_api = an_api_that_answers()
-    a_code_fix_policy = ModelPolicy(max_output_tokens=A_WHOLE_FILES_WORTH_OF_ROOM)
+    a_code_fix_policy = ModelPolicy(model=DONT_CARE_MODEL,
+                                    max_output_tokens=A_WHOLE_FILES_WORTH_OF_ROOM)
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
     Scenario() \
@@ -193,8 +185,12 @@ def test_a_provider_handed_settings_of_its_own_reaches_the_model_where_they_say(
     with _an_api_listening() as an_api:
         Scenario() \
             .given(
-                a_judge := build_llm_client(AnthropicProvider(LLMSettings(
-                    anthropic_api_key=SOME_KEY, anthropic_base_url=an_api.address)))
+                a_judge := build_llm_client(
+                    AnthropicProvider(AnthropicSettings(anthropic_api_key=SOME_KEY,
+                                                        anthropic_base_url=an_api.address)),
+                    None,
+                    DONT_CARE_POLICY
+                )
             ) \
             .when(
                 lambda: a_judge.converse([Ask(text="dont care what was asked")], [_a_tool()])

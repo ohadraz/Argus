@@ -25,7 +25,11 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
+from core import get_settings
 from repository_index.embedding import an_embedder
+
+# The model this deployment indexes with, which is the one worth asking about.
+THE_CONFIGURED_MODEL = get_settings().repository_index_embedding_model
 
 SOME_TEXT = "def summary() -> None:\n    return None\n"
 ANOTHER_TEXT = "class Accounts:\n    pass\n"
@@ -50,7 +54,7 @@ def test_one_vector_comes_back_for_each_text() -> None:
     # zip is what turns it into a failure rather than a silence.
     Scenario() \
         .given(some_texts := [SOME_TEXT, ANOTHER_TEXT]) \
-        .when(lambda: an_embedder()(some_texts)) \
+        .when(lambda: an_embedder(THE_CONFIGURED_MODEL)(some_texts)) \
         .then(_exactly_this_many_vectors(2))
 
 
@@ -60,7 +64,7 @@ def test_every_vector_is_the_same_width() -> None:
     # batch of uneven vectors is a store that rejects half a file.
     Scenario() \
         .given(some_texts := [SOME_TEXT, ANOTHER_TEXT, SOME_CODE_THAT_DIVIDES]) \
-        .when(lambda: an_embedder()(some_texts)) \
+        .when(lambda: an_embedder(THE_CONFIGURED_MODEL)(some_texts)) \
         .then(_every_vector_is_the_same_width())
 
 
@@ -69,10 +73,10 @@ def test_the_same_text_always_embeds_to_the_same_vector() -> None:
     # What makes an index reproducible. A model that answered differently twice
     # would have every re-index rewrite every point, and a benchmark comparing
     # two runs would be measuring the model's mood.
-    first = an_embedder()([SOME_TEXT])
+    first = an_embedder(THE_CONFIGURED_MODEL)([SOME_TEXT])
 
     Scenario() \
-        .when(lambda: an_embedder()([SOME_TEXT])) \
+        .when(lambda: an_embedder(THE_CONFIGURED_MODEL)([SOME_TEXT])) \
         .then(_the_vectors_are_those_of(first))
 
 
@@ -90,7 +94,7 @@ def test_code_is_nearer_a_description_of_what_it_does_than_unrelated_code() -> N
                 SOME_CODE_ABOUT_SOMETHING_ELSE
             ]
         ) \
-        .when(lambda: an_embedder()(some_texts)) \
+        .when(lambda: an_embedder(THE_CONFIGURED_MODEL)(some_texts)) \
         .then(_the_second_is_nearer_the_first_than_the_third_is())
 
 

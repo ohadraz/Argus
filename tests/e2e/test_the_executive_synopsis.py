@@ -26,7 +26,8 @@ import httpx2
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
-from core import get_settings, utc_now
+from chat_platform.slack import SlackSettings
+from core import utc_now
 from core.models import said_as_money
 from incident_record.repository import postmortems
 
@@ -107,7 +108,7 @@ def test_the_response_cost_reaches_the_synopsis_readers_and_nobody_else() -> Non
 
 def _the_ids() -> list[str]:
     """Who the synopsis is sent to, as the stack was configured."""
-    return [one.strip() for one in get_settings().executive_synopsis_slack_to.split(",")]
+    return [one.strip() for one in SlackSettings().executive_synopsis_slack_to.split(",")]
 
 
 def _said_since(already: int) -> list[dict[str, Any]]:

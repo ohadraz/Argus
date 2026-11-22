@@ -44,6 +44,7 @@ from anthropic.types import Message
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_testkit import Assertion, Scenario, all_of, calling
+from code_host.github import GitHubReadSettings
 from codefix_agent import SUBMIT_FIX, FixSettings, SubmittedFix, propose_fix
 from core import (
     Fence,
@@ -54,7 +55,7 @@ from core import (
     utc_now,
 )
 from core.llm import conversations_through
-from core.llm.adapters.anthropic_adapter import to_turn
+from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_turn
 from core.models import (
     Alert,
     CodeOutsideThePatch,
@@ -126,7 +127,7 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                 lambda: propose_fix(
                     _a_hypothesis_about(claimed.incident_id),
                     claimed.incident_id,
-                    settings=FixSettings.of(settings),
+                    settings=FixSettings.of(settings, AnthropicSettings()),
                     read_tier_tools=_nothing_served,
                     search=_nothing_found,
                     search_by_meaning=_nothing_found,
@@ -274,9 +275,9 @@ def _the_branch_holds_what_was_submitted(patch: dict[str, str]) -> Assertion[Pro
 
 def _the_text_of(path: str, branch: str) -> str:
     """One file as the branch holds it, decoded the way the API sends it."""
-    settings = get_settings()
     response = httpx2.get(
-        f"{GITHUB_DOUBLE_BASE_URL}/repos/{settings.github_repository}/contents/{path}",
+        f"{GITHUB_DOUBLE_BASE_URL}/repos/{GitHubReadSettings().github_repository}"
+        f"/contents/{path}",
         params={"ref": branch},
         timeout=REQUEST_TIMEOUT_SECONDS
     )

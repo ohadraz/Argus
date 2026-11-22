@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Final, cast
 
 import psycopg
-from core import Connections, get_settings
+from core import Connections
 from core.events import StatusChanged
 from core.models import Alert, IncidentStatus
 from core.telemetry import (
@@ -110,6 +110,9 @@ def graph_for(checkpoints: ConnectionPool, collaborators: Collaborators) -> Grap
 def run_incident(incident_id: str,
                  connections: Connections,
                  graph_of: GraphOf,
+                 *,
+                 max_rounds: int,
+                 max_candidates: int,
                  tracer: Tracer | None = None,
                  meter: Meter | None = None,
                  clock: Clock = time.monotonic) -> None:
@@ -131,6 +134,10 @@ def run_incident(incident_id: str,
     `graph_of` is a parameter so that which thread a walk resumes on can be
     asserted without a model, an MCP server or a real checkpointer behind it -
     the one property of this function that a test has any business pinning.
+
+    `max_rounds` and `max_candidates` are the bounds the walk was configured
+    with, which its traversal budget is derived from - handed in by the
+    process's root, which read them.
 
     The walk is one trace. Its span is the root every step's span hangs from,
     opened around the graph rather than inside it so that what the graph does
@@ -165,7 +172,6 @@ def run_incident(incident_id: str,
     if not resumed:
         _taken_up(incident_id, connections)
 
-    settings = get_settings()
     initial_state = IncidentState(
         incident_id=incident_id,
         alert=Alert.model_validate(incident.alert_payload),
@@ -199,11 +205,8 @@ def run_incident(incident_id: str,
                     # budget of 25 traversals is one an ordinary incident can
                     # exhaust. Derived from the settings that bound the walk,
                     # never guessed.
-                    "recursion_limit": recursion_limit(
-                        settings.investigation_max_rounds,
-                        settings.investigation_max_candidates,
-                    ),
-                },
+                    "recursion_limit": recursion_limit(max_rounds, max_candidates)
+                }
             )
         except Exception as error:
             span.set_attribute(ERROR_TYPE, type(error).__name__)

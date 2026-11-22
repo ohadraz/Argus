@@ -10,7 +10,10 @@ vendor's adapter, a process's root and the debts listed may name that vendor
 in code, which is no import at all. No module outside the walk, the worker's
 root and the kernel may make an admission: the Mitigator imports the autonomy
 policy for the type its write accepts, and import-linter cannot allow the type
-and forbid `admit` beside it. And no process's root may import a workspace
+and forbid `admit` beside it. No module outside a process's root may read the
+environment - the kernel's settings, a connection from them, `os.environ`, or
+any settings class built on `BaseSettings`, whatever it is handed - which is a
+name, not an import. And no process's root may import a workspace
 package its process does not install, which is an extra of `apps` - something
 import-linter cannot read at all. Their failure is silent, like every guard's:
 a rule that stopped matching passes every build while the import it was
@@ -30,8 +33,11 @@ from grimp import ImportGraph
 from scripts.guard_layering import (
     the_admissions_made_outside_the_walk,
     the_chains_to_a_store_the_fence_cannot_reach,
+    the_environment_read_outside_a_root,
+    the_kernel_settings_an_adapter_declares_too,
     the_processes_reaching_past_their_extra,
     the_stale_allowances,
+    the_stale_readers,
     the_vendors_named_outside_their_adapter,
     the_vendors_spoken_past_their_adapter,
     the_workspace_packages_named_by,
@@ -271,6 +277,276 @@ def test_another_root_may_not_make_an_admission(module: str) -> None:
         .given(sources := {module: _a_module_reading("from core.autonomy import admit")}) \
         .when(lambda: the_admissions_made_outside_the_walk(sources)) \
         .then(_these_admissions_are_refused([(module, 1)]))
+
+
+# A library the walk runs, standing where a module reading the environment for
+# itself would be one.
+A_LIBRARY = "orchestrator.worker"
+
+# A vendor's adapter declaring its settings on the kernel's base for an
+# adapter's, as every adapter does - which is how the rule learns the class
+# reads the environment.
+SLACK_S_ADAPTER = "chat_platform.slack"
+SLACK_S_SETTINGS = (
+    "from core import AdapterSettings",
+    "class SlackSettings(AdapterSettings):",
+    "    slack_bot_token: str = ''"
+)
+
+# The kernel's base itself, declared on `BaseSettings`.
+THE_KERNEL_S_BASE = ("from pydantic_settings import BaseSettings",
+                     "class AdapterSettings(BaseSettings): ...")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("reading", "refused_on"), [
+    pytest.param(("from core import get_settings",
+                  "lease = get_settings().run_lease_seconds"), [1, 2],
+                 id="the-kernel-s-settings"),
+    pytest.param(("from core import Connections, connect_from_env",
+                  "def take(connections: Connections = connect_from_env) -> None: ..."), [1, 2],
+                 id="a-connection-as-a-default"),
+    pytest.param(("import os",
+                  "clock = os.environ.get('SOME_CLOCK')"), [2],
+                 id="the-environment-itself"),
+    pytest.param(("from os import getenv",
+                  "clock = getenv('SOME_CLOCK')"), [1, 2],
+                 id="one-variable"),
+    pytest.param(("import os",
+                  "clock = os.environb.get(b'SOME_CLOCK')"), [2],
+                 id="the-environment-as-bytes"),
+    pytest.param(("from os import getenvb",
+                  "clock = getenvb(b'SOME_CLOCK')"), [1, 2],
+                 id="one-variable-as-bytes"),
+    pytest.param(("from chat_platform.slack import SlackSettings",
+                  "slack = SlackSettings()"), [2],
+                 id="a-vendor-s-settings-from-nothing"),
+    pytest.param(("from chat_platform.slack import SlackSettings",
+                  "slack = SlackSettings(slack_bot_token=token)"), [2],
+                 id="a-vendor-s-settings-from-some-values"),
+    pytest.param(("from chat_platform.slack import SlackSettings",
+                  "slack: SlackSettings = Field(default_factory=SlackSettings)"), [2],
+                 id="a-vendor-s-settings-as-a-default-factory"),
+    pytest.param(("from chat_platform.slack import SlackSettings",
+                  "slack: Annotated[SlackSettings, Field(default_factory=SlackSettings)]"), [2],
+                 id="a-default-factory-inside-an-annotation"),
+    pytest.param(("from chat_platform.slack import SlackSettings",
+                  "def route(slack: Annotated[SlackSettings, Depends(SlackSettings)])"
+                  " -> None: ..."),
+                 [2],
+                 id="a-dependency-inside-an-annotation"),
+    pytest.param(("from chat_platform.slack import SlackSettings as Chat",
+                  "slack = Chat()"), [2],
+                 id="a-vendor-s-settings-under-another-name"),
+    pytest.param(("from chat_platform import slack",
+                  "settings = slack.SlackSettings()"), [2],
+                 id="a-vendor-s-settings-through-its-module")
+])
+def test_a_library_reading_the_environment_is_refused(reading: tuple[str, ...],
+                                                      refused_on: list[int]) -> None:
+    # A service locator, whichever way it is reached: what the library read is
+    # invisible to the root that started the process, and a test that wants
+    # another value has to change the environment to say so. A settings class
+    # handed some of its fields reads every other one from there.
+    Scenario() \
+        .given(sources := {A_LIBRARY: _a_module_reading(*reading),
+                           SLACK_S_ADAPTER: _a_module_reading(*SLACK_S_SETTINGS),
+                           "core.config": _a_module_reading(*THE_KERNEL_S_BASE)}) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines(refused_on))
+
+
+@pytest.mark.unit
+def test_settings_declared_on_another_settings_class_are_found_however_far_down() -> None:
+    # Both tiers' settings sit on the repository's, which sit on the kernel's
+    # base: each is read from the environment as surely as the base is.
+    Scenario() \
+        .given(sources := {
+            "core.config": _a_module_reading(*THE_KERNEL_S_BASE),
+            "code_host.github.settings": _a_module_reading(
+                "from core import AdapterSettings",
+                "class GitHubRepositorySettings(AdapterSettings): ...",
+                "class GitHubSettings(GitHubRepositorySettings): ..."),
+            A_LIBRARY: _a_module_reading(
+                "from code_host.github import GitHubSettings",
+                "github = GitHubSettings(github_token=token)")
+        }) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([2]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("declaring", [
+    pytest.param(("import core", "class GitHubSettings(core.AdapterSettings): ..."),
+                 id="its-base-through-its-module"),
+    pytest.param(("from core import AdapterSettings as Base", "class GitHubSettings(Base): ..."),
+                 id="its-base-under-another-name")
+])
+def test_a_settings_class_is_found_however_its_base_is_named(declaring: tuple[str, str]) -> None:
+    Scenario() \
+        .given(sources := {
+            "core.config": _a_module_reading(*THE_KERNEL_S_BASE),
+            "code_host.github.settings": _a_module_reading(*declaring),
+            A_LIBRARY: _a_module_reading(
+                "from code_host.github import GitHubSettings",
+                "github = GitHubSettings()")
+        }) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([2]))
+
+
+@pytest.mark.unit
+def test_a_settings_class_named_to_say_what_something_is_passes() -> None:
+    # An adapter is handed its settings and names their type; a class declared
+    # on another names it as its base. Neither reads anything.
+    Scenario() \
+        .given(sources := {
+            SLACK_S_ADAPTER: _a_module_reading(
+                *SLACK_S_SETTINGS,
+                "class SlackDeliverySettings(SlackSettings): ...",
+                "def slack_from(settings: SlackSettings) -> SlackSettings | None: ...",
+                "held: SlackSettings | None = None",
+                "def route(slack: Annotated[SlackSettings, 'some metadata']) -> None: ..."),
+            "core.config": _a_module_reading(*THE_KERNEL_S_BASE)
+        }) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([]))
+
+
+@pytest.mark.unit
+def test_a_library_handed_a_slice_built_from_values_passes() -> None:
+    # A slice is not read from anywhere: the values came from whoever called,
+    # and the root is where they were read.
+    Scenario() \
+        .given(sources := {
+            "web_app.pushes": _a_module_reading(
+                "from core import SettingsSlice",
+                "class PushSettings(SettingsSlice): ..."),
+            A_LIBRARY: _a_module_reading(
+                "from web_app.pushes import PushSettings",
+                "settings = PushSettings(repository=repository, deployed_branch=branch,"
+                " code_search=code_search)")
+        }) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module", ["apps.web", "apps.worker.process"])
+def test_a_root_may_read_the_environment(module: str) -> None:
+    Scenario() \
+        .given(sources := {
+            module: _a_module_reading(
+                "from core import get_settings",
+                "from chat_platform.slack import SlackSettings",
+                "settings, slack = get_settings(), SlackSettings()"),
+            SLACK_S_ADAPTER: _a_module_reading(*SLACK_S_SETTINGS),
+            "core.config": _a_module_reading(*THE_KERNEL_S_BASE)
+        }) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module", ["core.config", "core.db", "core.migrations.env"])
+def test_where_a_reader_is_defined_it_may_name_itself(module: str) -> None:
+    # The kernel defines both readers, and nothing hands Alembic's own entry
+    # script a parameter.
+    Scenario() \
+        .given(sources := {module: _a_module_reading(
+            "from core.config import get_settings",
+            "url = get_settings().database_url")}) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([]))
+
+
+@pytest.mark.unit
+def test_the_clock_the_stack_runs_on_may_be_named_by_the_environment() -> None:
+    # Named once, before anything runs: every module's timestamps read it as
+    # they are imported, which is before any root has read anything.
+    Scenario() \
+        .given(sources := {"core.timestamps": _a_module_reading(
+            "import os",
+            "_THE_CLOCK = the_clock_named_by(os.environ)")}) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([]))
+
+
+@pytest.mark.unit
+def test_a_module_named_like_a_root_is_not_one() -> None:
+    # `apps` and beneath it, and not a package whose name merely begins so.
+    Scenario() \
+        .given(sources := {"appsy.web": _a_module_reading(
+            "from core import get_settings")}) \
+        .when(lambda: the_environment_read_outside_a_root(sources)) \
+        .then(_the_reads_refused_are_on_lines([1]))
+
+
+# The kernel's settings, declaring one field of Argus's own.
+THE_KERNEL_S_SETTINGS = ("from pydantic_settings import BaseSettings",
+                         "class Settings(BaseSettings):",
+                         "    investigation_max_rounds: int = 3",
+                         "class AdapterSettings(BaseSettings): ...")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("declaring", "refused"), [
+    pytest.param(("from core import AdapterSettings",
+                  "class AnthropicSettings(AdapterSettings):",
+                  "    investigation_max_rounds: int = 3"),
+                 [("core.llm.adapters.anthropic_adapter", 3,
+                   "AnthropicSettings.investigation_max_rounds")],
+                 id="a-field-of-the-kernel-s"),
+    pytest.param(("from core import AdapterSettings",
+                  "class AnthropicSettings(AdapterSettings): ...",
+                  "class JudgeSettings(AnthropicSettings):",
+                  "    investigation_max_rounds: int = 3"),
+                 [("core.llm.adapters.anthropic_adapter", 4,
+                   "JudgeSettings.investigation_max_rounds")],
+                 id="a-field-of-the-kernel-s-further-down"),
+    pytest.param(("from core import AdapterSettings",
+                  "class AnthropicSettings(AdapterSettings):",
+                  "    investigation_model: str = 'some-model'"), [],
+                 id="a-field-of-its-own"),
+    pytest.param(("from core import SettingsSlice",
+                  "class InvestigationSettings(SettingsSlice):",
+                  "    investigation_max_rounds: int"), [],
+                 id="a-slice-repeating-the-kernel-s")
+])
+def test_a_vendor_s_setting_the_kernel_declares_too_is_refused(
+    declaring: tuple[str, ...], refused: list[tuple[str, int, str]]
+) -> None:
+    # A field in both is a second place to configure the vendor, one every
+    # slice of the kernel's could reach - a model's name as much as a token,
+    # whatever its name says. A slice repeats the kernel's names by design.
+    Scenario() \
+        .given(sources := {"core.config": _a_module_reading(*THE_KERNEL_S_SETTINGS),
+                           "core.llm.adapters.anthropic_adapter": _a_module_reading(*declaring)}) \
+        .when(lambda: the_kernel_settings_an_adapter_declares_too(sources)) \
+        .then(the_answer_was(refused))
+
+
+# A module allowed to read the environment, as the kernel's connection is.
+AN_ALLOWED_READER = "core.db"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("sources", "stale"), [
+    pytest.param({AN_ALLOWED_READER: "def connect_from_env() -> None: ..."}, [],
+                 id="still-reading"),
+    pytest.param({AN_ALLOWED_READER: "def connect(url: str) -> None: ..."}, [AN_ALLOWED_READER],
+                 id="reading-nothing"),
+    pytest.param({}, [AN_ALLOWED_READER],
+                 id="not-there")
+])
+def test_an_allowance_to_read_that_nothing_uses_is_stale(sources: dict[str, str],
+                                                         stale: list[str]) -> None:
+    # Each allowance covers its whole module, so one outliving its reason would
+    # let a read back in there without anybody deciding it should.
+    Scenario() \
+        .given(sources) \
+        .when(lambda: the_stale_readers(sources, {AN_ALLOWED_READER})) \
+        .then(the_answer_was(stale))
 
 
 # The workspace's packages, as `root_packages` would name them for these cases.
@@ -639,6 +915,22 @@ def _these_allowances_are_stale(expected: list[str]) -> Assertion[list[str]]:
     def assertion(stale: list[str]) -> bool:
         if stale != expected:
             raise AssertionError(f"Expected the allowances {expected} stale, got {stale}.")
+
+        return True
+
+    return assertion
+
+
+def _the_reads_refused_are_on_lines(expected: list[int]
+                                    ) -> Assertion[list[tuple[str, int, str]]]:
+    """Exactly these lines refused, in whichever module the source was."""
+    def assertion(refused: list[tuple[str, int, str]]) -> bool:
+        lines = sorted({line for _, line, _ in refused})
+
+        if lines != expected:
+            raise AssertionError(
+                f"Expected the environment read on lines {expected} refused, got {refused}."
+            )
 
         return True
 

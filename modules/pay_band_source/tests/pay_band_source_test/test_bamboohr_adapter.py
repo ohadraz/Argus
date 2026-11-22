@@ -20,11 +20,8 @@ from argus_testkit import Assertion, Scenario, all_of, attempting
 from argus_testkit.collecting import Kept
 from pay_band_source import PayBand
 from pay_band_source.bamboohr_adapter import AskHrSource, pay_bands
-from pay_band_source.bands import (
-    PayBandsByTitle,
-    PayBandSettings,
-    PayBandsUnavailable,
-)
+from pay_band_source.bamboohr_settings import BambooHrSettings
+from pay_band_source.bands import PayBandsByTitle, PayBandsUnavailable
 
 # The provider's own field names, spelled out here rather than shared with the
 # module under test: the assertion is that Argus reads *these*, and a constant
@@ -275,14 +272,14 @@ def _the_source_said_it_could_not_be_read() -> Assertion[Exception | None]:
     return assertion
 
 
-def _settings_with(api_key: str) -> PayBandSettings:
-    """The slice this reader runs under.
+def _settings_with(api_key: str) -> BambooHrSettings:
+    """The settings this reader runs under.
 
     The request is injected, so how long it may take is never waited on.
     """
     dont_care_timeout_seconds = 10.0
 
-    return PayBandSettings(
+    return BambooHrSettings(
         hr_api_key=api_key,
         hr_base_url=DONT_CARE_URL,
         hr_timeout_seconds=dont_care_timeout_seconds

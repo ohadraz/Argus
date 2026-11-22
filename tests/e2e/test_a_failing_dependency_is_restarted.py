@@ -43,6 +43,7 @@ from typing import Any
 import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
+from code_host.github import GitHubReadSettings
 from core import get_settings
 from core.events import ActionTaken, FixAttempted
 from core.models import RESTART_SERVICE, IncidentStatus
@@ -295,8 +296,8 @@ def _what_the_branch_changed(branch: str) -> set[str]:
     """
     deployed = get_settings().deployed_branch
     response = httpx2.get(
-        f"{get_settings().github_api_url}/repos/"
-        f"{get_settings().github_repository}/compare/{deployed}...{branch}",
+        f"{GitHubReadSettings().github_api_url}/repos/"
+        f"{GitHubReadSettings().github_repository}/compare/{deployed}...{branch}",
         timeout=REQUEST_TIMEOUT_SECONDS
     )
     response.raise_for_status()

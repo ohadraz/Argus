@@ -29,7 +29,7 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
-from chat_platform.slack import ChatSettings, Slack
+from chat_platform.slack import Slack, SlackSettings
 from chat_platform.slack_deliveries import ACTION_ID, CONFIRM_ACTION, VALUE
 from chat_platform.slack_posting import (
     ACTIONS_BLOCK,
@@ -1850,9 +1850,9 @@ def _slack_at(base_url: str) -> Slack:
     signing secret because nothing here reads a delivery.
     """
     return Slack(
-        ChatSettings(slack_bot_token=DONT_CARE_TOKEN,
-                     slack_base_url=base_url,
-                     slack_signing_secret=DONT_CARE_SIGNING_SECRET),
+        SlackSettings(slack_bot_token=DONT_CARE_TOKEN,
+                      slack_base_url=base_url,
+                      slack_signing_secret=DONT_CARE_SIGNING_SECRET),
         client_of=WebClient,
         clock=utc_now
     )

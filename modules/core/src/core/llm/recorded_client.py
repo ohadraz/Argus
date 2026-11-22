@@ -51,9 +51,9 @@ class RecordedLLMClient:
     the same reason: how much the wrapped client allows an answer is not
     askable through the interface, and a receipt is worth keeping only if it
     says what the call was actually given. It defaults to `ModelPolicy`'s own
-    default so that a wrapper told nothing records what a client built from
-    nothing would use - the one declaration of that figure, referenced rather
-    than repeated.
+    default room, which is what a client built under a policy naming none is
+    given - the one declaration of that figure, referenced rather than
+    repeated.
     """
 
     def __init__(self,

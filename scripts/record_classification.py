@@ -50,10 +50,10 @@ import uvicorn
 from anthropic_double.recordings import RECORDINGS_DIR
 from anthropic_double.server import app as the_double
 from chat_platform.slack_deliveries import SLACK
-from core import DatabaseSettings, LLMSettings, Settings, get_settings, open_pool, utc_now
+from core import DatabaseSettings, Settings, get_settings, open_pool, utc_now
 from core.events import PersonWrote
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import AnthropicProvider
+from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.models import Meaning, ModelPolicy, a_chat_message
 from incident_record.repository import events
 from message_intent.answering import answer
@@ -83,8 +83,9 @@ def main() -> None:
     # is the one that points it at the double rather than at the API itself.
     os.environ["ANTHROPIC_BASE_URL"] = _BASE_URL
     settings = get_settings()
+    model_settings = AnthropicSettings()
 
-    if not settings.anthropic_api_key:
+    if not model_settings.anthropic_api_key:
         sys.exit("ANTHROPIC_API_KEY is not set, so there is no model to record.")
 
     # Read before anything is recorded, so an incident the record does not hold
@@ -103,9 +104,9 @@ def main() -> None:
         httpx2.post(f"{_BASE_URL}/double-control/record",
                     json={"name": asked.name}).raise_for_status()
 
-        llm = build_llm_client(AnthropicProvider(LLMSettings.of(settings)),
-                               policy=ModelPolicy(model=settings.intent_model,
-                                                  effort=settings.intent_effort))
+        llm = build_llm_client(AnthropicProvider(model_settings), None,
+                               ModelPolicy(model=model_settings.intent_model,
+                                           effort=settings.intent_effort))
         meaning = classify(asked.message, llm=llm, platform=SLACK)
         answered = (answer(asked.message, story, llm, platform=SLACK)
                     if story is not None and meaning is Meaning.QUESTION else None)

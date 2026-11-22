@@ -26,6 +26,7 @@ from anthropic_double.server import DEFAULT_BASE_URL
 from argus_testkit import Assertion, Scenario, all_of, calling
 from core import connect_from_env, get_settings, utc_now
 from core.llm import conversations_through
+from core.llm.adapters.anthropic_adapter import AnthropicSettings
 from core.models import Alert
 from core.replay import CallType, ReplayEntry
 from incident_record.publishing import calls_into
@@ -89,7 +90,7 @@ def test_an_investigations_calls_reach_the_replay_log(
                     fetch_what_a_deployment_changed=no_deployment_was_read,
                     fetch_rollout=no_rollout_was_read,
                     fetch_placements=pods_that_never_moved,
-                    settings=InvestigationSettings.of(get_settings()),
+                    settings=InvestigationSettings.of(get_settings(), AnthropicSettings()),
                     thresholds=the_configured_thresholds(),
                     read_tier_tools=what_the_read_tier_offers_the_investigator,
                     conversations=conversations_through(the_configured_models()),
@@ -130,7 +131,7 @@ def test_an_investigation_that_records_nowhere_still_investigates(
                     fetch_what_a_deployment_changed=no_deployment_was_read,
                     fetch_rollout=no_rollout_was_read,
                     fetch_placements=pods_that_never_moved,
-                    settings=InvestigationSettings.of(get_settings()),
+                    settings=InvestigationSettings.of(get_settings(), AnthropicSettings()),
                     thresholds=the_configured_thresholds(),
                     read_tier_tools=what_the_read_tier_offers_the_investigator,
                     conversations=conversations_through(the_configured_models())

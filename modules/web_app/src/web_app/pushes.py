@@ -37,22 +37,21 @@ BRANCH_REF_PREFIX: Final = "refs/heads/"
 
 
 class PushSettings(SettingsSlice):
-    """What this endpoint is allowed to know: who it trusts, and what it watches.
+    """What this endpoint is allowed to know: what it watches.
 
-    No credential that reads or writes a repository. Nothing here fetches
-    anything - it is handed what happened and writes one string - and a slice
-    naming a token would be giving the web process a capability it has no use
-    for.
+    No credential that reads or writes a repository, and not even the secret a
+    delivery is verified under - that is the push source's, which is handed a
+    delivery first. Nothing here fetches anything - it is handed what happened
+    and writes one string - and a slice naming a token would be giving the web
+    process a capability it has no use for.
+
+    Built by the web process's root from the kernel's settings and the push
+    source's: the repository, `owner/name`, is the one the push source's
+    settings name.
     """
 
-    github_repository: str
+    repository: str
     deployed_branch: str
-    # The shared secret GitHub signs each delivery with, handed to the push
-    # source where the app is wired. Empty is not a deployment that accepts
-    # anything: where no secret is set every delivery is refused - a digest
-    # under an empty key is one anybody can compute - which is the right way
-    # round for an endpoint open to the internet.
-    github_webhook_secret: str
     # Whether this deployment keeps an index for the row to be about. Where it
     # does not, nothing ever reads what is written here - the read tier
     # registers no tool to search an index and the catch-up pass exits before
@@ -103,7 +102,7 @@ def receive_push(body: bytes,
     if not _is_the_indexed_repository(push.repository, settings):
         return None
 
-    record_pushed(settings.github_repository, push.after)
+    record_pushed(settings.repository, push.after)
 
     logger.info("push recorded", extra={"repository": push.repository, "sha": push.after})
 
@@ -127,7 +126,7 @@ def _is_the_indexed_repository(repository: str, settings: PushSettings) -> bool:
     recorded nowhere, so it is said: it would otherwise look exactly like one
     that works.
     """
-    if repository != settings.github_repository:
+    if repository != settings.repository:
         logger.warning("push for another repository", extra={"repository": repository})
         return False
 

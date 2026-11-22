@@ -1,14 +1,15 @@
 """What a configuration must agree with itself about, and what one process may know.
 
 Two questions, and they are not the same one asked twice. `Settings` is the
-whole environment, and the relationships across it - the windows that have to
-admit each other - are checked in one place because no individual field can
-check them. A slice is what a single consumer is handed out of that whole, and
-the question there is not what it holds but what it cannot name.
+whole of Argus's own environment, and the relationships across it - the windows
+that have to admit each other - are checked in one place because no individual
+field can check them. A slice is what a single consumer is handed out of that
+whole, beside a vendor's settings where it reads one of theirs, and the question
+there is not what it holds but what it cannot name. What a vendor needs is its
+adapter's settings, tested in that adapter's suite.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -19,28 +20,28 @@ from argus_testkit import (
     an_error_was_raised,
     attempting,
     the_answer_was,
+    the_error_mentioned,
 )
 from core.config import (
+    AdapterSettings,
     DatabaseSettings,
-    LLMSettings,
     ReadMcpEndpoint,
     Settings,
     SettingsSlice,
     TelemetrySettings,
 )
 from pydantic import ValidationError
-from pydantic_settings import SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-SOME_KEY = "some-key"
-SOME_STAND_IN = "http://every-agent.example"
-SOME_STAND_IN_FOR_THE_JUDGE = "http://the-judge.example"
-# No address: the SDK's own, which is the real API.
-THE_REAL_API = ""
-# The environment variable the service's source paths were read from, and the
-# one they are read from now - spelled out rather than imported, because the
-# names a deployment's `.env` holds are the claim.
-THE_RETIRED_NAME = "GITHUB_SOURCE_PATHS"
-THE_NAME_IT_BECAME = "SERVICE_SOURCE_PATHS"
+# The environment variable the service's source paths are read from - spelled
+# out rather than imported, because the name a deployment's `.env` holds is the
+# claim.
+THE_SOURCE_PATHS = "SERVICE_SOURCE_PATHS"
+
+# What a slice built from two settings that both declare one of its fields is
+# refused with - its own words, since a missing field is refused as a
+# `ValueError` naming the same field.
+THE_REFUSAL_OF_A_FIELD_DECLARED_TWICE = "is configured by each of"
 
 
 @pytest.mark.unit
@@ -68,7 +69,7 @@ def test_a_max_log_window_narrower_than_the_derived_window_is_rejected() -> None
         .then(
             all_of(
                 an_error_was_raised(ValidationError),
-                _it_complained_about("log_max_window_minutes")
+                the_error_mentioned("log_max_window_minutes")
             )
         )
 
@@ -97,7 +98,7 @@ def test_a_metrics_window_narrower_than_the_max_log_window_is_rejected() -> None
         .then(
             all_of(
                 an_error_was_raised(ValidationError),
-                _it_complained_about("metrics_window_minutes")
+                the_error_mentioned("metrics_window_minutes")
             )
         )
 
@@ -146,7 +147,7 @@ def test_a_candidate_budget_below_one_is_rejected() -> None:
         .then(
             all_of(
                 an_error_was_raised(ValidationError),
-                _it_complained_about("investigation_max_candidates")
+                the_error_mentioned("investigation_max_candidates")
             )
         )
 
@@ -190,7 +191,7 @@ def test_a_non_positive_deviation_count_is_rejected() -> None:
         .then(
             all_of(
                 an_error_was_raised(ValidationError),
-                _it_complained_about("anomaly_deviations_from_baseline")
+                the_error_mentioned("anomaly_deviations_from_baseline")
             )
         )
 
@@ -214,7 +215,7 @@ def test_a_non_positive_change_lookback_is_rejected() -> None:
         .then(
             all_of(
                 an_error_was_raised(ValidationError),
-                _it_complained_about("change_lookback_minutes")
+                the_error_mentioned("change_lookback_minutes")
             )
         )
 
@@ -246,7 +247,7 @@ def test_a_change_lookback_no_wider_than_the_log_ceiling_is_rejected() -> None:
         .then(
             all_of(
                 an_error_was_raised(ValidationError),
-                _it_complained_about("change_lookback_minutes")
+                the_error_mentioned("change_lookback_minutes")
             )
         )
 
@@ -259,13 +260,12 @@ def test_a_slice_carries_only_the_fields_it_declares() -> None:
     # where the read tier is and how long a caller waits for its answers.
     Scenario() \
         .given(
-            settings_holding_every_credential := Settings(
-                argocd_auth_token="a-platform-token-the-read-tier-must-not-name",
-                anthropic_api_key="dont-care-key"
+            settings_holding_a_credential := Settings(
+                database_password="a-password-the-read-tier-must-not-name"
             )
         ) \
         .when(
-            lambda: ReadMcpEndpoint.of(settings_holding_every_credential)
+            lambda: ReadMcpEndpoint.of(settings_holding_a_credential)
         ) \
         .then(
             _it_carries_exactly({
@@ -274,20 +274,6 @@ def test_a_slice_carries_only_the_fields_it_declares() -> None:
                 "read_mcp_url",
                 "read_mcp_answered_within_seconds"
             })
-        )
-
-
-@pytest.mark.unit
-def test_the_kernel_names_nothing_of_the_flag_provider() -> None:
-    # The provider's settings are its adapter's, read under the same variable
-    # names. A field left here as well would be a second place to configure the
-    # provider, and every slice could reach the admin credential through it.
-    Scenario() \
-        .when(
-            lambda: sorted(name for name in Settings.model_fields if name.startswith("unleash_"))
-        ) \
-        .then(
-            the_answer_was([])
         )
 
 
@@ -358,29 +344,82 @@ def test_a_slice_naming_a_setting_that_does_not_exist_is_refused() -> None:
 
 
 @pytest.mark.unit
-def test_the_telemetry_slice_carries_where_signals_go_and_the_log_level() -> None:
-    # What `telemetry` is handed at the top of every process: the
-    # directory every signal is written under, the general OTLP backend,
-    # Langfuse and the level below which nothing is logged - and nothing else,
-    # so that wiring the exporters names no credential of any other tier.
+def test_a_slice_takes_a_field_from_the_vendor_settings_that_declare_it() -> None:
+    # An agent's model is named in the provider's catalogue, so it is the
+    # provider's setting - and the agent's slice still carries it beside the
+    # kernel's, taken by name from whichever settings declare it.
+    some_model = "some-model"
+    some_rounds = 2
+
+    class _AnAgentsSlice(SettingsSlice):
+        investigation_max_rounds: int
+        some_agent_model: str
+
+    class _SomeProvidersSettings(AdapterSettings):
+        some_agent_model: str
+
     Scenario() \
         .given(
-            settings_holding_every_credential := Settings(
-                argocd_auth_token="a-platform-token-telemetry-must-not-name",
-                anthropic_api_key="dont-care-key"
+            some_settings := Settings(investigation_max_rounds=some_rounds),
+            some_providers := _SomeProvidersSettings(some_agent_model=some_model)
+        ) \
+        .when(
+            lambda: _AnAgentsSlice.of(some_settings, some_providers)
+        ) \
+        .then(
+            the_answer_was(_AnAgentsSlice(investigation_max_rounds=some_rounds,
+                                          some_agent_model=some_model))
+        )
+
+
+@pytest.mark.unit
+def test_a_field_two_settings_both_declare_is_refused() -> None:
+    # Which of the two the slice meant is not something a name can say, so it
+    # is refused where the slice is built rather than taken from whichever came
+    # first.
+    class _AnAgentsSlice(SettingsSlice):
+        investigation_max_rounds: int
+
+    class _SettingsDeclaringItToo(AdapterSettings):
+        investigation_max_rounds: int
+
+    Scenario() \
+        .given(
+            dont_care_settings := Settings(),
+            settings_declaring_it_too := _SettingsDeclaringItToo(investigation_max_rounds=1)
+        ) \
+        .when(
+            attempting(lambda: _AnAgentsSlice.of(dont_care_settings, settings_declaring_it_too))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValueError),
+                the_error_mentioned("investigation_max_rounds"),
+                the_error_mentioned(THE_REFUSAL_OF_A_FIELD_DECLARED_TWICE)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_telemetry_slice_carries_where_signals_go_and_the_log_level() -> None:
+    # What `telemetry` is handed at the top of every process: the
+    # directory every signal is written under, the general OTLP backend and the
+    # level below which nothing is logged - and nothing else, so that wiring the
+    # exporters names no credential of any other tier.
+    Scenario() \
+        .given(
+            settings_holding_a_credential := Settings(
+                database_password="a-password-telemetry-must-not-name"
             )
         ) \
         .when(
-            lambda: TelemetrySettings.of(settings_holding_every_credential)
+            lambda: TelemetrySettings.of(settings_holding_a_credential)
         ) \
         .then(
             _it_carries_exactly({
                 "telemetry_directory",
                 "otel_exporter_otlp_endpoint",
                 "otel_exporter_otlp_headers",
-                "langfuse_base_url",
-                "langfuse_public_key",
-                "langfuse_secret_key",
                 "log_level"
             })
         )
@@ -405,29 +444,8 @@ def test_telemetry_is_written_under_dot_telemetry_and_sent_nowhere_by_default() 
                 telemetry_directory=".telemetry",
                 otel_exporter_otlp_endpoint="",
                 otel_exporter_otlp_headers="",
-                langfuse_base_url="",
-                langfuse_public_key="",
-                langfuse_secret_key="",
                 log_level="INFO"
             ))
-        )
-
-
-@pytest.mark.unit
-def test_a_fresh_checkout_believes_no_delivery_from_slack() -> None:
-    # What a delivery can say ends an incident, so a secret nobody set is not
-    # one to verify against - it is one anybody can sign under. Read off the
-    # declared defaults, for the telemetry test's reason: a `Settings()` would
-    # read the developer's own `.env`, which may well hold a real one.
-    Scenario() \
-        .given(
-            the_declared_defaults := Settings.model_construct()
-        ) \
-        .when(
-            lambda: the_declared_defaults
-        ) \
-        .then(
-            _it_kept("slack_signing_secret", "")
         )
 
 
@@ -447,77 +465,9 @@ def test_a_non_positive_intent_reader_pause_is_rejected() -> None:
         .then(
             all_of(
                 an_error_was_raised(ValidationError),
-                _it_complained_about("intent_poll_seconds")
+                the_error_mentioned("intent_poll_seconds")
             )
         )
-
-
-# Both channels Argus posts to, each with the one keyword that configures it.
-for_each_slack_channel = pytest.mark.parametrize(("field", "configured_with"), [
-    ("slack_war_room_channel", lambda channel: Settings(slack_war_room_channel=channel)),
-    ("slack_postmortem_channel", lambda channel: Settings(slack_postmortem_channel=channel))
-], ids=["war-room", "postmortem"])
-
-
-@pytest.mark.unit
-@for_each_slack_channel
-def test_a_slack_channel_given_by_name_is_rejected(
-        field: str, configured_with: Callable[[str], Settings]) -> None:
-    # Slack takes a name to post to and nothing else: an update needs the id,
-    # and every reply and press arrives naming the id. A war room configured by
-    # name is one whose threads no reply is ever matched to - and it fails only
-    # against a real workspace, since the double answers any channel it is given.
-    Scenario() \
-        .given(
-            a_channel_by_name := "#war_room"
-        ) \
-        .when(
-            attempting(lambda: configured_with(a_channel_by_name))
-        ) \
-        .then(
-            all_of(
-                an_error_was_raised(ValidationError),
-                _it_complained_about(field)
-            )
-        )
-
-
-@pytest.mark.unit
-@for_each_slack_channel
-def test_a_slack_channel_given_by_id_is_kept(
-        field: str, configured_with: Callable[[str], Settings]) -> None:
-    # The boundary the rejection is drawn at, and the one shape Slack itself
-    # uses for a channel everywhere it names one.
-    Scenario() \
-        .given(
-            some_channel_id := "C0C29KYB388"
-        ) \
-        .when(
-            lambda: configured_with(some_channel_id)
-        ) \
-        .then(
-            _it_kept(field, some_channel_id)
-        )
-
-
-def _it_complained_about(field: str) -> Assertion[Exception | None]:
-    """That the refusal named the field the test is about.
-
-    A `Settings` has several relationships to satisfy at once, so it can be
-    refused for a reason the test did not intend - a default that moved, a
-    neighbouring field left at something incompatible - and a bare
-    `ValidationError` would pass either way.
-    """
-    def complained_about(error: Exception | None) -> bool:
-        if error is None or field not in str(error):
-            raise AssertionError(
-                f"Expected the refusal to name [{field}], "
-                f"and it said [{error}]."
-            )
-
-        return True
-
-    return complained_about
 
 
 def _it_kept(field: str, expected: object) -> Assertion[Settings]:
@@ -593,89 +543,10 @@ def _it_is(expected: TelemetrySettings) -> Assertion[TelemetrySettings]:
 
 
 @pytest.mark.unit
-def test_the_judge_is_reached_at_its_own_address_where_one_is_set() -> None:
-    # Its own, so a replay can answer the writer from one stand-in and the
-    # judge from another, each in the order its own calls were recorded.
-    Scenario() \
-        .given(
-            some_settings := Settings(anthropic_api_key=SOME_KEY,
-                                      anthropic_base_url=SOME_STAND_IN,
-                                      judge_anthropic_base_url=SOME_STAND_IN_FOR_THE_JUDGE)
-        ) \
-        .when(
-            lambda: LLMSettings.for_the_judge(some_settings)
-        ) \
-        .then(
-            _reaches(LLMSettings(anthropic_api_key=SOME_KEY,
-                                 anthropic_base_url=SOME_STAND_IN_FOR_THE_JUDGE))
-        )
-
-
-@pytest.mark.unit
-def test_the_judge_reaches_the_real_api_where_every_agent_does() -> None:
-    Scenario() \
-        .given(
-            some_settings := Settings(anthropic_api_key=SOME_KEY,
-                                      anthropic_base_url=THE_REAL_API,
-                                      judge_anthropic_base_url=THE_REAL_API)
-        ) \
-        .when(
-            lambda: LLMSettings.for_the_judge(some_settings)
-        ) \
-        .then(
-            _reaches(LLMSettings(anthropic_api_key=SOME_KEY, anthropic_base_url=THE_REAL_API))
-        )
-
-
-@pytest.mark.unit
-def test_a_judge_with_no_address_where_every_agent_has_a_stand_in_is_refused() -> None:
-    # Neither default is safe. The writer's stand-in would serve the judge the
-    # writer's recordings out of turn, or record the judge's calls into the
-    # writer's scenario; the real API would spend on every write-up judged.
-    Scenario() \
-        .given(
-            some_settings := Settings(anthropic_api_key=SOME_KEY,
-                                      anthropic_base_url=SOME_STAND_IN,
-                                      judge_anthropic_base_url=THE_REAL_API)
-        ) \
-        .when(
-            attempting(lambda: LLMSettings.for_the_judge(some_settings))
-        ) \
-        .then(
-            all_of(
-                an_error_was_raised(ValueError),
-                _it_complained_about("JUDGE_ANTHROPIC_BASE_URL")
-            )
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("held", [pytest.param("src", id="some-paths"),
-                                  pytest.param("", id="empty")])
-def test_an_environment_still_naming_the_retired_source_paths_is_refused(
-    tmp_path: Path, held: str
-) -> None:
-    # A name nothing declares is ignored, so a `.env` kept from before the
-    # rename would start on the whole repository and change what Code-Fix reads
-    # without a word. Refused at the start instead, naming what to rename it to;
-    # empty too, since it still says the deployment meant to set this.
-    an_env_file = tmp_path / ".env"
-    an_env_file.write_text(f"{THE_RETIRED_NAME}={held}\n", encoding="utf-8")
-
-    Scenario() \
-        .given(an_env_file) \
-        .when(attempting(lambda: _settings_read_from(an_env_file))) \
-        .then(all_of(
-            an_error_was_raised(ValidationError),
-            _it_complained_about(THE_NAME_IT_BECAME)
-        ))
-
-
-@pytest.mark.unit
 def test_an_environment_naming_the_service_source_paths_is_read(tmp_path: Path) -> None:
     some_paths = "src/io_shop,deploy"
     an_env_file = tmp_path / ".env"
-    an_env_file.write_text(f"{THE_NAME_IT_BECAME}={some_paths}\n", encoding="utf-8")
+    an_env_file.write_text(f"{THE_SOURCE_PATHS}={some_paths}\n", encoding="utf-8")
 
     Scenario() \
         .given(an_env_file) \
@@ -684,20 +555,22 @@ def test_an_environment_naming_the_service_source_paths_is_read(tmp_path: Path) 
 
 
 def _settings_read_from(env_file: Path) -> Settings:
-    """The whole configuration as a deployment whose `.env` is `env_file` reads
-    it - the one setting changed, every validator inherited."""
+    """The whole configuration as read from `env_file` alone - every validator
+    inherited, and nothing from the environment the suite runs in."""
     class ReadFromThatFile(Settings):
-        model_config = SettingsConfigDict(env_file=env_file, extra="ignore",
-                                          populate_by_name=True)
+        model_config = SettingsConfigDict(env_file=env_file)
+
+        @classmethod
+        def settings_customise_sources(cls,
+                                       settings_cls: type[BaseSettings],
+                                       init_settings: PydanticBaseSettingsSource,
+                                       env_settings: PydanticBaseSettingsSource,
+                                       dotenv_settings: PydanticBaseSettingsSource,
+                                       file_secret_settings: PydanticBaseSettingsSource
+                                       ) -> tuple[PydanticBaseSettingsSource, ...]:
+            """What is handed over and what the file says, and never the
+            process's own environment - which on a CI runner already names a
+            repository, an API and more of its own, and would outrank the file."""
+            return init_settings, dotenv_settings
 
     return ReadFromThatFile()
-
-
-def _reaches(expected: LLMSettings) -> Assertion[LLMSettings]:
-    def assertion(reached: LLMSettings) -> bool:
-        if reached != expected:
-            raise AssertionError(f"Expected the judge to reach {expected}, got {reached}.")
-
-        return True
-
-    return assertion

@@ -8,8 +8,10 @@ environment the process was started in. And the level a process logs at is
 the whole process's, set on the root by the one call a `main` makes.
 
 Each case starts a child Python that installs telemetry exactly as a `main`
-does, says where it is writing, and then waits to be stopped. No backend is
-configured, so nothing here reaches a network.
+does. Most say where they are writing and wait to be stopped, with no backend
+configured. One is handed a backend of a vendor's, as a root hands Langfuse's,
+and sends to a receiver this suite runs on the loopback - the only network
+anything here reaches.
 """
 
 from __future__ import annotations
@@ -19,7 +21,11 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -45,9 +51,6 @@ with start_telemetry(TelemetrySettings(
     telemetry_directory=sys.argv[1],
     otel_exporter_otlp_endpoint="",
     otel_exporter_otlp_headers="",
-    langfuse_base_url="",
-    langfuse_public_key="",
-    langfuse_secret_key="",
     log_level="INFO"
 ), "argus-dont-care") as telemetry:
     with trace.get_tracer(__name__).start_as_current_span("{THE_LAST_SPAN}"):
@@ -62,6 +65,35 @@ with start_telemetry(TelemetrySettings(
     while True:
         time.sleep(0.05)
 """
+
+# The child a root's vendor backend is handed to: telemetry started as a `main`
+# starts it, with one destination beside the general backend - the trace path
+# of a backend the root alone knows of, as `telemetry.langfuse` says Langfuse's -
+# and one span ended before `main` returns and the batch is written out.
+_A_PROCESS_SENDING_TO_A_VENDOR = f"""
+import sys
+from core import TelemetrySettings
+from telemetry import Destination, Signal, start_telemetry
+from opentelemetry import trace
+
+with start_telemetry(TelemetrySettings(
+    telemetry_directory=sys.argv[1],
+    otel_exporter_otlp_endpoint="",
+    otel_exporter_otlp_headers="",
+    log_level="INFO"
+), "argus-dont-care", also=[
+    Destination(signal=Signal.TRACES, endpoint=sys.argv[2], headers={{}})
+]):
+    with trace.get_tracer(__name__).start_as_current_span("{THE_LAST_SPAN}"):
+        pass
+"""
+
+# Where the vendor reads traces, below the receiver's address: any path, since
+# the claim is that the destination's endpoint is used exactly as handed over.
+SOME_VENDOR_S_TRACES_PATH = "/some-vendor/v1/traces"
+
+# How long a child is given to start, send and exit.
+LONG_ENOUGH_TO_SEND = 30
 
 # A stack clock nowhere near the wall's: twice real time, counted from 1970,
 # which puts it some fifty years ahead. Spelled as a stack spells it, since the
@@ -145,6 +177,88 @@ def test_a_run_directory_is_named_for_the_wall_clock_whatever_the_stacks_clock_s
         .then(
             _named_for_a_start_between(started_after, datetime.now(UTC))
         )
+
+
+@pytest.mark.component
+def test_a_vendor_s_backend_a_root_hands_over_is_sent_the_process_s_traces(
+    tmp_path: Path
+) -> None:
+    # A root reads its vendors' settings and hands their destinations to
+    # `start_telemetry`; dropped on the way to the exporters, every root's
+    # traces would stop reaching Langfuse with every destination still said
+    # correctly by the module that says it.
+    with _a_receiver() as received:
+        Scenario() \
+            .given(
+                received
+            ) \
+            .when(
+                lambda: _a_process_sending_to(f"{received.address}{SOME_VENDOR_S_TRACES_PATH}",
+                                              tmp_path)
+            ) \
+            .then(
+                _it_was_sent_to(SOME_VENDOR_S_TRACES_PATH, received)
+            )
+
+
+class _Received:
+    """The paths a receiver on the loopback was posted to, and its address."""
+
+    def __init__(self, address: str) -> None:
+        self.address = address
+        self.paths: list[str] = []
+
+
+@contextmanager
+def _a_receiver() -> Generator[_Received]:
+    """An OTLP/HTTP backend that answers every export, and keeps where each went."""
+    paths: list[str] = []
+
+    class Answering(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            paths.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Answering)
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    received = _Received(f"http://127.0.0.1:{server.server_address[1]}")
+    received.paths = paths
+
+    try:
+        yield received
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _a_process_sending_to(endpoint: str, directory: Path) -> int:
+    """Runs a child handed `endpoint` as a vendor's trace destination, to the
+    end of its `main`. Returns how it exited."""
+    return subprocess.run(
+        [sys.executable, "-c", _A_PROCESS_SENDING_TO_A_VENDOR, str(directory), endpoint],
+        timeout=LONG_ENOUGH_TO_SEND,
+        check=False
+    ).returncode
+
+
+def _it_was_sent_to(path: str, received: _Received) -> Assertion[int]:
+    def assertion(exited_with: int) -> bool:
+        if exited_with != 0 or path not in received.paths:
+            raise AssertionError(
+                f"Expected the process to exit cleanly having posted its traces to "
+                f"[{path}], and it exited with [{exited_with}] having posted to "
+                f"{received.paths}."
+            )
+
+        return True
+
+    return assertion
 
 
 class _Process:

@@ -21,24 +21,31 @@ from unittest.mock import MagicMock, Mock
 
 import anthropic
 from anthropic.types import Message, TextBlock, Usage
-from core.config import LLMSettings
 from core.llm.adapters.anthropic_adapter import (
     ASSISTANT_ROLE,
     END_TURN_STOP_REASON,
     MESSAGE_TYPE,
+    MODEL,
     TEXT_TYPE,
+    AnthropicSettings,
 )
+from core.models import ModelPolicy
 from core.models.turn import Turn
 
 
-def settings_that_reach_no_api() -> LLMSettings:
+def settings_that_reach_no_api() -> AnthropicSettings:
     """Configuration for a client that has been handed its own API stand-in.
 
-    The key is empty because nothing here authenticates: the SDK client is
-    injected, so the one thing `Settings` is still read for is how many
-    candidates a verdict may carry.
+    The key and the address are empty because nothing here authenticates or
+    dials: the SDK client is injected.
     """
-    return LLMSettings(anthropic_api_key="", anthropic_base_url="")
+    return AnthropicSettings(anthropic_api_key="", anthropic_base_url="")
+
+
+def a_policy_naming_the_adapters_model() -> ModelPolicy:
+    """A policy naming the adapter's own `MODEL` and nothing else, for a case
+    about something other than which model answers or how it is asked."""
+    return ModelPolicy(model=MODEL)
 
 
 def a_turn_that_said(said: str) -> Turn:

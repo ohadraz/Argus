@@ -29,7 +29,9 @@ from repository_index.catching_up import catch_up, catch_up_forever
 from repository_index.embedding import an_embedder
 from repository_index.records import get
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 from vector_store_qdrant.indexing import the_index_at
+from vector_store_qdrant.settings import QdrantSettings
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,8 @@ _SERVICE: Final = "argus-index"
 
 
 class CatchUpSettings(SettingsSlice):
-    """How often the loop looks, and where it looks.
+    """How often the loop looks, with what, and whether there is anything to
+    look for.
 
     The interval is the longest an index may describe yesterday's code while
     nobody is telling it otherwise - a bound on staleness rather than a
@@ -48,8 +51,10 @@ class CatchUpSettings(SettingsSlice):
     fetched every minute.
     """
 
-    qdrant_url: str
     repository_index_interval_seconds: float
+    # The model every passage is embedded with - the one the read tier embeds
+    # a question with, which is what makes the two comparable.
+    repository_index_embedding_model: str
     # Whether this deployment keeps an index at all. A run set to grep alone
     # exits rather than building one nobody can search: the read tier
     # registers no tool for it, so every passage embedded here would be
@@ -90,7 +95,8 @@ def main(argv: list[str] | None = None) -> None:
 
     # Started before anything is decided, so that a process which decides to do
     # nothing says so in this run's logs as well as on the console.
-    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                         also=to_langfuse(LangfuseSettings())):
         # Before a pool, a store or a model. A deployment searching by grep
         # alone has no reader for any of this, and an index built for nobody
         # costs a repository download and an ONNX runtime to sit unread.
@@ -102,20 +108,20 @@ def main(argv: list[str] | None = None) -> None:
         # The code host's adapter, built here and nowhere else in this process
         # and handed on as its reads port - the read credential alone, since
         # building an index changes a repository in no way.
-        code = GitHubReads(GitHubReadSettings.of(settings))
+        code = GitHubReads(GitHubReadSettings())
         repository = code.repository
 
         # The store's adapter likewise, handed on as the port: a pass writes
         # through a `VectorIndex`, and the vendor is this line's alone.
         with (
-            the_index_at(catch_up_settings.qdrant_url,
+            the_index_at(QdrantSettings().qdrant_url,
                          index_settings.repository_index_collection) as store,
             open_pool(DatabaseSettings.of(settings)) as pool
         ):
             with pool.connection() as conn:
                 require_schema(conn)
 
-            embed = an_embedder()
+            embed = an_embedder(catch_up_settings.repository_index_embedding_model)
 
             def pass_over() -> str | None:
                 """One pass, with a connection of its own.

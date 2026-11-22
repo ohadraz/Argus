@@ -8,12 +8,14 @@ the database, how an id is minted and how a timestamp is spelled - the vocabular
 every module uses and none of them owns - a revision's short form among them,
 and a level's.
 
-Configuration is exported twice over, and the pair is the point. `Settings` is
-the whole environment, which a process reads once where it starts; a
-`SettingsSlice` is what that process hands onwards, carrying the fields one
-consumer reads and no others. A slice belongs to whoever declares it - only the
-five here are named by two parties, which is what makes them contracts rather
-than somebody's own.
+Configuration is exported three times over. `Settings` is Argus's own
+configuration, which a process reads once where it starts; `AdapterSettings` is
+the base each vendor's adapter declares what it needs on - its address, its
+credential, the names in its catalogue - read by the root of each process that
+builds that adapter; and a `SettingsSlice` is what a root hands onwards, carrying
+the fields one consumer reads and no others. A slice belongs to whoever declares
+it - only the four here are named by two parties, which is what makes them
+contracts rather than somebody's own. None of it names a vendor.
 
 `events`, `replay`, `schema`, `anomaly` and `mcp_transport` are deliberately not
 flattened into this namespace. Each is already a coherent surface under its own
@@ -24,8 +26,8 @@ renamed to suit the packaging rather than the reading.
 
 from core.clock import Clock, the_clock_named_by
 from core.config import (
+    AdapterSettings,
     DatabaseSettings,
-    LLMSettings,
     ReadMcpEndpoint,
     Settings,
     SettingsSlice,
@@ -58,12 +60,12 @@ from core.timestamps import (
 __all__ = [
     "A_DAY_SAID",
     "A_REVISION",
+    "AdapterSettings",
     "Clock",
     "Connections",
     "DatabaseSettings",
     "Fence",
     "Holding",
-    "LLMSettings",
     "ReadMcpEndpoint",
     "RunLost",
     "Settings",

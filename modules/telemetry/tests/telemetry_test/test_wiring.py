@@ -347,9 +347,6 @@ def _settings_writing_under(directory: Path) -> TelemetrySettings:
         telemetry_directory=str(directory),
         otel_exporter_otlp_endpoint="",
         otel_exporter_otlp_headers="",
-        langfuse_base_url="",
-        langfuse_public_key="",
-        langfuse_secret_key="",
         log_level="INFO"
     )
 

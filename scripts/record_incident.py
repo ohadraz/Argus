@@ -81,6 +81,7 @@ from postmortem_writing.grounding import (
 from postmortem_writing.synopsis_prompting import OVERVIEW_TOOL_NAME
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
+from vector_store_qdrant.settings import QdrantSettings
 
 import tests.e2e.framework.argus as the_e2e_suites_names
 from scripts.hold_the_stack import wait_until_told_to_stop
@@ -1384,7 +1385,7 @@ def _long_term_memory_was_forgotten() -> None:
 
         time.sleep(A_POLL_SECONDS)
 
-    store = QdrantClient(url=get_settings().qdrant_url)
+    store = QdrantClient(url=QdrantSettings().qdrant_url)
 
     try:
         store.delete_collection(get_settings().incident_memory_collection)

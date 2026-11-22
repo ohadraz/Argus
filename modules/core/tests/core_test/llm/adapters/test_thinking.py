@@ -27,6 +27,7 @@ from argus_testkit.assertions import all_of
 from core.llm.adapters.anthropic_adapter import (
     EFFORT_ON_THE_WIRE,
     LARGEST_UNSTREAMED_ANSWER,
+    MODEL,
     SUMMARISED_THINKING,
     AnthropicEffort,
     AnthropicLLMClient,
@@ -37,7 +38,11 @@ from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 from core.models.turn import Turn
 
-from core_test.framework.llm import an_api_that_answers, settings_that_reach_no_api
+from core_test.framework.llm import (
+    a_policy_naming_the_adapters_model,
+    an_api_that_answers,
+    settings_that_reach_no_api,
+)
 
 
 @pytest.mark.unit
@@ -47,7 +52,9 @@ def test_a_turn_asks_to_be_told_what_the_model_was_working_through() -> None:
     # identical whether the model reasoned in silence or was never asked to
     # say so, and only the request can tell the two apart.
     some_api = an_api_that_answers()
-    investigator = AnthropicLLMClient(settings_that_reach_no_api(), client=some_api)
+    investigator = AnthropicLLMClient(settings_that_reach_no_api(),
+                                      a_policy_naming_the_adapters_model(),
+                                      client=some_api)
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
     Scenario() \
@@ -107,7 +114,7 @@ def test_an_answer_too_large_to_arrive_at_once_is_streamed() -> None:
     some_api = an_api_that_answers()
     writing_whole_files = AnthropicLLMClient(
         settings_that_reach_no_api(),
-        policy=ModelPolicy(max_output_tokens=LARGEST_UNSTREAMED_ANSWER + 1),
+        policy=ModelPolicy(model=MODEL, max_output_tokens=LARGEST_UNSTREAMED_ANSWER + 1),
         client=some_api
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]
@@ -134,7 +141,7 @@ def test_an_answer_that_fits_is_asked_for_in_one_piece() -> None:
     some_api = an_api_that_answers()
     saying_something_short = AnthropicLLMClient(
         settings_that_reach_no_api(),
-        policy=ModelPolicy(max_output_tokens=LARGEST_UNSTREAMED_ANSWER),
+        policy=ModelPolicy(model=MODEL, max_output_tokens=LARGEST_UNSTREAMED_ANSWER),
         client=some_api
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]

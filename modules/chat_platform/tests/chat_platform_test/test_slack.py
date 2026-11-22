@@ -18,7 +18,7 @@ import hashlib
 import hmac
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import Mock
@@ -30,8 +30,11 @@ from argus_testkit import (
     Scenario,
     a_factory_that_must_not_be_called,
     all_of,
+    an_error_was_raised,
+    attempting,
     nothing_was_collected,
     one_record_was_logged,
+    the_error_mentioned,
 )
 from chat_platform.platform import Handshake
 from chat_platform.slack import (
@@ -39,8 +42,8 @@ from chat_platform.slack import (
     PROFILE,
     REAL_NAME,
     USER,
-    ChatSettings,
     Slack,
+    SlackSettings,
     slack_from,
 )
 from chat_platform.slack_deliveries import (
@@ -51,6 +54,7 @@ from chat_platform.slack_deliveries import (
     TYPE,
     URL_VERIFICATION,
 )
+from pydantic import ValidationError
 from slack_sdk.errors import SlackApiError
 
 # The chat platform's name, as its adapter gives it - what a reader is
@@ -165,14 +169,14 @@ def _a_platform(signing_secret: str = "dont care",
     return platform
 
 
-def _settings_with(bot_token: str, signing_secret: str = "dont care") -> ChatSettings:
-    """The slice this adapter runs under. The client is injected, so no address
-    is ever dialled."""
+def _settings_with(bot_token: str, signing_secret: str = "dont care") -> SlackSettings:
+    """The settings this adapter runs under. The client is injected, so no
+    address is ever dialled."""
     dont_care_base_url = ""
 
-    return ChatSettings(slack_bot_token=bot_token,
-                        slack_base_url=dont_care_base_url,
-                        slack_signing_secret=signing_secret)
+    return SlackSettings(slack_bot_token=bot_token,
+                         slack_base_url=dont_care_base_url,
+                         slack_signing_secret=signing_secret)
 
 
 def _signed_by(secret: str, at: datetime, body: bytes) -> dict[str, str]:
@@ -240,3 +244,87 @@ def _its_name_is(expected: str) -> Assertion[Slack | None]:
         return True
 
     return assertion
+
+
+@pytest.mark.unit
+def test_a_fresh_checkout_believes_no_delivery_from_slack() -> None:
+    # What a delivery can say ends an incident, so a secret nobody set is not
+    # one to verify against - it is one anybody can sign under. Read off the
+    # declared defaults rather than off a `SlackSettings()`, which would read
+    # the developer's own `.env`, which may well hold a real one.
+    Scenario() \
+        .given(
+            the_declared_defaults := SlackSettings.model_construct()
+        ) \
+        .when(
+            lambda: the_declared_defaults
+        ) \
+        .then(
+            _it_kept("slack_signing_secret", "")
+        )
+
+
+# Both channels Argus posts to, each with the one keyword that configures it.
+for_each_slack_channel = pytest.mark.parametrize(("field", "configured_with"), [
+    ("slack_war_room_channel",
+     lambda channel: SlackSettings(slack_war_room_channel=channel)),
+    ("slack_postmortem_channel",
+     lambda channel: SlackSettings(slack_postmortem_channel=channel))
+], ids=["war-room", "postmortem"])
+
+
+@pytest.mark.unit
+@for_each_slack_channel
+def test_a_slack_channel_given_by_name_is_rejected(
+        field: str, configured_with: Callable[[str], SlackSettings]) -> None:
+    # Slack takes a name to post to and nothing else: an update needs the id,
+    # and every reply and press arrives naming the id. A war room configured by
+    # name is one whose threads no reply is ever matched to - and it fails only
+    # against a real workspace, since the double answers any channel it is given.
+    Scenario() \
+        .given(
+            a_channel_by_name := "#war_room"
+        ) \
+        .when(
+            attempting(lambda: configured_with(a_channel_by_name))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValidationError),
+                the_error_mentioned(field)
+            )
+        )
+
+
+@pytest.mark.unit
+@for_each_slack_channel
+def test_a_slack_channel_given_by_id_is_kept(
+        field: str, configured_with: Callable[[str], SlackSettings]) -> None:
+    # The boundary the rejection is drawn at, and the one shape Slack itself
+    # uses for a channel everywhere it names one.
+    Scenario() \
+        .given(
+            some_channel_id := "C0C29KYB388"
+        ) \
+        .when(
+            lambda: configured_with(some_channel_id)
+        ) \
+        .then(
+            _it_kept(field, some_channel_id)
+        )
+
+
+def _it_kept(field: str, expected: object) -> Assertion[SlackSettings]:
+    """That a setting came back as it was given, rather than being quietly
+    adjusted by the validator."""
+    def kept(settings: SlackSettings) -> bool:
+        actual = getattr(settings, field)
+        if actual != expected:
+            raise AssertionError(
+                f"Expected [{field}] to have been kept as [{expected}], "
+                f"and it came back [{actual}]."
+            )
+
+        return True
+
+    return kept

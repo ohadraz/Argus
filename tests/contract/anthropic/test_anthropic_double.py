@@ -24,13 +24,13 @@ from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from anthropic_double.streaming import SSE_MEDIA_TYPE, from_stream
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import get_settings
 from core.llm.adapters.anthropic_adapter import (
     EPHEMERAL_CACHE,
     MAX_TOKENS,
     MODEL,
     TOOL_USE_STOP_REASON,
     TOOL_USE_TYPE,
+    AnthropicSettings,
     to_tool,
 )
 from investigation_agent.tools import investigator_tools
@@ -41,7 +41,7 @@ from tests.framework.investigating import what_the_read_tier_offers_the_investig
 # that never talks to the third party is not a contract test - but it is why
 # they live behind their own marker and not in `test_all`.
 needs_the_real_api = pytest.mark.skipif(
-    not get_settings().anthropic_api_key,
+    not AnthropicSettings().anthropic_api_key,
     reason="no ANTHROPIC_API_KEY: the real half of the contract cannot be checked"
 )
 
@@ -137,7 +137,7 @@ def test_the_real_api_still_answers_a_tool_call_with_a_tool_use_turn() -> None:
     # is not a contract break.
     Scenario() \
         .given(
-            real := anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
+            real := anthropic.Anthropic(api_key=AnthropicSettings().anthropic_api_key)
         ) \
         .when(
             lambda: real.messages.create(
@@ -172,7 +172,7 @@ def test_the_real_api_accepts_every_tool_the_investigator_offers() -> None:
     # the field, which is a better failure than any assertion could word.
     Scenario() \
         .given(
-            real := anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
+            real := anthropic.Anthropic(api_key=AnthropicSettings().anthropic_api_key)
         ) \
         .when(
             lambda: real.messages.create(
@@ -201,7 +201,7 @@ def test_the_real_api_still_serves_a_repeated_prefix_from_cache() -> None:
     # what the loop offers, so the prefix under test is the real one - and it
     # is the tool schemas that carry it past the model's minimum cacheable
     # size, which is why they are here rather than a shorter stand-in.
-    real = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
+    real = anthropic.Anthropic(api_key=AnthropicSettings().anthropic_api_key)
     offered = _what_the_investigator_offers()
     # A prefix no earlier run can already have cached. Both calls below share
     # it, so the claim is unchanged - but a second run of this suite inside the
@@ -271,7 +271,7 @@ def test_a_rejected_request_raises_the_same_error_class_from_both(
     # reject a bad model on its own. What is compared is the rejection: given
     # an equivalent refusal, does the SDK raise the same class? That is what
     # a test seeding a status on the double is entitled to assume.
-    real = anthropic.Anthropic(api_key=get_settings().anthropic_api_key, max_retries=0)
+    real = anthropic.Anthropic(api_key=AnthropicSettings().anthropic_api_key, max_retries=0)
     replaying = anthropic.Anthropic(
         api_key="not-used", base_url=DEFAULT_BASE_URL, max_retries=0
     )
@@ -466,12 +466,11 @@ def _a_real_streamed_answer() -> str:
     and it carries the block type whose arguments arrive split across deltas,
     which is the part of the assembly with something to get wrong.
     """
-    settings = get_settings()
     with httpx2.Client(base_url="https://api.anthropic.com", timeout=120.0) as client:
         answer = client.post(
             "/v1/messages",
             headers={
-                "x-api-key": settings.anthropic_api_key,
+                "x-api-key": AnthropicSettings().anthropic_api_key,
                 "anthropic-version": ANTHROPIC_VERSION,
                 "content-type": "application/json"
             },
@@ -503,7 +502,7 @@ def _as_the_sdk_reads(events: str) -> anthropic.types.Message:
         )
 
     replayed = anthropic.Anthropic(
-        api_key=get_settings().anthropic_api_key,
+        api_key=AnthropicSettings().anthropic_api_key,
         http_client=httpx2.Client(transport=httpx2.MockTransport(serve))
     )
 

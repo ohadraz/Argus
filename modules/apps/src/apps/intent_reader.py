@@ -12,21 +12,21 @@ import logging
 from functools import partial
 from typing import Final
 
-from chat_platform.slack import ChatSettings, slack_from
+from chat_platform.slack import SlackSettings, slack_from
 from core import (
     Connections,
     DatabaseSettings,
-    LLMSettings,
     Settings,
     TelemetrySettings,
     get_settings,
     open_pool,
 )
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import AnthropicProvider
+from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.models import ModelPolicy
 from message_intent.watching import ModelFor, watch
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,10 @@ logger = logging.getLogger(__name__)
 _SERVICE: Final = "argus-intent"
 
 
-def the_model_for(settings: Settings) -> ModelFor:
+def the_model_for(settings: Settings, model_settings: AnthropicSettings) -> ModelFor:
     """How this process gets a client for one incident: over the provider its
-    settings point at, under the Intent Reader's own model and effort.
+    settings point at, under the Intent Reader's own model - the provider's
+    to name - and its effort, which is Argus's.
 
     The one place this process names a model vendor. The provider is built here
     and handed down as the port. Its adapter is imported at the top, as every
@@ -44,8 +45,8 @@ def the_model_for(settings: Settings) -> ModelFor:
     loaded for this process alone.
     """
     return partial(build_llm_client,
-                   AnthropicProvider(LLMSettings.of(settings)),
-                   policy=ModelPolicy(model=settings.intent_model,
+                   AnthropicProvider(model_settings),
+                   policy=ModelPolicy(model=model_settings.intent_model,
                                       effort=settings.intent_effort))
 
 
@@ -59,8 +60,9 @@ def main() -> None:
     """
     settings = get_settings()
 
-    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
-        platform = slack_from(ChatSettings.of(settings))
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                         also=to_langfuse(LangfuseSettings())):
+        platform = slack_from(SlackSettings())
 
         if platform is None:
             logger.warning("no chat platform configured")
@@ -71,7 +73,7 @@ def main() -> None:
 
             logger.info("intent reader started")
 
-            watch(connections, the_model_for(settings), platform.person_named,
+            watch(connections, the_model_for(settings, AnthropicSettings()), platform.person_named,
                   pause=settings.intent_poll_seconds)
 
 

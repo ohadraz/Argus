@@ -36,7 +36,6 @@ from typing import Any, Final
 import httpx2
 from code_host.github import GitHubSettings
 from code_host.github.headers import write_headers_for
-from core import get_settings
 
 # What Argus names a branch it cuts, and the only thing this deletes. Kept in
 # step with `codefix_agent` by being the prefix that module writes rather than a
@@ -62,7 +61,7 @@ def main() -> int:
     trouble as failure would turn a green demo red for having tidied up
     imperfectly.
     """
-    settings = get_settings()
+    settings = GitHubSettings()
 
     if not settings.github_repository or not settings.github_token:
         print("no repository configured - nothing to clean")
@@ -72,7 +71,7 @@ def main() -> int:
     base = f"{settings.github_api_url}/repos/{settings.github_repository}"
     # Sent as the write tier sends its own: the same credential and media type,
     # spelled once in the code host's adapter.
-    headers = write_headers_for(GitHubSettings.of(settings))
+    headers = write_headers_for(settings)
 
     try:
         with httpx2.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers=headers) as github:

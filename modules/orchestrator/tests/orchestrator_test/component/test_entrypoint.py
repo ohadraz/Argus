@@ -33,6 +33,12 @@ from psycopg.rows import DictRow, dict_row
 
 from orchestrator_test.framework.observing import Observed, attributes_of, observing
 
+# The bounds a walk's traversal budget is derived from, where the case is about
+# something else: the deployment's own defaults, stated - every walk here ends
+# well inside the budget they give.
+DONT_CARE_ROUNDS = 3
+DONT_CARE_CANDIDATES = 4
+
 # Where the schema job puts every table, LangGraph's among them.
 THE_SCHEMA = "public"
 
@@ -69,7 +75,9 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(all_of(
@@ -99,7 +107,9 @@ def test_a_walk_withdrawn_before_it_started_announces_no_investigation(
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(
@@ -127,7 +137,9 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: 
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(all_of(
@@ -158,7 +170,9 @@ def test_a_walk_its_thread_already_holds_is_resumed_rather_than_started_again(
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(all_of(
@@ -187,12 +201,16 @@ def test_a_walk_that_stopped_part_way_through_a_real_graph_goes_on_from_where_it
         Scenario() \
             .given(
                 calling(attempting(lambda: entrypoint.run_incident(
-                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )))
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(
@@ -221,7 +239,9 @@ def test_a_resumed_walk_leaves_its_incident_where_the_walk_had_taken_it(
             ) \
             .when(
                 lambda: entrypoint.run_incident(
-                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                    incident_id, connect_from_env, graph_of=lambda: a_graph,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(all_of(
@@ -252,7 +272,9 @@ def test_a_walk_is_one_span_the_graph_runs_inside(a_clean_database: None) -> Non
             .when(
                 lambda: entrypoint.run_incident(
                     incident_id, connect_from_env, graph_of=lambda: a_graph,
-                    tracer=observed.tracer, meter=observed.meter
+                    tracer=observed.tracer, meter=observed.meter,
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(all_of(
@@ -285,7 +307,9 @@ def test_a_walk_is_counted_and_timed_by_how_the_incident_ended(
                 lambda: entrypoint.run_incident(
                     incident_id, connect_from_env, graph_of=lambda: a_graph,
                     tracer=observed.tracer, meter=observed.meter,
-                    clock=_a_clock_reading(0.0, some_seconds_walked)
+                    clock=_a_clock_reading(0.0, some_seconds_walked),
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(all_of(
@@ -317,7 +341,9 @@ def test_a_walk_is_logged_as_it_starts_and_as_it_ends(
             .when(
                 lambda: entrypoint.run_incident(
                     incident_id, connect_from_env, graph_of=lambda: a_graph,
-                    clock=_a_clock_reading(0.0, some_seconds_walked)
+                    clock=_a_clock_reading(0.0, some_seconds_walked),
+                    max_rounds=DONT_CARE_ROUNDS,
+                    max_candidates=DONT_CARE_CANDIDATES
                 )
             ) \
             .then(all_of(

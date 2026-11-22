@@ -32,7 +32,7 @@ from core.llm.adapters.anthropic_adapter import (
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 
-from core_test.framework.llm import settings_that_reach_no_api
+from core_test.framework.llm import a_policy_naming_the_adapters_model, settings_that_reach_no_api
 
 
 @pytest.mark.unit
@@ -56,7 +56,9 @@ def test_a_turn_stopped_at_its_cap_carries_what_it_was_billed() -> None:
 
     Scenario() \
         .given(
-            client := AnthropicLLMClient(settings_that_reach_no_api(), client=an_api)
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
+                                         client=an_api)
         ) \
         .when(
             lambda: _what_was_raised_by(client)
@@ -90,7 +92,9 @@ def test_a_refusal_carries_what_it_was_billed_too() -> None:
 
     Scenario() \
         .given(
-            client := AnthropicLLMClient(settings_that_reach_no_api(), client=an_api)
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         a_policy_naming_the_adapters_model(),
+                                         client=an_api)
         ) \
         .when(
             lambda: _what_was_raised_by(client)

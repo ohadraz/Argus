@@ -38,24 +38,25 @@ class Conversations(Protocol):
     over one built by `conversations_through`.
 
     A `Protocol` rather than a `Callable` alias because `policy` is
-    keyword-only and optional, which an alias cannot say. Keyword-only on
-    purpose: the incident and the recorder are what a conversation is *for*,
-    and which model answers it is a separate kind of fact that should not be
-    readable as a third unnamed thing at a call site.
+    keyword-only, which an alias cannot say. Keyword-only on purpose: the
+    incident and the recorder are what a conversation is *for*, and which model
+    answers it is a separate kind of fact that should not be readable as a third
+    unnamed thing at a call site. Required, because a default would be a model
+    every agent got without choosing one.
     """
 
     def __call__(self,
                  incident_id: str,
                  recorder: Recorder,
                  *,
-                 policy: ModelPolicy | None = None) -> Conversation: ...
+                 policy: ModelPolicy) -> Conversation: ...
 
 
 def a_conversation_recorded_for(
     incident_id: str,
     recorder: Recorder,
     *,
-    policy: ModelPolicy | None = None,
+    policy: ModelPolicy,
     client_for: ClientFor
 ) -> Conversation:
     """The conversational seam for real work, writing down what it costs.
@@ -87,7 +88,7 @@ def a_conversation_recorded_for(
     return converse_and_record
 
 
-type ClientBuilder = Callable[[ModelProvider, Replay | None, ModelPolicy | None], LLMClient]
+type ClientBuilder = Callable[[ModelProvider, Replay | None, ModelPolicy], LLMClient]
 
 
 def conversations_through(provider: ModelProvider,

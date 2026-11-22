@@ -34,7 +34,7 @@ from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import to_tool
+from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_tool
 from postmortem_writing.grounding import (
     DID_NOT_ANSWER,
     JUDGE_BRIEF,
@@ -54,7 +54,7 @@ from tests.framework.spending import Spend, Tally
 # against the real model, and spends tokens every run - about five to ten
 # cents a judgement, so a case is under a dollar and the whole file several.
 needs_the_real_api = pytest.mark.skipif(
-    not get_settings().anthropic_api_key,
+    not AnthropicSettings().anthropic_api_key,
     reason="no ANTHROPIC_API_KEY: an eval has nothing to measure without the real model"
 )
 
@@ -225,7 +225,9 @@ def _the_real_judge_reads_repeatedly(asked: Asked) -> list[Judged]:
     """
     settings = get_settings()
     client = build_llm_client(the_configured_models(),
-                              policy=judge_policy(settings.judge_model, settings.judge_effort))
+                              None,
+                              policy=judge_policy(AnthropicSettings().judge_model,
+                                                  settings.judge_effort))
 
     def judge_once(_: int) -> Judged:
         tally = Tally(client)
@@ -287,7 +289,7 @@ def the_setup_under_test() -> Setup:
     settings = get_settings()
 
     return Setup(
-        model=settings.judge_model,
+        model=AnthropicSettings().judge_model,
         effort=settings.judge_effort,
         values={},
         texts={

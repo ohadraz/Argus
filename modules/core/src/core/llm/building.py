@@ -20,8 +20,8 @@ from core.replay import Replay
 
 
 def build_llm_client(provider: ModelProvider,
-                     replay: Replay | None = None,
-                     policy: ModelPolicy | None = None) -> LLMClient:
+                     replay: Replay | None,
+                     policy: ModelPolicy) -> LLMClient:
     """Builds the client an agent talks through, keeping a receipt when asked to.
 
     Built rather than fetched, and named so: each call asks the provider for a
@@ -52,19 +52,20 @@ def build_llm_client(provider: ModelProvider,
     provider gives itself.
 
     Positional after the provider, because `ClientFor` is: a caller holding a
-    factory bound to its provider asks it for `(replay, policy)`.
+    factory bound to its provider asks it for `(replay, policy)`. Both are
+    required: `None` for a caller keeping no receipt says so, and a policy names
+    the model, which nobody gets without choosing.
     """
-    asked_of = policy if policy is not None else ModelPolicy()
     answering = TracedLLMClient(
-        provider.client(asked_of),
-        model=asked_of.model,
+        provider.client(policy),
+        model=policy.model,
         provider=provider.name,
-        room=asked_of.max_output_tokens
+        room=policy.max_output_tokens
     )
 
     if replay is None:
         return answering
 
     return RecordedLLMClient(
-        answering, replay, target=asked_of.model, room=asked_of.max_output_tokens
+        answering, replay, target=policy.model, room=policy.max_output_tokens
     )

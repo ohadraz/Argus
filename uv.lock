@@ -969,6 +969,9 @@ requires-dist = [
 name = "argus-push-source"
 version = "0.1.0"
 source = { editable = "modules/push_source" }
+dependencies = [
+    { name = "argus-core" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -976,6 +979,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "argus-core", editable = "modules/core" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]

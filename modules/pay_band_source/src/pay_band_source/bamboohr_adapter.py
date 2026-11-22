@@ -31,10 +31,10 @@ from typing import Any, Final
 
 import httpx2
 
+from pay_band_source.bamboohr_settings import BambooHrSettings
 from pay_band_source.bands import (
     PayBand,
     PayBandsByTitle,
-    PayBandSettings,
     PayBandsUnavailable,
 )
 
@@ -68,7 +68,7 @@ _MAXIMUM: Final = "max"
 _CURRENCY_CODE: Final = "currencyCode"
 
 
-def pay_bands(settings: PayBandSettings,
+def pay_bands(settings: BambooHrSettings,
               asking: AskHrSource = httpx2.get) -> PayBandsByTitle:
     """Every job title the HR source prices, against its own level's band.
 
@@ -92,7 +92,7 @@ def pay_bands(settings: PayBandSettings,
     return _as_bands_by_title(_read(settings, asking))
 
 
-def _read(settings: PayBandSettings, asking: AskHrSource) -> dict[str, Any]:
+def _read(settings: BambooHrSettings, asking: AskHrSource) -> dict[str, Any]:
     try:
         answer = asking(f"{settings.hr_base_url}{_THE_PAY_BANDS}",
                         auth=(settings.hr_api_key, _ANY_PASSWORD),

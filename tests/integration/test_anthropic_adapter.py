@@ -13,10 +13,9 @@ from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
-from core import LLMSettings
 from core.llm import AnswerTruncated, ModelRefused, ModelUnavailable, TurnPaused
-from core.llm.adapters.anthropic_adapter import AnthropicLLMClient
-from core.models import Ask, ToolDefinition, Transcript, Turn
+from core.llm.adapters.anthropic_adapter import MODEL, AnthropicLLMClient, AnthropicSettings
+from core.models import Ask, ModelPolicy, ToolDefinition, Transcript, Turn
 
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN
 
@@ -38,7 +37,8 @@ def client() -> AnthropicLLMClient:
     # No API key on purpose: these run from a fresh clone, and the double is
     # the reason that is possible.
     return AnthropicLLMClient(
-        LLMSettings(anthropic_api_key="", anthropic_base_url=DEFAULT_BASE_URL)
+        AnthropicSettings(anthropic_api_key="", anthropic_base_url=DEFAULT_BASE_URL),
+        ModelPolicy(model=MODEL)
     )
 
 

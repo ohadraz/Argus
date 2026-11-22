@@ -15,6 +15,7 @@ from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_sett
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from flag_provider.unleash import Unleash, UnleashSettings
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.fencing import OpensHolds, holds_in_the_database
 from write_mcp_server.server import build_server
@@ -25,18 +26,21 @@ _SERVICE: Final = "argus-write-mcp"
 
 
 def main(holds: OpensHolds = holds_in_the_database) -> None:
-    """The process: one read of the environment, then serve until killed.
+    """The process: the environment read where it starts, then serve until killed.
 
-    The only place in this tier that calls `get_settings`, and the one that
+    The only place in this tier that reads the environment - the kernel's
+    settings and each vendor's, every adapter's from its own - and the one that
     starts its telemetry - closed on the way out, so what it collected last is
     on disk. So are the holds a change is made under, which are the database's
     own runs: `holds` defaults to them, and a suite that serves the real tools
     over a run it stands in for hands its own.
     """
     settings = get_settings()
+    platform = ArgoCdSettings()
 
     with (
-        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
+        start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                        also=to_langfuse(LangfuseSettings())),
         holds(DatabaseSettings.of(settings)) as hold_for_a_change
     ):
         build_server(
@@ -47,13 +51,13 @@ def main(holds: OpensHolds = holds_in_the_database) -> None:
             # The code host's adapter, built here for the same reason and handed
             # on as the writes port: it holds the credential that pushes, and no
             # tool names a route.
-            GitHub(GitHubSettings.of(settings)),
+            GitHub(GitHubSettings()),
             # The adapter is built here and nowhere else in this tier, and handed
             # on as the writes port: no action names a route.
-            ArgoCd(ArgoCdSettings.of(settings)),
+            ArgoCd(platform),
             DiscardSettings.of(settings),
             hold_for_a_change,
-            settings.argocd_actor
+            platform.argocd_actor
         ).serve()
 
 

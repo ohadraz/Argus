@@ -41,6 +41,7 @@ from repository_index.embedding import an_embedder  # noqa: E402
 from repository_index.indexing import Embedder  # noqa: E402
 from repository_index.store import Found  # noqa: E402
 from vector_store_qdrant import SearchOpenedOnFirstUse  # noqa: E402
+from vector_store_qdrant.settings import QdrantSettings  # noqa: E402
 
 from tests.framework.measuring import the_measurement_of  # noqa: E402
 
@@ -217,9 +218,10 @@ def _swept(answered: list[float], unanswered: list[float], passages: int) -> Non
 def main() -> None:
     """Scores what the shop answers and what nothing answers, and compares them."""
     settings = IndexReadSettings.of(get_settings())
-    embed = an_embedder()
+    store_at = QdrantSettings().qdrant_url
+    embed = an_embedder(settings.repository_index_embedding_model)
     find = passages_in(
-        SearchOpenedOnFirstUse(settings.qdrant_url, settings.repository_index_collection)
+        SearchOpenedOnFirstUse(store_at, settings.repository_index_collection)
     )
     answered = the_descriptions_code_fix_searched_with()
 
@@ -236,7 +238,7 @@ def main() -> None:
     # How much is indexed, on every row: the whole question of whether a floor
     # separates anything is a question about this corpus, and the figure that
     # moves when somebody indexes a second repository is this one.
-    passages = QdrantClient(url=settings.qdrant_url).count(
+    passages = QdrantClient(url=store_at).count(
         settings.repository_index_collection
     ).count
 

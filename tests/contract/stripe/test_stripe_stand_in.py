@@ -39,7 +39,6 @@ from typing import Final
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core import get_settings
 from revenue_source import Charge
 from revenue_source.stripe_adapter import charges_between
 from revenue_source.stripe_settings import StripeSettings
@@ -47,7 +46,7 @@ from stripe import PaymentIntent, StripeClient
 
 # Where the stand-in answers - wherever Argus itself is configured to read
 # Stripe from - and a key it takes from anybody.
-THE_STAND_IN = get_settings().stripe_base_url
+THE_STAND_IN = StripeSettings().stripe_base_url
 ANY_KEY_WILL_DO = "sk_test_the_shop_accepts_anything"
 
 # Empty is the SDK's own default, which is Stripe.
@@ -100,7 +99,7 @@ SOME_AMOUNT_IN_CENTS = 50
 SOME_CURRENCY = "usd"
 
 needs_a_sandbox = pytest.mark.skipif(
-    not get_settings().stripe_api_key,
+    not StripeSettings().stripe_api_key,
     reason="no STRIPE_API_KEY: the real half of the contract cannot be checked"
 )
 
@@ -176,7 +175,7 @@ def _the_stand_in_is_not_stripe() -> None:
 
 def _the_sandbox_key() -> str:
     """The key, refused outright if it is not a sandbox's."""
-    key = get_settings().stripe_api_key
+    key = StripeSettings().stripe_api_key
 
     if not key.startswith(A_SANDBOX_KEY):
         raise AssertionError(

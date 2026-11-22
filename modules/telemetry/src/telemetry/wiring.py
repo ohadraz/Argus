@@ -25,6 +25,7 @@ import logging
 import os
 import signal
 import sys
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
@@ -174,7 +175,8 @@ def telemetry_for(settings: TelemetrySettings,
                   service: str,
                   started_at: datetime | None = None,
                   pid: int | None = None,
-                  console: TextIO | None = None) -> Telemetry:
+                  console: TextIO | None = None,
+                  also: Sequence[Destination] = ()) -> Telemetry:
     """Builds one process's providers and log handlers, writing to disk and to every backend.
 
     Installs nothing global - see `start_telemetry` - but starts the console's
@@ -187,13 +189,16 @@ def telemetry_for(settings: TelemetrySettings,
     `console` is where log lines are written for a person watching, and
     defaults to standard error; a parameter so that what was written can be
     read back.
+
+    `also` is every vendor's backend the process's root sends to beside the
+    general one, as that vendor's module says them (`telemetry.langfuse`).
     """
     run_directory = _a_run_directory(
         settings, service,
         started_at if started_at is not None else datetime.now(UTC),
         pid if pid is not None else os.getpid()
     )
-    destinations = destinations_for(settings)
+    destinations = destinations_for(settings, also)
     resource = Resource.create({SERVICE_NAME: service})
 
     return Telemetry(
@@ -206,7 +211,9 @@ def telemetry_for(settings: TelemetrySettings,
     )
 
 
-def start_telemetry(settings: TelemetrySettings, service: str) -> Telemetry:
+def start_telemetry(settings: TelemetrySettings,
+                    service: str,
+                    also: Sequence[Destination] = ()) -> Telemetry:
     """Builds this process's telemetry and makes it the process's own.
 
     The global providers are what every instrumented call in the workspace
@@ -225,7 +232,7 @@ def start_telemetry(settings: TelemetrySettings, service: str) -> Telemetry:
     signal's default ends a process where it stands, past every `finally`. See
     `_closed_when_stopped`.
     """
-    telemetry = telemetry_for(settings, service)
+    telemetry = telemetry_for(settings, service, also=also)
 
     trace.set_tracer_provider(telemetry.tracer_provider)
     metrics.set_meter_provider(telemetry.meter_provider)

@@ -17,6 +17,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any, Final
 
+from core import AdapterSettings
+
 from push_source.failures import PushUnverified
 from push_source.port import Pushed
 
@@ -33,6 +35,24 @@ FULL_NAME_FIELD: Final = "full_name"
 # The header the delivery is signed in, and how that signature is spelled.
 SIGNATURE_HEADER: Final = "X-Hub-Signature-256"
 SIGNATURE_PREFIX: Final = "sha256="
+
+
+class GitHubPushSettings(AdapterSettings):
+    """What the web process is told about the pushes it hears: who signs them,
+    and which repository they are news of.
+
+    No credential that reads or writes a repository - nothing here fetches
+    anything. The repository is the one the code host's settings read, from the
+    same variable, because a push of any other is no news to this deployment.
+    """
+
+    # The secret GitHub signs its push deliveries with, so Argus can tell a
+    # push from anybody who found the endpoint. Empty accepts nothing rather
+    # than everything: where no secret is set every delivery is refused - a
+    # digest under an empty key is one anybody can compute - which is the
+    # right way round for a route open to the internet.
+    github_webhook_secret: str = ""
+    github_repository: str = ""
 
 
 class GitHubPushes:

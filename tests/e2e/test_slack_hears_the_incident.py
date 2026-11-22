@@ -28,7 +28,7 @@ from typing import Any
 import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
-from core import get_settings
+from chat_platform.slack import SlackSettings
 from core.models import IncidentStatus
 
 from tests.e2e.framework.argus import (
@@ -85,7 +85,7 @@ def test_slack_hears_an_incident_open_work_and_end() -> None:
 
 def _slack() -> str:
     """Where Slack is, as the relay was told it - the double, in this stack."""
-    return get_settings().slack_base_url
+    return SlackSettings().slack_base_url
 
 
 def _posted() -> list[dict[str, Any]]:

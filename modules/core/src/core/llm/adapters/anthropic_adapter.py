@@ -8,11 +8,15 @@ an `LLMClient` and pass a `Transcript`; a process's root builds an
 `AnthropicProvider` and hands it out as the port, and nothing else knows that
 Anthropic exists.
 
-The one seam below this file is `Settings.anthropic_base_url`, which points
+The one seam below this file is `AnthropicSettings.anthropic_base_url`, which points
 the SDK somewhere else. That is how the test double is selected, and it is
 deliberately the *only* difference between a test run and a real one: the
 request parameters, the message rendering and the response parsing below all
 still run.
+
+Its settings are its own, `AnthropicSettings`, read by the root of each
+process that builds the provider: the key, where the API is, and which model of
+Anthropic's catalogue answers each agent.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final, Literal, cast
+from typing import Any, Final, Literal, Self, cast
 
 import anthropic
 from anthropic.types import (
@@ -38,8 +42,9 @@ from anthropic.types import (
     ToolUseBlockParam,
 )
 from anthropic.types.message_create_params import MessageCreateParamsBase
+from pydantic import Field
 
-from core.config import LLMSettings
+from core.config import AdapterSettings
 from core.llm.client import (
     AnswerTruncated,
     LLMClient,
@@ -52,7 +57,6 @@ from core.llm.client import (
 from core.llm.escapes import with_escapes_resolved
 from core.models.model_policy import (
     DEFAULT_MAX_OUTPUT_TOKENS,
-    DEFAULT_MODEL,
     ModelPolicy,
     Reasoning,
 )
@@ -115,20 +119,24 @@ AT_MOST_ONE_TOOL_CALL: Final[ToolChoiceAutoParam] = ToolChoiceAutoParam(
 # them together would misrepresent where the model paused.
 _BETWEEN_WHAT_IT_SAID = "\n"
 
-# Which model answers when nobody said. Aliased from the one declaration
-# rather than spelled again here: an agent's model is configuration now, and
-# two copies of a default are two answers the day one of them is updated.
+# Which model answers an agent whose deployment names none, and the one place
+# it is written down: a model is named in this provider's catalogue, so its
+# default is this adapter's. Every agent's model in `AnthropicSettings` defaults
+# to it but the investigator's.
 #
-# Still named in this module because this is where a reader looks for "what
-# does Argus actually talk to", and because the contract suite calls the real
-# API with it - that check is only worth anything if it names what the adapter
+# Named in this module because this is where a reader looks for "what does
+# Argus actually talk to", and because the contract suite calls the real API
+# with it - that check is only worth anything if it names what the adapter
 # would have named.
-MODEL: Final = DEFAULT_MODEL
+MODEL: Final = "claude-opus-5-5"
+
+# The investigator's, on price: Sonnet's four rates are 40% of Opus's.
+INVESTIGATION_MODEL: Final = "claude-sonnet-5-5"
 
 # How much room an answer gets when nobody said, aliased from the one
-# declaration for the same reason `MODEL` is. Named here because the contract
-# suite asks the real API with it, and that check means something only if it
-# asks the way the adapter would.
+# declaration (`ModelPolicy`'s) rather than repeated. Named here because the
+# contract suite asks the real API with it, and that check means something only
+# if it asks the way the adapter would.
 MAX_TOKENS: Final = DEFAULT_MAX_OUTPUT_TOKENS
 
 # Above this the SDK refuses a non-streaming request outright, by a rule
@@ -770,6 +778,78 @@ def _the_standing_brief(brief: str) -> list[TextBlockParam]:
     ]
 
 
+class AnthropicSettings(AdapterSettings):
+    """What it takes to reach Anthropic, and which of its models answers whom.
+
+    Read by the root of each process that builds the provider, from the
+    variables a deployment always set. The key and the addresses are the
+    provider's reach; the models are names in its catalogue, which no other
+    provider would answer to - so a deployment answered by another provider
+    configures that provider's names in that provider's settings, while how hard
+    each agent is asked to think stays Argus's (`Settings`).
+    """
+
+    anthropic_api_key: str = Field(default="")
+    # Where the SDK sends its requests. Empty means the real API. Pointing this
+    # at the test double is the *only* thing that selects it: the seam sits
+    # below the SDK, so the real adapter, the real `messages.parse` and the real
+    # schema transform still run.
+    anthropic_base_url: str = Field(default="")
+    # Where the grounding judge's requests go, which is a stand-in of its own
+    # wherever every agent's is one: a replay serves each stand-in's calls in
+    # the order they were recorded, and the judge's calls are not the writer's.
+    # Empty means the real API, and only where every agent's is the real API
+    # too (`for_the_judge` refuses the rest).
+    judge_anthropic_base_url: str = Field(default="")
+
+    # Which model answers each agent. Per agent rather than once, because the
+    # agents are not the same shape of work (`Settings` says how hard each is
+    # asked to think, and why).
+    #
+    # The investigator's model is unmeasured. Every eval arm meant to compare
+    # its models and efforts - Sonnet against Opus, medium against high - asked
+    # one configuration: Opus 5 at `high` with no brief. The eval built its
+    # client under a policy of its own, naming neither the investigator's model
+    # nor its effort, and handed the investigation that conversation, so the
+    # investigator's settings and the brief never reached a request, and the
+    # effort-cost script did the same. The pooled rows labelled Sonnet or medium
+    # are all Opus 5 at `high` with no brief; the scores and token counts they
+    # differ by are sampling noise, and medium was never asked.
+    #
+    # Sonnet stays on price, as a choice rather than a finding: its four rates
+    # are 40% of Opus's. Whether it answers as well, and at which effort, is
+    # what the eval can now say, since it asks the configured model, effort and
+    # brief.
+    investigation_model: str = Field(default=INVESTIGATION_MODEL)
+    codefix_model: str = Field(default=MODEL)
+    # The shared default: asked to hold about forty rules at once, Sonnet kept a
+    # different few of them in each of three re-records of one incident.
+    postmortem_model: str = Field(default=MODEL)
+    # The grounding judge's: Opus, no weaker than the writer it judges.
+    judge_model: str = Field(default=MODEL)
+    # The Intent Reader's: one short question with five answers.
+    intent_model: str = Field(default=MODEL)
+
+    def for_the_judge(self) -> Self:
+        """What it takes for the grounding judge to reach its model: the same
+        key, at the judge's own address.
+
+        Refused where every agent is pointed at a stand-in and the judge at
+        nothing, since neither default is safe there. The agents' stand-in
+        would serve the judge the writer's recordings out of turn, or record
+        the judge's calls into the writer's scenario; the real API would spend
+        on every write-up judged. Built at a process's start, so a stack
+        addressed that way never starts.
+        """
+        if self.anthropic_base_url and not self.judge_anthropic_base_url:
+            raise ValueError(
+                f"JUDGE_ANTHROPIC_BASE_URL is empty while ANTHROPIC_BASE_URL is "
+                f"{self.anthropic_base_url}: give the grounding judge a stand-in of "
+                f"its own, or point every agent at the real API")
+
+        return self.model_copy(update={"anthropic_base_url": self.judge_anthropic_base_url})
+
+
 @dataclass(frozen=True)
 class AnthropicProvider:
     """`ModelProvider` answered by Anthropic, reached where `settings` say.
@@ -789,7 +869,7 @@ class AnthropicProvider:
     key, and a provider printed in a log or a failure would print it.
     """
 
-    settings: LLMSettings = field(repr=False)
+    settings: AnthropicSettings = field(repr=False)
     sdk: anthropic.Anthropic | None = None
 
     @property
@@ -808,8 +888,8 @@ class AnthropicLLMClient:
     """
 
     def __init__(self,
-                 settings: LLMSettings,
-                 policy: ModelPolicy | None = None,
+                 settings: AnthropicSettings,
+                 policy: ModelPolicy,
                  client: anthropic.Anthropic | None = None) -> None:
         """Builds the SDK client this talks through, unless handed one.
 
@@ -819,15 +899,14 @@ class AnthropicLLMClient:
         not, so binding it once keeps the choice out of a seam whose subject
         is a conversation - and leaves a loop holding something that knows of
         no model, no effort and no client, which is the whole point of that
-        seam. Defaulted, so a caller with no opinion gets what every agent got
-        when there was one answer for all of them.
+        seam. Required: the model is whoever assembled the agent's to name.
 
         `client` is the seam a test reaches for when what it is checking is the
         request rather than the answer - the same need `_api_key_for` already
         answers from the other side. Configuration still decides everything
         about a real one; passing a client only says that this one is not.
         """
-        self._policy = policy if policy is not None else ModelPolicy()
+        self._policy = policy
         base_url = settings.anthropic_base_url or None
         self._client = client if client is not None else anthropic.Anthropic(
             api_key=_api_key_for(settings.anthropic_api_key, base_url),

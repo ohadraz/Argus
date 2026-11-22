@@ -35,8 +35,6 @@ THE_REPOSITORY = "ohadraz/Argus-Demo-Target-App"
 THE_DEPLOYED_BRANCH = "main"
 THE_COMMIT_PUSHED = "77296acf1d2b4e5a6c7d8e9f0a1b2c3d4e5f6a7b"
 
-DONT_CARE_SECRET = "dont-care-secret"
-
 SOME_BODY = b'{"some": "delivery"}'
 SOME_HEADERS = {"some-header": "some-value"}
 
@@ -375,19 +373,17 @@ def a_source_refusing() -> PushSource:
     return cast(PushSource, source)
 
 
-def some_settings(secret: str = DONT_CARE_SECRET,
-                  repository: str = THE_REPOSITORY,
+def some_settings(repository: str = THE_REPOSITORY,
                   base_branch: str = THE_DEPLOYED_BRANCH,
                   code_search: CodeSearch = CodeSearch.BOTH) -> PushSettings:
-    """What the webhook is allowed to know: who it trusts, and what it watches.
+    """What the webhook is allowed to know: what it watches.
 
     `code_search` is whether this deployment keeps an index at all. Both by
     default, because the tests that care say so and the rest are about which
     pushes are worth recording in the first place.
     """
     return PushSettings(
-        github_repository=repository,
+        repository=repository,
         deployed_branch=base_branch,
-        github_webhook_secret=secret,
         code_search=code_search
     )

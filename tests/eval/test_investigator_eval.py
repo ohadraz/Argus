@@ -11,7 +11,7 @@ from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings, new_id, parse_iso
 from core.llm import Conversation, build_llm_client
-from core.llm.adapters.anthropic_adapter import to_tool
+from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_tool
 from core.models import (
     Alert,
     ChangeEvent,
@@ -66,7 +66,7 @@ THE_CHAT_PLATFORM = "Slack"
 # the window the model asked for is genuinely not in front of it, and widening
 # is a decision it has to make rather than one the fixture makes for it.
 needs_the_real_api = pytest.mark.skipif(
-    not get_settings().anthropic_api_key,
+    not AnthropicSettings().anthropic_api_key,
     reason="no ANTHROPIC_API_KEY: an eval has nothing to measure without the real model",
 )
 
@@ -126,9 +126,10 @@ CASE_TWO_FLAGS_WITH_A_LEAD = "two-flags-with-a-lead-rank-the-fallback-first"
 # when the rate really drops - so it sits below the pooled rate, not at it. Every
 # pooled row behind these bars asked one configuration - Opus 5 at high effort,
 # with no brief - whatever model or effort its arm was labelled with: the eval
-# built its client from the default policy until it was made to ask the
-# configured one. So the bars describe that configuration, and none of them yet
-# describes the model, effort and brief a deployment runs. The five cases below
+# built its client under a policy naming neither the configured model nor its
+# effort, until it was made to ask the configured one. So the bars describe
+# that configuration, and none of them yet describes the model, effort and
+# brief a deployment runs. The five cases below
 # are held 50 of 50 on every pooled arm, which is what makes them regression
 # tests rather than comparisons; 9 is the first figure
 # a single lapse survives while two do not. Re-measure after any change to
@@ -2464,8 +2465,8 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
         def tallied(incident_id: str,
                     recorder: Recorder,
                     *,
-                    policy: ModelPolicy | None = None) -> Conversation:
-            tally = Tally(build_llm_client(models, policy=policy))
+                    policy: ModelPolicy) -> Conversation:
+            tally = Tally(build_llm_client(models, None, policy))
             tallies.append(tally)
 
             def speak(transcript: Transcript, tools: list[ToolDefinition], /) -> Turn:
@@ -2484,7 +2485,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_rollout=_the_rollout_of(incident),
             fetch_placements=_the_placement_of(incident),
             leads=lambda: list(incident.leads),
-            settings=InvestigationSettings.of(get_settings()),
+            settings=InvestigationSettings.of(get_settings(), AnthropicSettings()),
             thresholds=the_configured_thresholds(),
             read_tier_tools=what_the_read_tier_offers_the_investigator,
             conversations=tallied,
@@ -2592,7 +2593,7 @@ def the_setup_under_test() -> Setup:
     abandons a pool that cost real money. A pool spanning two prompts is worth
     less than no pool, because it reads as evidence.
     """
-    settings = InvestigationSettings.of(get_settings())
+    settings = InvestigationSettings.of(get_settings(), AnthropicSettings())
     thresholds = the_configured_thresholds()
 
     return Setup(

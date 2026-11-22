@@ -47,6 +47,8 @@ from core_test.framework.replay import (
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
 ANOTHER_INCIDENT_ID = "9f1b0d2e-5a44-4c31-8b77-2e6cf0a41d5c"
+# Whichever policy a conversation is built under, where the case is about something else.
+DONT_CARE_POLICY = ModelPolicy(model="dont-care-model")
 
 DONT_CARE_TRANSCRIPT: Transcript = [Ask(text="dont care what was asked")]
 DONT_CARE_TURN = "dont care"
@@ -132,9 +134,9 @@ def test_the_client_is_asked_for_one_recording_this_incident_to_this_recorder() 
 def test_conversations_through_a_provider_build_its_clients_under_the_agents_policy() -> None:
     # What a composition root binds into an agent. The agent names its policy
     # when it builds its conversation; the provider is what the process chose.
-    # A binding that lost either on the way would answer every agent as the
-    # default one, or through a provider nobody chose - in the same shape, and
-    # billed differently.
+    # A binding that lost either on the way would answer every agent under
+    # some other agent's policy, or through a provider nobody chose - in the
+    # same shape, and billed differently.
     some_policy = ModelPolicy(model="claude-haiku-4-5", effort=Reasoning.LOW)
     some_provider = _SomeProvider()
     building = _ABuilderOf(_a_client_that_answers(a_turn_that_said(DONT_CARE_TURN)))
@@ -190,12 +192,12 @@ class _ABuilderOf:
 
     def __init__(self, client: LLMClient) -> None:
         self._client = client
-        self.asked: list[tuple[ModelProvider, Replay | None, ModelPolicy | None]] = []
+        self.asked: list[tuple[ModelProvider, Replay | None, ModelPolicy]] = []
 
     def build(self,
               provider: ModelProvider,
               replay: Replay | None,
-              policy: ModelPolicy | None) -> LLMClient:
+              policy: ModelPolicy) -> LLMClient:
         self.asked.append((provider, replay, policy))
 
         return self._client
@@ -206,7 +208,8 @@ def _a_call_recorded_through_what_was_built(building: _ABuilderOf,
                                             recorder: Any) -> bool:
     """Builds the conversation, then records one call through the `Replay` its
     client was asked for under - the only way to read that binding."""
-    conversations_through(_SomeProvider(), building=building.build)(incident_id, recorder)
+    conversations_through(_SomeProvider(), building=building.build)(incident_id, recorder,
+                                                                    policy=DONT_CARE_POLICY)
     [(_, replay, _)] = building.asked
 
     if replay is None:
@@ -274,28 +277,24 @@ class _AClientAskedFor:
 
     def __init__(self, client: LLMClient) -> None:
         self._client = client
-        self.replay: Replay | None = None
-        self.policy: ModelPolicy | None = None
+        self.asked: list[tuple[Replay, ModelPolicy]] = []
 
-
-    def for_replay(self, replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+    def for_replay(self, replay: Replay, policy: ModelPolicy) -> LLMClient:
         """The seam itself, as a method rather than `__call__`.
 
         `Scenario.given` runs a callable step, so an object that *is* the
         function gets invoked while being arranged - handed over as
         `asked_for.for_replay`, only the factory can call it.
         """
-        self.replay = replay
-        self.policy = policy
+        self.asked.append((replay, policy))
 
         return self._client
 
-
     def the_replay(self) -> Replay:
-        if self.replay is None:
+        if not self.asked:
             raise AssertionError("Expected a client to have been asked for, and none was.")
 
-        return self.replay
+        return self.asked[-1][0]
 
 
 def _a_client_that_answers(turn: Turn) -> _AClientThatAnswers:
@@ -315,6 +314,7 @@ def _a_recorded_conversation(asked_for: _AClientAskedFor,
     return a_conversation_recorded_for(
         incident_id,
         recorder if recorder is not None else kept_by_nobody.take,
+        policy=DONT_CARE_POLICY,
         client_for=asked_for.for_replay
     )
 

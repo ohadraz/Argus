@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from core import connect_from_env
+from core import DatabaseSettings, connect, get_settings
 from core.schema import reset_schema
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ def main() -> None:
     """
     logging.basicConfig(level=logging.INFO)
 
-    with connect_from_env() as conn:
+    with connect(DatabaseSettings.of(get_settings())) as conn:
         reset_schema(conn)
         logger.info("schema applied to %s on %s:%s",
                     conn.info.dbname, conn.info.host, conn.info.port)

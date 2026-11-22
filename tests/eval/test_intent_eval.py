@@ -9,7 +9,7 @@ from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import to_tool
+from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_tool
 from core.models import Meaning, ModelPolicy
 from message_intent.classifying import classify
 from message_intent.prompting import SUBMIT_MEANING, opening_ask
@@ -24,7 +24,7 @@ from tests.framework.spending import Spend, Tally
 # measured here, against the real model, and spends tokens every run - a few
 # hundred per reading, so a whole run is cents rather than dollars.
 needs_the_real_api = pytest.mark.skipif(
-    not get_settings().anthropic_api_key,
+    not AnthropicSettings().anthropic_api_key,
     reason="no ANTHROPIC_API_KEY: an eval has nothing to measure without the real model"
 )
 
@@ -147,7 +147,9 @@ def _the_real_model_reads_repeatedly(words: str) -> list[Reading]:
     settings = get_settings()
     llm = build_llm_client(
         the_configured_models(),
-        policy=ModelPolicy(model=settings.intent_model, effort=settings.intent_effort)
+        None,
+        policy=ModelPolicy(model=AnthropicSettings().intent_model,
+                           effort=settings.intent_effort)
     )
 
     def read_once(_: int) -> Reading:
@@ -192,7 +194,7 @@ def the_setup_under_test() -> Setup:
     settings = get_settings()
 
     return Setup(
-        model=settings.intent_model,
+        model=AnthropicSettings().intent_model,
         effort=settings.intent_effort,
         values={},
         texts={

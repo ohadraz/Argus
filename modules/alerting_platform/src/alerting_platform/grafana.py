@@ -35,7 +35,7 @@ from datetime import datetime
 from typing import Any, Final, Protocol
 
 import httpx2
-from core import SettingsSlice
+from core import AdapterSettings
 from core.models import RuleLine, RuleSeries, SeriesQuery, Unit, WorseWhen
 
 from alerting_platform.failures import AlertRuleUnreadable
@@ -155,15 +155,19 @@ _SECONDS_IN: Final = {"h": 3600, "m": 60, "s": 1}
 REQUEST_TIMEOUT_SECONDS: Final = 10.0
 
 
-class GrafanaSettings(SettingsSlice):
+class GrafanaSettings(AdapterSettings):
     """Where the rules are read from, and under what credential.
 
-    Empty token means no credential is sent, which is what the demo's stand-in
-    needs; a real Grafana issues service-account tokens for this.
+    Read by the read tier's root. Whether the rule that paged has stopped firing
+    is what a mitigation on a series alert is judged by.
     """
 
-    grafana_base_url: str
-    grafana_auth_token: str
+    # The demo Target Service stands in for Grafana under `/grafana`, so the
+    # default points at it; a real Grafana is its root URL and nothing else.
+    grafana_base_url: str = "http://localhost:8080/grafana"
+    # Empty means no credential is sent - the stand-in needs none, and a real
+    # Grafana issues a service-account token for this.
+    grafana_auth_token: str = ""
 
 
 HttpGet = Callable[..., httpx2.Response]

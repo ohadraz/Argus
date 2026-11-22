@@ -32,6 +32,7 @@ from argus_testkit import Assertion, Scenario, all_of
 from core.llm.adapters.anthropic_adapter import (
     EPHEMERAL_CACHE,
     LARGEST_UNSTREAMED_ANSWER,
+    MODEL,
     AnthropicLLMClient,
 )
 from core.models.model_policy import ModelPolicy
@@ -56,7 +57,7 @@ def test_an_agents_standing_brief_is_sent_as_its_system_prompt() -> None:
     some_api = an_api_that_answers()
     investigator = AnthropicLLMClient(
         settings_that_reach_no_api(),
-        policy=ModelPolicy(brief=SOME_BRIEF),
+        policy=ModelPolicy(model=MODEL, brief=SOME_BRIEF),
         client=some_api
     )
 
@@ -84,7 +85,7 @@ def test_the_standing_brief_carries_a_breakpoint_of_its_own() -> None:
     some_api = an_api_that_answers()
     investigator = AnthropicLLMClient(
         settings_that_reach_no_api(),
-        policy=ModelPolicy(brief=SOME_BRIEF),
+        policy=ModelPolicy(model=MODEL, brief=SOME_BRIEF),
         client=some_api
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]
@@ -110,7 +111,7 @@ def test_two_incidents_are_told_the_same_thing_to_the_byte() -> None:
     some_api = an_api_that_answers()
     investigator = AnthropicLLMClient(
         settings_that_reach_no_api(),
-        policy=ModelPolicy(brief=SOME_BRIEF),
+        policy=ModelPolicy(model=MODEL, brief=SOME_BRIEF),
         client=some_api
     )
 
@@ -140,7 +141,7 @@ def test_an_agent_with_nothing_standing_to_say_sends_no_system_prompt() -> None:
     # request can read.
     some_api = an_api_that_answers()
     a_single_shot_agent = AnthropicLLMClient(
-        settings_that_reach_no_api(), policy=ModelPolicy(), client=some_api
+        settings_that_reach_no_api(), policy=ModelPolicy(model=MODEL), client=some_api
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
@@ -312,6 +313,7 @@ def test_an_agent_whose_answers_must_stream_is_told_the_same_thing() -> None:
     code_fix = AnthropicLLMClient(
         settings_that_reach_no_api(),
         policy=ModelPolicy(
+            model=MODEL,
             brief=SOME_BRIEF, max_output_tokens=LARGEST_UNSTREAMED_ANSWER + 1
         ),
         client=some_api

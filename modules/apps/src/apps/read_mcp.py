@@ -33,7 +33,9 @@ from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 from vector_store_qdrant import SearchOpenedOnFirstUse
+from vector_store_qdrant.settings import QdrantSettings
 
 # What this process is called in its telemetry, and the directory its runs are
 # written under.
@@ -52,9 +54,10 @@ def the_minutes_at(settings: PrometheusSettings) -> MetricsSource:
 
 
 def main() -> None:
-    """The process: one read of the environment, then serve until killed.
+    """The process: the environment read where it starts, then serve until killed.
 
-    The only place in this tier that calls `get_settings`. Everything below is
+    The only place in this tier that reads the environment - the kernel's
+    settings and each vendor's, every adapter's from its own. Everything below is
     handed the part of the answer it reads, which is what makes the tier a
     property of the types rather than of what the deployment happened to put in
     the environment.
@@ -71,7 +74,8 @@ def main() -> None:
     settings = get_settings()
 
     with (
-        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
+        start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                        also=to_langfuse(LangfuseSettings())),
         open_pool(DatabaseSettings.of(settings)) as pool
     ):
         index = IndexReadSettings.of(settings)
@@ -80,7 +84,7 @@ def main() -> None:
             ReadMcpEndpoint.of(settings),
             RetrievalSettings.of(settings),
             TargetServiceSettings.of(settings),
-            the_minutes_at(PrometheusSettings.of(settings)),
+            the_minutes_at(PrometheusSettings()),
             # The flag provider's adapter, built here for the same reason and
             # handed on as its reads port - holding the evaluation credential
             # alone, since its settings have nowhere to put another.
@@ -89,23 +93,24 @@ def main() -> None:
             # on typed as the reads port: a write typed anywhere below does not
             # type-check, which is the tier split held in the code this process
             # runs as well as in the process boundary.
-            ArgoCd(ArgoCdSettings.of(settings)),
+            ArgoCd(ArgoCdSettings()),
             # The code host's adapter, built here for the same reason and handed
             # on as its reads port - holding the read credential alone, since
             # its settings have nowhere to put the one that pushes.
-            GitHubReads(GitHubReadSettings.of(settings)),
+            GitHubReads(GitHubReadSettings()),
             ServiceRegistrySettings.of(settings),
             RepositoryReadSettings.of(settings),
             index,
             # The store's reading side, handed on as the port, which can only
             # search. It opens on first use, so a tier that never searches by
             # meaning - or offers no such tool - reaches no store.
-            SearchOpenedOnFirstUse(index.qdrant_url, index.repository_index_collection),
+            SearchOpenedOnFirstUse(QdrantSettings().qdrant_url,
+                                   index.repository_index_collection),
             # The alerting platform's adapter, built here for the same reason and
             # handed on as its port, and the metrics adapter's account of what a
             # rule's series measures beside it - the one adapter that may read a
             # query.
-            Grafana(GrafanaSettings.of(settings)),
+            Grafana(GrafanaSettings()),
             what_the_series_is,
             pool.connection
         ).serve()

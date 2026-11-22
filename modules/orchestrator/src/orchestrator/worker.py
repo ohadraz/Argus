@@ -30,10 +30,8 @@ from core import (
     Connections,
     Fence,
     Holding,
-    Settings,
-    connect_from_env,
+    SettingsSlice,
     fence,
-    get_settings,
     utc_now,
     was_lost,
 )
@@ -74,6 +72,20 @@ RUN_SPAN: Final = "run"
 _EACH_WAIT_OVER_THE_LAST: Final = 5
 
 
+class RunSettings(SettingsSlice):
+    """How a worker takes runs: how long a claim holds, how long it waits on an
+    empty queue, and how a run the model could not answer is tried again.
+
+    Read by the worker's root and handed to `work_forever`, which is the only
+    reader.
+    """
+
+    run_lease_seconds: float
+    run_poll_interval_seconds: float
+    run_attempts: int
+    run_first_retry_wait_seconds: float
+
+
 class TryingAgain(BaseModel):
     """How a run whose walk could not get an answer from the model for now is
     tried again: `attempts` tries in all, the wait before the second one
@@ -88,7 +100,7 @@ class TryingAgain(BaseModel):
     first_wait: timedelta
 
     @classmethod
-    def of(cls, settings: Settings) -> TryingAgain:
+    def of(cls, settings: RunSettings) -> TryingAgain:
         return cls(attempts=settings.run_attempts,
                    first_wait=timedelta(seconds=settings.run_first_retry_wait_seconds))
 
@@ -139,10 +151,11 @@ def take_one_run(conn: psycopg.Connection,
                  walk: Walk,
                  unwind: Unwind,
                  ended_by_a_person: EndedByAPerson,
-                 connections: Connections = connect_from_env,
+                 connections: Connections,
                  tracer: Tracer | None = None,
                  holding: Holding | None = None,
-                 trying_again: TryingAgain | None = None) -> bool:
+                 *,
+                 trying_again: TryingAgain) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
 
     Answers `False` for an empty queue rather than blocking on it, so the
@@ -150,9 +163,9 @@ def take_one_run(conn: psycopg.Connection,
     not.
 
     A walk that raises because the model could not be reached for now is
-    requeued to be tried again, as `trying_again` says - the process's own
-    settings where nobody said. Nothing about the incident is wrong, and the
-    same question a minute later gets an answer: the run is resumed from its
+    requeued to be tried again, as `trying_again` says. Nothing about the
+    incident is wrong, and the same question a minute later gets an answer:
+    the run is resumed from its
     checkpoint by whichever claim takes it next, so the incident stays where
     the walk had taken it and nothing it changed is put back. Its last try
     fails as any other failure does.
@@ -215,8 +228,6 @@ def take_one_run(conn: psycopg.Connection,
     if claimed is None:
         return False
 
-    tried_again_as = trying_again if trying_again is not None else TryingAgain.of(get_settings())
-
     held = Fence(run_id=claimed.id, epoch=claimed.epoch)
     held_by = holding if holding is not None else Holding()
 
@@ -250,8 +261,8 @@ def take_one_run(conn: psycopg.Connection,
             if was_lost(failure):
                 _the_run_was_lost()
             elif (isinstance(failure, ModelUnavailable)
-                  and claimed.retries + 1 < tried_again_as.attempts):
-                _requeue_to_try_again(conn, claimed, failure, tried_again_as)
+                  and claimed.retries + 1 < trying_again.attempts):
+                _requeue_to_try_again(conn, claimed, failure, trying_again)
             else:
                 logger.exception("run failed")
                 _settle_the_failure(conn, claimed, failure, unwind, ended_by_a_person,
@@ -561,7 +572,8 @@ def work_forever(connections: Connections,
                  walk: Walk,
                  unwind: Unwind,
                  ended_by_a_person: EndedByAPerson,
-                 holding: Holding) -> None:
+                 holding: Holding,
+                 settings: RunSettings) -> None:
     """Takes runs for as long as the process lives.
 
     Looks again immediately after taking work and waits only when it found
@@ -572,8 +584,9 @@ def work_forever(connections: Connections,
     Holds one connection for the queue and nothing else. What a walk needs, the
     walk was given when it was built - this loop's own connection is only ever
     the claim, the lease and the settling.
+
+    `settings` is how the loop paces itself, read by the process's root.
     """
-    settings = get_settings()
     lease = timedelta(seconds=settings.run_lease_seconds)
     idle_wait = settings.run_poll_interval_seconds
     trying_again = TryingAgain.of(settings)

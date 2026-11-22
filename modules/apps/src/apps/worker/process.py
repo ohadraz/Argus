@@ -28,12 +28,13 @@ from orchestrator.unwinding import (
     undone_recorded_through,
     unwind_incident,
 )
-from orchestrator.worker import work_forever
+from orchestrator.worker import RunSettings, work_forever
 from read_mcp_client import read_mcp
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 from write_mcp_client import write_mcp
 
-from apps.worker.assembling import IncidentMemorySettings, against, the_store_for
+from apps.worker.assembling import IncidentMemorySettings, Vendors, against, the_store_for
 
 # What this process is called in its telemetry, and the directory its runs are
 # written under.
@@ -67,13 +68,15 @@ def main() -> None:
     which compiles them on the first run: assembling them reaches nothing.
     """
     settings = get_settings()
+    vendors = Vendors.read()
     database = DatabaseSettings.of(settings)
     holding = Holding()
 
     with (
         # First in and last out, so that closing it - which flushes what is
         # still batched - comes after everything that could have reported.
-        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
+        start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                        also=to_langfuse(LangfuseSettings())),
         open_pool(database, holding=holding) as pool,
         open_pool(database, holding=holding, connection=CHECKPOINTER_CONNECTIONS) as checkpoints,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
@@ -91,12 +94,17 @@ def main() -> None:
             require_schema(conn)
 
         graph_of = graph_for(
-            checkpoints, against(connections, read, write, store, holding, settings=settings)
+            checkpoints,
+            against(connections, read, write, store, holding, settings=settings, vendors=vendors)
         )
 
         work_forever(
             connections,
-            walk=partial(run_incident, connections=connections, graph_of=graph_of),
+            walk=partial(run_incident,
+                         connections=connections,
+                         graph_of=graph_of,
+                         max_rounds=settings.investigation_max_rounds,
+                         max_candidates=settings.investigation_max_candidates),
             unwind=partial(unwind_incident,
                            # The same binding the walk uses. A withdrawal puts
                            # back every change an incident made, which is every
@@ -111,5 +119,6 @@ def main() -> None:
                            # put-back is marked with the action it puts back.
                            acting_for=holding.acting_for),
             ended_by_a_person=ended_by_a_person_via(connections),
-            holding=holding
+            holding=holding,
+            settings=RunSettings.of(settings)
         )

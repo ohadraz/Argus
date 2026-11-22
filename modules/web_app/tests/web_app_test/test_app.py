@@ -12,8 +12,11 @@ from unittest.mock import create_autospec
 
 import pytest
 from argus_testkit import Scenario, all_of, an_error_was_raised, attempting, the_error_mentioned
+from core import DatabaseSettings
+from core.models import CodeSearch
 from push_source import PushSource
 from web_app.app import an_app
+from web_app.pushes import PushSettings
 
 from web_app_test.framework.senders import AlertsAsArgusWritesThem
 
@@ -26,6 +29,10 @@ def test_an_app_told_to_hear_unnamed_a_sender_it_was_not_handed_is_refused() -> 
     Scenario() \
         .given(senders_heard := {SOME_SENDER: AlertsAsArgusWritesThem()}) \
         .when(attempting(lambda: an_app(
+            database=DatabaseSettings(database_url="postgresql://dont-care/argus"),
+            push_settings=PushSettings(repository="dont-care/repository",
+                                       deployed_branch="dont-care-branch",
+                                       code_search=CodeSearch.BOTH),
             alert_sources=senders_heard,
             the_unnamed_senders_name=SOME_OTHER_SENDER,
             push_source=create_autospec(PushSource, instance=True),

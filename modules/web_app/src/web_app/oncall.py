@@ -24,7 +24,6 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from core import SettingsSlice
 from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
@@ -43,18 +42,6 @@ from oncall_source.platform import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class OnCallDeliverySettings(SettingsSlice):
-    """What only the process receiving the platform's deliveries may know: the
-    secret they are signed with.
-
-    Apart from the reading credential because the worker reads the platform and
-    never hears from it, and a process that cannot be told anything has no use
-    for the secret that proves who is telling.
-    """
-
-    pagerduty_webhook_secret: str
 
 
 class IncidentRecord(Protocol):

@@ -53,6 +53,10 @@ from orchestrator_test.framework.observing import Observed, observing
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
 
+# How a run the model could not answer is tried again where the case is about
+# something else: the deployment's own defaults, stated.
+DONT_CARE_TRYING_AGAIN = worker.TryingAgain(attempts=3, first_wait=timedelta(seconds=60))
+
 # Who takes a run back from a worker that was paused past its lease.
 THE_WORKER_THAT_TOOK_IT_BACK = "worker-that-took-it-back"
 
@@ -121,7 +125,9 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker(a_clean_database: None
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -153,7 +159,9 @@ def test_a_worker_with_nothing_to_take_says_so_rather_than_walking(a_clean_datab
                     A_GENEROUS_LEASE,
                     walk=walk_that_must_not_be_called,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -192,7 +200,9 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -250,7 +260,9 @@ def test_an_incident_whose_walk_failed_is_escalated_rather_than_left_mid_walk(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -288,7 +300,9 @@ def test_an_incident_a_failed_walk_escalated_ends_when_its_account_says(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -335,7 +349,9 @@ def test_a_run_that_failed_has_its_changes_put_back(a_clean_database: None) -> N
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -383,7 +399,9 @@ def test_an_unwind_that_fails_after_a_failed_run_still_records_the_failure(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=unwind_that_fails,
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -419,7 +437,9 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: No
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    unwind=_an_unwind_recording_what_it_was_given([])
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -453,7 +473,9 @@ def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_must_not_be_called(),
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -490,7 +512,9 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_partway,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -528,7 +552,9 @@ def test_a_withdrawn_incident_whose_walk_then_failed_is_not_announced_escalated(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_and_then_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -566,7 +592,9 @@ def test_a_run_whose_incident_was_resolved_before_it_was_claimed_is_walked(
                     A_GENEROUS_LEASE,
                     walk=walk_recording_what_it_was_given,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -605,7 +633,9 @@ def test_an_incident_resolved_while_it_was_walked_is_not_unwound(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_resolved_partway,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -646,7 +676,9 @@ def test_a_resolved_incident_whose_walk_then_failed_is_not_unwound(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_resolved_and_then_fails,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -691,7 +723,9 @@ def test_an_incident_its_walk_had_ended_is_left_as_the_walk_left_it_when_the_run
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -736,7 +770,8 @@ def test_a_walk_the_model_could_not_answer_for_now_is_requeued_to_try_again(
                     ),
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    trying_again=SOME_TRYING_AGAIN
+                    trying_again=SOME_TRYING_AGAIN,
+                    connections=connect_from_env
                 )
             ) \
             .then(all_of(
@@ -777,7 +812,8 @@ def test_a_run_requeued_waits_longer_each_time(
                     walk=walk_the_model_could_not_answer,
                     unwind=_an_unwind_recording_what_it_was_given([]),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    trying_again=SOME_TRYING_AGAIN
+                    trying_again=SOME_TRYING_AGAIN,
+                    connections=connect_from_env
                 )
             ) \
             .then(
@@ -816,7 +852,8 @@ def test_a_walk_the_model_could_not_answer_on_its_last_try_fails(a_clean_databas
                     walk=walk_the_model_could_not_answer,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    trying_again=SOME_TRYING_AGAIN
+                    trying_again=SOME_TRYING_AGAIN,
+                    connections=connect_from_env
                 )
             ) \
             .then(all_of(
@@ -859,7 +896,8 @@ def test_a_walk_the_model_could_not_answer_on_its_last_try_mid_walk_is_escalated
                     walk=walk_the_model_could_not_answer,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    trying_again=SOME_TRYING_AGAIN
+                    trying_again=SOME_TRYING_AGAIN,
+                    connections=connect_from_env
                 )
             ) \
             .then(all_of(
@@ -900,7 +938,9 @@ def test_a_failed_run_whose_ending_cannot_be_read_is_not_unwound(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=_readable_only_before_the_walk()
+                    ended_by_a_person=_readable_only_before_the_walk(),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -944,7 +984,8 @@ def test_a_failed_run_whose_incident_cannot_be_read_is_escalated_and_not_unwound
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    connections=_connections_only_before_the_walk()
+                    connections=_connections_only_before_the_walk(),
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -977,7 +1018,9 @@ def test_a_claim_a_failed_walk_left_open_is_settled_as_unknown(a_clean_database:
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_claims_an_action_and_fails(),
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1014,7 +1057,9 @@ def test_a_dead_workers_claim_on_an_incident_withdrawn_meanwhile_is_settled_as_u
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_must_not_be_called(),
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -1054,6 +1099,8 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_data
                     walk=walk_recording_what_it_was_given,
                     unwind=_an_unwind_that_must_not_be_called(),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -1107,6 +1154,7 @@ def test_a_run_still_being_walked_keeps_its_claim(a_clean_database: None) -> Non
                     unwind=_an_unwind_that_must_not_be_called(),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
                     connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(_no_second_worker_took_the_run(taken_from_under_it))
@@ -1138,7 +1186,9 @@ def test_a_run_is_worked_inside_the_trace_its_incident_kept(a_clean_database: No
                     walk=lambda dont_care_incident_id: None,
                     unwind=_an_unwind_recording_what_it_was_given([]),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    tracer=observed.tracer
+                    tracer=observed.tracer,
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1175,7 +1225,9 @@ def test_a_walk_runs_with_its_incident_and_its_run_in_the_baggage(
                     A_GENEROUS_LEASE,
                     walk=walk_recording_the_baggage,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1208,7 +1260,9 @@ def test_a_run_is_logged_as_it_is_claimed_and_as_it_finishes(
                     A_GENEROUS_LEASE,
                     walk=lambda dont_care_incident_id: None,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -1244,7 +1298,9 @@ def test_a_run_whose_walk_failed_is_logged_with_what_failed(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1283,7 +1339,9 @@ def test_an_unwind_that_failed_after_a_failed_run_is_logged_with_what_failed(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=unwind_that_fails,
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1322,7 +1380,9 @@ def test_a_failed_run_left_alone_because_a_person_resolved_it_is_logged(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_resolved_and_then_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1360,7 +1420,8 @@ def test_a_run_requeued_to_try_again_is_logged_with_what_failed(
                     walk=walk_the_model_could_not_answer,
                     unwind=_an_unwind_recording_what_it_was_given([]),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    trying_again=SOME_TRYING_AGAIN
+                    trying_again=SOME_TRYING_AGAIN,
+                    connections=connect_from_env
                 )
             ) \
             .then(all_of(
@@ -1400,7 +1461,9 @@ def test_a_failed_run_left_alone_because_its_walk_had_ended_it_is_logged(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1437,7 +1500,8 @@ def test_a_failed_run_whose_incident_cannot_be_read_is_logged_with_what_failed(
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    connections=_connections_only_before_the_walk()
+                    connections=_connections_only_before_the_walk(),
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1475,7 +1539,9 @@ def test_a_failed_run_whose_ending_cannot_be_read_is_logged_with_what_failed(
                     A_GENEROUS_LEASE,
                     walk=walk_that_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=_readable_only_before_the_walk()
+                    ended_by_a_person=_readable_only_before_the_walk(),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1519,7 +1585,9 @@ def test_a_withdrawn_incident_is_logged_as_it_is_unwound(
                     A_GENEROUS_LEASE,
                     walk=walk_that_is_withdrawn_partway,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1560,7 +1628,9 @@ def test_a_walk_runs_with_no_transaction_left_open_on_the_workers_connection(
                     A_GENEROUS_LEASE,
                     walk=walk_recording_the_connection,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1600,7 +1670,9 @@ def test_a_failed_walk_whose_run_was_taken_back_leaves_both_to_the_new_holder(
                     A_GENEROUS_LEASE,
                     walk=walk_that_loses_its_run_then_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -1640,7 +1712,9 @@ def test_a_finished_walk_whose_run_was_taken_back_leaves_it_to_the_new_holder(
                     A_GENEROUS_LEASE,
                     walk=walk_that_loses_its_run,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -1682,7 +1756,8 @@ def test_a_walk_the_model_could_not_answer_whose_run_was_taken_back_leaves_it_to
                     walk=walk_that_loses_its_run_then_cannot_get_an_answer,
                     unwind=_an_unwind_recording_what_it_was_given([]),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    trying_again=SOME_TRYING_AGAIN
+                    trying_again=SOME_TRYING_AGAIN,
+                    connections=connect_from_env
                 )
             ) \
             .then(all_of(
@@ -1725,7 +1800,9 @@ def test_a_walk_told_its_run_was_lost_is_neither_put_back_nor_settled(
                     A_GENEROUS_LEASE,
                     walk=walk_told_its_run_was_lost,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -1772,7 +1849,9 @@ def test_an_unwind_told_its_run_was_lost_settles_nothing_and_says_so_once(
                     A_GENEROUS_LEASE,
                     walk=walk,
                     unwind=_an_unwind_told_its_run_was_lost(),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -1826,7 +1905,9 @@ def test_a_run_is_held_by_the_process_for_as_long_as_it_is_worked_and_no_longer(
                     walk=walk_seeing_what_is_held,
                     unwind=unwind_seeing_what_is_held,
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    holding=holding
+                    holding=holding,
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -1869,7 +1950,9 @@ def test_the_workers_own_connection_writes_for_no_run_once_its_run_is_over(
                     A_GENEROUS_LEASE,
                     walk=walk,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 ), attempting(lambda: _a_write_on(conn, incident_id))())
             ) \
             .then(all_of(
@@ -1914,7 +1997,9 @@ def test_a_walk_whose_write_was_refused_for_a_lost_run_is_neither_put_back_nor_s
                     walk=walk_that_writes_after_its_run_was_taken,
                     unwind=_an_unwind_recording_what_it_was_given(unwound),
                     ended_by_a_person=ended_by_a_person_via(connect_from_env),
-                    holding=holding
+                    holding=holding,
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -2023,7 +2108,9 @@ def test_a_withdrawn_incident_s_changes_stop_being_open_when_its_run_finishes(
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_must_not_be_called(),
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -2060,7 +2147,9 @@ def test_a_withdrawn_incident_s_changes_stop_being_open_when_its_run_fails(
                     A_GENEROUS_LEASE,
                     walk=walk_that_changes_a_flag_is_withdrawn_and_then_fails,
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(
@@ -2094,7 +2183,9 @@ def test_a_settle_stops_only_the_changes_with_no_way_back_being_open(
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_changes_a_flag_and_restarts(fails=fails),
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -2129,7 +2220,9 @@ def test_a_failed_run_s_settle_reads_its_incident_withdrawn_during_the_unwind(
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_changes_a_flag_and_restarts(fails=True),
                     unwind=_an_unwind_a_person_withdraws_the_incident_during(),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(all_of(
@@ -2164,7 +2257,9 @@ def test_a_restart_a_failed_walk_left_made_holds_its_application_open_no_longer(
                     A_GENEROUS_LEASE,
                     walk=_a_walk_that_restarts_and_fails(),
                     unwind=_an_unwind_recording_what_it_was_given([]),
-                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=connect_from_env,
+                    trying_again=DONT_CARE_TRYING_AGAIN
                 )
             ) \
             .then(

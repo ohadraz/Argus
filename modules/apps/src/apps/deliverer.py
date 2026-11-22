@@ -22,7 +22,9 @@ from core.schema import require_schema
 from incident_memory.delivering import deliver_forever, deliver_on
 from incident_memory.keeping import kept_in
 from telemetry import start_telemetry
+from telemetry.langfuse import LangfuseSettings, to_langfuse
 from vector_store_qdrant.indexing import the_index_at
+from vector_store_qdrant.settings import QdrantSettings
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,7 @@ _SERVICE: Final = "argus-memory"
 
 
 class DeliverySettings(SettingsSlice):
-    """Whether memory is kept at all, where it is kept, and how often to look.
+    """Whether memory is kept at all, in which collection, and how often to look.
 
     The interval bounds how long a finished incident's record may be filed and
     unsearchable. Short, because nothing waits on it but the next incident like
@@ -40,7 +42,6 @@ class DeliverySettings(SettingsSlice):
     """
 
     incident_memory_enabled: bool
-    qdrant_url: str
     incident_memory_collection: str
     incident_memory_embedding_model: str
     incident_memory_delivery_interval_seconds: float
@@ -65,7 +66,8 @@ def main() -> None:
     settings = get_settings()
     delivery = DeliverySettings.of(settings)
 
-    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
+    with start_telemetry(TelemetrySettings.of(settings), _SERVICE,
+                         also=to_langfuse(LangfuseSettings())):
         if not delivery.incident_memory_enabled:
             logger.info("incident memory disabled")
 
@@ -76,7 +78,8 @@ def main() -> None:
             # The adapter is built here and nowhere else in this process, and
             # handed on as the port: what `keeping` writes through is a
             # `VectorIndex`, and the vendor is this line's alone.
-            the_index_at(delivery.qdrant_url, delivery.incident_memory_collection) as store
+            the_index_at(QdrantSettings().qdrant_url,
+                         delivery.incident_memory_collection) as store
         ):
             with pool.connection() as conn:
                 require_schema(conn)

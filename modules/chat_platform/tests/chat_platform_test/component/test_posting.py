@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from chat_platform import Line, Posted
-from chat_platform.slack import ChatSettings, Slack
+from chat_platform.slack import Slack, SlackSettings
 from core import utc_now
 from slack_sdk import WebClient
 
@@ -75,9 +75,9 @@ def _slack_at(base_url: str) -> Slack:
     signing secret because nothing here reads a delivery.
     """
     return Slack(
-        ChatSettings(slack_bot_token="xoxb-dont-care",
-                     slack_base_url=base_url,
-                     slack_signing_secret=""),
+        SlackSettings(slack_bot_token="xoxb-dont-care",
+                      slack_base_url=base_url,
+                      slack_signing_secret=""),
         client_of=WebClient,
         clock=utc_now
     )

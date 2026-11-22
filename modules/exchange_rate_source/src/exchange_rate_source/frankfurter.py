@@ -23,19 +23,20 @@ from decimal import Decimal
 from typing import Any, Final
 
 import httpx2
-from core import SettingsSlice
+from core import AdapterSettings
 from core.models import PublishedRates, RatesUnavailable
 
 
-class ExchangeRateSettings(SettingsSlice):
+class FrankfurterSettings(AdapterSettings):
     """Where the day's rates are read from.
 
-    One field, and unlike every other provider here it has a working
-    default in the environment: Frankfurter needs no account and no key,
-    so a deployment that configures nothing still converts.
+    One field, and unlike every other provider here it has a working default:
+    Frankfurter publishes the European Central Bank's reference rates, needs no
+    account and no key, and answers a whole table in one request - so a
+    deployment that configures nothing still converts.
     """
 
-    exchange_rate_base_url: str
+    exchange_rate_base_url: str = "https://api.frankfurter.dev"
 
 # How the request is made. Injected rather than called outright so a test can
 # answer with a real `httpx2.Response` - the provider's own body, parsed by the
@@ -60,7 +61,7 @@ _A_PATIENT_WAIT: Final = 10.0
 
 
 def rates_published_for(base: str,
-                        settings: ExchangeRateSettings,
+                        settings: FrankfurterSettings,
                         asking: Asking = httpx2.get) -> PublishedRates:
     """The most recent table the provider has, quoted against `base`.
 

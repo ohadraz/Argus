@@ -23,6 +23,7 @@ from argus_testkit import Assertion, Scenario
 from core.llm.adapters.anthropic_adapter import (
     AT_MOST_ONE_TOOL_CALL,
     LARGEST_UNSTREAMED_ANSWER,
+    MODEL,
     AnthropicLLMClient,
 )
 from core.models.model_policy import ModelPolicy
@@ -38,7 +39,7 @@ def test_an_agent_held_to_one_tool_call_per_turn_asks_for_at_most_one() -> None:
     some_api = an_api_that_answers()
     a_single_shot_agent = AnthropicLLMClient(
         settings_that_reach_no_api(),
-        policy=ModelPolicy(one_tool_call_per_turn=True),
+        policy=ModelPolicy(model=MODEL, one_tool_call_per_turn=True),
         client=some_api
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]
@@ -62,7 +63,7 @@ def test_an_agent_not_held_to_one_tool_call_asks_nothing_of_how_many() -> None:
     # recording that no longer matches what it answered.
     some_api = an_api_that_answers()
     an_investigating_agent = AnthropicLLMClient(
-        settings_that_reach_no_api(), policy=ModelPolicy(), client=some_api
+        settings_that_reach_no_api(), policy=ModelPolicy(model=MODEL), client=some_api
     )
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
@@ -86,7 +87,7 @@ def test_an_agent_whose_answers_must_stream_is_held_to_one_tool_call_too() -> No
     some_api = an_api_that_answers()
     a_streaming_agent = AnthropicLLMClient(
         settings_that_reach_no_api(),
-        policy=ModelPolicy(one_tool_call_per_turn=True,
+        policy=ModelPolicy(model=MODEL, one_tool_call_per_turn=True,
                            max_output_tokens=LARGEST_UNSTREAMED_ANSWER + 1),
         client=some_api
     )

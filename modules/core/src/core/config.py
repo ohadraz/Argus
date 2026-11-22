@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.models.code_search import CodeSearch
-from core.models.model_policy import DEFAULT_EFFORT, DEFAULT_MODEL, Reasoning
+from core.models.model_policy import DEFAULT_EFFORT, Reasoning
 
 # The longest Mitigation stands by with nothing measured: a change still
 # arriving, a read tier not answering. Named here because two settings are stated
@@ -32,21 +32,17 @@ _LEASES_PER_LONGEST_WAIT: Final = 4
 _READ_MCP_ANSWERED_WITHIN_SECONDS: Final = 120.0
 _WRITE_MCP_ANSWERED_WITHIN_SECONDS: Final = 720.0
 
-# How Slack names a channel it can be asked about: a public one's id begins with
-# `C`, a private one's with `G`, and the rest is capitals and digits. Empty is
-# allowed, and means no channel was configured.
-_A_SLACK_CHANNEL_ID: Final = r"^([CG][A-Z0-9]+)?$"
-
-# The environment variables settings were once read from and are no longer, by
-# the one each became. Refused where set, never read: a setting nobody declares
-# is ignored, so a deployment still using the old name would run on the default
-# and nothing would say so.
-RETIRED_SOURCE_PATHS: Final = "GITHUB_SOURCE_PATHS"
-SOURCE_PATHS: Final = "SERVICE_SOURCE_PATHS"
-
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    """How Argus is configured, in Argus's own terms.
+
+    Every setting here names no vendor. What a vendor needs - its address, its
+    credential, the names in its own catalogue - is its adapter's settings
+    (`AdapterSettings`), read by the process that builds the adapter (`apps`),
+    so a vendor swapped is an adapter and a root edited and never this schema.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_user: str = Field(default="argus")
     database_password: str = Field(default="argus")
@@ -55,21 +51,12 @@ class Settings(BaseSettings):
 
     target_service_url: str = Field(default="http://localhost:8080")
 
-    # Where the service's metrics are read from: a Prometheus, whose own paths
-    # follow this. The default is the Target Environment's stand-in, mounted
-    # under the shop's prefix; a real deployment points it at its Prometheus.
-    prometheus_base_url: str = Field(default="http://localhost:8080/prometheus")
-
     read_mcp_host: str = Field(default="localhost")
     read_mcp_port: int = Field(default=8090)
     # How long a client waits for a read tool's answer, in seconds.
     read_mcp_answered_within_seconds: float = Field(
         default=_READ_MCP_ANSWERED_WITHIN_SECONDS, gt=0.0
     )
-
-    # The feature-flag provider is configured by its adapter's own settings
-    # (`flag_provider.unleash`), read from the same `UNLEASH_*` variables - not
-    # here, where every slice could reach its admin credential.
 
     write_mcp_host: str = Field(default="localhost")
     write_mcp_port: int = Field(default=8092)
@@ -81,12 +68,6 @@ class Settings(BaseSettings):
         default=_WRITE_MCP_ANSWERED_WITHIN_SECONDS, gt=0.0
     )
 
-    # The Target Service's repository, which is the only repository Argus may
-    # propose a change to (spec §15.1). Named in full - `owner/name` - because
-    # that is how the API addresses one, and because a deployment that had to
-    # assemble it from two settings could assemble a different one.
-    github_api_url: str = Field(default="https://api.github.com")
-    github_repository: str = Field(default="")
     # The branch a fix is cut from and proposed onto - the one that is actually
     # deployed, since a fix against anything else patches a repository nobody
     # is running. So it is also the branch the index describes and the one a
@@ -158,13 +139,7 @@ class Settings(BaseSettings):
     # retrievers means running each alone over the same incidents, which is
     # only a comparison if the choice can be taken away from the model.
     code_search: CodeSearch = Field(default=CodeSearch.BOTH)
-    # The credential `argus-read-mcp` reads the Target Service's source with. It
-    # can read a repository and cannot push to one, which is what lets the
-    # source be read from a process that must remain incapable of mutation
-    # (§13) - the same argument that keeps the flag evaluation token there and
-    # the admin token out.
-    github_read_token: str = Field(default="")
-    # Which directories of that repository hold the service itself, comma
+    # Which directories of the service's repository hold the service itself, comma
     # separated. Empty is the whole repository, and is right whenever the
     # repository is nothing but the service.
     #
@@ -173,42 +148,13 @@ class Settings(BaseSettings):
     # reading how its own incidents are generated. A real deployment points
     # Argus at a service repository and leaves this empty.
     service_source_paths: str = Field(default="")
-    # The name the setting above went by before it said whose paths they are.
-    # Read only to be refused (`_no_retired_names`): every name nothing declares
-    # is ignored, so a deployment still spelling it this way would start on the
-    # whole repository and change what Code-Fix reads with no word why.
-    retired_source_paths: str | None = Field(default=None,
-                                             validation_alias=RETIRED_SOURCE_PATHS,
-                                             exclude=True)
-    # The credential that can push a branch and open a pull request. Scoped to
-    # the repository above and to nothing else: "Argus cannot touch its own
-    # codebase" is a property of what this token reaches, not of what the agent
-    # was told (§15.1). Empty by default for the same reason the admin token is
-    # - a misconfigured write server should fail loudly rather than quietly
-    # authenticate as nobody. It can never merge what it opens (§13).
-    github_token: str = Field(default="")
-    # How many times a write to that repository is made again where GitHub
-    # failed it for a moment - never reached, or answered with a 5xx - and how
-    # long before each. Retries, tries after the first: two is three in all. A
-    # refusal, a 4xx, is never made again.
-    github_write_retries: int = Field(default=2, ge=0)
-    github_write_retry_wait_ms: int = Field(default=200, ge=0)
-    # The secret GitHub signs its push deliveries with, so Argus can tell a
-    # push from anybody who found the endpoint. Empty accepts nothing rather
-    # than everything: where no secret is set every delivery is refused - a
-    # digest under an empty key is one anybody can compute - which is the
-    # right way round for a route open to the internet.
-    github_webhook_secret: str = Field(default="")
 
     # Where that repository's source is kept as something searchable by
-    # meaning, and under what name. A store of its own rather than a table:
-    # what it answers is "which passages are nearest this one", and no amount
-    # of SQL makes that a cheap question.
+    # meaning: under what name, in the vector store whose address is its
+    # adapter's. A store of its own rather than a table: what it answers is
+    # "which passages are nearest this one", and no amount of SQL makes that a
+    # cheap question.
     #
-    # Localhost by default, which is the developer's compose file; the
-    # deployment names the service. Qdrant's HTTP port, not its gRPC one -
-    # nothing here asks for gRPC.
-    qdrant_url: str = Field(default="http://localhost:6333")
     # One collection per deployment, named for what it holds rather than for
     # the repository: the index describes the Target Service's source, and a
     # deployment pointed at a different repository is a different index.
@@ -363,21 +309,11 @@ class Settings(BaseSettings):
     run_attempts: int = Field(default=3, gt=0)
     run_first_retry_wait_seconds: float = Field(default=60.0, gt=0.0)
 
-    anthropic_api_key: str = Field(default="")
-
-    # Where the Anthropic SDK sends its requests. Empty means the real API.
-    # Pointing this at the test double is the *only* thing that selects it:
-    # the seam sits below the SDK, so the real adapter, the real
-    # `messages.parse` and the real schema transform still run.
-    anthropic_base_url: str = Field(default="")
-    # Where the grounding judge's requests go, which is a stand-in of its own
-    # wherever every agent's is one: a replay serves each stand-in's calls in
-    # the order they were recorded, and the judge's calls are not the writer's.
-    # Empty means the real API, and only where every agent's is the real API
-    # too (`LLMSettings.for_the_judge` refuses the rest).
-    judge_anthropic_base_url: str = Field(default="")
-
-    # Which model answers each agent, and how hard it is asked to think.
+    # How hard the model answering each agent is asked to think, on Argus's own
+    # scale. Which model answers is the provider's to say - a model is named in
+    # that provider's catalogue, and another provider's adapter names its own
+    # (`core.llm.adapters`) - but how much effort an agent's kind of work earns
+    # is Argus's, and the same five levels whichever provider answers.
     #
     # Per agent rather than once, because the agents are not the same shape of
     # work. The postmortem writes one piece of prose with every figure already
@@ -400,22 +336,7 @@ class Settings(BaseSettings):
     # among the three it lost. More thinking per call bought more reading and
     # fewer conclusions, which is the shape of an agent exploring rather than
     # deciding.
-    # The investigator's model and effort are unmeasured. Every eval arm meant
-    # to compare them - Sonnet against Opus, medium against high - asked one
-    # configuration: Opus 5 at `high` with no brief. The eval built its client
-    # from the default policy and handed the investigation that conversation,
-    # so these two settings and the brief never reached a request, and the
-    # effort-cost script did the same. The pooled rows labelled Sonnet or
-    # medium are all Opus 5 at `high` with no brief; the scores and token
-    # counts they differ by are sampling noise, and medium was never asked.
-    #
-    # Sonnet stays on price, as a choice rather than a finding: its four rates
-    # are 40% of Opus's. Whether it answers as well, and at which effort, is
-    # what the eval can now say, since it asks the configured model, effort and
-    # brief.
-    investigation_model: str = Field(default="claude-sonnet-5-5")
     investigation_effort: Reasoning = Field(default=DEFAULT_EFFORT)
-    codefix_model: str = Field(default=DEFAULT_MODEL)
     codefix_effort: Reasoning = Field(default=DEFAULT_EFFORT)
     # How much room one fix gets to be written in. Alone among the agents
     # Code-Fix answers with whole files, and the largest in the Target
@@ -429,73 +350,20 @@ class Settings(BaseSettings):
     # a ceiling is not a reservation, so asking for all of it costs nothing
     # for the fixes that turn out to be small.
     codefix_max_output_tokens: int = Field(default=128_000, gt=0)
-    # The shared default: asked to hold about forty rules at once, Sonnet kept a
-    # different few of them in each of three re-records of one incident.
-    postmortem_model: str = Field(default=DEFAULT_MODEL)
     postmortem_effort: Reasoning = Field(default=DEFAULT_EFFORT)
     # The grounding judge, which reads a write-up and an overview against what
-    # they were written from. Opus at medium effort: no weaker than the writer
-    # it judges, and thinking. Checking each claim against a record is
-    # reasoning, and Sonnet at low effort, which did not think, flagged claims
+    # they were written from, thinking: checking each claim against a record is
+    # reasoning, and a judge at low effort, which did not think, flagged claims
     # its own record supported in every write-up of the pilot.
-    judge_model: str = Field(default="claude-opus-5-5")
     judge_effort: Reasoning = Field(default=Reasoning.MEDIUM)
 
-    # The model that classifies what a person wrote in an incident's thread, and
-    # how often the intent reader looks for something new to understand. One short
-    # question with five answers; the pause is the delay between a person
-    # writing and Argus offering to resolve, paid only when there was nothing
-    # new.
-    intent_model: str = Field(default=DEFAULT_MODEL)
+    # How hard the model classifying what a person wrote in an incident's thread
+    # thinks, and how often the intent reader looks for something new to
+    # understand. One short question with five answers; the pause is the delay
+    # between a person writing and Argus offering to resolve, paid only when
+    # there was nothing new.
     intent_effort: Reasoning = Field(default=DEFAULT_EFFORT)
     intent_poll_seconds: float = Field(default=2.0, gt=0.0)
-
-    # The bot the Communicator posts as. Empty by default, and empty means it
-    # says nothing: a workspace nobody configured is not a workspace to guess
-    # at, and an incident is reported through a channel somebody chose.
-    slack_bot_token: str = Field(default="")
-
-    # Where the Slack SDK sends its requests. Empty means the real workspace,
-    # for the reason `anthropic_base_url` works that way: pointing this at the
-    # double is the only thing that selects it, so the real adapter, the real
-    # client and the real argument encoding still run in every suite.
-    slack_base_url: str = Field(default="")
-
-    # Where an incident is reported and where its postmortem is delivered. Two
-    # channels rather than one: an incident's traffic is for whoever is on, and
-    # a postmortem is read afterwards by people who were not.
-    #
-    # By id (`C…`), never by name. Slack takes a name to post to and for nothing
-    # else: an update needs the id, and every reply and press arrives naming
-    # the id - so a war room configured by name is one whose threads no reply
-    # is ever matched to. The double answers any channel it is given, so only a
-    # real workspace would show it, and only by going quiet.
-    slack_war_room_channel: str = Field(default="", pattern=_A_SLACK_CHANNEL_ID)
-    slack_postmortem_channel: str = Field(default="", pattern=_A_SLACK_CHANNEL_ID)
-
-    # Who is sent each incident's executive synopsis, as Slack ids separated by
-    # commas: a member's (`U…`) is sent it as a direct message, a channel's
-    # (`C…`) is posted it in that channel. One list for both, because
-    # `chat.postMessage` takes either as where to post. Empty sends it nowhere -
-    # it is still written, and nobody is told.
-    #
-    # The synopsis states what each title's time on the incident cost, so who
-    # is here is who sees pay. Nothing checks that a member is not one of the
-    # people priced, or that a channel is private: both are the configurer's.
-    executive_synopsis_slack_to: str = Field(default="")
-
-    # How long the relay waits after finding the log unchanged. Short, because
-    # it is the delay between something happening and a person hearing about
-    # it - and paid only when there is nothing to say, since a pass that
-    # delivered anything looks again at once.
-    slack_relay_poll_seconds: float = Field(default=2.0, gt=0.0)
-
-    # What a delivery from Slack - a person writing in an incident's thread, a
-    # button pressed - must be signed with to be believed. Empty refuses every
-    # delivery rather than trusting one, as `github_webhook_secret` does: what
-    # a delivery can say ends an incident, and a secret nobody set is one
-    # anybody can sign under.
-    slack_signing_secret: str = Field(default="")
 
     # Where Argus answers, as somebody outside it reaches it - what a message
     # in a channel links back to. Configured rather than observed, as it is for
@@ -505,63 +373,6 @@ class Settings(BaseSettings):
     # link, which is a demo without one rather than a broken one in a channel.
     argus_base_url: str = Field(default="")
 
-    # The credential the payment provider is read with. Empty by default, and
-    # empty means the source reports that it could not answer: a postmortem
-    # resting on money nobody can vouch for is worse than one saying the figure
-    # is missing, and a default credential would be one nobody chose.
-    stripe_api_key: str = Field(default="")
-
-    # Where the Stripe SDK sends its requests. Empty means the real API.
-    # Pointing this at the shop's own Stripe-shaped endpoint is the only thing
-    # that selects it: the seam sits below the SDK, so the vendor's request
-    # building, paging and object model all still run.
-    stripe_base_url: str = Field(default="")
-
-    # The credential the on-call provider is read with. Empty by default, for
-    # the reason the payment credential is: a response time nobody can vouch
-    # for is worse than one the document says it could not obtain, and a
-    # default credential would be one nobody chose.
-    pagerduty_api_key: str = Field(default="")
-
-    # Where the PagerDuty SDK sends its requests. Empty means the real API.
-    # Pointing this at `pagerduty_double` is the only thing that selects it:
-    # the seam sits below the SDK, so the vendor's request building and error
-    # vocabulary still run.
-    pagerduty_base_url: str = Field(default="")
-
-    # Whether the on-call provider's certificate is checked. True everywhere
-    # that matters: PagerDuty's own certificate is real. False only against
-    # the double on this machine, which mints itself a certificate nobody has
-    # any reason to trust - and answers TLS at all because the vendor's SDK
-    # refuses a base URL that is not `https://`.
-    pagerduty_verify_tls: bool = Field(default=True)
-
-    # The secret PagerDuty signs its webhook deliveries with, returned once when
-    # the subscription is created. A person resolving an incident there is
-    # delivered under it, and a delivery that can end an incident must be
-    # PagerDuty's. Empty accepts nothing, for the reason the GitHub secret's
-    # empty does - and only the process receiving deliveries reads it.
-    pagerduty_webhook_secret: str = Field(default="")
-
-    # The credential the HR system's pay bands are read with. Empty by default,
-    # for the reason the on-call credential is: a cost nobody can vouch for is
-    # worse than one the document says it could not obtain.
-    #
-    # It only ever needs to read pay grades and bands. Compensation per person
-    # is not read by anything here, so a deployment issuing this credential
-    # should not grant it - what a *level* pays is all Argus asks.
-    hr_api_key: str = Field(default="")
-
-    # Where the pay bands are read from. The Target Environment's HR-shaped
-    # endpoint by default, because that is what a demo has; a real deployment
-    # points this at its own account.
-    hr_base_url: str = Field(default="http://localhost:8080/bamboohr")
-
-    # How long that read may take. Short: the bands are wanted while a
-    # postmortem is being written, and a document that waits a minute for a
-    # figure it can legitimately report as absent is worse than one without it.
-    hr_timeout_seconds: float = Field(default=10.0, gt=0.0)
-
     # How many hours of work a year a salary is quoted against, which is what
     # turns an annual band into what a minute of it costs. 2080 is the standard
     # full-time year - 40 hours a week, 52 weeks - and it is configuration
@@ -569,13 +380,6 @@ class Settings(BaseSettings):
     # about this code. Whatever it is set to is stated on the document, since a
     # figure derived from a divisor is only reproducible with the divisor.
     working_hours_a_year: float = Field(default=2080.0, gt=0.0)
-
-    # Where the day's exchange rates are read from. Frankfurter publishes the
-    # European Central Bank's reference rates, needs no account and no key, and
-    # answers a whole table in one request - so unlike every other provider
-    # here it has a working default rather than an empty one, and a deployment
-    # that configures nothing still converts.
-    exchange_rate_base_url: str = Field(default="https://api.frankfurter.dev")
 
     # The currency a postmortem states its loss estimate in, and the base every
     # rate is quoted against. A shop paid in several currencies has no total
@@ -674,98 +478,6 @@ class Settings(BaseSettings):
     # the failure it exists to prevent returns.
     recovery_fraction_of_the_rise: float = Field(default=0.8, gt=0.0, lt=1.0)
 
-    # Where deploy history is read from. The demo Target Service stands in for
-    # a real Argo CD server, so the default points at it - but the adapter
-    # makes the request a real Argo CD answers, and pointing these at one is
-    # the only change needed.
-    argocd_base_url: str = Field(default="http://localhost:8080")
-    # A template, so the demo's stand-in and a real Argo CD's
-    # `/api/v1/applications/{application}` are the same setting - only the
-    # value differs. A path carrying no placeholder is formatted to itself.
-    argocd_application_path: str = Field(default="/argocd/{application}")
-    # The name the platform records Argus's own actions under - the account the
-    # credential below belongs to, which Argo CD writes on each history entry as
-    # `initiatedBy.username`. The counterpart of the flag provider's
-    # `UNLEASH_ACTOR`, for the same reason: a rollback Argus made lands in the
-    # deploy history a later round reads, and kept there it is offered as the
-    # change to undo. Empty switches the filtering off, the honest setting where
-    # the credential is shared - and leaves every rollback put-back to a person,
-    # since whether a rollback is still Argus's is asked by this name.
-    argocd_actor: str = Field(default="Argus")
-    # Empty means no credential is sent at all, rather than an invented one.
-    # The demo's stand-in answers reads without one and refuses a rollback that
-    # carries no token it issued.
-    argocd_auth_token: str = Field(default="")
-    # Where a resource action is run, as the same template. A real Argo CD's is
-    # `/api/v1/applications/{application}/resource/actions/v2` - v2 rather
-    # than the original, which takes the same fields as query parameters and
-    # is deprecated since Argo CD 3.1.
-    #
-    # One setting for every action rather than one per action, because it is one
-    # endpoint: `restart` and `scale` are both built-in resource actions for a
-    # Deployment, dispatched by the name in the body. A second setting holding the
-    # same value would be a second place to correct when a platform moves.
-    argocd_resource_action_path: str = Field(
-        default="/argocd/{application}/resource/actions/v2"
-    )
-    # Where the platform says what is actually running, which is the only place a
-    # live replica count can be read - the values file says what git asks for, and
-    # the two differ the moment anybody scales.
-    argocd_resource_path: str = Field(
-        default="/argocd/{application}/resource"
-    )
-    # Where the alert rules are read from - whether the rule that paged has
-    # stopped firing, which is what a mitigation on a series alert is judged by.
-    # The demo Target Service stands in for Grafana under `/grafana`, so the
-    # default points at it; a real Grafana is its root URL and nothing else.
-    grafana_base_url: str = Field(default="http://localhost:8080/grafana")
-    # Empty means no credential is sent - the stand-in needs none, and a real
-    # Grafana issues a service-account token for this.
-    grafana_auth_token: str = Field(default="")
-    # Which namespace the deployment being restarted lives in. The resource
-    # itself is not configured: it is the service being restarted, because a
-    # fixed name would carry the alerting service's deployment into a request
-    # addressed at one of its dependencies.
-    restart_namespace: str = Field(default="production")
-    # And which namespace the one being scaled lives in. Its own setting rather
-    # than the restart's reused: a restart may be addressed at a dependency in
-    # somebody else's namespace, where a scale-out only ever reaches the
-    # deployment Argus was paged about.
-    scale_namespace: str = Field(default="production")
-    # There is deliberately no namespace for the pin beside these two. Both of
-    # them address a resource the caller can already name, where an autoscaler is
-    # named by whoever wrote the chart and need not be named after the deployment
-    # it scales - so a pin reads the application's resource tree, which publishes
-    # every resource's own name and namespace, rather than being told. A setting
-    # here would be a second copy of a fact the cluster owns.
-    # Where a rollback is asked for. A real Argo CD's is
-    # `/api/v1/applications/{application}/rollback`.
-    #
-    # A rollback is three requests, not one - the application is read for which
-    # entry is running and whether the platform is reconciling it,
-    # reconciliation is suspended because a real server refuses a rollback while
-    # it is on, and only then is the rollback asked for. The first two go to
-    # `argocd_application_path` above: the suspension is a merge patch of the
-    # application itself (`PATCH /api/v1/applications/{application}`, Argo CD
-    # 3.1 or later), never a write to its spec route, which replaces the whole
-    # spec with whatever it is sent.
-    argocd_rollback_path: str = Field(default="/argocd/{application}/rollback")
-    # Where the platform reports what is actually running. A pod's creation time
-    # is what confirms a restart landed, and it is per application, which is the
-    # whole reason this is not read off the metrics: restarting a dependency has
-    # to be confirmed by looking at the dependency.
-    argocd_resource_tree_path: str = Field(
-        default="/argocd/{application}/resource-tree"
-    )
-    # Where the platform says what it renders an application as at a revision -
-    # what git ships, where the resource route says what is running. A put-back
-    # of a rollback compares the two's images, because a `kubectl set image`
-    # leaves no history entry to find it by. A real Argo CD's is
-    # `/api/v1/applications/{application}/manifests`.
-    argocd_manifests_path: str = Field(
-        default="/argocd/{application}/manifests"
-    )
-
     # Where the Target Service's rendered-summary cache answers. The first
     # address here that is a datastore rather than a control plane: every other
     # write goes through a platform that acts on Argus's behalf, and this one is
@@ -785,8 +497,8 @@ class Settings(BaseSettings):
     cache_url: str = Field(default="redis://localhost:6379")
 
     # Where the organisation's service register answers. The demo Target Service
-    # stands in for one, so the default points at it - and unlike the Argo CD
-    # settings above there is nothing here to authenticate with, because a
+    # stands in for one, so the default points at it - and unlike the deployment
+    # platform's settings there is nothing here to authenticate with, because a
     # register of what calls what is not secret inside the organisation keeping
     # it.
     service_registry_base_url: str = Field(default="http://localhost:8080")
@@ -821,15 +533,6 @@ class Settings(BaseSettings):
     # and are where a backend's credential goes.
     otel_exporter_otlp_endpoint: str = Field(default="")
     otel_exporter_otlp_headers: str = Field(default="")
-
-    # Langfuse, which receives traces only - the one signal it reads. Three
-    # values because that is what Langfuse issues: an address and a key pair,
-    # sent as Basic auth. All three or nothing; two of them name a project
-    # nobody can authenticate to, so a partial configuration sends nothing
-    # rather than failing at every export.
-    langfuse_base_url: str = Field(default="")
-    langfuse_public_key: str = Field(default="")
-    langfuse_secret_key: str = Field(default="")
 
     # The lowest level a process logs at, by the stdlib's own names. INFO is a
     # production's audit trail; DEBUG is for the incident somebody is chasing,
@@ -906,41 +609,55 @@ class Settings(BaseSettings):
 
         return self
 
-    @model_validator(mode="after")
-    def _no_retired_names(self) -> Settings:
-        """Refuses to start on a setting spelled by a name it no longer has.
-
-        Set at all, empty included: the old name says the deployment meant to
-        configure this, and whatever it holds is not what is read.
-        """
-        if self.retired_source_paths is not None:
-            raise ValueError(
-                f"{RETIRED_SOURCE_PATHS} is set and is no longer read: the directories "
-                f"of the repository that hold the service are {SOURCE_PATHS} now. "
-                f"Rename it, or Argus reads the whole repository"
-            )
-
-        return self
-
 
 @lru_cache
 def get_settings() -> Settings:
+    """The kernel's settings, read from the environment once per process.
+
+    Called by a process's root (`apps`), and otherwise only where the layering
+    guard allows it with its reason: the kernel's own connection
+    (`connect_from_env`) and Alembic's entry script (`core.migrations.env`).
+    Everything below a root is handed the slice it reads.
+    """
     return Settings()
+
+
+class AdapterSettings(BaseSettings):
+    """What one vendor's adapter needs, declared by that adapter.
+
+    The kernel's `Settings` names no vendor; each adapter declares its own
+    settings on this base - the address it reaches, the credential it holds, the
+    names in its vendor's catalogue - and a process's root reads them, once,
+    beside the kernel's. So swapping a vendor is an adapter and its roots edited,
+    and never this schema.
+
+    A field is read from the variable named for it, as the kernel's are - a
+    deployment configures `SLACK_BOT_TOKEN` whichever class declares it - unless
+    the adapter's settings say a prefix of their own, as Unleash's do
+    (`UNLEASH_BASE_URL` for `base_url`).
+    Read from `.env` as `Settings` is, ignoring every variable another class
+    declares, and frozen, as a slice is - configuration is read at the top of a
+    process, and a value that could be edited on the way down would be a second
+    way to configure Argus.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", frozen=True)
 
 
 class SettingsSlice(BaseModel):
     """What one consumer is allowed to know about how Argus is configured.
 
-    A view over `Settings`, not a part of it: the environment stays one flat
+    A view over `Settings` - and, for a slice that reads one, a vendor's
+    settings beside it (`of`) - not a part of it: the environment stays one flat
     surface, and the relationships stated across it - the windows that have to
     admit each other - are still checked in one place by one validator. A
     consumer declares the fields it reads and receives those, so a process that
     cannot change anything does not name the credential that could.
 
     The narrowing is the point rather than the packaging. `read_mcp_server`
-    holding a `Settings` names `argocd_auth_token` whether or not the
-    environment ever supplies one - and the day somebody wires it in, nothing
-    objects. Holding a slice, it cannot name it at all.
+    holding a `Settings` names `database_password` whether or not it ever
+    connects with it - and the day somebody wires it in, nothing objects.
+    Holding a slice, it cannot name it at all.
 
     Frozen, because configuration is read at the top of a process and a value
     that could be edited on the way down would be a second way to configure
@@ -950,19 +667,42 @@ class SettingsSlice(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     @classmethod
-    def of(cls, settings: Settings) -> Self:
+    def of(cls, settings: Settings, *more: BaseModel) -> Self:
         """Narrows the whole configuration to this slice of it.
 
         Called at a composition root, which is the one place that holds both
         the whole and the parts. Fields are taken by name, so a slice naming
-        something `Settings` does not have fails here, as a missing field,
-        rather than at the moment the value was going to be used.
+        something none of them has fails here, as a missing field, rather than
+        at the moment the value was going to be used.
 
-        `from_attributes` so that a slice may name a derived property as
+        `more` is a vendor's settings, for a slice that reads one of its fields
+        beside the kernel's - the model an agent is answered by is named in the
+        provider's catalogue, so the investigator's and Code-Fix's slices take
+        it from the provider's settings. A field two of them both declare is
+        refused rather than taken from either: which one the slice meant is not
+        something a name can say.
+
+        Read by attribute so that a slice may name a derived property as
         readily as a stored field - `database_url` is one, and is what every
         holder of it actually wants.
         """
-        return cls.model_validate(settings, from_attributes=True)
+        sources = (settings, *more)
+        values: dict[str, object] = {}
+
+        for name in cls.model_fields:
+            holding = [source for source in sources if hasattr(source, name)]
+
+            if len(holding) > 1:
+                raise ValueError(
+                    f"[{name}] is configured by each of "
+                    f"{[type(source).__name__ for source in holding]}, so which one "
+                    f"{cls.__name__} reads cannot be told"
+                )
+
+            if holding:
+                values[name] = getattr(holding[0], name)
+
+        return cls.model_validate(values)
 
 
 class DatabaseSettings(SettingsSlice):
@@ -1013,54 +753,18 @@ class WriteMcpEndpoint(SettingsSlice):
     write_mcp_answered_within_seconds: float = _WRITE_MCP_ANSWERED_WITHIN_SECONDS
 
 
-class LLMSettings(SettingsSlice):
-    """What it takes to reach a model - the kernel's own, and nobody else's.
-
-    `core.llm` is behind a front door narrowed to the modules that
-    declare the `llm` extra, and this is the configuration that door needs. An
-    agent asks a model something through an `LLMClient` it was handed; which
-    SDK answers, and with whose key, is the composition root's business.
-    """
-
-    anthropic_api_key: str
-    anthropic_base_url: str
-
-    @classmethod
-    def for_the_judge(cls, settings: Settings) -> Self:
-        """What it takes for the grounding judge to reach its model: the same
-        key, at the judge's own address.
-
-        Refused where every agent is pointed at a stand-in and the judge at
-        nothing, since neither default is safe there. The agents' stand-in
-        would serve the judge the writer's recordings out of turn, or record
-        the judge's calls into the writer's scenario; the real API would spend
-        on every write-up judged. Built at a process's start, so a stack
-        addressed that way never starts.
-        """
-        if settings.anthropic_base_url and not settings.judge_anthropic_base_url:
-            raise ValueError(
-                f"JUDGE_ANTHROPIC_BASE_URL is empty while ANTHROPIC_BASE_URL is "
-                f"{settings.anthropic_base_url}: give the grounding judge a stand-in of "
-                f"its own, or point every agent at the real API")
-
-        return cls(anthropic_api_key=settings.anthropic_api_key,
-                   anthropic_base_url=settings.judge_anthropic_base_url)
-
-
 class TelemetrySettings(SettingsSlice):
     """Where a process's traces, metrics and logs go.
 
-    The directory every signal is written under, the two backends that may
-    receive them as well, and the level below which nothing is logged. Handed
-    to `telemetry` at the top of each process, which is the only reader:
+    The directory every signal is written under, the general OTLP backend that
+    may receive them as well, and the level below which nothing is logged.
+    Handed to `telemetry` at the top of each process, which is the only reader:
     instrumented code speaks the OTel API and never learns where what it
-    emitted ended up.
+    emitted ended up. A vendor's backend is that vendor's settings, read by the
+    process's root beside these.
     """
 
     telemetry_directory: str
     otel_exporter_otlp_endpoint: str
     otel_exporter_otlp_headers: str
-    langfuse_base_url: str
-    langfuse_public_key: str
-    langfuse_secret_key: str
     log_level: str

@@ -34,7 +34,7 @@ from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 from core.models.turn import Turn
 
-from core_test.framework.llm import settings_that_reach_no_api
+from core_test.framework.llm import a_policy_naming_the_adapters_model, settings_that_reach_no_api
 
 
 @pytest.mark.unit
@@ -44,7 +44,9 @@ def test_a_turn_asks_for_what_it_sent_to_be_cached() -> None:
     # as the transcript grows, which is exactly the shape of an investigation -
     # each turn's prefix is the previous turn's whole request.
     some_api = _an_api_that_answers()
-    investigator = AnthropicLLMClient(settings_that_reach_no_api(), client=some_api)
+    investigator = AnthropicLLMClient(settings_that_reach_no_api(),
+                                      a_policy_naming_the_adapters_model(),
+                                      client=some_api)
     dont_care_transcript = [Ask(text="dont care what was asked")]
 
     Scenario() \

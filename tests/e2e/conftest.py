@@ -20,6 +20,7 @@ from incident_record.repository.runs import RunState
 from psycopg import sql
 from qdrant_client import QdrantClient
 from slack_double.server import DEFAULT_BASE_URL as SLACK_DOUBLE_BASE_URL
+from vector_store_qdrant.settings import QdrantSettings
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
@@ -417,7 +418,7 @@ def _long_term_memory_was_forgotten() -> None:
     """
     settings = get_settings()
 
-    store = QdrantClient(url=settings.qdrant_url)
+    store = QdrantClient(url=QdrantSettings().qdrant_url)
 
     try:
         store.delete_collection(settings.incident_memory_collection)

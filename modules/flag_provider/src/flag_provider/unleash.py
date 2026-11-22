@@ -36,11 +36,11 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Final
 
 import httpx2
-from core import parse_iso, to_iso
+from core import AdapterSettings, parse_iso, to_iso
 from core.applying import known_not_applied
 from core.models import FlagChange, FlagState, FlagUndo
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
 from flag_provider.failures import FlagProviderUnavailable, FlagWriteFailed
 
@@ -103,7 +103,7 @@ _SECONDS_BETWEEN_ATTEMPTS: Final = 0.2
 Sleeper = Callable[[float], None]
 
 
-class UnleashFrontendSettings(BaseSettings):
+class UnleashFrontendSettings(AdapterSettings):
     """What it takes to ask the provider which flags are on.
 
     The evaluation credential and where to send it, and deliberately nothing
@@ -113,11 +113,12 @@ class UnleashFrontendSettings(BaseSettings):
     on the day somebody puts one in the environment.
 
     Read from the variables a deployment always set - `UNLEASH_BASE_URL`,
-    `UNLEASH_FRONTEND_TOKEN` - and from `.env` as the kernel's `Settings` is.
-    The defaults are the Target Environment's provider.
+    `UNLEASH_FRONTEND_TOKEN` - under the provider's own prefix, on the base
+    every vendor's settings share (`.env`, the rest ignored, frozen). The
+    defaults are the Target Environment's provider.
     """
 
-    model_config = SettingsConfigDict(env_prefix="UNLEASH_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="UNLEASH_")
 
     base_url: str = Field(default="http://localhost:4242")
     # Scoped to one environment by the provider, so the environment is the

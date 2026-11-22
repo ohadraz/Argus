@@ -34,7 +34,6 @@ from argus_testkit import Assertion, Scenario, all_of, calling
 from code_host import SourceDifference
 from code_host.github import GitHubReads, GitHubReadSettings
 from code_host.github.headers import AUTHORIZATION_HEADER, BEARER_SCHEME
-from core import get_settings
 from github_double.repository import DEFAULT_BASE_BRANCH, DEFAULT_FILES
 from github_double.server import DEFAULT_BASE_URL
 
@@ -58,7 +57,7 @@ THE_COMMIT_BEFORE_MAIN: Final = "main~1"
 MAIN: Final = "main"
 
 needs_a_real_repository = pytest.mark.skipif(
-    not (get_settings().github_read_token and get_settings().github_repository),
+    not (GitHubReadSettings().github_read_token and GitHubReadSettings().github_repository),
     reason="no GITHUB_READ_TOKEN or GITHUB_REPOSITORY: "
            "the real half of the contract cannot be checked"
 )
@@ -73,9 +72,9 @@ def test_a_comparison_reads_the_same_from_the_double_as_from_github() -> None:
     # without either has every walk reading evidence GitHub would never send.
     Scenario() \
         .given(at_github := _the_code_host_at(
-            get_settings().github_api_url,
-            get_settings().github_repository,
-            get_settings().github_read_token
+            GitHubReadSettings().github_api_url,
+            GitHubReadSettings().github_repository,
+            GitHubReadSettings().github_read_token
         )) \
         .when(lambda: at_github.difference_between(THE_COMMIT_BEFORE_MAIN, MAIN)) \
         .then(all_of(_it_names_some_file(), _it_reads_as(_the_double_compared())))
@@ -136,11 +135,11 @@ def _the_double_holds(pair: DeploymentPair) -> None:
 
 def _github_compares(base: str, head: str) -> dict[str, Any]:
     return _compared_at(
-        get_settings().github_api_url,
-        get_settings().github_repository,
+        GitHubReadSettings().github_api_url,
+        GitHubReadSettings().github_repository,
         base,
         head,
-        {AUTHORIZATION_HEADER: f"{BEARER_SCHEME} {get_settings().github_read_token}"}
+        {AUTHORIZATION_HEADER: f"{BEARER_SCHEME} {GitHubReadSettings().github_read_token}"}
     )
 
 

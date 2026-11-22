@@ -37,6 +37,7 @@ import httpx2
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, eventually
+from code_host.github import GitHubReadSettings
 from core import get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from push_source.github import (
@@ -46,6 +47,7 @@ from push_source.github import (
     REPOSITORY_FIELD,
     SIGNATURE_HEADER,
     SIGNATURE_PREFIX,
+    GitHubPushSettings,
 )
 from repository_index.records import RepositoryIndex
 from repository_index.records import get as the_index_recorded_for
@@ -155,7 +157,7 @@ def _the_watermark_points_at(sha: str) -> Assertion[Any]:
         if recorded is None:
             raise AssertionError(
                 f"Nothing is recorded about "
-                f"[{get_settings().github_repository}] at all, so the push "
+                f"[{GitHubReadSettings().github_repository}] at all, so the push "
                 f"was verified and then written nowhere."
             )
 
@@ -216,7 +218,7 @@ def _nothing_was_recorded_about(sha: str) -> Assertion[Any]:
 
 def _what_the_index_records() -> RepositoryIndex | None:
     with psycopg.connect(DATABASE_URL) as conn:
-        return the_index_recorded_for(conn, get_settings().github_repository)
+        return the_index_recorded_for(conn, GitHubReadSettings().github_repository)
 
 
 def _a_signed_push_of(sha: str) -> Callable[[], httpx2.Response]:
@@ -258,13 +260,13 @@ def _a_push_naming(sha: str) -> bytes:
     return json.dumps({
         REF_FIELD: f"{BRANCH_REF_PREFIX}{settings.deployed_branch}",
         AFTER_FIELD: sha,
-        REPOSITORY_FIELD: {FULL_NAME_FIELD: settings.github_repository}
+        REPOSITORY_FIELD: {FULL_NAME_FIELD: GitHubReadSettings().github_repository}
     }).encode()
 
 
 def _the_signature_over(body: bytes) -> str:
     return SIGNATURE_PREFIX + hmac.new(
-        get_settings().github_webhook_secret.encode(), body, hashlib.sha256
+        GitHubPushSettings().github_webhook_secret.encode(), body, hashlib.sha256
     ).hexdigest()
 
 
@@ -326,7 +328,7 @@ def _the_repository_answered(method: str,
     arranging one repository while Argus reads another."""
     response = httpx2.request(
         method,
-        f"{GITHUB_DOUBLE_BASE_URL}/repos/{get_settings().github_repository}{path}",
+        f"{GITHUB_DOUBLE_BASE_URL}/repos/{GitHubReadSettings().github_repository}{path}",
         json=asked,
         timeout=REQUEST_TIMEOUT_SECONDS
     )

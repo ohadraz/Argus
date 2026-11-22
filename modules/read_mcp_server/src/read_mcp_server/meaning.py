@@ -103,11 +103,15 @@ _UNCHECKED: Final = (
 
 
 class IndexReadSettings(SettingsSlice):
-    """Where the passages are kept, and whether this deployment keeps any.
+    """Where the passages are kept, what embedded them, and whether this
+    deployment keeps any.
 
-    The whole of what this tier may know about the index, and it is a read:
-    an address and a collection. Nothing here could build one - indexing is a
-    different process, off any incident's path, and this one only asks.
+    The whole of what this tier may know about the index, and it is a read: a
+    collection, and the model a question is embedded with to be compared with
+    what is in it - the same one the index was built with. Which store holds
+    the collection is the store's adapter's, built by the tier's root. Nothing
+    here could build an index - indexing is a different process, off any
+    incident's path, and this one only asks.
 
     `code_search` is what decides whether any of it exists. A deployment
     searching by grep alone opens no store and registers no tool: a tool that
@@ -116,8 +120,8 @@ class IndexReadSettings(SettingsSlice):
     about the code.
     """
 
-    qdrant_url: str
     repository_index_collection: str
+    repository_index_embedding_model: str
     code_search: CodeSearch
 
     @property

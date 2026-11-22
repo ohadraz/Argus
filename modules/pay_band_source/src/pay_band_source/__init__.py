@@ -19,7 +19,6 @@ adapter exercised only against a fake written by the same hand proves the fake.
 from pay_band_source.bands import (
     PayBand,
     PayBandsByTitle,
-    PayBandSettings,
     PayBandsRead,
     PayBandsUnavailable,
 )
@@ -28,6 +27,5 @@ __all__ = [
     "PayBand",
     "PayBandsByTitle",
     "PayBandsRead",
-    "PayBandsUnavailable",
-    "PayBandSettings"
+    "PayBandsUnavailable"
 ]

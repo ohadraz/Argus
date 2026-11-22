@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 from apps.intent_reader import the_model_for
 from argus_testkit import Assertion, Scenario
-from core import LLMSettings, Settings, get_settings
-from core.llm.adapters.anthropic_adapter import AnthropicProvider
+from core import Settings, get_settings
+from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.models import ModelPolicy, Reasoning
 
 # Where this process's model is reached, and which model and effort the Intent
@@ -28,26 +28,22 @@ def test_the_model_is_reached_where_the_settings_say_under_the_intent_readers_po
     # The one place this process chooses who answers. Read off the binding,
     # because that is the only place it can be seen: a client built from the
     # wrong address or under the wrong model answers in the same shape.
-    some_settings = LLMSettings(anthropic_api_key="", anthropic_base_url=SOME_ADDRESS)
+    some_model_settings = AnthropicSettings(anthropic_api_key="",
+                                            anthropic_base_url=SOME_ADDRESS,
+                                            intent_model=SOME_MODEL)
 
     Scenario() \
         .given(
-            the_process_settings := _settings_reaching(some_settings)
+            the_process_settings := _settings_asking_with(SOME_EFFORT)
         ) \
-        .when(lambda: the_model_for(the_process_settings)) \
-        .then(_built_over(AnthropicProvider(some_settings),
+        .when(lambda: the_model_for(the_process_settings, some_model_settings)) \
+        .then(_built_over(AnthropicProvider(some_model_settings),
                           ModelPolicy(model=SOME_MODEL, effort=SOME_EFFORT)))
 
 
-def _settings_reaching(reached_by: LLMSettings) -> Settings:
-    """The process's settings, reaching the model where `reached_by` says, under
-    this file's model and effort for the Intent Reader."""
-    return get_settings().model_copy(update={
-        "anthropic_api_key": reached_by.anthropic_api_key,
-        "anthropic_base_url": reached_by.anthropic_base_url,
-        "intent_model": SOME_MODEL,
-        "intent_effort": SOME_EFFORT
-    })
+def _settings_asking_with(effort: Reasoning) -> Settings:
+    """The process's settings, asking the Intent Reader's model with `effort`."""
+    return get_settings().model_copy(update={"intent_effort": effort})
 
 
 def _built_over(provider: AnthropicProvider, policy: ModelPolicy) -> Assertion[Any]:

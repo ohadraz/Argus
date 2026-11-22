@@ -586,7 +586,7 @@ def _its_name_is(expected: str) -> Assertion[PagerDuty | None]:
 
 
 def _settings_with(api_key: str) -> PagerDutySettings:
-    """The slice this reader runs under.
+    """The settings this reader runs under.
 
     Only the credential matters here; the client is injected, so no address is
     ever dialled and no certificate is ever checked.

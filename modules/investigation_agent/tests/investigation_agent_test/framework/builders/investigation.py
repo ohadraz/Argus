@@ -164,7 +164,7 @@ def a_factory_handing_over(model: Conversation) -> Conversations:
     def conversations(incident_id: str,
                       recorder: Recorder,
                       *,
-                      policy: ModelPolicy | None = None) -> Conversation:
+                      policy: ModelPolicy) -> Conversation:
         return model
 
     return conversations

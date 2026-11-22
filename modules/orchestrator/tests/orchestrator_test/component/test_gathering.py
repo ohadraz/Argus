@@ -62,7 +62,7 @@ from core.events import (
     StatusChanged,
     VerdictReached,
 )
-from core.llm import ClientFor, LLMClient
+from core.llm import LLMClient
 from core.models import (
     CHAT_THREAD,
     DISCARD_CACHE_ENTRIES,
@@ -92,7 +92,6 @@ from core.models import (
     Hypothesis,
     IncidentStatus,
     Meaning,
-    ModelPolicy,
     OpenedPullRequest,
     Ownership,
     PostmortemDocument,
@@ -3107,7 +3106,7 @@ class _AModelSubmitting:
 
 
 def _a_model_submitting(root_cause: str,
-                        clients_asked_for: list[Replay]) -> ClientFor:
+                        clients_asked_for: list[Replay]) -> Callable[[Replay], LLMClient]:
     """The factory the document asks for a client, noting each time it does.
 
     A factory rather than a client because the receipt belongs to an incident,
@@ -3119,7 +3118,7 @@ def _a_model_submitting(root_cause: str,
     be sent back as invented and this stand-in would answer the same thing
     twice.
     """
-    def client_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+    def client_for(replay: Replay) -> LLMClient:
         clients_asked_for.append(replay)
 
         return _AModelSubmitting({
@@ -3211,11 +3210,11 @@ class _AModelSpending:
         return self._answering.converse(transcript, tools, max_tokens)
 
 
-def _a_model_spending(tokens: int) -> ClientFor:
+def _a_model_spending(tokens: int) -> Callable[[Replay], LLMClient]:
     """The factory the document asks for a client, handing back one that files
     each call it makes under the incident, `tokens` at a time. The summary
     carries no figure, for the reason `_a_model_submitting` gives."""
-    def client_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+    def client_for(replay: Replay) -> LLMClient:
         return _AModelSpending(replay,
                                {"root_cause": "dont care",
                                 "executive_summary": "The fallback was off and checkout failed."},
@@ -4381,20 +4380,20 @@ class _AJudgeReading:
                     output_tokens=0)
 
 
-def _a_judge_reading_into(read: list[Transcript]) -> ClientFor:
+def _a_judge_reading_into(read: list[Transcript]) -> Callable[[Replay], LLMClient]:
     """The factory the grounding judge is asked for by, handing back one that
     flags nothing and keeps what it read in `read`."""
-    def judge_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+    def judge_for(replay: Replay) -> LLMClient:
         return _AJudgeReading(read)
 
     return judge_for
 
 
-def _a_model_overviewing() -> ClientFor:
+def _a_model_overviewing() -> Callable[[Replay], LLMClient]:
     """The factory the overview's writer is asked for by, handing back one
     that writes an overview naming no figure - the postmortem it is of has
     none to name."""
-    def client_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+    def client_for(replay: Replay) -> LLMClient:
         return _AModelSubmitting({OVERVIEW_FIELD: "Checkout failed, and Argus turned the "
                                                   "flag off."})
 
