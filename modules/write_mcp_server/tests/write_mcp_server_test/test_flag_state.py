@@ -18,7 +18,10 @@ asked again after its answer was lost - answered as made, dated by the first of
 them, and not written twice. Anybody else's is a change made since, and is
 refused without a write: writing over it would overwrite a person's decision. A
 change nobody can attribute, or a history that could not be read, is a question
-nobody could answer, and writes nothing.
+nobody could answer, and writes nothing. A change to the state the plan found is
+none of these: the provider dates its read to the whole second, so a change made
+a moment before the read is in the history after it - and one made after it
+changed nothing.
 
 How the provider is reached, and how long it takes to show a change, are the
 adapter's and are pinned in its own suite; what is left here is the tier's part:
@@ -80,6 +83,10 @@ SOME_FLAG = "monthly-spend-feature"
 SOME_OTHER_FLAG = "recommendations-v2"
 DONT_CARE_FLAG = "dont-care-flag"
 DONT_CARE_ENABLED = False
+# The state the changes in these histories move a flag to, unless a case says
+# otherwise: off, which is where every plan below that a history is read for
+# was asked to move its flag.
+OFF_THE_PLAN = False
 
 # The provider's own time on its answer to the admin read - what a plan is dated
 # by, and what its history is asked from when the change is made.
@@ -99,7 +106,9 @@ BY_ARGUS = True
 BY_SOMEBODY_ELSE = False
 BY_NOBODY_ANYONE_CAN_NAME = None
 
-# Moments in the history, every one after the plan's read, ordered as named.
+# Moments in the history, ordered as named, every one inside the window it is
+# asked from - which opens at the plan's read, dated to the whole second, so a
+# change in that second may have come before the read.
 SOME_EARLIER_OTHER_CHANGE_AT = SOME_READ_AT + timedelta(minutes=1)
 SOME_ARGUS_CHANGE_AT = SOME_EARLIER_OTHER_CHANGE_AT + timedelta(minutes=1)
 SOME_LATER_ARGUS_CHANGE_AT = SOME_ARGUS_CHANGE_AT + timedelta(minutes=1)
@@ -108,15 +117,14 @@ SOME_OTHER_CHANGE_AT = SOME_LATER_ARGUS_CHANGE_AT + timedelta(minutes=1)
 NOTHING_CHANGED: list[FlagChange] = []
 
 
-def _a_change(flag: str, by: bool | None, at: datetime) -> FlagChange:
+def _a_change(flag: str, by: bool | None, at: datetime, to: bool = OFF_THE_PLAN) -> FlagChange:
     """One change in the provider's history, as its adapter reads it: which flag,
-    when by the provider's clock, and whether it was Argus's. Which way it went
-    decides nothing here - every change since the plan is the flag off the plan.
+    which state it moved the flag `to`, when by the provider's clock, and whether
+    it was Argus's.
 
     Up here rather than among the helpers below, because a parametrized case
     builds its history when the module is read."""
-    return FlagChange(flag=flag, enabled=DONT_CARE_ENABLED, occurred_at=to_iso(at),
-                      made_by_argus=by)
+    return FlagChange(flag=flag, enabled=to, occurred_at=to_iso(at), made_by_argus=by)
 
 
 @pytest.mark.unit
@@ -281,6 +289,58 @@ def test_a_flag_argus_alone_changed_since_the_plan_is_answered_as_made_and_not_w
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("by", [BY_ARGUS, BY_SOMEBODY_ELSE, BY_NOBODY_ANYONE_CAN_NAME],
+                         ids=["argus", "somebody-else", "nobody-anyone-can-name"])
+def test_a_change_to_the_state_the_plan_found_within_its_second_does_not_hold_the_write_back(
+        by: bool | None) -> None:
+    # The provider dates its read to the whole second, so a change made a moment
+    # before the read sits in the history after it. It is the state the plan
+    # read, not a move off it: a put-back made in the second Argus's own change
+    # landed found that change, took it for the put-back already made, and left
+    # the flag where the incident had moved it.
+    a_moment_before_the_read = SOME_READ_AT + timedelta(milliseconds=261)
+
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is([
+            _a_change(SOME_FLAG, by=by, at=a_moment_before_the_read, to=False)
+        ])) \
+        .when(lambda: set_flag(_a_plan(SOME_FLAG, was_enabled=False), True, flags)) \
+        .then(lambda _: _the_provider_was_asked_to_set(flags, SOME_FLAG, True))
+
+
+@pytest.mark.unit
+def test_argus_s_change_to_the_state_the_plan_found_before_its_flip_dates_the_flip_by_the_flip(
+) -> None:
+    # The change to where the plan found the flag came before the read, and is
+    # the read's past: the flip that follows is the one already made, dated by
+    # its own time.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is([
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_READ_AT, to=True),
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT)
+        ])) \
+        .when(lambda: set_flag(_a_plan(SOME_FLAG, was_enabled=True), False, flags)) \
+        .then(all_of(
+            _nothing_was_written(flags),
+            _it_puts_back(SOME_FLAG, True, written_at=SOME_ARGUS_CHANGE_AT)
+        ))
+
+
+@pytest.mark.unit
+def test_a_flip_argus_s_own_change_put_back_is_written_again() -> None:
+    # Argus's flip, then Argus's own change back to where the plan found the
+    # flag: the flip no longer stands, so it is not answered as made - the flag
+    # is where the plan found it, and the change asked for is written.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is([
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT),
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_LATER_ARGUS_CHANGE_AT, to=True)
+        ])) \
+        .when(lambda: set_flag(_a_plan(SOME_FLAG, was_enabled=True), False, flags)) \
+        .then(lambda _: _the_provider_was_asked_to_set(flags, SOME_FLAG, False))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("history", "left_behind", "performed"),
     [
@@ -290,9 +350,18 @@ def test_a_flag_argus_alone_changed_since_the_plan_is_answered_as_made_and_not_w
          FlagUndo(flag=SOME_FLAG, was_enabled=True, written_at=SOME_READ_AT), True),
         ([_a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_EARLIER_OTHER_CHANGE_AT),
           _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT)],
-         FlagUndo(flag=SOME_FLAG, was_enabled=True, written_at=SOME_READ_AT), True)
+         FlagUndo(flag=SOME_FLAG, was_enabled=True, written_at=SOME_READ_AT), True),
+        # Argus's flip landed and its answer was lost, and a person put the
+        # flag back before Argus asked again: their change is to where the plan
+        # found the flag, and it is still their decision.
+        ([_a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_ARGUS_CHANGE_AT),
+          _a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT, to=True)],
+         FlagUndo(flag=SOME_FLAG, was_enabled=True, written_at=SOME_READ_AT), True),
+        ([_a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_EARLIER_OTHER_CHANGE_AT),
+          _a_change(SOME_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT, to=True)],
+         None, False)
     ],
-    ids=["alone", "after-argus", "before-argus"]
+    ids=["alone", "after-argus", "before-argus", "put-back-after-argus", "away-and-back"]
 )
 def test_a_flag_somebody_else_changed_since_the_plan_is_refused_as_changed_since(
         history: list[FlagChange], left_behind: FlagUndo | None, performed: bool) -> None:
@@ -769,6 +838,21 @@ def test_a_flag_somebody_else_changed_since_the_plan_is_a_change_since(
 
 
 @pytest.mark.unit
+def test_a_flag_whose_only_change_since_the_plan_is_to_the_state_it_found_contradicts_the_row(
+) -> None:
+    # Argus's own change to where the plan found the flag, within the plan's
+    # second, is no flip of the claim's: the row says the flip landed and the
+    # provider records none - which is nobody's to say, not still Argus's.
+    Scenario() \
+        .given(flags := _a_provider_whose_history_since_the_plan_is([
+            _a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_READ_AT,
+                      to=THE_CLAIM_S_PLAN.descriptor.was_enabled)
+        ])) \
+        .when(lambda: still_argus_s(THE_CLAIM_S_PLAN, ARGUS_S_FLIP, flags)) \
+        .then(nobody_can_say())
+
+
+@pytest.mark.unit
 def test_a_flag_whose_change_since_nobody_could_attribute_is_nobody_s_to_say() -> None:
     # It may be Argus's own, or somebody's decision: not said to be either.
     Scenario() \
@@ -852,9 +936,11 @@ def test_a_flip_argus_alone_made_since_the_plan_is_found_made_and_dated_by_the_f
     "history",
     [
         NOTHING_CHANGED,
-        [_a_change(SOME_OTHER_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)]
+        [_a_change(SOME_OTHER_FLAG, by=BY_SOMEBODY_ELSE, at=SOME_OTHER_CHANGE_AT)],
+        [_a_change(SOME_FLAG, by=BY_ARGUS, at=SOME_READ_AT,
+                   to=THE_CLAIM_S_PLAN.descriptor.was_enabled)]
     ],
-    ids=["nothing-since", "only-another-flag-changed"]
+    ids=["nothing-since", "only-another-flag-changed", "only-to-the-state-it-found"]
 )
 def test_a_flag_nobody_changed_since_the_plan_has_nothing_landed(
         history: list[FlagChange]) -> None:

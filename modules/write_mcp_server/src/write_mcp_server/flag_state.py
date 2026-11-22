@@ -23,10 +23,11 @@ undoing a *mitigation* the same call with the state reversed.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import datetime
 
 from core import parse_iso
-from core.models import ChangeFound, FlagUndo, Made, NotMade, Planned
+from core.models import ChangeFound, FlagChange, FlagUndo, Made, NotMade, Planned
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites, FlagWriteFailed
 from mcp_transport import (
     a_change_made_since,
@@ -87,7 +88,7 @@ def set_flag(planned: Planned[FlagUndo], enabled: bool, flags: FlagProviderWrite
 
     The provider's history since the plan's read is read once, before the
     write - after it, the write would be its own evidence - and only the
-    flag's own changes in it have a say:
+    flag's own changes after the plan's read have a say (`_after_the_read`):
 
     - none: the flag is as planned, and is written. The provider returns only
       once the change is visible to evaluation, so a caller about to judge
@@ -179,7 +180,8 @@ def still_argus_s(planned: Planned[FlagUndo],
     toggle before it answers, and the answer's date is whole seconds, so
     Argus's own change can fall before it.
 
-    Only Argus's changes to the flag there, and it is still Argus's. Anybody
+    Only the flag's changes after the plan's read count (`_after_the_read`).
+    Only Argus's there, and it is still Argus's. Anybody
     else's is a decision made since, saying so. No change to the flag at all
     contradicts the row, which says Argus's flip landed - and so is a question
     nobody can answer, as are a change nobody can attribute and a history that
@@ -197,7 +199,7 @@ def still_argus_s(planned: Planned[FlagUndo],
                   f"{failure}"
         )
 
-    changes = [change for change in history if change.flag == flag]
+    changes = _after_the_read(history, descriptor)
 
     if any(change.made_by_argus is False for change in changes):
         return ChangeFound(
@@ -228,15 +230,18 @@ def _made_since_the_plan(planned: Planned[FlagUndo],
     `planned` describes, raising as the write raises - the one compare the write
     and the claimed read share.
 
-    Read once, and only the flag's own changes in it have a say: none is the
-    flag as planned, answered `None`; Argus's alone are the flip already made,
-    answered with the plan's undo dated by the first of them; anybody else's is
-    changed since, refused - leaving the plan's undo behind, dated by the plan's
-    read, where Argus's own change landed among them; one nobody can attribute
-    is refused as a question nobody could answer. A history that could not be
-    read left nothing.
+    Read once, and only the flag's own changes after the plan's read have a say
+    (`_after_the_read`): none is the flag as planned, answered `None`; Argus's
+    alone are the flip already made where the last of them left the flag in the
+    state asked for - answered with the plan's undo dated by the change that
+    moved it there - and the flag as planned where Argus's own put it back;
+    anybody else's is changed since, refused - leaving the plan's undo behind,
+    dated by the plan's read, where Argus's own flip landed among them; one
+    nobody can attribute is refused as a question nobody could answer. A
+    history that could not be read left nothing.
     """
     flag = planned.descriptor.flag
+    found = planned.descriptor.was_enabled
 
     try:
         history = flags.changes_since(planned.since)
@@ -245,14 +250,15 @@ def _made_since_the_plan(planned: Planned[FlagUndo],
             f"could not read what changed to flag [{flag}] since it was planned: {failure}"
         )) from failure
 
-    changes = [change for change in history if change.flag == flag]
-    first_of_argus = next((change for change in changes if change.made_by_argus is True), None)
+    changes = _after_the_read(history, planned.descriptor)
+    argus_s_flip = any(change.made_by_argus is True and change.enabled != found
+                       for change in changes)
 
     if any(change.made_by_argus is False for change in changes):
         raise FlagNotSet(a_change_made_since(
             f"flag [{flag}] was changed by somebody else since it was planned",
-            None if first_of_argus is None else _dated(planned, planned.since),
-            performed=first_of_argus is not None
+            _dated(planned, planned.since) if argus_s_flip else None,
+            performed=argus_s_flip
         ))
 
     if any(change.made_by_argus is None for change in changes):
@@ -260,10 +266,39 @@ def _made_since_the_plan(planned: Planned[FlagUndo],
             f"flag [{flag}] was changed since it was planned, and nobody can say by whom"
         ))
 
-    if first_of_argus is None:
+    if not changes or changes[-1].enabled == found:
         return None
 
-    return _dated(planned, parse_iso(first_of_argus.occurred_at))
+    # The change that moved the flag where it stands: the first after the last
+    # time Argus's own changes put it back where the plan found it.
+    put_back = [index for index, change in enumerate(changes) if change.enabled == found]
+    standing = changes[put_back[-1] + 1 if put_back else 0]
+
+    return _dated(planned, parse_iso(standing.occurred_at))
+
+
+def _after_the_read(history: Iterable[FlagChange], plan: FlagUndo) -> list[FlagChange]:
+    """The plan's flag's changes in `history` from the first that moved it off
+    the state the plan found - the ones that came after the plan's read.
+
+    The provider dates its read to the whole second, and its history is asked
+    from that second, so a change made a moment before the read sits in the
+    history after it. The plan already read the flag in the state such a change
+    left it in, so the changes to that state before any move away from it are
+    the read's own past - or, made after the read, changed nothing - and they
+    are dropped, whoever made them. Counted, Argus's own was how a put-back made
+    in the second Argus's change landed took that change for the put-back
+    already made, and wrote nothing.
+
+    Only that leading run. From the first move away on, every change counts,
+    whoever made it: a person who puts back a flag Argus moved has decided
+    something, and dropped, it would be written over.
+    """
+    changes = [change for change in history if change.flag == plan.flag]
+    first_away = next((index for index, change in enumerate(changes)
+                       if change.enabled != plan.was_enabled), len(changes))
+
+    return changes[first_away:]
 
 
 def _dated(planned: Planned[FlagUndo], written_at: datetime) -> FlagUndo:
