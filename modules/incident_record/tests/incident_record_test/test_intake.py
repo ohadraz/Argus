@@ -38,13 +38,14 @@ from argus_testkit import (
     one_record_was_logged,
     the_same_error_reached_the_caller,
 )
-from core import Connections, connect_from_env, utc_now
+from core import utc_now
 from core.events import AlertAcknowledged, IncidentEvent, Publisher
 from core.models import ALERT_FIRING, Alert, IncidentStatus, Reference
 from core.telemetry import ARGUS_INCIDENT_ID
 from incident_record import events_into_connection, start_incident
 from incident_record.intake import Enqueue
 from incident_record.repository import events, incidents, references, runs
+from postgres import Connections, connect_from_env
 
 from incident_record_test.framework.transactions import failing_on_its_connection
 

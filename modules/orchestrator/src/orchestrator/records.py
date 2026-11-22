@@ -19,7 +19,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from core import Connections, unit_of_work
 from core.events import (
     ActionTaken,
     ExecutiveSynopsisWithheld,
@@ -58,6 +57,7 @@ from incident_record.repository import (
     synopses,
     taken_actions,
 )
+from postgres import Connections, unit_of_work
 from postmortem_writing import said_off_the_page
 
 from orchestrator.gathering import what_became_of

@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import partial
 
-from core import Connections, Settings, to_iso
+from core import Settings, to_iso
 from core.anomaly import AnomalyThresholds
 from core.models import (
     NOTIFICATION_KEY,
@@ -41,6 +41,7 @@ from incident_record.repository import exchange_rates, incidents, references
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
 from pay_band_source import PayBandsRead, PayBandsUnavailable
+from postgres import Connections
 from postmortem_writing import (
     EngagedResponder,
     EngagementAnswer,

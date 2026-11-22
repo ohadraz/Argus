@@ -21,18 +21,11 @@ from typing import Any, Final
 import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from core import (
-    Fence,
-    Holding,
-    RunLost,
-    WriteMcpEndpoint,
-    connect_from_env,
-    get_settings,
-    utc_now,
-)
+from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings, utc_now
 from core.models import Alert
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_record.repository import incidents, runs
+from postgres import connect_from_env
 from write_mcp_client import WriteTier, write_mcp
 
 REQUEST_TIMEOUT_SECONDS: Final = 30.0

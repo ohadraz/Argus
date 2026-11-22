@@ -16,7 +16,6 @@ from argus_testkit import (
     calling,
     the_answer_was,
 )
-from core import connect_from_env
 from core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
@@ -42,6 +41,7 @@ from core.models import (
 )
 from incident_record.repository import hypotheses, incidents, taken_actions
 from incident_record.repository.taken_actions import NoLongerOpen
+from postgres import connect_from_env
 from psycopg import sql
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back

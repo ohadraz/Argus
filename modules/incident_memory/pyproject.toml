@@ -23,7 +23,7 @@ dev = [
     # The schema, because the component and integration tests file records in
     # a database started from an empty one rather than adopting whatever the
     # container came up with.
-    "argus-core[migrations]",
+    "argus-postgres[migrations]",
     "argus-argus_testkit",
     # The store's adapter the integration tests write through, which no module
     # here imports: the deliverer's root builds it and hands `keeping` the port.
@@ -36,6 +36,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

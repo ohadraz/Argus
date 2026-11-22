@@ -16,17 +16,7 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
-from core import (
-    Connections,
-    Fence,
-    Holding,
-    RunLost,
-    connect_from_env,
-    fence,
-    get_settings,
-    unit_of_work,
-    utc_now,
-)
+from core import Fence, Holding, RunLost, get_settings, utc_now
 from core.events import StatusChanged
 from core.llm import ModelUnavailable
 from core.models import (
@@ -46,6 +36,7 @@ from incident_record.ending import EndedByAPerson, ended_by_a_person_via
 from incident_record.repository import events, hypotheses, incidents, runs, taken_actions
 from opentelemetry import baggage
 from orchestrator import worker
+from postgres import Connections, connect_from_env, fence, unit_of_work
 from psycopg.pq import TransactionStatus
 
 from orchestrator_test.framework.builders import a_determined_hypothesis

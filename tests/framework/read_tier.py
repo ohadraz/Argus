@@ -20,7 +20,7 @@ from unittest.mock import create_autospec
 
 from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
-from core import Connections, ReadMcpEndpoint
+from core import ReadMcpEndpoint
 from core.embedding import Embedder
 from core.models import CodeSearch, ToolDefinition
 from core.vector_store import VectorSearch
@@ -28,6 +28,7 @@ from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
 from mcp.server.fastmcp import FastMCP
 from metrics_source import MetricsSource, SeriesClassifier
+from postgres import Connections
 from read_mcp_client import offered
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings

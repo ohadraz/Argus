@@ -19,7 +19,7 @@ from typing import Annotated
 
 from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
-from core import Connections, ReadMcpEndpoint
+from core import ReadMcpEndpoint
 from core.embedding import Embedder
 from core.models import (
     AlertRuleStanding,
@@ -38,6 +38,7 @@ from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
 from mcp_transport import TracedFastMCP
 from metrics_source import MetricsSource, SeriesClassifier
+from postgres import Connections
 from pydantic import Field
 
 from read_mcp_server import (

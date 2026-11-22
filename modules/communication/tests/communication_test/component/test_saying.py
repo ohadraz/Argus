@@ -45,7 +45,7 @@ from communication.saying import (
     a_chat_destination,
     a_destination_per_register,
 )
-from core import connect_from_env, new_id, to_iso, utc_now
+from core import new_id, to_iso, utc_now
 from core.events import (
     ActionTaken,
     ChangesRetrieved,
@@ -85,6 +85,7 @@ from core.models import (
 )
 from incident_record.repository import events, incidents, postmortems, references, synopses
 from narration import a_narration_line
+from postgres import connect_from_env
 from slack_sdk import WebClient
 
 from communication_test.framework.slack import messages_posted_to

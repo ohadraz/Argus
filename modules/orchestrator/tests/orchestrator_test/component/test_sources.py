@@ -27,7 +27,7 @@ from unittest.mock import call, create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
-from core import connect_from_env, get_settings, utc_now
+from core import get_settings, utc_now
 from core.anomaly import AnomalyThresholds
 from core.models import (
     NOTIFICATION_KEY,
@@ -41,6 +41,7 @@ from mcp_transport import McpClient
 from oncall_source import Acknowledgement, OnCallUnavailable, ReportedIncident
 from oncall_source.platform import OnCallPlatform, PagedIncident
 from orchestrator.sources import the_real_sources
+from postgres import connect_from_env
 from postmortem_writing import EngagementAnswer, NotPaged, Sources
 from read_mcp_client import ReadTier
 

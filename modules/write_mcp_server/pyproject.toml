@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-core",
+    "argus-postgres",
     # The run a change is made for, asked of its own row before the change is
     # made (`fencing`).
     "argus-incident_record",
@@ -26,6 +27,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-mcp_transport = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-deployment_platform = { workspace = true }

@@ -15,16 +15,10 @@ from functools import partial
 from typing import Final
 
 from code_host.github import GitHubReads, GitHubReadSettings
-from core import (
-    DatabaseSettings,
-    SettingsSlice,
-    TelemetrySettings,
-    get_settings,
-    open_pool,
-)
+from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings
 from core.models import CodeSearch
-from core.schema import require_schema
 from embedding_fastembed import an_embedder
+from postgres import open_pool, require_schema
 from repository_index.building import IndexSettings, index_repository
 from repository_index.catching_up import catch_up, catch_up_forever
 from repository_index.records import get

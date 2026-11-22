@@ -7,13 +7,13 @@ from typing import Any
 import pytest
 from alert_source import AlertUnreadable
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
-from core import connect_from_env
 from core.models import IncidentStatus
 from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi.testclient import TestClient
 from incident_record.repository import events, incidents, runs
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
+from postgres import connect_from_env
 
 from web_app_test.framework.application import SOME_SENDER, app
 from web_app_test.framework.assertions import the_response_was

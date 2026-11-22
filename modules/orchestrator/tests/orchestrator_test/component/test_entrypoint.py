@@ -10,10 +10,9 @@ import pytest
 from argus_testkit import one_record_was_logged
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, attempting, calling
-from core import connect_from_env, get_settings, utc_now
+from core import get_settings, utc_now
 from core.events import StatusChanged
 from core.models import Alert, IncidentStatus
-from core.schema import reset_schema
 from core.telemetry import (
     ARGUS_INCIDENT_ID,
     ARGUS_INCIDENT_OUTCOME,
@@ -29,6 +28,7 @@ from langgraph.types import StateSnapshot
 from opentelemetry import trace
 from orchestrator import entrypoint
 from orchestrator.walk.state import IncidentState
+from postgres import connect_from_env, reset_schema
 from psycopg.rows import DictRow, dict_row
 
 from orchestrator_test.framework.observing import Observed, attributes_of, observing

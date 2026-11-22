@@ -19,9 +19,9 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import connect_from_env
 from core.models import PublishedRates
 from incident_record.repository import exchange_rates
+from postgres import connect_from_env
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 

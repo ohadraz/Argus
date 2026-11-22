@@ -20,7 +20,7 @@ import httpx
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
-from core import Connections, get_settings, to_iso
+from core import get_settings, to_iso
 from core.anomaly import AnomalyThresholds
 from core.models import AlertRuleStanding, MetricBucket, SeriesQuery
 from mcp.shared.exceptions import McpError
@@ -28,6 +28,7 @@ from mcp.types import ErrorData
 from mcp_transport import McpClient, McpToolError, McpUnreachable
 from orchestrator.sources import the_real_sources
 from pay_band_source import PayBandsByTitle, PayBandsUnavailable
+from postgres import Connections
 from postmortem_writing import Sources
 from read_mcp_client import ReadTier
 

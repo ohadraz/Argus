@@ -19,9 +19,8 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
-from core import connect_from_env
-from core.schema import SchemaNotApplied, reset_schema
 from fastapi.testclient import TestClient
+from postgres import SchemaNotApplied, connect_from_env, reset_schema
 
 from web_app_test.framework.application import app
 

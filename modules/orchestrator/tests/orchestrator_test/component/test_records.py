@@ -25,7 +25,7 @@ from argus_testkit import (
     attempting,
     the_answer_was,
 )
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import (
     ActionTaken,
     ExecutiveSynopsisWithheld,
@@ -75,6 +75,7 @@ from incident_record.repository import (
 )
 from orchestrator.records import Records
 from orchestrator.walk.ports import ClaimedAction
+from postgres import connect_from_env
 from postmortem_writing import said_off_the_page
 
 from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead, reverting

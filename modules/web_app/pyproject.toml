@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-core",
+    "argus-postgres",
     "argus-incident_record",
     "argus-narration",
     # The push webhook writes one row of the index's watermark and indexes
@@ -30,13 +31,13 @@ dependencies = [
 ]
 
 # `reset_schema` runs the migration chain, so this suite needs the extra the
-# kernel keeps it behind. Declared here rather than relied on from the
+# database keeps it behind. Declared here rather than relied on from the
 # workspace venv: `test_module` resolves each module against its own
 # dependencies alone, and a suite that only passes locally is the failure that
 # arrangement exists to catch.
 [dependency-groups]
 dev = [
-    "argus-core[migrations]",
+    "argus-postgres[migrations]",
     "argus-argus_testkit",
     # What the app's spans are asserted through: an SDK's in-memory exporter.
     # Never a runtime dependency - the process's root installs the SDK.
@@ -45,6 +46,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
 argus-repository_index = { workspace = true }

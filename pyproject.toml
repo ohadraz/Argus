@@ -159,6 +159,7 @@ root_packages = [
     "oncall_source",
     "orchestrator",
     "pay_band_source",
+    "postgres",
     "postmortem_rendering",
     "postmortem_writing",
     "push_source",
@@ -199,13 +200,14 @@ source_modules = ["http_applying"]
 forbidden_modules = ["*"]
 
 [[tool.importlinter.contracts]]
-name = "incident_record knows only the kernel"
+name = "incident_record knows only the kernel and the database"
 type = "forbidden"
 source_modules = ["incident_record"]
 forbidden_modules = ["*"]
 ignore_imports = [
     "incident_record.** -> core",
     "incident_record.** -> core.**",
+    "incident_record.** -> postgres",
 ]
 # A layer that stops importing something it was allowed to import is not a
 # failure, and an allowance is written for a package rather than for whichever
@@ -271,7 +273,6 @@ ignore_imports = [
     "** -> core.models",
     "** -> core.events",
     "** -> core.replay",
-    "** -> core.schema",
     "** -> core.anomaly",
     # The names telemetry is spelled in. A door for everyone, because every
     # process opens spans - the walk names the incident on its, the servers
@@ -395,6 +396,7 @@ forbidden_modules = ["*"]
 ignore_imports = [
     "web_app.** -> core",
     "web_app.** -> core.**",
+    "web_app.** -> postgres",
     "web_app.** -> incident_record",
     "web_app.** -> incident_record.**",
     "web_app.** -> narration",

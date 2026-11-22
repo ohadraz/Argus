@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from core import Connections
 from core.events import RecordedEvent
+from postgres import Connections
 
 from incident_record.repository import cursors, events
 

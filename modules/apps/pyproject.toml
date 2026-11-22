@@ -3,10 +3,11 @@ name = "argus-apps"
 version = "0.1.0"
 requires-python = ">=3.14"
 
-# What the roots share: the settings each reads, and the telemetry every
-# process but the schema job starts. Everything else is a process's own extra.
+# What the roots share: the settings each reads, the database each connects
+# to, and the telemetry every process but the schema job starts. Everything else is a process's own extra.
 dependencies = [
     "argus-core",
+    "argus-postgres",
     "argus-telemetry",
 ]
 
@@ -85,7 +86,7 @@ intent_reader = [
     "argus-chat_platform",
 ]
 schema = [
-    "argus-core[migrations]",
+    "argus-postgres[migrations]",
 ]
 
 
@@ -101,6 +102,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-telemetry = { workspace = true }
 argus-orchestrator = { workspace = true }
 argus-incident_record = { workspace = true }

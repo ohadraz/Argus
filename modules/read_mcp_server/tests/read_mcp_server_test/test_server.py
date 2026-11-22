@@ -34,7 +34,7 @@ from argus_testkit import (
     the_answer_was,
 )
 from code_host import CodeHostReads
-from core import Connections, ReadMcpEndpoint
+from core import ReadMcpEndpoint
 from core.embedding import Embedder
 from core.models import CodeSearch
 from core.vector_store import VectorSearch
@@ -44,6 +44,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, Tool
 from metrics_source import MetricsSource, SeriesClassifier
+from postgres import Connections
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings

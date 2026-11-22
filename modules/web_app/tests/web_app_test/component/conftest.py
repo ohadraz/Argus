@@ -16,8 +16,7 @@ from typing import Final
 
 import pytest
 from argus_testkit import refuse_the_e2e_stacks_project
-from core import connect_from_env
-from core.schema import reset_schema
+from postgres import connect_from_env, reset_schema
 from psycopg import sql
 
 # The compose service this suite brings up, and what it stops.

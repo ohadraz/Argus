@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import ActionRefused, IncidentEvent, Publisher
 from core.models import (
     Action,
@@ -49,6 +49,7 @@ from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node
 from orchestrator.walk.state import IncidentState
+from postgres import connect_from_env
 
 # The flag both incidents blame.
 THE_CONTESTED_FLAG: Final = "kuki-flag"

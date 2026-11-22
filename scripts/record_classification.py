@@ -50,7 +50,7 @@ import uvicorn
 from anthropic_double.recordings import RECORDINGS_DIR
 from anthropic_double.server import app as the_double
 from chat_platform.slack_deliveries import SLACK
-from core import DatabaseSettings, Settings, get_settings, open_pool, utc_now
+from core import DatabaseSettings, Settings, get_settings, utc_now
 from core.events import PersonWrote
 from core.llm import build_llm_client
 from core.models import Meaning, ModelPolicy, a_chat_message
@@ -59,6 +59,7 @@ from llm_anthropic import AnthropicProvider, AnthropicSettings
 from message_intent.answering import answer
 from message_intent.classifying import classify
 from narration import NarrationLine, build_narration
+from postgres import open_pool
 
 # A port of its own, so this can run while a stack is up: the walk's double and
 # the intent reader's are that stack's while it runs.

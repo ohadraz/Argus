@@ -13,13 +13,7 @@ from typing import Final
 
 from alerting_platform.grafana import Grafana, GrafanaSettings
 from code_host.github import GitHubReads, GitHubReadSettings
-from core import (
-    DatabaseSettings,
-    ReadMcpEndpoint,
-    TelemetrySettings,
-    get_settings,
-    open_pool,
-)
+from core import DatabaseSettings, ReadMcpEndpoint, TelemetrySettings, get_settings
 from core.models import MetricBucket, RuleSeries
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from embedding_fastembed import an_embedder
@@ -27,6 +21,7 @@ from flag_provider.unleash import UnleashFrontend, UnleashFrontendSettings
 from metrics_source import MetricsSource
 from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
 from metrics_source.prometheus_settings import PrometheusSettings
+from postgres import open_pool
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings

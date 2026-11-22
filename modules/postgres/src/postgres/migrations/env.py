@@ -16,7 +16,7 @@ here is written, not generated.
 from __future__ import annotations
 
 from alembic import context
-from core.config import get_settings
+from core import get_settings
 from sqlalchemy import create_engine, pool
 
 # SQLAlchemy picks a driver from the URL's scheme and `postgresql` alone means

@@ -35,7 +35,7 @@ from chat_platform import (
     Pressed,
     Written,
 )
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import PersonWrote, StatusChanged
 from core.models import (
     Alert,
@@ -53,6 +53,7 @@ from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi.testclient import TestClient
 from incident_record.repository import conversation, events, incidents, references
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from postgres import connect_from_env
 from web_app.app import chat_platform_of
 
 from web_app_test.framework.application import app

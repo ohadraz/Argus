@@ -12,7 +12,7 @@ from __future__ import annotations
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import (
     AlertAcknowledged,
     FixAttempted,
@@ -31,6 +31,7 @@ from core.models import (
     RuleReading,
 )
 from incident_record.repository import events, incidents
+from postgres import connect_from_env
 
 from web_app_test.framework.assertions import (
     the_page_keeps_asking,

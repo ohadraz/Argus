@@ -321,7 +321,7 @@ THE_KERNEL_S_BASE = ("from pydantic_settings import BaseSettings",
     pytest.param(("from core import get_settings",
                   "lease = get_settings().run_lease_seconds"), [1, 2],
                  id="the-kernel-s-settings"),
-    pytest.param(("from core import Connections, connect_from_env",
+    pytest.param(("from postgres import Connections, connect_from_env",
                   "def take(connections: Connections = connect_from_env) -> None: ..."), [1, 2],
                  id="a-connection-as-a-default"),
     pytest.param(("import os",
@@ -466,10 +466,10 @@ def test_a_root_may_read_the_environment(module: str) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("module", ["core.config", "core.db", "core.migrations.env"])
+@pytest.mark.parametrize("module", ["core.config", "postgres.db", "postgres.migrations.env"])
 def test_where_a_reader_is_defined_it_may_name_itself(module: str) -> None:
-    # The kernel defines both readers, and nothing hands Alembic's own entry
-    # script a parameter.
+    # The kernel defines one reader and the database the other, and nothing
+    # hands Alembic's own entry script a parameter.
     Scenario() \
         .given(sources := {module: _a_module_reading(
             "from core.config import get_settings",
@@ -544,8 +544,8 @@ def test_a_vendor_s_setting_the_kernel_declares_too_is_refused(
         .then(the_answer_was(refused))
 
 
-# A module allowed to read the environment, as the kernel's connection is.
-AN_ALLOWED_READER = "core.db"
+# A module allowed to read the environment, as the database's connection is.
+AN_ALLOWED_READER = "postgres.db"
 
 
 @pytest.mark.unit

@@ -8,6 +8,7 @@ dependencies = [
     # vendor's SDK, is built by the process's root (`apps.intent_reader`) and
     # handed in as the port.
     "argus-core",
+    "argus-postgres",
     "argus-incident_record",
     # The incident's timeline said in words, for one question: what a person
     # asking about it is answered from.
@@ -16,17 +17,15 @@ dependencies = [
 ]
 
 
-# `reset_schema` runs the migration chain, so this suite needs the extra the
-# kernel keeps it behind, for the reason every suite with a database does.
 [dependency-groups]
 dev = [
-    "argus-core[migrations]",
     "argus-argus_testkit",
 ]
 
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
 argus-argus_testkit = { workspace = true }

@@ -17,9 +17,7 @@ from core import (
     TelemetrySettings,
     WriteMcpEndpoint,
     get_settings,
-    open_pool,
 )
-from core.schema import require_schema
 from incident_record import ended_by_a_person_via
 from mitigation import an_undo_over
 from orchestrator.entrypoint import CHECKPOINTER_CONNECTIONS, graph_for, run_incident
@@ -29,6 +27,7 @@ from orchestrator.unwinding import (
     unwind_incident,
 )
 from orchestrator.worker import RunSettings, work_forever
+from postgres import open_pool, require_schema
 from read_mcp_client import read_mcp
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse

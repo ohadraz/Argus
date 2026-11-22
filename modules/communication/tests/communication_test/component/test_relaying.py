@@ -18,11 +18,12 @@ import psycopg
 import pytest
 from argus_testkit import Scenario, all_of, calling
 from communication.relaying import CHAT_RELAY, relay_once
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import IncidentEvent
 from core.models import Alert
 from incident_record.following import events_since, place_for
 from incident_record.repository import events, incidents
+from postgres import connect_from_env
 
 from communication_test.framework.assertions import it_said, the_lines_said_were
 from communication_test.framework.builders import (

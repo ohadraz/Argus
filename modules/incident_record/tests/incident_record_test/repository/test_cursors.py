@@ -16,8 +16,8 @@ from __future__ import annotations
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import connect_from_env
 from incident_record.repository import cursors
+from postgres import connect_from_env
 
 A_CHAT_RELAY = "chat"
 ANOTHER_RELAY = "email"

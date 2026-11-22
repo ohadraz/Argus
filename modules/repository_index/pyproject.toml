@@ -5,6 +5,8 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-core",
+    # Its repositories hold a connection and type it by the driver.
+    "psycopg[binary]>=3.1",
     "argus-code_host",
 ]
 
@@ -20,7 +22,7 @@ dependencies = [
 dev = [
     # The schema, because the component and integration tests start from an
     # empty one rather than adopting whatever the container came up with.
-    "argus-core[migrations]",
+    "argus-postgres[migrations]",
     "argus-argus_testkit",
     # The store's adapter the integration tests write through, which no module
     # here imports: the catch-up loop's root (`apps.indexer`) builds it and
@@ -31,6 +33,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-code_host = { workspace = true }
 argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }

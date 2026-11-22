@@ -18,14 +18,9 @@ from communication.saying import (
     a_destination_per_register,
 )
 from communication.watching import watch_forever
-from core import (
-    Connections,
-    DatabaseSettings,
-    TelemetrySettings,
-    get_settings,
-    open_pool,
-)
+from core import DatabaseSettings, TelemetrySettings, get_settings
 from incident_record import events_since, place_for
+from postgres import Connections, open_pool
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse
 

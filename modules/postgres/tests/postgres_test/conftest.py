@@ -1,10 +1,10 @@
 """The database this module's tests run against, and its state between them.
 
-Offered rather than imposed. Nearly every test of the kernel is a unit test with
-no database in sight, and an autouse fixture would make each of them wait for a
-container to come up. A test that needs the database asks for it - the fence,
-which is a promise the database keeps, and the pool, which hands its connections
-out.
+Offered rather than imposed. Some of this module's tests ask the database
+nothing - whether a schema is required, which is a question for a stand-in - and
+an autouse fixture would make each of them wait for a container to come up. A
+test that needs the database asks for it - the fence, which is a promise the
+database keeps, and the pool, which hands its connections out.
 
 The same shape as the orchestrator's, `incident_record`' and the integration
 suite's own conftests, deliberately: each needs one database for a whole run and
@@ -12,7 +12,7 @@ an empty one for each test, and several answers to that question would be
 several ways for a suite to be dirty. Not shared code, though. `argus_testkit` is
 where shared test support lives and it stays free of `core` - depending
 back on the module it supports would close a cycle - and the alternative, a
-helper in `core` itself, would put docker in a production package.
+helper in `postgres` itself, would put docker in a production package.
 """
 
 from __future__ import annotations
@@ -23,8 +23,7 @@ from typing import Final
 
 import pytest
 from argus_testkit import refuse_the_e2e_stacks_project
-from core import connect_from_env
-from core.schema import reset_schema
+from postgres import connect_from_env, reset_schema
 from psycopg import sql
 
 # The compose service this suite brings up, and what it stops.
@@ -46,7 +45,7 @@ def postgres() -> Iterator[None]:
     on the way out, so a project shared by mistake still keeps its other
     services.
     """
-    refuse_the_e2e_stacks_project("test_module(module='core')")
+    refuse_the_e2e_stacks_project("test_module(module='postgres')")
     subprocess.run(["docker", "compose", "up", "-d", "--wait", _POSTGRES], check=True)
     try:
         with connect_from_env() as conn:

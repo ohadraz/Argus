@@ -29,7 +29,7 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from typing import Any, Final
 
-from core import DatabaseSettings, Fence, connect
+from core import DatabaseSettings, Fence
 from incident_record.repository import runs
 from mcp.types import AnyFunction, ContentBlock
 from mcp_transport import (
@@ -38,6 +38,7 @@ from mcp_transport import (
     a_lost_run,
     a_refusal_saying_what_it_left,
 )
+from postgres import connect
 
 from write_mcp_server.marking import the_action_in
 

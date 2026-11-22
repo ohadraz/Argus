@@ -19,7 +19,7 @@ import httpx2
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from core import connect_from_env, new_id, to_iso, utc_now
+from core import new_id, to_iso, utc_now
 from core.events import (
     ActionRefused,
     ChangesRetrieved,
@@ -90,6 +90,7 @@ from incident_record.repository import (
     synopses,
     taken_actions,
 )
+from postgres import connect_from_env
 
 from web_app_test.framework.application import app
 from web_app_test.framework.assertions import (

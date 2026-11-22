@@ -13,6 +13,9 @@ worker's connection that names no run is refused too: a walk writing for no run
 is a worker that forgot to fence, and a fence nobody is made to put up is one a
 stale walk gets round. Anything else - the web process, the relay, the schema
 job - walks no run, and writes as it always did.
+
+What a claim is and what holds one are the kernel's, here; saying one on a
+connection is the database's, in `postgres.fencing`.
 """
 
 from __future__ import annotations
@@ -20,10 +23,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Final
-
-import psycopg
-from psycopg_pool import ConnectionPool
+from typing import Final
 
 
 class RunLost(Exception):
@@ -121,26 +121,16 @@ class Holding:
             self._acting_for = None
 
 
-def fence(conn: psycopg.Connection, held: Fence | None) -> None:
-    """Says on `conn` which claim it writes for from now on, or that it writes
-    for none.
-
-    For the session rather than the transaction, and committed as it is said:
-    the repositories commit as they go, and a fence that ended with the first of
-    those - or was taken down by a rollback - would leave the writes after it
-    made for no run at all.
-    """
-    conn.execute("SELECT set_config(%s, %s, false)",
-                  (_THE_FENCE, "" if held is None else held.spoken()))
-    conn.commit()
-
-
 def was_lost(error: BaseException) -> bool:
     """Whether `error` says the run was lost, wherever it was said.
 
     Said by the walk as `RunLost`, or by the database as a refused write - and
     either may reach the caller inside something else that was raised while
     handling it, so the chain is followed to its end.
+
+    The database's refusal is known by its SQLSTATE, read off whatever raised
+    it: the kernel names no driver, and the state is the database's own word,
+    whichever driver carried it.
     """
     seen: set[int] = set()
     reached: BaseException | None = error
@@ -148,53 +138,13 @@ def was_lost(error: BaseException) -> bool:
     while reached is not None and id(reached) not in seen:
         seen.add(id(reached))
 
-        if isinstance(reached, RunLost) or (
-            isinstance(reached, psycopg.Error) and reached.sqlstate == _RUN_LOST
-        ):
+        if isinstance(reached, RunLost) or getattr(reached, "sqlstate", None) == _RUN_LOST:
             return True
 
         reached = reached.__cause__ or reached.__context__
 
     return False
 
-
-class FencedPool(ConnectionPool):
-    """A pool whose every connection is fenced with the run held as it is handed
-    out.
-
-    At the checkout rather than in a wrapper around `connection()`, because
-    `getconn` is the other way out and `connection()` goes through it: a
-    connection handed out by either carries the run held at that moment, and
-    never the fence the last checkout left on it.
-
-    Its connections are named as a worker's, which is what the database refuses
-    an unfenced write by - so a pool that fences cannot hand out a connection
-    whose forgotten fence goes unnoticed.
-    """
-
-    def __init__(self, conninfo: str, holding: Holding, **pool: Any) -> None:
-        self._holding = holding
-        named = {**(pool.pop("kwargs", None) or {}), "application_name": _A_WORKER}
-        super().__init__(conninfo, kwargs=named, **pool)
-
-    def getconn(self, timeout: float | None = None) -> Any:
-        conn = super().getconn(timeout)
-
-        try:
-            fence(conn, self._holding.current())
-        except BaseException:
-            self.putconn(conn)
-            raise
-
-        return conn
-
-
-# What a worker's connections are called, and so what the database refuses a
-# write from when it names no run. The schema says the same word.
-_A_WORKER: Final = "argus-worker"
-
-# The setting a connection's fence is said in, as `Fence.spoken` says it.
-_THE_FENCE: Final = "argus.fence"
 
 # The SQLSTATE a write is refused with when the run it was made for is another
 # claim's now. Our own, in a class Postgres leaves unused; `AR002`, a worker

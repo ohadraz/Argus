@@ -26,7 +26,7 @@ from uuid import uuid4
 import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import StatusChanged
 from core.models import (
     NOTIFICATION_KEY,
@@ -48,6 +48,7 @@ from oncall_source.platform import (
     ResolvedByAPerson,
 )
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from postgres import connect_from_env
 from web_app.app import oncall_platform_of
 
 from web_app_test.framework.application import app

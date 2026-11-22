@@ -13,11 +13,12 @@ from __future__ import annotations
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, calling
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import AgentInvoked, IncidentEvent, OnsetDetected, StatusChanged
 from core.models import Actor, Alert, IncidentStatus
 from incident_record.following import events_since, place_for
 from incident_record.repository import events, incidents
+from postgres import connect_from_env
 
 A_READER = "slack"
 

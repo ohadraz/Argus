@@ -5,6 +5,7 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-core",
+    "argus-postgres",
     "argus-incident_record",
     "argus-narration",
     "argus-chat_platform",
@@ -13,13 +14,13 @@ dependencies = [
 
 
 # `reset_schema` runs the migration chain, so this suite needs the extra the
-# kernel keeps it behind. Declared here rather than relied on from the
+# database keeps it behind. Declared here rather than relied on from the
 # workspace venv: `test_module` resolves each module against its own
 # dependencies alone, and a suite that only passes locally is the failure that
 # arrangement exists to catch.
 [dependency-groups]
 dev = [
-    "argus-core[migrations]",
+    "argus-postgres[migrations]",
     "argus-argus_testkit",
     "argus-slack_double",
     "httpx2",
@@ -29,6 +30,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
 argus-argus_testkit = { workspace = true }

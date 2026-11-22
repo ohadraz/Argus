@@ -20,9 +20,10 @@ from argus_testkit import (
     eventually,
     the_answer_was,
 )
-from core import Fence, connect_from_env, fence, utc_now, was_lost
+from core import Fence, utc_now, was_lost
 from core.models import Alert
 from incident_record.repository import incidents, runs
+from postgres import connect_from_env, fence
 
 from incident_record_test.framework import (
     autocommitting,

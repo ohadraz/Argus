@@ -23,7 +23,7 @@ from unittest.mock import create_autospec
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from core.schema import SchemaNotApplied, SchemaPresent, require_schema
+from postgres import SchemaNotApplied, SchemaPresent, require_schema
 
 A_PREPARED_DATABASE = True
 A_DATABASE_WITH_NO_SCHEMA = False

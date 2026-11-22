@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 
-from core import Connections, unit_of_work
 from core.events import StatusChanged
 from core.models import IncidentStatus, Report
+from postgres import Connections, unit_of_work
 
 from incident_record.publishing import PublisherFor, publish_beside
 from incident_record.repository import incidents

@@ -10,17 +10,11 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from core import (
-    DatabaseSettings,
-    SettingsSlice,
-    TelemetrySettings,
-    get_settings,
-    open_pool,
-)
-from core.schema import require_schema
+from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings
 from embedding_fastembed import an_embedder
 from incident_memory.delivering import deliver_forever, deliver_on
 from incident_memory.keeping import kept_in
+from postgres import open_pool, require_schema
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse
 from vector_store_qdrant.indexing import the_index_at

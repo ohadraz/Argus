@@ -26,15 +26,8 @@ from argus_testkit import (
     calling,
     the_same_error_reached_the_caller,
 )
-from core import (
-    DatabaseSettings,
-    Fence,
-    Holding,
-    connect_from_env,
-    get_settings,
-    open_pool,
-    unit_of_work,
-)
+from core import DatabaseSettings, Fence, Holding, get_settings
+from postgres import connect_from_env, open_pool, unit_of_work
 from psycopg_pool import ConnectionPool
 
 # What a worker's connections are called. Stated rather than imported, for the

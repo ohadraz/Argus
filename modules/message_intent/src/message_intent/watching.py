@@ -26,7 +26,6 @@ from collections.abc import Callable
 from functools import partial
 from typing import Final
 
-from core import Connections, unit_of_work
 from core.llm import LLMClient
 from core.models import (
     IncidentStatus,
@@ -39,6 +38,7 @@ from core.replay import Replay
 from incident_record import calls_into, events_into
 from incident_record.repository import conversation, events, incidents
 from narration import build_narration
+from postgres import Connections, unit_of_work
 
 from message_intent.answering import answer
 from message_intent.classifying import classify

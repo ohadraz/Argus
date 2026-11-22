@@ -25,7 +25,7 @@ import psycopg
 import pytest
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import connect_from_env, get_settings, utc_now
+from core import get_settings, utc_now
 from core.budget import Budget
 from core.llm import conversations_through
 from core.models import Alert
@@ -34,6 +34,7 @@ from incident_record.repository import incidents, replay
 from investigation_agent import investigate
 from investigation_agent.budget import InvestigationSettings, a_budget_for
 from llm_anthropic import AnthropicSettings
+from postgres import connect_from_env
 
 from tests.framework.investigating import (
     logs_that_say_little,

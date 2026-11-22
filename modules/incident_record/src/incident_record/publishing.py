@@ -18,10 +18,10 @@ from collections.abc import Callable
 from datetime import datetime
 
 import psycopg
-from core import Connections, unit_of_work
 from core.events import AlertAcknowledged, IncidentEvent, Publisher, publish
 from core.models import Alert
 from core.replay import Recorder, ReplayEntry
+from postgres import Connections, unit_of_work
 
 from incident_record.repository import events, replay
 

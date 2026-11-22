@@ -20,9 +20,10 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Final, Protocol
 
-from core import Connections, sleep_on_the_clock, unit_of_work, utc_now
+from core import sleep_on_the_clock, utc_now
 from core.events import OfferExpired, Publisher, publish
 from core.models import IncidentStatus, Reference, ThreadMessage
+from postgres import Connections, unit_of_work
 
 from incident_record.ending import EndedByAPerson, ended_by_a_person_via
 from incident_record.repository import conversation, incidents

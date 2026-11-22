@@ -24,7 +24,7 @@ from datetime import timedelta
 from functools import partial
 
 from codefix_agent import FixSettings, fixes_over
-from core import Connections, Holding, Settings, SettingsSlice
+from core import Holding, Settings, SettingsSlice
 from core.anomaly import AnomalyThresholds
 from core.autonomy import admit
 from core.llm import ModelProvider, build_llm_client, conversations_through
@@ -66,6 +66,7 @@ from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.ports import RecallSimilar, Resuming
 from pay_band_source.bamboohr_adapter import pay_bands
 from pay_band_source.bamboohr_settings import BambooHrSettings
+from postgres import Connections
 from postmortem_writing import Sources, judge_policy, postmortem_policy, synopsis_policy
 from read_mcp_client import ReadTier
 from revenue_source.stripe_adapter import charges_between

@@ -21,7 +21,6 @@ from collections.abc import Mapping
 from typing import Final
 
 from chat_platform import ChatPlatformWrites, Line, Link, Offer
-from core import Connections
 from core.events import CommunicationFailed
 from core.models import (
     CHAT_BRIEFING,
@@ -44,6 +43,7 @@ from narration import (
     the_pull_requests,
     the_revisions,
 )
+from postgres import Connections
 
 from communication.policy import Register
 from communication.relaying import Destination, Outcome

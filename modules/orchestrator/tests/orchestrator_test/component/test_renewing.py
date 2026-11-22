@@ -8,10 +8,11 @@ from datetime import timedelta
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
-from core import Connections, connect_from_env, in_real_time, utc_now
+from core import in_real_time, utc_now
 from core.models import Alert
 from incident_record.repository import incidents, runs
 from orchestrator.renewing import Stopped, keep_renewing
+from postgres import Connections, connect_from_env
 
 # Where renewing logs from.
 THE_RENEWER = "orchestrator.renewing"

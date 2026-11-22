@@ -4,15 +4,12 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 # What every module gets by depending on the kernel at all - and no more than
-# that. `psycopg` and `pydantic-settings` are here because the front doors reach
-# them: `core` exports `connect` and `Settings`, so `import core`
-# loads both whatever the importer wanted. The four modules that hold a
-# connection are also the four that import them.
+# that: the settings it is configured by, the models two modules both name, and
+# the API instrumented code is written against. No driver, no SDK, no server -
+# each lives in the package that speaks it, taken by the modules that need it.
 dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "psycopg[binary]>=3.1",
-    "psycopg-pool>=3.2",
     # The API alone, which is all instrumented code ever names: a span or a
     # metric through it is a no-op until a process installs an SDK, and only
     # `telemetry` does. Light and pure Python, which is why it is a
@@ -20,22 +17,11 @@ dependencies = [
     "opentelemetry-api>=1.45",
 ]
 
-# The schema's migrations, taken at run time by the one job that applies them
-# (`apps.schema`), and in their dev groups by the suites that build a schema to
-# run against.
-[project.optional-dependencies]
-migrations = ["alembic>=1.20.0"]
-
 # `test_module` resolves each module against its own dependencies alone, so a
 # test helper this module's suite imports has to be declared here or it is
 # simply absent on CI, however well-populated the local workspace venv is.
-#
-# Every extra, for the same reason: this module's own suite is the one that
-# exercises what is behind every door, so a suite resolved without them fails on
-# CI alone and looks like a code problem.
 [dependency-groups]
 dev = [
-    "argus-core[migrations]",
     "argus-argus_testkit",
     # What an instrumented call is asserted through: an SDK's in-memory
     # exporter and reader, handed to the code under test as its tracer and

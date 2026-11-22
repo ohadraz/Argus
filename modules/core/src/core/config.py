@@ -615,8 +615,9 @@ def get_settings() -> Settings:
     """The kernel's settings, read from the environment once per process.
 
     Called by a process's root (`apps`), and otherwise only where the layering
-    guard allows it with its reason: the kernel's own connection
-    (`connect_from_env`) and Alembic's entry script (`core.migrations.env`).
+    guard allows it with its reason: the database's connection
+    (`postgres.connect_from_env`) and Alembic's entry script
+    (`postgres.migrations.env`).
     Everything below a root is handed the slice it reads.
     """
     return Settings()

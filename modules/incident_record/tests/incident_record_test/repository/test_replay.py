@@ -24,10 +24,11 @@ from typing import Any
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.models import Alert
 from core.replay import CallType, ReplayEntry
 from incident_record.repository import incidents, replay
+from postgres import connect_from_env
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for

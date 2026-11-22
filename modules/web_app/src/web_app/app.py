@@ -9,7 +9,7 @@ from typing import Annotated, Final
 import psycopg
 from alert_source import AlertSource, AlertUnreadable, OnlyResolved
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
-from core import Connections, DatabaseSettings, open_pool
+from core import DatabaseSettings
 from core.models import (
     Incident,
     IncidentStatus,
@@ -18,7 +18,6 @@ from core.models import (
     ReportChannel,
     ThreadMessage,
 )
-from core.schema import require_schema
 from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
@@ -38,6 +37,7 @@ from oncall_source import OnCallUnavailable
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
+from postgres import Connections, open_pool, require_schema
 from postmortem_rendering import (
     a_title,
     as_pdf,

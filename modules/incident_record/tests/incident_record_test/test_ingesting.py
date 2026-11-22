@@ -19,11 +19,12 @@ from unittest.mock import Mock, create_autospec
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import PersonWrote
 from core.models import Alert, ThreadMessage, a_chat_message
 from incident_record.ingesting import ingest_a_message
 from incident_record.repository import conversation, events, incidents
+from postgres import connect_from_env
 
 # The chat platform's name, as its adapter gives it - what a reader is
 # told a report came from, and what its references are filed under.

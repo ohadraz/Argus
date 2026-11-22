@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
-from core import Connections, Holding, RunLost
+from core import Holding, RunLost
 from core.models import IncidentStatus
+from postgres import Connections
 
 from incident_record.repository import incidents, runs
 

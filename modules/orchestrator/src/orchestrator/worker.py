@@ -26,15 +26,7 @@ from os import getpid
 from typing import Final
 
 import psycopg
-from core import (
-    Connections,
-    Fence,
-    Holding,
-    SettingsSlice,
-    fence,
-    utc_now,
-    was_lost,
-)
+from core import Fence, Holding, SettingsSlice, utc_now, was_lost
 from core.events import StatusChanged, publish
 from core.llm import ModelUnavailable
 from core.models import IncidentStatus
@@ -49,6 +41,7 @@ from incident_record.repository.incidents import NO_TRACE_CONTEXT
 from incident_record.repository.taken_actions import NoLongerOpen
 from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
+from postgres import Connections, fence
 from pydantic import BaseModel, ConfigDict
 
 from orchestrator.renewing import between_renewals, keep_renewing

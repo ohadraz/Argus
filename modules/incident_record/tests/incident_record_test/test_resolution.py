@@ -20,7 +20,7 @@ import logging
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import IncidentEvent, Publisher, StatusChanged
 from core.models import (
     REVERT_FEATURE_FLAG,
@@ -38,6 +38,7 @@ from core.models import (
 from incident_record import PublisherFor
 from incident_record.repository import hypotheses, incidents, taken_actions
 from incident_record.resolution import resolve_incident
+from postgres import connect_from_env
 
 from incident_record_test.framework.assertions import the_account_was_written_inside_the_change
 from incident_record_test.framework.transactions import (

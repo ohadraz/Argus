@@ -225,16 +225,17 @@ ANNOTATED = "Annotated"
 # Where the environment is read outside a root, and why each may. Each covers its
 # whole module, so one that no longer reads anything is reported as stale.
 READ_WHERE_DEFINED = {
-    "core.__init__": "the kernel's export list, which names both readers",
+    "core.__init__": "the kernel's export list, which names `get_settings`",
     "core.config": "defines `get_settings` and the settings it reads",
-    "core.db": "defines `connect_from_env`, the suites' and the scripts' connection - "
-               "named by no shipped module but this one and the kernel's export list",
-    "core.migrations.env": "Alembic's own entry script, which nothing hands a parameter: "
-                           "`alembic revision` runs it with "
-                           "no root at all, and under the schema job it reads the settings "
-                           "`apps.schema` already read, `get_settings` being cached",
     "core.timestamps": "the clock the stack runs on, named once, before anything runs - "
-                       "every module's timestamps read it at import"
+                       "every module's timestamps read it at import",
+    "postgres.__init__": "the database's export list, which names `connect_from_env`",
+    "postgres.db": "defines `connect_from_env`, the suites' and the scripts' connection - "
+                   "named by no shipped module but this one and the database's export list",
+    "postgres.migrations.env": "Alembic's own entry script, which nothing hands a parameter: "
+                               "`alembic revision` runs it with "
+                               "no root at all, and under the schema job it reads the settings "
+                               "`apps.schema` already read, `get_settings` being cached"
 }
 
 # Each process's root, and everything beneath it: where adapters are built and

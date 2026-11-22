@@ -21,7 +21,6 @@ from argus_testkit import (
     attempting,
     calling,
 )
-from core import connect_from_env
 from core.models import (
     Alert,
     IncidentStatus,
@@ -33,6 +32,7 @@ from core.models import (
     a_chat_message,
 )
 from incident_record.repository import conversation
+from postgres import connect_from_env
 from pydantic import ValidationError
 
 from incident_record_test.framework import written_and_rolled_back

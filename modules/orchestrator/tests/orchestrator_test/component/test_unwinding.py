@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from core import connect_from_env, utc_now
+from core import utc_now
 from core.events import ChangeUndone, IncidentEvent, Publisher
 from core.models import REVERT_FEATURE_FLAG, Alert, FlagUndo, Undone, Verdict
 from incident_record import events_into_connection
 from incident_record.repository import events, hypotheses, incidents, taken_actions
 from orchestrator.unwinding import undone_recorded_through
+from postgres import connect_from_env
 
 from orchestrator_test.framework.builders import a_determined_hypothesis
 

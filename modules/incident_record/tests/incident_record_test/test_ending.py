@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting, calling
-from core import Fence, Holding, RunLost, connect_from_env, utc_now
+from core import Fence, Holding, RunLost, utc_now
 from core.models import Alert, IncidentStatus
 from incident_record.ending import (
     EndedByAPerson,
@@ -25,6 +25,7 @@ from incident_record.ending import (
     wanted_until_a_person_ends_it,
 )
 from incident_record.repository import incidents, runs
+from postgres import connect_from_env
 
 DONT_CARE_INCIDENT_ID = "buki-123"
 

@@ -19,7 +19,7 @@ from typing import Any
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core import Fence, connect_from_env, utc_now
+from core import Fence, utc_now
 from core.events import (
     AgentInvoked,
     IncidentEvent,
@@ -29,6 +29,7 @@ from core.events import (
 )
 from core.models import Actor, Alert, RetrievalChannel
 from incident_record.repository import events, incidents, runs
+from postgres import connect_from_env
 
 from incident_record_test.framework import autocommitting, no_column_is_empty
 

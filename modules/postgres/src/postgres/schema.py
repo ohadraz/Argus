@@ -31,11 +31,11 @@ def _upgrade_to_head() -> None:
 
     The configuration is built here rather than read from `alembic.ini`, so that
     the chain is found by the package's own location. A deployment that
-    installed `core` and never checked this repo out still has its
+    installed `postgres` and never checked this repo out still has its
     migrations; `alembic.ini` exists for the command line, which does not.
 
     Alembic is imported here rather than at the top of the module, because it is
-    an extra: `argus-core[migrations]`. Everything else in this file - and
+    an extra: `argus-postgres[migrations]`. Everything else in this file - and
     `require_schema` in particular, which every service calls on the way up -
     asks the database whether the tables are there, which needs no migration
     tool. Imported at module level it would be `web_app` and the worker each

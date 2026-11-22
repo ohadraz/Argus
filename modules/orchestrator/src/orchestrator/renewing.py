@@ -14,8 +14,9 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import Final
 
-from core import Connections, in_real_time, unit_of_work
+from core import in_real_time
 from incident_record.repository import runs
+from postgres import Connections, unit_of_work
 
 logger = logging.getLogger(__name__)
 

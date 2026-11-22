@@ -16,7 +16,6 @@ from collections.abc import Callable, Mapping
 from typing import Any, Final, cast
 
 import psycopg
-from core import Connections
 from core.events import StatusChanged
 from core.models import Alert, IncidentStatus
 from core.telemetry import (
@@ -35,6 +34,7 @@ from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import metrics, trace
 from opentelemetry.metrics import Counter, Histogram, Meter
 from opentelemetry.trace import Status, StatusCode, Tracer
+from postgres import Connections
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 

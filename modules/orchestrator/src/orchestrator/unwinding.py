@@ -19,7 +19,6 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Protocol
 
-from core import Connections
 from core.events import ChangeUndone
 from core.models import (
     TakenAction,
@@ -32,6 +31,7 @@ from core.models import (
 from incident_record import PublisherFor, events_into_connection, publish_beside
 from incident_record.repository import taken_actions
 from mitigation import UndoAttempt
+from postgres import Connections
 
 logger = logging.getLogger(__name__)
 

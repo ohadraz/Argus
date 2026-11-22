@@ -46,14 +46,7 @@ from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_UR
 from argus_testkit import Assertion, Scenario, all_of, calling
 from code_host.github import GitHubReadSettings
 from codefix_agent import SUBMIT_FIX, FixSettings, SubmittedFix, propose_fix
-from core import (
-    Fence,
-    Holding,
-    WriteMcpEndpoint,
-    connect_from_env,
-    get_settings,
-    utc_now,
-)
+from core import Fence, Holding, WriteMcpEndpoint, get_settings, utc_now
 from core.llm import conversations_through
 from core.models import (
     Alert,
@@ -66,6 +59,7 @@ from core.models import (
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_record.repository import incidents, runs
 from llm_anthropic import AnthropicSettings, to_turn
+from postgres import connect_from_env
 from write_mcp_client import write_mcp
 
 from tests.framework.models import the_configured_models

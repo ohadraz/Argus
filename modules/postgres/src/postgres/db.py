@@ -20,10 +20,10 @@ from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
 import psycopg
+from core import DatabaseSettings, Holding, get_settings
 from psycopg_pool import ConnectionPool
 
-from core.config import DatabaseSettings, get_settings
-from core.fencing import FencedPool, Holding
+from postgres.fencing import FencedPool
 
 # How anything gets a connection: ask, use it for a block, and let go. The
 # narrowest thing a caller can depend on, and deliberately not `ConnectionPool` -
@@ -54,7 +54,7 @@ def open_pool(settings: DatabaseSettings,
     is no longer on the other end of it.
 
     A process that walks runs hands over what it is `holding`, and every
-    connection is fenced with it as it goes out (`core.fencing`). What a
+    connection is fenced with it as it goes out (`postgres.fencing`). What a
     `connection` must be like - the checkpointer's commit as they go - is the
     caller's to say, and applies to every one.
     """

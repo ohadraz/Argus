@@ -19,9 +19,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 import psycopg
-from core import Connections, unit_of_work, utc_now
+from core import utc_now
 from core.models import ALERT_FIRING, Alert, IncidentStatus
 from core.telemetry import ARGUS_INCIDENT_ID
+from postgres import Connections, unit_of_work
 
 from incident_record.publishing import PublisherFor, acknowledge_alert
 from incident_record.repository import incidents, references, runs

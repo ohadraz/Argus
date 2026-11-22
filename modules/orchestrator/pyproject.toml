@@ -7,6 +7,7 @@ dependencies = [
     # vendor's SDK, is built by the worker's root (`apps.worker`) and handed
     # to the agents as the port.
     "argus-core",
+    "argus-postgres",
     "argus-mcp_transport",
     "argus-incident_record",
     "argus-narration",
@@ -38,13 +39,13 @@ dependencies = [
 ]
 
 # `reset_schema` runs the migration chain, so this suite needs the extra the
-# kernel keeps it behind. Declared here rather than relied on from the
+# database keeps it behind. Declared here rather than relied on from the
 # workspace venv: `test_module` resolves each module against its own
 # dependencies alone, and a suite that only passes locally is the failure that
 # arrangement exists to catch.
 [dependency-groups]
 dev = [
-    "argus-core[migrations]",
+    "argus-postgres[migrations]",
     "argus-argus_testkit",
     # What the walk's spans and measurements are asserted through: an SDK's
     # in-memory exporter and reader. Never a runtime dependency.
@@ -53,6 +54,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-postgres = { workspace = true }
 argus-mcp_transport = { workspace = true }
 argus-incident_memory = { workspace = true }
 argus-incident_record = { workspace = true }

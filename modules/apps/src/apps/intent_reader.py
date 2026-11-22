@@ -13,18 +13,12 @@ from functools import partial
 from typing import Final
 
 from chat_platform.slack import SlackSettings, slack_from
-from core import (
-    Connections,
-    DatabaseSettings,
-    Settings,
-    TelemetrySettings,
-    get_settings,
-    open_pool,
-)
+from core import DatabaseSettings, Settings, TelemetrySettings, get_settings
 from core.llm import build_llm_client
 from core.models import ModelPolicy
 from llm_anthropic import AnthropicProvider, AnthropicSettings
 from message_intent.watching import ModelFor, watch
+from postgres import Connections, open_pool
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse
 

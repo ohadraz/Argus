@@ -19,11 +19,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import psycopg
-from core import connect_from_env
 from core.events import IncidentEvent, Publisher
 from core.models import IncidentStatus
 from incident_record import PublisherFor
 from incident_record.repository import incidents
+from postgres import connect_from_env
 
 
 def written_and_rolled_back(conn: psycopg.Connection,

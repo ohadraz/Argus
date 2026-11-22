@@ -2,15 +2,15 @@
 
 `python -m apps.schema`, which `nox -s schema` and the e2e stack's bring-up
 both run. What applying is - the drop, then the chain to head - is
-`core.schema.reset_schema`'s; this is the process around it.
+`postgres.reset_schema`'s; this is the process around it.
 """
 
 from __future__ import annotations
 
 import logging
 
-from core import DatabaseSettings, connect, get_settings
-from core.schema import reset_schema
+from core import DatabaseSettings, get_settings
+from postgres import connect, reset_schema
 
 logger = logging.getLogger(__name__)
 

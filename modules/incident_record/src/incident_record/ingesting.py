@@ -20,9 +20,10 @@ from collections.abc import Callable
 from datetime import datetime
 
 import psycopg
-from core import Connections, utc_now
+from core import utc_now
 from core.events import IncidentEvent, PersonWrote
 from core.models import Reference, ThreadMessage
+from postgres import Connections
 
 from incident_record.repository import conversation, events
 

@@ -29,9 +29,10 @@ import logging
 import re
 from typing import Final, Protocol
 
-from core import Connections, SettingsSlice
+from core import SettingsSlice
 from core.models import CodeSearch
 from core.vector_store import VectorSearch
+from postgres import Connections
 from repository_index import records
 from repository_index.freshness import Freshness
 from repository_index.indexing import Embedder

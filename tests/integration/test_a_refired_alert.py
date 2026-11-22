@@ -36,13 +36,14 @@ import pytest
 from apps.web import the_app_for
 from argus_testkit import Assertion, Scenario, all_of
 from chat_platform.slack import SlackSettings
-from core import connect_from_env, get_settings, utc_now
+from core import get_settings, utc_now
 from core.models import NOTIFICATION_KEY, IncidentStatus
 from fastapi.testclient import TestClient
 from incident_record.repository import incidents, references
 from oncall_source import ReportedIncident
 from oncall_source.pagerduty_settings import PagerDutyDeliverySettings
 from oncall_source.platform import OnCallPlatform, ResolvedByAPerson
+from postgres import connect_from_env
 from push_source.github import GitHubPushSettings
 from web_app.app import oncall_platform_of
 

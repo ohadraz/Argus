@@ -19,10 +19,11 @@ from typing import Any, Final
 import psycopg
 import pytest
 from argus_testkit import Assertion, Kept, Scenario, all_of, calling
-from core import DatabaseSettings, Fence, connect_from_env, get_settings, utc_now
+from core import DatabaseSettings, Fence, get_settings, utc_now
 from core.events import AgentInvoked
 from core.models import Actor, Alert
 from incident_record.repository import events, incidents, runs
+from postgres import connect_from_env
 from write_mcp_server.fencing import HoldForAChange, holds_in_the_database
 
 # The first claim's lease is over before it begins, which is what lets the next

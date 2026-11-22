@@ -24,7 +24,6 @@ from unittest.mock import create_autospec
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling, one_record_was_logged
-from core import connect_from_env
 from core.embedding import Embedder
 from core.models import Verdict
 from core.vector_store import VectorIndex, VectorSearch
@@ -33,6 +32,7 @@ from incident_memory.filing import Filed, file, get_undelivered
 from incident_memory.keeping import Keeper, kept_in
 from incident_memory.recalling import recalling_from
 from incident_memory.records import RememberedIncident
+from postgres import connect_from_env
 from vector_store_qdrant.indexing import QdrantIndex
 
 from incident_memory_test.framework.assertions import these_incidents_come_back

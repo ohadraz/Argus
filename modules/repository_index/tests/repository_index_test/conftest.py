@@ -35,8 +35,7 @@ import httpx2
 import psycopg
 import pytest
 from argus_testkit import refuse_the_e2e_stacks_project
-from core import connect_from_env
-from core.schema import reset_schema
+from postgres import connect_from_env, reset_schema
 from psycopg import sql
 from qdrant_client import QdrantClient
 from vector_store_qdrant.indexing import QdrantIndex

@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Final, NamedTuple, get_args
 
 import psycopg
-from core import Connections, parse_iso
+from core import parse_iso
 from core.events import (
     ActionRecommended,
     ActionRefused,
@@ -106,6 +106,7 @@ from narration import (
     what_was_not_done,
     whether_it_can_be_put_back,
 )
+from postgres import Connections
 from postmortem_rendering import (
     as_text,
     render,

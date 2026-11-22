@@ -37,6 +37,7 @@ members = [
     "argus-orchestrator",
     "argus-pagerduty-double",
     "argus-pay-band-source",
+    "argus-postgres",
     "argus-postmortem-rendering",
     "argus-postmortem-writing",
     "argus-push-source",
@@ -190,6 +191,7 @@ version = "0.1.0"
 source = { editable = "modules/apps" }
 dependencies = [
     { name = "argus-core" },
+    { name = "argus-postgres" },
     { name = "argus-telemetry" },
 ]
 
@@ -226,7 +228,7 @@ relay = [
     { name = "argus-incident-record" },
 ]
 schema = [
-    { name = "argus-core", extra = ["migrations"] },
+    { name = "argus-postgres", extra = ["migrations"] },
 ]
 web = [
     { name = "argus-alert-source" },
@@ -281,7 +283,6 @@ requires-dist = [
     { name = "argus-codefix-agent", marker = "extra == 'worker'", editable = "modules/codefix_agent" },
     { name = "argus-communication", marker = "extra == 'relay'", editable = "modules/communication" },
     { name = "argus-core", editable = "modules/core" },
-    { name = "argus-core", extras = ["migrations"], marker = "extra == 'schema'", editable = "modules/core" },
     { name = "argus-deployment-platform", marker = "extra == 'read-mcp'", editable = "modules/deployment_platform" },
     { name = "argus-deployment-platform", marker = "extra == 'write-mcp'", editable = "modules/deployment_platform" },
     { name = "argus-embedding-fastembed", marker = "extra == 'deliverer'", editable = "modules/embedding_fastembed" },
@@ -305,6 +306,8 @@ requires-dist = [
     { name = "argus-oncall-source", marker = "extra == 'worker'", editable = "modules/oncall_source" },
     { name = "argus-orchestrator", marker = "extra == 'worker'", editable = "modules/orchestrator" },
     { name = "argus-pay-band-source", marker = "extra == 'worker'", editable = "modules/pay_band_source" },
+    { name = "argus-postgres", editable = "modules/postgres" },
+    { name = "argus-postgres", extras = ["migrations"], marker = "extra == 'schema'", editable = "modules/postgres" },
     { name = "argus-postmortem-writing", marker = "extra == 'worker'", editable = "modules/postmortem_writing" },
     { name = "argus-push-source", marker = "extra == 'web'", editable = "modules/push_source" },
     { name = "argus-read-mcp-client", marker = "extra == 'worker'", editable = "modules/read_mcp_client" },
@@ -431,13 +434,14 @@ dependencies = [
     { name = "argus-core" },
     { name = "argus-incident-record" },
     { name = "argus-narration" },
+    { name = "argus-postgres" },
     { name = "psycopg", extra = ["binary"] },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
+    { name = "argus-postgres", extra = ["migrations"] },
     { name = "argus-slack-double" },
     { name = "httpx2" },
     { name = "uvicorn", extra = ["standard"] },
@@ -449,13 +453,14 @@ requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-narration", editable = "modules/narration" },
+    { name = "argus-postgres", editable = "modules/postgres" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
+    { name = "argus-postgres", extras = ["migrations"], editable = "modules/postgres" },
     { name = "argus-slack-double", editable = "test_support/slack_double" },
     { name = "httpx2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
@@ -467,39 +472,26 @@ version = "0.1.0"
 source = { editable = "modules/core" }
 dependencies = [
     { name = "opentelemetry-api" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "psycopg-pool" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-]
-
-[package.optional-dependencies]
-migrations = [
-    { name = "alembic" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
     { name = "opentelemetry-sdk" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", marker = "extra == 'migrations'", specifier = ">=1.20.0" },
     { name = "opentelemetry-api", specifier = ">=1.45" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
-    { name = "psycopg-pool", specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
 ]
-provides-extras = ["migrations"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"] },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
@@ -647,7 +639,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
+    { name = "argus-postgres", extra = ["migrations"] },
     { name = "argus-vector-store-qdrant" },
     { name = "httpx2" },
 ]
@@ -661,7 +653,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
+    { name = "argus-postgres", extras = ["migrations"], editable = "modules/postgres" },
     { name = "argus-vector-store-qdrant", editable = "modules/vector_store_qdrant" },
     { name = "httpx2" },
 ]
@@ -672,6 +664,7 @@ version = "0.1.0"
 source = { editable = "modules/incident_record" }
 dependencies = [
     { name = "argus-core" },
+    { name = "argus-postgres" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
 ]
@@ -679,13 +672,14 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
+    { name = "argus-postgres", extra = ["migrations"] },
     { name = "opentelemetry-sdk" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
+    { name = "argus-postgres", editable = "modules/postgres" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.0" },
 ]
@@ -693,7 +687,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
+    { name = "argus-postgres", extras = ["migrations"], editable = "modules/postgres" },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
@@ -788,13 +782,13 @@ dependencies = [
     { name = "argus-core" },
     { name = "argus-incident-record" },
     { name = "argus-narration" },
+    { name = "argus-postgres" },
     { name = "psycopg", extra = ["binary"] },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
 ]
 
 [package.metadata]
@@ -802,14 +796,12 @@ requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-narration", editable = "modules/narration" },
+    { name = "argus-postgres", editable = "modules/postgres" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
-]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
 name = "argus-metrics-source"
@@ -920,6 +912,7 @@ dependencies = [
     { name = "argus-narration" },
     { name = "argus-oncall-source" },
     { name = "argus-pay-band-source" },
+    { name = "argus-postgres" },
     { name = "argus-postmortem-rendering" },
     { name = "argus-postmortem-writing" },
     { name = "argus-read-mcp-client" },
@@ -935,7 +928,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
+    { name = "argus-postgres", extra = ["migrations"] },
     { name = "opentelemetry-sdk" },
 ]
 
@@ -951,6 +944,7 @@ requires-dist = [
     { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "argus-pay-band-source", editable = "modules/pay_band_source" },
+    { name = "argus-postgres", editable = "modules/postgres" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },
     { name = "argus-postmortem-writing", editable = "modules/postmortem_writing" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
@@ -966,7 +960,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
+    { name = "argus-postgres", extras = ["migrations"], editable = "modules/postgres" },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
@@ -1009,6 +1003,42 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-postgres"
+version = "0.1.0"
+source = { editable = "modules/postgres" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+]
+
+[package.optional-dependencies]
+migrations = [
+    { name = "alembic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+    { name = "argus-postgres", extra = ["migrations"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", marker = "extra == 'migrations'", specifier = ">=1.20.0" },
+    { name = "argus-core", editable = "modules/core" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
+    { name = "psycopg-pool", specifier = ">=3.2" },
+]
+provides-extras = ["migrations"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-postgres", extras = ["migrations"] },
+]
 
 [[package]]
 name = "argus-postmortem-rendering"
@@ -1122,6 +1152,7 @@ dependencies = [
     { name = "argus-flag-provider" },
     { name = "argus-mcp-transport" },
     { name = "argus-metrics-source" },
+    { name = "argus-postgres" },
     { name = "argus-repository-index" },
     { name = "httpx2" },
     { name = "mcp" },
@@ -1141,6 +1172,7 @@ requires-dist = [
     { name = "argus-flag-provider", editable = "modules/flag_provider" },
     { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
     { name = "argus-metrics-source", editable = "modules/metrics_source" },
+    { name = "argus-postgres", editable = "modules/postgres" },
     { name = "argus-repository-index", editable = "modules/repository_index" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
@@ -1156,12 +1188,13 @@ source = { editable = "modules/repository_index" }
 dependencies = [
     { name = "argus-code-host" },
     { name = "argus-core" },
+    { name = "psycopg", extra = ["binary"] },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
+    { name = "argus-postgres", extra = ["migrations"] },
     { name = "argus-vector-store-qdrant" },
 ]
 
@@ -1169,12 +1202,13 @@ dev = [
 requires-dist = [
     { name = "argus-code-host", editable = "modules/code_host" },
     { name = "argus-core", editable = "modules/core" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
+    { name = "argus-postgres", extras = ["migrations"], editable = "modules/postgres" },
     { name = "argus-vector-store-qdrant", editable = "modules/vector_store_qdrant" },
 ]
 
@@ -1308,6 +1342,7 @@ dependencies = [
     { name = "argus-incident-record" },
     { name = "argus-narration" },
     { name = "argus-oncall-source" },
+    { name = "argus-postgres" },
     { name = "argus-postmortem-rendering" },
     { name = "argus-push-source" },
     { name = "argus-repository-index" },
@@ -1321,7 +1356,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["migrations"] },
+    { name = "argus-postgres", extra = ["migrations"] },
     { name = "opentelemetry-sdk" },
 ]
 
@@ -1333,6 +1368,7 @@ requires-dist = [
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
+    { name = "argus-postgres", editable = "modules/postgres" },
     { name = "argus-postmortem-rendering", editable = "modules/postmortem_rendering" },
     { name = "argus-push-source", editable = "modules/push_source" },
     { name = "argus-repository-index", editable = "modules/repository_index" },
@@ -1346,7 +1382,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
+    { name = "argus-postgres", extras = ["migrations"], editable = "modules/postgres" },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
@@ -1435,6 +1471,7 @@ dependencies = [
     { name = "argus-flag-provider" },
     { name = "argus-incident-record" },
     { name = "argus-mcp-transport" },
+    { name = "argus-postgres" },
     { name = "httpx2" },
     { name = "mcp" },
     { name = "redis" },
@@ -1453,6 +1490,7 @@ requires-dist = [
     { name = "argus-flag-provider", editable = "modules/flag_provider" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
+    { name = "argus-postgres", editable = "modules/postgres" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
     { name = "redis", specifier = ">=5.0" },
