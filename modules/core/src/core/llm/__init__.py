@@ -28,6 +28,7 @@ from core.llm.client import (
     TurnPaused,
 )
 from core.llm.conversing import Conversations, conversations_through
+from core.llm.dispatching import served_by_name
 from core.llm.escapes import with_escapes_resolved
 from core.llm.line_breaks import on_one_line
 from core.llm.recorded_client import RecordedLLMClient
@@ -58,6 +59,7 @@ __all__ = [
     "converse_until",
     "on_one_line",
     "sent_back",
+    "served_by_name",
     "the_call",
     "the_calls",
     "told_next",

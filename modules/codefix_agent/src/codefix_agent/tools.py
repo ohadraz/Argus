@@ -19,6 +19,7 @@ import logging
 from collections.abc import Collection, Mapping, Sequence
 from typing import Final
 
+from core.llm import served_by_name
 from core.models import CodeSearch, ToolCall, ToolDefinition, ToolResult
 
 from codefix_agent.budget import FixSettings
@@ -116,38 +117,43 @@ def _ran(call: ToolCall,
          search_by_meaning: MeaningSearcher,
          list_files: FileLister,
          read_file: FileReader) -> str:
-    if call.name == SEARCH_BY_MEANING_TOOL:
-        near = search_by_meaning(
-            str(call.arguments.get(DESCRIPTION_ARGUMENT, "")),
-            settings.deployed_branch
-        )
-
-        # Answered in words for the reason the substring channel is, and with
-        # more at stake: an empty answer here is ambiguous between an index
-        # that holds nothing like this and an index that holds nothing at all,
-        # and a model left to guess picks the reading that ends the work.
-        return "\n\n".join(near) if near else (
-            "no passage in the repository reads like that - try describing the "
-            "behaviour differently, or search for an exact string instead"
-        )
-
-    if call.name == SEARCH_TOOL:
-        found = search(
-            str(call.arguments.get(QUERY_ARGUMENT, "")), settings.deployed_branch
-        )
-
-        # Said rather than left as an empty answer. A model handed nothing
-        # reads it as a tool that failed and tries again with the same query;
-        # told the repository does not contain the string, it searches for
-        # something else, which is the move that finds the file.
-        return "\n".join(found) if found else "no line in the repository matches that"
-
-    if call.name == LIST_FILES_TOOL:
-        return "\n".join(list_files(settings.deployed_branch))
-
-    if call.name == READ_FILE_TOOL:
-        return read_file(
+    return served_by_name(call, {
+        SEARCH_BY_MEANING_TOOL: lambda call: _searched_by_meaning(
+            call, settings, search_by_meaning
+        ),
+        SEARCH_TOOL: lambda call: _searched(call, settings, search),
+        LIST_FILES_TOOL: lambda call: "\n".join(list_files(settings.deployed_branch)),
+        READ_FILE_TOOL: lambda call: read_file(
             str(call.arguments.get(PATH_ARGUMENT, "")), settings.deployed_branch
         )
+    }, unknown=lambda call: f"there is no tool called {call.name}")
 
-    return f"there is no tool called {call.name}"
+
+def _searched_by_meaning(call: ToolCall,
+                         settings: FixSettings,
+                         search_by_meaning: MeaningSearcher) -> str:
+    near = search_by_meaning(
+        str(call.arguments.get(DESCRIPTION_ARGUMENT, "")),
+        settings.deployed_branch
+    )
+
+    # Answered in words for the reason the substring channel is, and with
+    # more at stake: an empty answer here is ambiguous between an index
+    # that holds nothing like this and an index that holds nothing at all,
+    # and a model left to guess picks the reading that ends the work.
+    return "\n\n".join(near) if near else (
+        "no passage in the repository reads like that - try describing the "
+        "behaviour differently, or search for an exact string instead"
+    )
+
+
+def _searched(call: ToolCall, settings: FixSettings, search: SourceSearcher) -> str:
+    found = search(
+        str(call.arguments.get(QUERY_ARGUMENT, "")), settings.deployed_branch
+    )
+
+    # Said rather than left as an empty answer. A model handed nothing
+    # reads it as a tool that failed and tries again with the same query;
+    # told the repository does not contain the string, it searches for
+    # something else, which is the move that finds the file.
+    return "\n".join(found) if found else "no line in the repository matches that"

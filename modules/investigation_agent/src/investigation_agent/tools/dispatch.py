@@ -13,6 +13,7 @@ import logging
 from collections.abc import Sequence
 
 from core.events import Narrator, RetrievalUnanswered, nobody
+from core.llm import served_by_name
 from core.models import (
     DeploymentChanges,
     Reading,
@@ -236,43 +237,40 @@ class Dispatcher:
         )
 
     def _serve(self, call: ToolCall) -> Served:
-        if call.name == METRICS_TOOL:
-            return read_metrics(
+        return served_by_name(call, {
+            METRICS_TOOL: lambda call: read_metrics(
                 call, self._alert_time, self._rule, self._fetch_metrics, self._readings,
                 self._narrator
-            )
-
-        if call.name == LOGS_TOOL:
-            return read_logs(
+            ),
+            LOGS_TOOL: lambda call: read_logs(
                 call, self._onset, self._alert_time, self._fetch_logs,
                 self._readings, self._narrator, self._settings
-            )
-
-        if call.name == CHANGES_TOOL:
-            return read_changes(
+            ),
+            CHANGES_TOOL: lambda call: read_changes(
                 call, self._service, self._onset, self._alert_time,
                 self._readings_cover_the_incident, self._fetch_change_events,
                 self._readings, self._narrator, self._settings
-            )
-
-        if call.name == DEPENDENCIES_TOOL:
-            return read_dependencies(call, self._service, self._fetch_dependencies,
-                                     self._narrator)
-
-        if call.name == DEPLOYMENT_DIFF_TOOL:
-            return read_what_a_deployment_changed(
+            ),
+            DEPENDENCIES_TOOL: lambda call: read_dependencies(
+                call, self._service, self._fetch_dependencies, self._narrator
+            ),
+            DEPLOYMENT_DIFF_TOOL: lambda call: read_what_a_deployment_changed(
                 call, self._service, self._fetch_what_a_deployment_changed, self._narrator
+            ),
+            ROLLOUT_TOOL: lambda call: read_the_rollout(
+                call, self._service, self._fetch_rollout, self._narrator
             )
+        }, unknown=_no_such_channel)
 
-        if call.name == ROLLOUT_TOOL:
-            return read_the_rollout(call, self._service, self._fetch_rollout, self._narrator)
 
-        logger.warning("unknown tool called", extra={"tool": call.name})
+def _no_such_channel(call: ToolCall) -> Served:
+    """A call to a tool that is no channel, answered with the ones there are."""
+    logger.warning("unknown tool called", extra={"tool": call.name})
 
-        return could_not_serve(
-            call,
-            f"there is no tool called {call.name!r}. The tools available are "
-            f"{METRICS_TOOL}, {LOGS_TOOL}, {CHANGES_TOOL}, "
-            f"{DEPENDENCIES_TOOL}, {DEPLOYMENT_DIFF_TOOL}, {ROLLOUT_TOOL} and "
-            f"{ANSWER_TOOL}."
-        )
+    return could_not_serve(
+        call,
+        f"there is no tool called {call.name!r}. The tools available are "
+        f"{METRICS_TOOL}, {LOGS_TOOL}, {CHANGES_TOOL}, "
+        f"{DEPENDENCIES_TOOL}, {DEPLOYMENT_DIFF_TOOL}, {ROLLOUT_TOOL} and "
+        f"{ANSWER_TOOL}."
+    )
