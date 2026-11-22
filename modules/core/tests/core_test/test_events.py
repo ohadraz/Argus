@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import get_args
 
 import pytest
 from argus_testkit import (
@@ -96,6 +97,14 @@ SOME_WINDOW_END = "2026-08-30T10:12:00Z"
 # A spelling no `ActionType` has. Named rather than written inline so the case
 # reads as being about the vocabulary rather than about one typo.
 SOME_KIND_NOBODY_DECLARED = "drain-node"
+# The kinds that say, without their line, that it supports no rule-out - what
+# the service did, when the incident began, what Argus made of it, and a
+# request, whose line decides by what it asked for - mirroring the events' own
+# `kind`s. Every other kind says it may.
+THE_KINDS_THAT_RULE_NOTHING_OUT = frozenset({
+    "metrics-retrieved", "logs-retrieved", "onset-detected", "anchored-on-the-alarm",
+    "hypothesis-formed", "candidate-selected", "candidates-reordered", "retrieval-requested"
+})
 
 
 @pytest.mark.unit
@@ -855,6 +864,65 @@ def test_a_publisher_told_the_run_was_lost_is_not_swallowed() -> None:
         .then(
             an_error_was_raised(RunLost)
         )
+
+
+@pytest.mark.unit
+def test_every_kind_says_whether_its_line_may_support_a_rule_out() -> None:
+    # A document saying a cause was ruled out may rest that on a line only where
+    # the line's kind says it can. Asserted as the set of kinds that say they
+    # cannot, over every kind there is, so a kind added later that forgets to
+    # say so is named here rather than quietly able to support nothing.
+    Scenario() \
+        .given(every_kind := get_args(get_args(IncidentEvent.__value__)[0])) \
+        .when(lambda: {kind.model_fields["kind"].default for kind in every_kind
+                       if not kind.MAY_RULE_OUT}) \
+        .then(_they_are(THE_KINDS_THAT_RULE_NOTHING_OUT))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("channel", "may_rule_out"), [
+    (RetrievalChannel.CHANGES, True),
+    (RetrievalChannel.LOGS, False),
+    (RetrievalChannel.METRICS, False)
+], ids=["changes", "logs", "metrics"])
+def test_a_request_may_support_a_rule_out_only_where_it_asked_for_changes(
+        channel: RetrievalChannel, may_rule_out: bool) -> None:
+    # A request for changes is half of a read that found none, and is said with
+    # it. A request for the logs or the metrics asks after what the service did,
+    # which rules nothing out whatever comes back.
+    Scenario() \
+        .given(dont_care_incident := new_id()) \
+        .when(lambda: RetrievalRequested(incident_id=dont_care_incident,
+                                         channel=channel).may_rule_out) \
+        .then(the_answer_was(may_rule_out))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("an_event", "may_rule_out"), [
+    (AgentInvoked(incident_id=new_id(), agent=Actor.INVESTIGATOR), True),
+    (LogsRetrieved(incident_id=new_id(), window_start=SOME_WINDOW_START,
+                   window_end=SOME_WINDOW_END, lines=[]), False)
+], ids=["a-kind-that-may", "a-kind-that-never-does"])
+def test_an_event_says_what_its_kind_says_of_a_rule_out(an_event: IncidentEvent,
+                                                       may_rule_out: bool) -> None:
+    Scenario() \
+        .given(an_event) \
+        .when(lambda: an_event.may_rule_out) \
+        .then(the_answer_was(may_rule_out))
+
+
+def _they_are(expected: frozenset[str]) -> Assertion[set[str]]:
+    def assertion(kinds: set[str]) -> bool:
+        if kinds != expected:
+            raise AssertionError(
+                f"Expected exactly these kinds to rule nothing out: {sorted(expected)}, got "
+                f"{sorted(kinds)} - missing {sorted(expected - kinds)}, unexpected "
+                f"{sorted(kinds - expected)}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_publisher_told_the_run_was_lost() -> Publisher:

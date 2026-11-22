@@ -26,6 +26,9 @@ from core.models import Ask, ToolCall, ToolDefinition, Transcript, Turn
 from message_intent.answering import ANSWER_FIELD, ANSWER_TOOL_NAME, answer
 from narration import CandidateLine, NarrationLine
 
+# Whether a line may support a rule-out: read by none of these cases.
+DONT_CARE_MAY_RULE_OUT = True
+
 SOME_QUESTION = "why did you revert the checkout flag?"
 SOME_ANSWER = "The checkout flag was switched on at 12:01, a minute before errors rose."
 # Where the question was asked, by the name a chat platform's adapter gives it.
@@ -104,7 +107,7 @@ def test_the_model_is_shown_what_a_line_says_beside_itself() -> None:
                       kind="fix-attempted",
                       who="Code-Fix Agent",
                       text="Read the code and found no code-level fix to make",
-                      aside=some_aside)
+                      aside=some_aside, may_rule_out=DONT_CARE_MAY_RULE_OUT)
     ]
 
     Scenario() \
@@ -124,7 +127,8 @@ def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
                       kind="fix-attempted",
                       who="Code-Fix Agent",
                       text="Read the code and found no code-level fix to make",
-                      aside="Code-Fix's reading: scrape.yaml\nnames the old port")
+                      aside="Code-Fix's reading: scrape.yaml\nnames the old port",
+                      may_rule_out=DONT_CARE_MAY_RULE_OUT)
     ]
 
     Scenario() \
@@ -139,14 +143,14 @@ def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
 @pytest.mark.parametrize(("line", "said"), [
     (NarrationLine(at=datetime(2026, 10, 11, 12, 4, tzinfo=UTC), kind="action-taken",
                    who="Mitigator", text="Reverted the feature flag checkout, moved ",
-                   moved_from="ON", moved_to="OFF"),
+                   moved_from="ON", moved_to="OFF", may_rule_out=DONT_CARE_MAY_RULE_OUT),
      "Reverted the feature flag checkout, moved from ON to OFF"),
     (NarrationLine(at=datetime(2026, 10, 11, 12, 3, tzinfo=UTC), kind="hypothesis-formed",
                    who="Investigator Agent", text="Formed 1 candidate cause, best first:",
                    candidates=[CandidateLine(hypothesis_id="h1", number=1,
                                              summary="The checkout flag broke the page",
                                              subject="checkout", confidence="0.8",
-                                             evidence=[])]),
+                                             evidence=[])], may_rule_out=DONT_CARE_MAY_RULE_OUT),
      "Formed 1 candidate cause, best first: The checkout flag broke the page")
 ], ids=["a-move", "candidates"])
 def test_the_model_is_shown_each_line_in_full(line: NarrationLine, said: str) -> None:
@@ -229,11 +233,12 @@ def _a_timeline() -> list[NarrationLine]:
         NarrationLine(at=datetime(2026, 10, 11, 12, 2, tzinfo=UTC),
                       kind="hypothesis-formed",
                       who="Investigator",
-                      text="The checkout flag was switched on a minute before errors rose"),
+                      text="The checkout flag was switched on a minute before errors rose",
+                      may_rule_out=DONT_CARE_MAY_RULE_OUT),
         NarrationLine(at=datetime(2026, 10, 11, 12, 5, tzinfo=UTC),
                       kind="action-taken",
                       who="Mitigator",
-                      text="Reverted the checkout flag")
+                      text="Reverted the checkout flag", may_rule_out=DONT_CARE_MAY_RULE_OUT)
     ]
 
 

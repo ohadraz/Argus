@@ -38,6 +38,10 @@ ONSET_DETECTED = "onset-detected"
 ACTION_TAKEN = "action-taken"
 VERDICT_REACHED = "verdict-reached"
 
+# Whether a line may support a rule-out, as its event's kind says.
+MAY_RULE_OUT = True
+RULES_NOTHING_OUT = False
+
 INVESTIGATOR = "Investigator Agent"
 MITIGATION = "Mitigator"
 ARGUS = "Argus"
@@ -91,10 +95,12 @@ FRALFS_SECOND_ASK, FRALFS_SECOND_READ, FRALFS_SECOND_ROLLOUT_READ = "T29", "T30"
 
 def _a_row(who: str, text: str, kind: str | None = None, rules_out: str = "",
            channel: RetrievalChannel | None = None,
-           outside_the_walk: bool = False) -> TimelineEntry:
+           outside_the_walk: bool = False,
+           may_rule_out: bool = MAY_RULE_OUT) -> TimelineEntry:
     """A row of the timeline, dated by where `_in_order` puts it."""
     return TimelineEntry(at=SOME_MOMENT, who=who, text=text, kind=kind, rules_out=rules_out,
-                         channel=channel, outside_the_walk=outside_the_walk)
+                         channel=channel, outside_the_walk=outside_the_walk,
+                         may_rule_out=may_rule_out)
 
 
 def _in_order(rows: dict[str, TimelineEntry]) -> dict[str, TimelineEntry]:
@@ -116,8 +122,10 @@ SOME_ROWS = _in_order({
     AN_EARLIER_READ: THE_EARLIER_CHANGES_READ,
     THE_FLAGS_READ: _a_row(ARGUS, READ_NO_FLAG_CHANGES, FLAG_CHANGES_RETRIEVED,
                            NO_FLAG_CHANGE_BY_ANYONE_ELSE),
-    THE_METRICS_READ: _a_row(INVESTIGATOR, READ_THE_METRICS, METRICS_RETRIEVED),
-    THE_ONSET: _a_row(INVESTIGATOR, PLACED_THE_ONSET, ONSET_DETECTED),
+    THE_METRICS_READ: _a_row(INVESTIGATOR, READ_THE_METRICS, METRICS_RETRIEVED,
+                             may_rule_out=RULES_NOTHING_OUT),
+    THE_ONSET: _a_row(INVESTIGATOR, PLACED_THE_ONSET, ONSET_DETECTED,
+                      may_rule_out=RULES_NOTHING_OUT),
     THE_PLACEMENT: _a_row(INVESTIGATOR, RECORDED_THE_REPLICAS, PLACEMENT_RECORDED, NO_RESTART),
     A_LATER_REQUEST: _asked_for_changes(),
     A_READ_OF_ONLY_FLAGS: _a_row(INVESTIGATOR, READ_ONLY_FLAG_CHANGES, CHANGES_RETRIEVED,
@@ -594,6 +602,32 @@ def test_a_rule_out_on_rows_that_rule_nothing_out_naming_nothing_outside_is_drop
         ) \
         .then(
             _ruled_out_as([])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "may_rule_out", "kept"), [
+    (METRICS_RETRIEVED, MAY_RULE_OUT, True),
+    (ACTION_TAKEN, RULES_NOTHING_OUT, False)
+], ids=["a-kind-once-listed-saying-it-may", "a-kind-never-listed-saying-it-never-does"])
+def test_whether_a_rule_out_on_a_line_is_dropped_is_what_the_line_says_not_its_kind(
+        kind: str, may_rule_out: bool, kept: bool) -> None:
+    # The line says whether a rule-out may rest on it, as its event's kind said
+    # when it was narrated. Read off the line rather than matched against a list
+    # of kinds here, a list a new kind of event would never have been added to.
+    some_rows = _in_order({THE_METRICS_READ: _a_row(INVESTIGATOR, READ_THE_METRICS, kind,
+                                                    may_rule_out=may_rule_out)})
+
+    Scenario() \
+        .given(
+            a_rule_out := SubmittedRuledOut(what=SOME_WORDS, cites=[THE_METRICS_READ])
+        ) \
+        .when(
+            lambda: with_what_the_record_rules_out(
+                _an_answer_ruling_out([a_rule_out]), some_rows, SOME_OUTSIDE)
+        ) \
+        .then(
+            _ruled_out_as([a_rule_out] if kept else [])
         )
 
 

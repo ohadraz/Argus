@@ -267,6 +267,11 @@ class TimelineEntry(BaseModel):
     # document leads its rule-out with ("A flag change by anyone but Argus") -
     # empty where the line rules nothing out, and on a document written before.
     rules_out: str = ""
+    # Whether a rule-out may rest on the line, as the event it was said from
+    # declares - False on the metrics read, the onset and the rest that rule
+    # nothing out whatever they say. True on a document written before, as its
+    # line with no kind always read: not known never to.
+    may_rule_out: bool = True
     # What the undo of an action judged refuted did, in its own words - "monthly-
     # spend-feature was put back ON" - where the line says one, so a document
     # crediting the put-back can say it without the verdict beside it. Empty on

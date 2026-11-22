@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from datetime import datetime
-from typing import Annotated, Any, Final, Literal, Protocol
+from typing import Annotated, Any, ClassVar, Final, Literal, Protocol
 
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
@@ -65,11 +65,28 @@ class _Event(BaseModel):
     everything Argus does itself; an event reporting something another party
     stamped - a message, written when its platform says - is handed that
     moment instead.
+
+    `MAY_RULE_OUT` is whether a line said from an event of this kind may be
+    what a document rests a rule-out on, declared by every kind: a write-up
+    saying a cause was ruled out on lines that rule nothing out - the metrics
+    read, the onset - has said nothing, and is dropped. False here, so a kind
+    added later supports no rule-out until it says it may. A class fact rather
+    than a field, so no event's row, dump or schema carries it. Readers ask
+    `may_rule_out`, the line's own answer; `MAY_RULE_OUT` is what a kind says
+    without its line.
     """
+
+    MAY_RULE_OUT: ClassVar[bool] = False
 
     id: UuidStr = Field(default_factory=new_id)
     incident_id: UuidStr
     at: datetime = Field(default_factory=utc_now)
+
+    @property
+    def may_rule_out(self) -> bool:
+        """Whether a line said from this event may be what a rule-out rests on -
+        its kind's `MAY_RULE_OUT`, unless the kind says it depends on more."""
+        return self.MAY_RULE_OUT
 
 
 class AlertAcknowledged(_Event):
@@ -81,6 +98,8 @@ class AlertAcknowledged(_Event):
     """
 
     kind: Literal["alert-acknowledged"] = "alert-acknowledged"
+    # What the alert said, which every rule-out is weighed against.
+    MAY_RULE_OUT: ClassVar[bool] = True
     alert: Alert
 
 
@@ -88,6 +107,9 @@ class AgentInvoked(_Event):
     """The Orchestrator handed the incident to one of its sub-agents."""
 
     kind: Literal["agent-invoked"] = "agent-invoked"
+    # Who was called in, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     agent: Actor
 
 
@@ -104,6 +126,8 @@ class StatusChanged(_Event):
     """
 
     kind: Literal["status-changed"] = "status-changed"
+    # Where the incident went and on whose word, which may rule a cause out.
+    MAY_RULE_OUT: ClassVar[bool] = True
     to_status: IncidentStatus
     detail: str | None = None
     reported: Report | None = None
@@ -120,9 +144,20 @@ class RetrievalRequested(_Event):
     """
 
     kind: Literal["retrieval-requested"] = "retrieval-requested"
+    # Without its line, a request is not known to support a rule-out: whether
+    # it does is what it asked for (`may_rule_out`).
+    MAY_RULE_OUT: ClassVar[bool] = False
     channel: RetrievalChannel
     window_start: str | None = None
     window_end: str | None = None
+
+    @property
+    def may_rule_out(self) -> bool:
+        """Only a request for changes: it is said with the read that answered
+        it, and that read's class is what is ruled out. A request for the logs
+        or the metrics asks after what the service did, which rules nothing out
+        whatever comes back."""
+        return self.channel is RetrievalChannel.CHANGES
 
 
 class MetricsRetrieved(_Event):
@@ -142,6 +177,8 @@ class MetricsRetrieved(_Event):
     """
 
     kind: Literal["metrics-retrieved"] = "metrics-retrieved"
+    # What the service did, which rules nothing out whatever it shows.
+    MAY_RULE_OUT: ClassVar[bool] = False
     window_start: str | None = None
     window_end: str | None = None
     buckets: list[MetricBucket]
@@ -157,6 +194,8 @@ class LogsRetrieved(_Event):
     """
 
     kind: Literal["logs-retrieved"] = "logs-retrieved"
+    # What the service said, which rules nothing out whatever it shows.
+    MAY_RULE_OUT: ClassVar[bool] = False
     window_start: str
     window_end: str
     lines: list[str]
@@ -166,6 +205,8 @@ class ChangesRetrieved(_Event):
     """What changed on the service over the window that was asked about."""
 
     kind: Literal["changes-retrieved"] = "changes-retrieved"
+    # A read of what changed: a class it found none of is ruled out.
+    MAY_RULE_OUT: ClassVar[bool] = True
     window_start: str
     window_end: str
     changes: list[ChangeEvent]
@@ -199,6 +240,8 @@ class DeploymentChangesRead(_Event):
     """
 
     kind: Literal["deployment-changes-read"] = "deployment-changes-read"
+    # What a deployment changed, and so what it did not.
+    MAY_RULE_OUT: ClassVar[bool] = True
     revision: str
     said: list[str]
     lists_every_file: bool = False
@@ -231,6 +274,8 @@ class RolloutRead(_Event):
     """
 
     kind: Literal["rollout-read"] = "rollout-read"
+    # How far a rollout got: one that converged rules out one under way.
+    MAY_RULE_OUT: ClassVar[bool] = True
     account: RolloutAccount
 
 
@@ -249,6 +294,8 @@ class ServiceRegisterRead(_Event):
     """
 
     kind: Literal["service-register-read"] = "service-register-read"
+    # Who owns what, which may rule a service out.
+    MAY_RULE_OUT: ClassVar[bool] = True
     dependencies: list[ServiceDependency]
 
 
@@ -317,6 +364,8 @@ class ChannelsUnread(_Event):
     """
 
     kind: Literal["channels-unread"] = "channels-unread"
+    # The reads that went unanswered, which a rule-out is weighed against.
+    MAY_RULE_OUT: ClassVar[bool] = True
     channels: list[RetrievalChannel]
 
 
@@ -356,6 +405,8 @@ class RetrievalUnanswered(_Event):
     """
 
     kind: Literal["retrieval-unanswered"] = "retrieval-unanswered"
+    # A read that did not answer, which a rule-out is weighed against.
+    MAY_RULE_OUT: ClassVar[bool] = True
     what_was_asked: str
     because: str | None = None
     minute: str | None = None
@@ -366,6 +417,8 @@ class OnsetDetected(_Event):
     it was found in."""
 
     kind: Literal["onset-detected"] = "onset-detected"
+    # When the incident began, which rules nothing out.
+    MAY_RULE_OUT: ClassVar[bool] = False
     onset: str
 
 
@@ -381,6 +434,8 @@ class AnchoredOnTheAlarm(_Event):
     """
 
     kind: Literal["anchored-on-the-alarm"] = "anchored-on-the-alarm"
+    # When the incident began, as the alarm dated it, which rules nothing out.
+    MAY_RULE_OUT: ClassVar[bool] = False
     minute: str
 
 
@@ -392,6 +447,8 @@ class HypothesisFormed(_Event):
     """
 
     kind: Literal["hypothesis-formed"] = "hypothesis-formed"
+    # What Argus made of the evidence, which rules nothing out by being formed.
+    MAY_RULE_OUT: ClassVar[bool] = False
     hypothesis_id: UuidStr
     summary: str
     failure_mode: FailureMode | None
@@ -436,6 +493,8 @@ class FlagChangesRetrieved(_Event):
     """
 
     kind: Literal["flag-changes-retrieved"] = "flag-changes-retrieved"
+    # The flag provider's history: none by anyone but Argus rules one out.
+    MAY_RULE_OUT: ClassVar[bool] = True
     changes: list[FlagChange]
     window_start: str | None = None
     window_end: str | None = None
@@ -453,6 +512,8 @@ class PlacementRecorded(_Event):
     """
 
     kind: Literal["placement-recorded"] = "placement-recorded"
+    # Where the replicas ran: none started after the onset rules out a restart.
+    MAY_RULE_OUT: ClassVar[bool] = True
     placement: RecordedPlacement
 
 
@@ -465,6 +526,9 @@ class ActionTaken(_Event):
     """
 
     kind: Literal["action-taken"] = "action-taken"
+    # What Argus changed and when, which may rule its own change out as the
+    # cause of what came before it.
+    MAY_RULE_OUT: ClassVar[bool] = True
     hypothesis_id: UuidStr | None
     # The number of the candidate it was for (`Hypothesis.number`), so the line
     # says which: the move to mitigating cannot, and an action read against
@@ -525,6 +589,9 @@ class AwaitingRecovery(_Event):
     """
 
     kind: Literal["awaiting-recovery"] = "awaiting-recovery"
+    # That a wait on the service began, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     from_minute: str
     # A float, because it is a span between two instants - how long the clear
     # minutes a recovery must hold run for, from the moment the change arrived.
@@ -571,6 +638,9 @@ class RecoveryChecked(_Event):
     """
 
     kind: Literal["recovery-checked"] = "recovery-checked"
+    # A look at the service after an action, which may rule out a
+    # recovery that came before it.
+    MAY_RULE_OUT: ClassVar[bool] = True
     minute: str
     recovered: bool
     recovered_minute: str | None = None
@@ -594,6 +664,8 @@ class VerdictReached(_Event):
     """
 
     kind: Literal["verdict-reached"] = "verdict-reached"
+    # What an action came to, which the write-up leaves the model to weigh.
+    MAY_RULE_OUT: ClassVar[bool] = True
     hypothesis_id: UuidStr | None
     # The number of the candidate the action was for, as `ActionTaken` carries
     # it: an attempt that ended before its write is said by this line alone.
@@ -632,6 +704,8 @@ class CandidateSelected(_Event):
     """
 
     kind: Literal["candidate-selected"] = "candidate-selected"
+    # Which candidate is tried next, which rules nothing out.
+    MAY_RULE_OUT: ClassVar[bool] = False
     hypothesis_id: UuidStr
     # The number of the candidate (`Hypothesis.number`), so the line names it as
     # every line acting for it does. `None` on an event written before it was
@@ -651,6 +725,9 @@ class ActionRefused(_Event):
     """
 
     kind: Literal["action-refused"] = "action-refused"
+    # Why the gate declined an action, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     # Absent where the walk reached the gate with no candidate at all: the
     # proposal answers a hypothesis it does not have with no action, and the
     # gate then refuses an action nobody proposed. Nullable for the reason
@@ -697,6 +774,9 @@ class ActionRecommended(_Event):
     """
 
     kind: Literal["action-recommended"] = "action-recommended"
+    # A next step handed to a person, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     hypothesis_id: UuidStr | None
     # The number of the candidate the recommendation answers, for the reason
     # the refusal beside it carries one.
@@ -727,6 +807,8 @@ class AlarmDisproven(_Event):
     """
 
     kind: Literal["alarm-disproven"] = "alarm-disproven"
+    # An alarm found false, which rules its own claim out.
+    MAY_RULE_OUT: ClassVar[bool] = True
     condition: str
     signals_judged: tuple[str, ...]
     earliest_minute: str
@@ -761,6 +843,8 @@ class PlatformUnavailable(_Event):
     """
 
     kind: Literal["platform-unavailable"] = "platform-unavailable"
+    # A platform that did not answer, which a rule-out is weighed against.
+    MAY_RULE_OUT: ClassVar[bool] = True
     platform: Platform
     actions_unavailable: list[ActionType]
 
@@ -775,6 +859,9 @@ class MitigationResumed(_Event):
     """
 
     kind: Literal["mitigation-resumed"] = "mitigation-resumed"
+    # A resumed walk catching up with its verdict, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     hypothesis_id: UuidStr
     outcome: Verdict
 
@@ -791,6 +878,9 @@ class ChangeUndone(_Event):
     """
 
     kind: Literal["change-undone"] = "change-undone"
+    # What a put-back did, which may rule out Argus's change as still
+    # standing.
+    MAY_RULE_OUT: ClassVar[bool] = True
     # What was put back, whatever kind of thing it is. `subject` rather than
     # `flag` because it is the word the rest of the model already uses for
     # this - `ActionIdentity.subject`, `ActionKind.subject` - and a flag was only
@@ -847,6 +937,8 @@ class FixAttempted(_Event):
     """
 
     kind: Literal["fix-attempted"] = "fix-attempted"
+    # What Code-Fix found in the code, which may rule a change out.
+    MAY_RULE_OUT: ClassVar[bool] = True
     outcome: FixOutcome
     pull_request: OpenedPullRequest | None = None
     detail: str
@@ -881,6 +973,9 @@ class PostmortemWritten(_Event):
     """
 
     kind: Literal["postmortem-written"] = "postmortem-written"
+    # That the write-up was written, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     cause_in_plain_words: str | None = None
     executive_summary: str | None = None
     engineer_minutes: int | None = None
@@ -895,6 +990,9 @@ class ExecutiveSynopsisWritten(_Event):
     """
 
     kind: Literal["executive-synopsis-written"] = "executive-synopsis-written"
+    # That the synopsis was written, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
 
 
 class ExecutiveSynopsisWithheld(_Event):
@@ -903,6 +1001,9 @@ class ExecutiveSynopsisWithheld(_Event):
     is never given an amount of pay, so nothing it wrote quotes one."""
 
     kind: Literal["executive-synopsis-withheld"] = "executive-synopsis-withheld"
+    # That the synopsis was withheld, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     reason: str
 
 
@@ -933,6 +1034,8 @@ class SimilarIncidentsRecalled(_Event):
     """
 
     kind: Literal["similar-incidents-recalled"] = "similar-incidents-recalled"
+    # What earlier incidents tried, which may rule a candidate out.
+    MAY_RULE_OUT: ClassVar[bool] = True
     # Each incident with what it had tried when the walk read it. Not a copy of
     # the record to go stale when it is written to again: it is what this walk
     # was shown, which no later write changes. And it is the part a reader can
@@ -961,6 +1064,8 @@ class CandidatesReordered(_Event):
     """
 
     kind: Literal["candidates-reordered"] = "candidates-reordered"
+    # The order the candidates are tried in, which rules nothing out.
+    MAY_RULE_OUT: ClassVar[bool] = False
     # The action that was tried before, not the candidate that would take it
     # again. Both halves, because the subject alone does not say what was done
     # to it: "moved checkout down the list" is true of a service somebody
@@ -992,6 +1097,9 @@ class IncidentRemembered(_Event):
     """
 
     kind: Literal["incident-remembered"] = "incident-remembered"
+    # That the incident was filed for later ones, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     tried: list[ActionIdentity]
 
 
@@ -1005,6 +1113,9 @@ class RememberingFailed(_Event):
     """
 
     kind: Literal["remembering-failed"] = "remembering-failed"
+    # That filing the incident failed, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     refusal: str
 
 
@@ -1026,6 +1137,9 @@ class CommunicationFailed(_Event):
     """
 
     kind: Literal["communication-failed"] = "communication-failed"
+    # That a message did not reach its channel, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     channel: str
     refusal: str
     about_kind: str
@@ -1046,6 +1160,8 @@ class PersonWrote(_Event):
     """
 
     kind: Literal["person-wrote"] = "person-wrote"
+    # A person's word, which a rule-out may rest on.
+    MAY_RULE_OUT: ClassVar[bool] = True
     message: Reference
     person_id: str
     text: str
@@ -1061,6 +1177,8 @@ class MessageUnderstood(_Event):
     """
 
     kind: Literal["message-understood"] = "message-understood"
+    # What Argus made of a person's word, cited beside it.
+    MAY_RULE_OUT: ClassVar[bool] = True
     message: Reference
     meaning: Meaning
 
@@ -1077,6 +1195,9 @@ class ResolutionOffered(_Event):
     """
 
     kind: Literal["resolution-offered"] = "resolution-offered"
+    # An offer to end the incident as resolved, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     message: Reference
     person_id: str
     person_name: str | None
@@ -1095,6 +1216,9 @@ class WithdrawalOffered(_Event):
     """
 
     kind: Literal["withdrawal-offered"] = "withdrawal-offered"
+    # An offer to end the incident as withdrawn, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     message: Reference
     person_id: str
     person_name: str | None
@@ -1116,6 +1240,9 @@ class OfferExpired(_Event):
     """
 
     kind: Literal["offer-expired"] = "offer-expired"
+    # An offer nobody confirmed in time, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     message: Reference
 
 
@@ -1131,6 +1258,8 @@ class LeadWeighed(_Event):
     """
 
     kind: Literal["lead-weighed"] = "lead-weighed"
+    # A lead from the thread, weighed, which a rule-out may rest on.
+    MAY_RULE_OUT: ClassVar[bool] = True
     message: Reference
     standing: Standing
     reason: str
@@ -1146,6 +1275,9 @@ class QuestionAnswered(_Event):
     """
 
     kind: Literal["question-answered"] = "question-answered"
+    # The record said again, in answer to a question, which rules nothing out -
+    # left "may" as before, since False would change which rule-outs are dropped.
+    MAY_RULE_OUT: ClassVar[bool] = True
     message: Reference
     answer: str
 

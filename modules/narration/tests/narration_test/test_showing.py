@@ -49,6 +49,8 @@ from narration.showing import (
 )
 
 DONT_CARE_MOMENT = datetime(2026, 10, 11, 12, 18, tzinfo=UTC)
+# Whether a line may support a rule-out: read by none of these cases.
+DONT_CARE_MAY_RULE_OUT = True
 # The label a change read goes by, where which one it is matters to nothing.
 DONT_CARE_LABEL = "dont care"
 
@@ -130,7 +132,8 @@ def test_a_line_of_the_walk_is_shown_with_its_names_as_code_in_every_part_of_it(
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="action-taken", who="Mitigation",
                               text="Rolled [io-shop] back to [7c3ca00]",
                               before_emphasis="Rolled ", emphasis="[io-shop]",
-                              after_emphasis=" back to [7c3ca00]")
+                              after_emphasis=" back to [7c3ca00]",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -151,7 +154,8 @@ def test_a_revision_the_incident_read_is_shown_short_in_every_part_of_a_line() -
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="action-taken", who="Mitigation",
                               text=f"Rolled [io-shop] back off revision [{SOME_REVISION}]",
                               before_emphasis="Rolled ", emphasis="[io-shop]",
-                              after_emphasis=f" back off revision [{SOME_REVISION}]")
+                              after_emphasis=f" back off revision [{SOME_REVISION}]",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -173,7 +177,8 @@ def test_a_revision_the_incident_read_is_shown_short_in_every_part_of_a_line() -
 def test_a_revision_shown_short_leads_to_its_commit() -> None:
     # Short, it is a name a reader cannot look up by hand.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="action-taken", who="Mitigation",
-                              text=f"Rolled [io-shop] back off revision [{SOME_REVISION}]")
+                              text=f"Rolled [io-shop] back off revision [{SOME_REVISION}]",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -192,7 +197,7 @@ def test_a_revision_a_line_does_not_name_gives_it_no_link() -> None:
     # Every revision the incident read is handed to every line; a line leads
     # only where it names.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="action-taken", who="Mitigation",
-                              text="Restarted [io-shop]")
+                              text="Restarted [io-shop]", may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -213,7 +218,8 @@ def test_a_revision_named_by_a_start_of_it_is_shown_short_and_leads_to_its_commi
     # ways, and only one of them opens.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="hypothesis-formed",
                               who="Investigator",
-                              text=f"[{SOME_REVISION[:8]}] made every page slow")
+                              text=f"[{SOME_REVISION[:8]}] made every page slow",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -235,7 +241,8 @@ def test_a_start_two_revisions_share_is_shown_as_code_leading_nowhere() -> None:
     # and opening nowhere.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="hypothesis-formed",
                               who="Investigator",
-                              text=f"[{SOME_REVISION[:7]}] made every page slow")
+                              text=f"[{SOME_REVISION[:7]}] made every page slow",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -256,7 +263,8 @@ def test_a_start_two_revisions_share_is_shown_as_code_leading_nowhere() -> None:
 def test_a_line_shown_twice_reads_as_it_did_shown_once() -> None:
     # Its links are read off what it names, so showing it again keeps them.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="action-taken", who="Mitigation",
-                              text=f"Rolled [io-shop] back off revision [{SOME_REVISION}]")
+                              text=f"Rolled [io-shop] back off revision [{SOME_REVISION}]",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
     some_revisions = {SOME_REVISION: _shown_by(SOME_REVISION[:7])}
 
     Scenario() \
@@ -320,7 +328,8 @@ def test_a_pull_request_is_shown_by_its_name_leading_to_its_address() -> None:
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="fix-attempted", who="Code-Fix",
                               text=f"Proposed a fix as a draft pull request - {SOME_PULL_REQUEST}",
                               before_emphasis="Proposed a fix as a draft pull request - ",
-                              emphasis=SOME_PULL_REQUEST, names_url=SOME_PULL_REQUEST)
+                              emphasis=SOME_PULL_REQUEST, names_url=SOME_PULL_REQUEST,
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -345,7 +354,8 @@ def test_a_pull_request_a_line_about_something_else_names_is_shown_by_its_name()
                                    f"open at {SOME_PULL_REQUEST}",
                               before_emphasis="Moved the incident to ", emphasis="ESCALATED",
                               after_emphasis=" - a draft pull request is open at "
-                                             f"{SOME_PULL_REQUEST}")
+                                             f"{SOME_PULL_REQUEST}",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -365,7 +375,8 @@ def test_a_pull_request_a_line_about_something_else_names_is_shown_by_its_name()
 def test_an_address_that_only_starts_as_a_pull_request_s_does_is_shown_as_written() -> None:
     # Matched whole: the seventieth pull request is not the seventh.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="fix-attempted", who="Code-Fix",
-                              text=f"Proposed a fix as a draft pull request - {SOME_PULL_REQUEST}0")
+                              text=f"Proposed a fix as a draft pull request - {SOME_PULL_REQUEST}0",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -383,7 +394,8 @@ def test_a_pull_request_shown_twice_still_leads_to_its_address() -> None:
     # Shown once, the line no longer says the address; its link is read off the
     # name it says instead.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="fix-attempted", who="Code-Fix",
-                              text=f"Proposed a fix as a draft pull request - {SOME_PULL_REQUEST}")
+                              text=f"Proposed a fix as a draft pull request - {SOME_PULL_REQUEST}",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -419,7 +431,8 @@ def test_a_revision_whose_short_form_is_all_digits_still_leads_to_its_commit() -
     # looking for revisions it does not know. This one it knows.
     some_digits_first = "3398001abab0000000000000000000000000000c"
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="action-taken", who="Mitigation",
-                              text=f"Rolled [io-shop] back off revision [{some_digits_first}]")
+                              text=f"Rolled [io-shop] back off revision [{some_digits_first}]",
+                              may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -440,7 +453,7 @@ def test_a_line_a_person_wrote_is_shown_as_they_wrote_it() -> None:
     # so is a revision they wrote whole.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="person-wrote", who="kuki",
                               text=f"the [checkout] flag again, or {SOME_REVISION}?",
-                              outside_the_walk=True)
+                              outside_the_walk=True, may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -464,7 +477,8 @@ def test_a_revision_a_candidate_names_is_shown_short_in_its_claim_subject_and_fi
         candidates=[CandidateLine(hypothesis_id="dont care", number=1,
                                   summary=f"The deploy of [{SOME_REVISION}] broke it",
                                   subject=SOME_REVISION, confidence=None,
-                                  evidence=[Finding(text=f"{SOME_REVISION} rewrote it")])])
+                                  evidence=[Finding(text=f"{SOME_REVISION} rewrote it")])],
+        may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(
@@ -494,7 +508,8 @@ def test_a_revision_a_candidate_moved_from_or_to_is_shown_short_and_leads_to_its
         text="Formed one candidate",
         candidates=[CandidateLine(hypothesis_id="dont care", number=1, summary="dont care",
                                   subject=None, confidence=None,
-                                  moved_from=SOME_RIVAL, moved_to=SOME_REVISION, evidence=[])])
+                                  moved_from=SOME_RIVAL, moved_to=SOME_REVISION, evidence=[])],
+        may_rule_out=DONT_CARE_MAY_RULE_OUT)
 
     Scenario() \
         .given(

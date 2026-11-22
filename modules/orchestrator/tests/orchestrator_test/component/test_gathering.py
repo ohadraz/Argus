@@ -4280,6 +4280,46 @@ def test_a_request_s_kind_and_channel_reach_the_timeline(a_clean_database: None)
 
 
 @pytest.mark.component
+@pytest.mark.parametrize("channel", [RetrievalChannel.CHANGES, RetrievalChannel.LOGS],
+                         ids=["one-that-may", "one-that-never-does"])
+def test_whether_a_line_may_support_a_rule_out_reaches_the_timeline(
+        a_clean_database: None, channel: RetrievalChannel) -> None:
+    # The write-up drops a rule-out resting only on lines that rule nothing
+    # out - which it can only do knowing which they are, as their events said.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_request := RetrievalRequested(incident_id=incident_id, channel=channel,
+                                                   window_start=SOME_WINDOW_START,
+                                                   window_end=SOME_WINDOW_END)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, some_request)
+            ) \
+            .then(
+                _the_timeline_closes_on_a_line_that_may_rule_out(some_request.may_rule_out)
+            )
+
+
+def _the_timeline_closes_on_a_line_that_may_rule_out(expected: bool
+                                                     ) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        last = evidence.timeline[-1] if evidence.timeline else None
+        carried = last.may_rule_out if last is not None else None
+
+        if carried is not expected:
+            raise AssertionError(
+                f"Expected the timeline to close on a line saying it [{expected}] may support "
+                f"a rule-out; got {carried!r}.")
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.component
 def test_what_a_read_rules_out_reaches_the_timeline(a_clean_database: None) -> None:
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)

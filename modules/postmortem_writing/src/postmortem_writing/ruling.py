@@ -41,11 +41,6 @@ from postmortem_writing.sections import said_as_a_clause
 # The kinds of line the pairing reads, as the events name them.
 _REQUESTED: Final = "retrieval-requested"
 _CHANGES_READ: Final = "changes-retrieved"
-# The lines that never rule anything out, whatever they found: what the
-# service did, when the incident began, and what Argus made of it.
-_NEVER_RULING: Final = frozenset({"metrics-retrieved", "logs-retrieved", "onset-detected",
-                                  "anchored-on-the-alarm", "hypothesis-formed",
-                                  "candidate-selected", "candidates-reordered"})
 
 
 def with_what_the_record_rules_out(answer: SubmittedPostmortem,
@@ -275,8 +270,7 @@ def _asked_for_changes(row: TimelineEntry) -> bool:
 
 
 def _never_rules(row: TimelineEntry) -> bool:
-    """Whether a line is of a kind that rules nothing out whatever it says -
-    a request for anything but changes among them. A line with no kind is
-    from a document written before lines said, and is not known never to."""
-    return row.kind in _NEVER_RULING or (row.kind == _REQUESTED
-                                         and row.channel is not RetrievalChannel.CHANGES)
+    """Whether a line rules nothing out whatever it says, as the event it was
+    said from declared - a request for anything but changes among them. A line
+    of a document written before lines said is not known never to."""
+    return not row.may_rule_out

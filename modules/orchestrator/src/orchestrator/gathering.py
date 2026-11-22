@@ -657,6 +657,7 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
                       kind=line.kind,
                       channel=line.channel,
                       rules_out=line.rules_out,
+                      may_rule_out=line.may_rule_out,
                       put_back=line.put_back)
         for line in told
     ]

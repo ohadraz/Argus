@@ -21,12 +21,29 @@ from core.models import (
     DetectionMeasuredFrom,
     HypothesisConsidered,
     RuleSeriesHarm,
+    TimelineEntry,
     Unit,
     within_what_was_accounted_for,
 )
 from pydantic import ValidationError
 
 DONT_CARE_MOMENT = datetime(2026, 10, 19, 0, 12, tzinfo=UTC)
+
+
+@pytest.mark.unit
+def test_a_timeline_line_stored_before_it_said_whether_it_may_rule_out_is_not_known_never_to(
+) -> None:
+    # A document written before lines said so is still read, and nothing on its
+    # lines says they rule nothing out - so a rule-out resting on one stays the
+    # model's to say, as it did when the document was written.
+    Scenario() \
+        .when(
+            lambda: TimelineEntry.model_validate(
+                {"at": DONT_CARE_MOMENT, "who": None, "text": "dont care"}).may_rule_out
+        ) \
+        .then(
+            the_answer_was(True)
+        )
 
 
 @pytest.mark.unit

@@ -391,6 +391,10 @@ class NarrationLine(BaseModel):
     # it out leads with. Left out of `text`: the line says what came back, and
     # this is what that rules out.
     rules_out: str = ""
+    # Whether a document may rest a rule-out on this line, as the event it was
+    # said from declares (`may_rule_out`). Required: every line is said from an
+    # event, and a default would hide a line that forgot to carry it.
+    may_rule_out: bool
     # What the undo of an action judged refuted did, in its own words, where the
     # line says one - "monthly-spend-feature was put back ON" - and nothing on
     # every other line. Said in `text` after the verdict as well: a document
@@ -994,6 +998,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         ),
         channel=event.channel if isinstance(event, RetrievalRequested) else None,
         rules_out=_what_it_rules_out(event),
+        may_rule_out=event.may_rule_out,
         put_back=_what_its_undo_did(event)
     )
 

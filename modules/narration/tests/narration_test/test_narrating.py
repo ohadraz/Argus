@@ -388,6 +388,21 @@ def test_a_change_retrieval_line_says_its_flag_changes_are_the_flag_providers_hi
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("channel", [RetrievalChannel.CHANGES, RetrievalChannel.LOGS],
+                         ids=["one-that-may", "one-that-never-does"])
+def test_a_line_says_whether_it_may_support_a_rule_out_as_its_event_does(
+        channel: RetrievalChannel) -> None:
+    # Carried from the event, so a document can tell a line a rule-out may rest
+    # on from one that rules nothing out without knowing the events' kinds.
+    some_request = RetrievalRequested(incident_id=new_id(), channel=channel)
+
+    Scenario() \
+        .given(some_request) \
+        .when(lambda: build_narration([some_request])[0].may_rule_out) \
+        .then(the_answer_was(some_request.may_rule_out))
+
+
+@pytest.mark.unit
 def test_a_metrics_retrieval_carries_the_minutes_it_read_back() -> None:
     # The evidence travels on the line that read it, so the story can gather it
     # into a table afterwards. What is marked in that table is `metrics`' own
