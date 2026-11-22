@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS action (
     -- candidate naming no subject is a real candidate.
     type TEXT NOT NULL,
     subject TEXT,
-    -- What the subject is a name in (`the_platform_of` the kind): a flag and an
+    -- What the subject is a name in (the kind's `platform`): a flag and an
     -- application can be called alike, and only a change in the same realm is
     -- a change to the same thing. NULL exactly where `subject` is, which the
     -- check below holds.

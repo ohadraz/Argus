@@ -63,7 +63,7 @@ from core.models import (
     IncidentStatus,
     Verdict,
     the_actions_through,
-    the_platform_of,
+    the_kind,
 )
 
 from tests.e2e.framework.argus import (
@@ -292,7 +292,7 @@ def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx2.Res
     that narrowed itself correctly attempts exactly one thing through a dead
     platform - the one that told it the platform was dead.
 
-    The kinds are compared through `the_platform_of` rather than listed, for the
+    The kinds are compared through their `platform` rather than listed, for the
     reason the event's contents are: a sixth mitigation on this platform has to
     be covered by this assertion without anybody remembering to add it.
     """
@@ -302,7 +302,7 @@ def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx2.Res
             event for event in recorded
             if isinstance(event, VerdictReached)
             and event.action_type is not None
-            and the_platform_of(event.action_type) == DEPLOYMENT_PLATFORM
+            and the_kind(event.action_type).platform == DEPLOYMENT_PLATFORM
         ]
 
         if len(through_it) != 1:
@@ -318,7 +318,7 @@ def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx2.Res
         done = [
             event for event in recorded
             if isinstance(event, ActionTaken)
-            and the_platform_of(event.action_type) == DEPLOYMENT_PLATFORM
+            and the_kind(event.action_type).platform == DEPLOYMENT_PLATFORM
         ]
 
         if done:

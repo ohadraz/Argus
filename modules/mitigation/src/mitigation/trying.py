@@ -42,7 +42,7 @@ from core.models import (
     Planned,
     UndoDescriptor,
     changes_something_persistent,
-    reports_what_it_changed,
+    the_kind,
 )
 from mcp_transport import (
     CHANGED_SINCE_MARKER,
@@ -1355,7 +1355,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # levels by the recovery check and the deadline: confirmed if the level
         # came down, refuted when the time runs out, exactly as every other kind
         # is.
-        if not departed and reports_what_it_changed(action_type):
+        if not departed and the_kind(action_type).reports_what_it_changed:
             return _Settled(
                 Verdict.CONFIRMED,
                 "the store reported what it removed, which is the whole of "

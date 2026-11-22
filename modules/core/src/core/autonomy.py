@@ -63,7 +63,6 @@ from core.models import (
     ActionType,
     Refusal,
     ServiceDependency,
-    the_service_addressed_by,
 )
 
 __all__ = [
@@ -235,7 +234,7 @@ def is_within_reach(action: Action,
     that means ours, so a register that grows a fourth answer withholds authority
     rather than granting it.
     """
-    addressed_to = the_service_addressed_by(action)
+    addressed_to = action.service_addressed
 
     if addressed_to is None or addressed_to == alerting_service:
         return True

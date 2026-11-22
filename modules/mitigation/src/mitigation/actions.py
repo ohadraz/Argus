@@ -71,7 +71,7 @@ class UndoAttempt(BaseModel):
 
     `subject` rather than `flag`, and the word is the one the rest of the
     codebase already uses for this: `ActionIdentity.subject` and
-    `the_subject_of` name the thing an action acts on across every kind of
+    `ActionKind.subject` name the thing an action acts on across every kind of
     action there is. A flag was only ever one of them - a rolled-back
     deployment is put back by application - and a field named for the first
     kind to arrive is a field that lies about the second.

@@ -12,7 +12,6 @@ from core.models import (
     IncidentStatus,
     Platform,
     the_actions_through,
-    the_direction_of,
     the_identity_of,
 )
 
@@ -240,7 +239,7 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     return [
         Attempt(
             identity=the_identity_of(action),
-            enabled=the_direction_of(action),
+            enabled=action.direction,
             occurred_at=to_iso(state.acted_at),
             # Always a refutation's reason here: this node is reached after a
             # refuted action, and an escalated one ends the walk before it.

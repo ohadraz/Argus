@@ -42,6 +42,7 @@ from core.models import (
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     ActionIdentity,
+    ActionKind,
     ActionType,
     DiscardCacheEntries,
     FlagUndo,
@@ -55,14 +56,10 @@ from core.models import (
     Verdict,
     changes_something_persistent,
     leaves_something_to_put_back,
-    reports_what_it_changed,
-    the_accelerator_of,
     the_actions_through,
-    the_direction_of,
     the_identity_of,
     the_identity_recorded,
-    the_platform_of,
-    what_it_leaves,
+    the_kind,
 )
 from pydantic import ValidationError
 
@@ -244,7 +241,7 @@ def test_a_rollback_has_no_direction_to_report() -> None:
         .given(
             a_rollback := _a_rollback_of(SOME_APPLICATION)
         ) \
-        .when(lambda: the_direction_of(a_rollback)) \
+        .when(lambda: a_rollback.direction) \
         .then(_it_has_no_direction())
 
 
@@ -313,7 +310,7 @@ def test_a_scale_out_has_no_direction_to_report() -> None:
         .given(
             a_scale_out := _a_scale_out_of(SOME_APPLICATION)
         ) \
-        .when(lambda: the_direction_of(a_scale_out)) \
+        .when(lambda: a_scale_out.direction) \
         .then(_it_has_no_direction())
 
 
@@ -340,11 +337,11 @@ def test_the_five_actions_that_reach_the_estate_through_the_deploy_platform_shar
             PIN_TO_ACCELERATOR
         ]) \
         .when(lambda: [
-            the_platform_of(RESTART_SERVICE),
-            the_platform_of(ROLL_BACK_DEPLOYMENT),
-            the_platform_of(SCALE_OUT),
-            the_platform_of(PIN_AUTOSCALER),
-            the_platform_of(PIN_TO_ACCELERATOR)
+            the_kind(RESTART_SERVICE).platform,
+            the_kind(ROLL_BACK_DEPLOYMENT).platform,
+            the_kind(SCALE_OUT).platform,
+            the_kind(PIN_AUTOSCALER).platform,
+            the_kind(PIN_TO_ACCELERATOR).platform
         ]) \
         .then(_they_all_act_through(DEPLOYMENT_PLATFORM))
 
@@ -357,7 +354,7 @@ def test_a_flag_revert_acts_through_something_else() -> None:
     # one action survives it.
     Scenario() \
         .given(REVERT_FEATURE_FLAG) \
-        .when(lambda: the_platform_of(REVERT_FEATURE_FLAG)) \
+        .when(lambda: the_kind(REVERT_FEATURE_FLAG).platform) \
         .then(all_of(
             _it_acts_through(FLAG_PROVIDER),
             _it_does_not_act_through(DEPLOYMENT_PLATFORM)
@@ -470,7 +467,7 @@ def test_a_discard_reaches_the_estate_through_neither_platform_above() -> None:
     # abandoned over an outage that never touched the cache it acts on.
     Scenario() \
         .given(DISCARD_CACHE_ENTRIES) \
-        .when(lambda: the_platform_of(DISCARD_CACHE_ENTRIES)) \
+        .when(lambda: the_kind(DISCARD_CACHE_ENTRIES).platform) \
         .then(all_of(
             _it_acts_through(CACHE),
             _it_does_not_act_through(DEPLOYMENT_PLATFORM)
@@ -488,7 +485,7 @@ def test_a_discard_has_no_direction_to_report() -> None:
         .given(
             a_discard := _a_discard_of(SOME_APPLICATION)
         ) \
-        .when(lambda: the_direction_of(a_discard)) \
+        .when(lambda: a_discard.direction) \
         .then(_it_has_no_direction())
 
 
@@ -505,7 +502,7 @@ def test_only_the_discard_answers_with_what_it_changed() -> None:
     Scenario() \
         .given(every_kind := get_args(ActionType.__value__)) \
         .when(lambda: [
-            kind for kind in every_kind if reports_what_it_changed(kind)
+            kind for kind in every_kind if the_kind(kind).reports_what_it_changed
         ]) \
         .then(_they_are([DISCARD_CACHE_ENTRIES]))
 
@@ -562,7 +559,7 @@ def test_each_kind_says_what_it_leaves_behind(kind: ActionType, leaves: Leaves) 
     # what Argus may take unasked and what a person must approve.
     Scenario() \
         .given(kind) \
-        .when(lambda: what_it_leaves(kind)) \
+        .when(lambda: the_kind(kind).leaves) \
         .then(_it_leaves(leaves))
 
 
@@ -602,7 +599,7 @@ def test_a_pin_to_an_accelerator_has_no_direction_to_report() -> None:
                 application=SOME_APPLICATION, accelerator="Tesla-V100-SXM2-16GB"
             )
         ) \
-        .when(lambda: the_direction_of(a_pin)) \
+        .when(lambda: a_pin.direction) \
         .then(_it_has_no_direction())
 
 
@@ -617,7 +614,7 @@ def test_a_pin_to_an_accelerator_names_the_card_it_pinned_to() -> None:
                 application=SOME_APPLICATION, accelerator=SOME_ACCELERATOR
             )
         ) \
-        .when(lambda: the_accelerator_of(a_pin)) \
+        .when(lambda: a_pin.pinned_to) \
         .then(_it_names_the_accelerator(SOME_ACCELERATOR))
 
 
@@ -625,8 +622,69 @@ def test_a_pin_to_an_accelerator_names_the_card_it_pinned_to() -> None:
 def test_an_action_that_pins_nothing_to_a_card_names_no_accelerator() -> None:
     Scenario() \
         .given(a_rollback := _a_rollback_of(SOME_APPLICATION)) \
-        .when(lambda: the_accelerator_of(a_rollback)) \
+        .when(lambda: a_rollback.pinned_to) \
         .then(_it_names_the_accelerator(None))
+
+
+@pytest.mark.unit
+def test_every_tag_is_the_kind_that_carries_it() -> None:
+    # The union and the tags are two declarations of one set of kinds. A tag
+    # with no class would be a kind with no facts, and a class with no tag a
+    # kind no row could name - so each tag has to find the class whose own tag
+    # it is.
+    Scenario() \
+        .given(every_kind := get_args(ActionType.__value__)) \
+        .when(lambda: [the_kind(kind).model_fields["action_type"].default
+                       for kind in every_kind]) \
+        .then(_they_are(list(every_kind)))
+
+
+@pytest.mark.unit
+def test_a_kind_that_leaves_a_fact_unstated_is_refused_as_its_class_is_built() -> None:
+    # A fact about the kind is asked of a tag before anything is performed, so
+    # a kind that never stated one would be found out at walk time, by whoever
+    # asked. Refused as the class is built instead, which is as its module is
+    # imported.
+    Scenario() \
+        .given(ActionKind) \
+        .when(attempting(_a_kind_stating_no_platform)) \
+        .then(an_error_was_raised(TypeError))
+
+
+@pytest.mark.unit
+def test_every_kind_states_every_fact_about_one_action() -> None:
+    # A fact about one action is a property every kind defines. A kind leaving
+    # one out would be refused only when an action of it was first built - for
+    # an action parsed from a model's proposal, at walk time - so none may.
+    Scenario() \
+        .given(every_kind := get_args(ActionType.__value__)) \
+        .when(lambda: {kind: sorted(the_kind(kind).__abstractmethods__)
+                       for kind in every_kind
+                       if the_kind(kind).__abstractmethods__}) \
+        .then(_none_is_left_unstated())
+
+
+def _none_is_left_unstated() -> Assertion[dict[str, list[str]]]:
+    def assertion(left_unstated: dict[str, list[str]]) -> bool:
+        if left_unstated:
+            raise AssertionError(
+                f"Expected every kind to state every fact about one action, and "
+                f"these leave some unstated: {left_unstated}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_kind_stating_no_platform() -> type[ActionKind]:
+    """A kind whose class statement names every fact but its platform."""
+    class _AKindWithNoPlatform(ActionKind,
+                               leaves=Leaves.NOTHING_THAT_OUTLIVES_IT,
+                               reports_what_it_changed=False):
+        pass
+
+    return _AKindWithNoPlatform
 
 
 def _the_kinds_are(description: str, expected: list[str]) -> Assertion[list[str]]:

@@ -19,9 +19,8 @@ from core.models import (
     Hypothesis,
     Refusal,
     ServiceDependency,
-    reports_what_it_changed,
     the_identity_of,
-    the_subject_of,
+    the_kind,
     why_it_was_refused,
 )
 from mitigation import why_nothing_was_proposed
@@ -147,7 +146,7 @@ def tier_gate_node(
     logger.info("action refused", extra={
         "refusal": refusal,
         "action_type": proposed.action_type if proposed is not None else None,
-        "subject": the_subject_of(proposed) if proposed is not None else None
+        "subject": proposed.subject if proposed is not None else None
     })
 
     # The candidate's own row says it was never put to the question, and why.
@@ -353,7 +352,7 @@ def _why_the_action_cannot_proceed(action: Action | None,
     if (
         dated_by_the_alert
         and readings_cover_the_incident
-        and not reports_what_it_changed(action.action_type)
+        and not the_kind(action.action_type).reports_what_it_changed
     ):
         return Refusal.NOTHING_COULD_CONFIRM_IT
 

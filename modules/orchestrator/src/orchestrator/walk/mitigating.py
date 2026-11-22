@@ -37,12 +37,8 @@ from core.models import (
     SubjectOpen,
     UndoDescriptor,
     UnreadVerdict,
-    the_accelerator_of,
     the_actions_through,
-    the_direction_of,
-    the_platform_of,
-    the_service_addressed_by,
-    the_subject_of,
+    the_kind,
     whose_open_change,
     why_it_was_refused,
 )
@@ -238,7 +234,7 @@ def mitigation_node(
         # the symptom, so a row carrying it quotes something nobody did, and the
         # cap on attempts per subject counts a phrase that comes out different
         # every round.
-        subject=the_subject_of(state.proposed_action),
+        subject=state.proposed_action.subject,
         # When the claim was written, which is not when the action was: the
         # agent is called in after it, and the action announced after that.
         # Dated by the claim, the action came before the agent that took it -
@@ -299,7 +295,7 @@ def mitigation_node(
     logger.info("verdict reached", extra={
         "verdict": result.verdict,
         "action_type": state.proposed_action.action_type,
-        "subject": the_subject_of(state.proposed_action)
+        "subject": state.proposed_action.subject
     })
 
     return _the_attempt_recorded(state, result, acted_at, complete_action, record_outcome,
@@ -426,7 +422,7 @@ def _the_subject_is_open(state: IncidentState,
     because = (why_it_was_refused(Refusal.SUBJECT_ALREADY_OPEN)
                + whose_open_change(open_in, state.incident_id))
     logger.info("action refused, another change to its subject may still stand",
-                extra={"subject": the_subject_of(state.proposed_action),
+                extra={"subject": state.proposed_action.subject,
                        "open_in": open_in})
     record_outcome(state.hypothesis.id, tested=False, result=because)
     publish(
@@ -472,7 +468,7 @@ def _not_admitted(state: IncidentState,
     logger.warning("action not admitted when it came to be taken",
                    extra={"refusal": refusal,
                           "action_type": state.proposed_action.action_type,
-                          "subject": the_subject_of(state.proposed_action)})
+                          "subject": state.proposed_action.subject})
     record_outcome(state.hypothesis.id, tested=False, result=because)
     publish(
         ActionRefused(
@@ -561,7 +557,7 @@ def _the_attempt_recorded(state: IncidentState,
             # What was reached for, and whether it was done: for an attempt
             # that ended before its write, this is the only line saying so.
             action_type=state.proposed_action.action_type,
-            subject=the_subject_of(state.proposed_action),
+            subject=state.proposed_action.subject,
             performed=result.performed,
             not_performed_because=result.not_performed_because,
             undone=result.undone,
@@ -618,7 +614,7 @@ def _the_attempt_recorded(state: IncidentState,
         #
         # Added to what the walk already carries rather than replacing it, so a
         # second platform failing does not forget the first.
-        platform = the_platform_of(state.proposed_action.action_type)
+        platform = the_kind(state.proposed_action.action_type).platform
         # Published here because here is where it was learnt, and before the
         # candidate that follows - the stream is read as a story in the order it
         # happened, and an event explaining why later candidates went untried is
@@ -685,7 +681,7 @@ def _whose_dependency_was_acted_on(action: Action,
     as acting on a dependency - the clause meant to mark the unusual incident
     marking the commonest one instead.
     """
-    addressed_to = the_service_addressed_by(action)
+    addressed_to = action.service_addressed
 
     if addressed_to is None or addressed_to == alerting_service:
         return None
@@ -743,10 +739,10 @@ def _the_change_was_made(advance_action: AdvanceAction,
         hypothesis_id=hypothesis_id,
         candidate_number=candidate_number,
         action_type=action.action_type,
-        subject=the_subject_of(action),
-        enabled=the_direction_of(action),
+        subject=action.subject,
+        enabled=action.direction,
         a_dependency_of=_whose_dependency_was_acted_on(action, alerting_service),
-        accelerator=the_accelerator_of(action),
+        accelerator=action.pinned_to,
         at=now()
     )
     publish(announcement, publisher)
@@ -1063,7 +1059,7 @@ def _the_retake_refused(state: IncidentState,
     logger.warning("a claimed action not admitted when it came to be taken again",
                    extra={"refusal": refusal,
                           "action_type": state.proposed_action.action_type,
-                          "subject": the_subject_of(state.proposed_action)})
+                          "subject": state.proposed_action.subject})
     _the_attempt_recorded(
         state,
         Outcome(verdict=Verdict.ESCALATED, detail=because, undo_descriptor=left_behind,
@@ -1283,10 +1279,10 @@ def _announced_where_none_is_on_file(state: IncidentState,
             hypothesis_id=state.hypothesis.id,
             candidate_number=state.hypothesis.number,
             action_type=action.action_type,
-            subject=the_subject_of(action),
-            enabled=the_direction_of(action),
+            subject=action.subject,
+            enabled=action.direction,
             a_dependency_of=_whose_dependency_was_acted_on(action, state.alert.service),
-            accelerator=the_accelerator_of(action),
+            accelerator=action.pinned_to,
             at=at
         ),
         resumption.publisher

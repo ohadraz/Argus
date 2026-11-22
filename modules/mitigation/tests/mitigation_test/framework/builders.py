@@ -21,7 +21,6 @@ from core.models import (
     RestartedService,
     RestartService,
     Undone,
-    the_service_addressed_by,
 )
 from mitigation import Action, Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
 from mitigation.kinds import undo_change
@@ -186,7 +185,7 @@ def an_admission_of[A: Action](action: A) -> Admitted[A]:
     """
     admission = admit(
         action,
-        alerting_service=the_service_addressed_by(action) or DONT_CARE_ALERTING_SERVICE,
+        alerting_service=action.service_addressed or DONT_CARE_ALERTING_SERVICE,
         dependencies=[]
     )
 

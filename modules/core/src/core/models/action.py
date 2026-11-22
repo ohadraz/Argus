@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from abc import abstractmethod
 from enum import StrEnum
-from typing import Annotated, Any, Final, Literal, assert_never, get_args
+from typing import Annotated, Any, ClassVar, Final, Literal, get_args
 
 from pydantic import BaseModel, Field, GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
@@ -126,7 +127,181 @@ class UnreadVerdict(str):
 _THE_SPELLINGS_OF_A_VERDICT: Final = frozenset(verdict.value for verdict in Verdict)
 
 
-class RevertFeatureFlag(BaseModel):
+# What an action reaches the estate through. A role rather than a vendor, for
+# the reason the read tier's Argo CD adapter is a `deploy` source and not an
+# `argocd` one: nothing above the retrieval boundary learns which product
+# answered, and a walk that narrowed itself by the word "argo" would have to be
+# rewritten by whoever replaces it.
+type Platform = Literal["deployment-platform", "flag-provider", "cache"]
+
+DEPLOYMENT_PLATFORM: Final = "deployment-platform"
+FLAG_PROVIDER: Final = "flag-provider"
+# The store a service keeps its derived copies in, reached over that store's own
+# protocol rather than through anything that manages the service. A third role
+# because no control plane offers this write: a platform's built-in actions reach
+# a workload's lifecycle and its size, and none of them reaches what a cache
+# holds. Filing it under the deployment platform for tidiness would mean a walk
+# that lost that platform passed over a discard, abandoning it over an outage
+# that never touched the store it acts on.
+CACHE: Final = "cache"
+
+
+class Leaves(StrEnum):
+    """What an action of a kind leaves behind it, once it has been taken.
+
+    One answer per kind rather than one set per question, because the questions
+    asked of it overlap and two literals maintained by hand is exactly how a
+    kind gets entered in one and forgotten in the other. Whether a kind leaves
+    something to put back, whether it changes anything that outlives it, and
+    whether Argus may ever take it unasked are all read off this one word, so a
+    kind cannot be reported as both unaccounted for and inert.
+
+    `SOMETHING_TO_PUT_BACK` - a value, a revision, a count, a floor or a
+    selector, recorded so a refuted change can be restored. `NOTHING_THAT_OUTLIVES_IT`
+    - the restart: a process that came back up carries nothing forward.
+    `NOTHING_OWED_BACK` - the discard, the one kind that changes something real
+    and owes nothing back: what it removes was derived from records it never
+    touches, so writing those figures in again would recreate the incident
+    rather than undo it. A row with no descriptor against it means one of three
+    things, and only the kind says which.
+
+    `IRREVERSIBLE` - a change that cannot be put back and is not recomputed
+    either: a stored record rewritten, a fleet rolled forward that cannot be
+    returned to half-deployed. No kind Argus has today leaves this, and the
+    declared set of generic mitigations (`core.autonomy`) is held by its own
+    test to hold none. It is the one place reversibility decides anything about
+    autonomy (spec §13): membership admits an action, and a kind like this is
+    never a member.
+    """
+
+    SOMETHING_TO_PUT_BACK = "something-to-put-back"
+    NOTHING_THAT_OUTLIVES_IT = "nothing-that-outlives-it"
+    NOTHING_OWED_BACK = "nothing-owed-back"
+    IRREVERSIBLE = "irreversible"
+
+
+class ActionKind(BaseModel):
+    """What every kind of action says about itself, said once, on the kind.
+
+    The facts the gate, the walk and the record ask of an action - what it
+    acts on, whether that has an address, which platform it reaches the estate
+    through, what it leaves behind - live on the class that is the action. A
+    kind added later states every one of them in its own body or does not
+    build, which is what the `match` each of them used to be answered by gave,
+    without a `match` per fact spread across the module.
+
+    Two shapes, for the two ways they are asked. A fact about the kind is asked
+    of a tag, before anything has been performed - a row's column, a platform
+    that has gone away - so it is a class attribute set by the class's own
+    keywords, and a class that leaves one out raises as it is built, which is
+    at import. A fact about one action needs the action, so it is a property
+    every kind defines: neither mypy nor the runtime will build a kind that
+    leaves one out, since a model's metaclass is an `ABCMeta`.
+
+    Nothing else is declared here - no field, no configuration - because
+    whatever a base adds to a model it adds to every action's dump and schema,
+    and so to the row, the event and what a model is shown.
+    """
+
+    platform: ClassVar[Platform]
+    leaves: ClassVar[Leaves]
+    reports_what_it_changed: ClassVar[bool]
+
+    def __init_subclass__(cls,
+                          *,
+                          platform: Platform,
+                          leaves: Leaves,
+                          reports_what_it_changed: bool,
+                          **kwargs: Any) -> None:
+        """The kind's facts, from the keywords its class statement names.
+
+        `platform` is what it reaches the estate through: asked of kinds that
+        have not been attempted, since a platform that did not answer one action
+        has taken every action through it away at once, and a walk has to say
+        which of its remaining candidates are still worth reaching for.
+
+        `leaves` is what it leaves behind (`Leaves`): asked of the tag, since
+        the walk that reads a row back hours later has the column and not the
+        action it came from.
+
+        `reports_what_it_changed` is whether its own answer states what it
+        changed, rather than that a request was accepted. It decides which
+        confirmation an attempt gets: a count of entries removed is the store
+        saying they are gone, while a platform's acknowledgement of a restart
+        says a request was taken and whether it helped has to be watched for -
+        and where the service's window never departed there is nothing to
+        watch, so only a kind that answers for itself can be confirmed at all.
+        The gate asks it before anything is performed.
+        """
+        super().__init_subclass__(**kwargs)
+        cls.platform = platform
+        cls.leaves = leaves
+        cls.reports_what_it_changed = reports_what_it_changed
+
+    @property
+    @abstractmethod
+    def subject(self) -> str:
+        """What the action acts on, whatever kind of thing that is.
+
+        One answer for every reader that asks - the row the claim writes, the
+        event a reader sees and the identity - so no reader unpacks the kinds
+        itself.
+        """
+
+    @property
+    @abstractmethod
+    def service_addressed(self) -> str | None:
+        """Which service this action acts on, or `None` where it acts on none.
+
+        Not the subject, and the difference is what this exists for. A subject
+        is whatever an action acts on, of whatever kind; this is an *address*,
+        and only some of the things Argus acts on have one. A feature flag is a
+        switch in Argus's own provider: nobody owns it but Argus, and treating
+        its name as an address compares a flag against a list of service names
+        and gets a confident wrong answer.
+
+        `None` rather than the alerting service's name, because they are not the
+        same claim. One says this action is aimed at nothing anybody owns; the
+        other would say it is aimed at the service that alerted - which is
+        false, and false in a way that reads correctly in every account of the
+        incident afterwards.
+
+        Asked by the gate, whether the address is within the estate Argus may
+        touch, and by the walk, whether the action went somewhere the incident
+        was not about. Abstract rather than defaulted to `None`, so a new kind
+        cannot quietly acquire an address of `None` and the authority that comes
+        with it.
+        """
+
+    @property
+    @abstractmethod
+    def direction(self) -> bool | None:
+        """Which way a two-state action moved its subject, or `None` for an
+        action that has no direction to move in.
+
+        A flag is set on or off, and which of those happened is the half of the
+        sentence a reader can act on. A restart has no such half: there is one
+        thing it does, and reporting it as having been moved to `true` would be
+        a field invented to keep a shape.
+        """
+
+    @property
+    @abstractmethod
+    def pinned_to(self) -> str | None:
+        """The card a pin held its deployment to, or `None` for an action that
+        pins nothing to a card.
+
+        Asked of the action rather than read off its subject, because the
+        subject of a pin is the application: that a deployment was held to a
+        card is half of what was done, and which card is the half a reader
+        checks against the placement recorded at the onset.
+        """
+
+
+class RevertFeatureFlag(ActionKind,
+                        platform=FLAG_PROVIDER,
+                        leaves=Leaves.SOMETHING_TO_PUT_BACK,
+                        reports_what_it_changed=False):
     """Reverting one feature flag to where it was (spec §7.3, §13).
 
     Here rather than in `mitigation` for the same reason `Hypothesis` is
@@ -154,8 +329,30 @@ class RevertFeatureFlag(BaseModel):
     enabled: bool
     undo_descriptor: FlagUndo
 
+    @property
+    def subject(self) -> str:
+        return self.flag
 
-class RestartService(BaseModel):
+    @property
+    def service_addressed(self) -> str | None:
+        # A switch in Argus's own provider, which nobody owns but Argus: its
+        # name compared against a list of service names gives a confident
+        # wrong answer.
+        return None
+
+    @property
+    def direction(self) -> bool | None:
+        return self.enabled
+
+    @property
+    def pinned_to(self) -> str | None:
+        return None
+
+
+class RestartService(ActionKind,
+                     platform=DEPLOYMENT_PLATFORM,
+                     leaves=Leaves.NOTHING_THAT_OUTLIVES_IT,
+                     reports_what_it_changed=False):
     """Restarting the service, as the first mitigation that puts nothing back.
 
     The industry's most common first response to a resource leak, and a
@@ -180,8 +377,27 @@ class RestartService(BaseModel):
     action_type: Literal["restart-service"] = "restart-service"
     service: str
 
+    @property
+    def subject(self) -> str:
+        return self.service
 
-class RollBackDeployment(BaseModel):
+    @property
+    def service_addressed(self) -> str | None:
+        return self.service
+
+    @property
+    def direction(self) -> bool | None:
+        return None
+
+    @property
+    def pinned_to(self) -> str | None:
+        return None
+
+
+class RollBackDeployment(ActionKind,
+                         platform=DEPLOYMENT_PLATFORM,
+                         leaves=Leaves.SOMETHING_TO_PUT_BACK,
+                         reports_what_it_changed=False):
     """Returning a deployment to the revision it ran before.
 
     Named for the deployment rather than for its configuration, because one
@@ -220,8 +436,29 @@ class RollBackDeployment(BaseModel):
     action_type: Literal["roll-back-deployment"] = "roll-back-deployment"
     application: str
 
+    @property
+    def subject(self) -> str:
+        return self.application
 
-class ScaleOut(BaseModel):
+    @property
+    def service_addressed(self) -> str | None:
+        # A service under the platform's word for it, so it has an address
+        # like a restart does.
+        return self.application
+
+    @property
+    def direction(self) -> bool | None:
+        return None
+
+    @property
+    def pinned_to(self) -> str | None:
+        return None
+
+
+class ScaleOut(ActionKind,
+               platform=DEPLOYMENT_PLATFORM,
+               leaves=Leaves.SOMETHING_TO_PUT_BACK,
+               reports_what_it_changed=False):
     """Giving a deployment more replicas than it was sized for.
 
     The fourth generic mitigation, and the only one that adds something rather
@@ -254,8 +491,27 @@ class ScaleOut(BaseModel):
     action_type: Literal["scale-out"] = "scale-out"
     application: str
 
+    @property
+    def subject(self) -> str:
+        return self.application
 
-class PinAutoscaler(BaseModel):
+    @property
+    def service_addressed(self) -> str | None:
+        return self.application
+
+    @property
+    def direction(self) -> bool | None:
+        return None
+
+    @property
+    def pinned_to(self) -> str | None:
+        return None
+
+
+class PinAutoscaler(ActionKind,
+                    platform=DEPLOYMENT_PLATFORM,
+                    leaves=Leaves.SOMETHING_TO_PUT_BACK,
+                    reports_what_it_changed=False):
     """Holding a deployment's size still by raising its autoscaler's floor.
 
     The fifth generic mitigation, and the first that stops something rather than
@@ -293,8 +549,27 @@ class PinAutoscaler(BaseModel):
     action_type: Literal["pin-autoscaler"] = "pin-autoscaler"
     application: str
 
+    @property
+    def subject(self) -> str:
+        return self.application
 
-class DiscardCacheEntries(BaseModel):
+    @property
+    def service_addressed(self) -> str | None:
+        return self.application
+
+    @property
+    def direction(self) -> bool | None:
+        return None
+
+    @property
+    def pinned_to(self) -> str | None:
+        return None
+
+
+class DiscardCacheEntries(ActionKind,
+                          platform=CACHE,
+                          leaves=Leaves.NOTHING_OWED_BACK,
+                          reports_what_it_changed=True):
     """Throwing away the copies of something that have stopped agreeing with it.
 
     The sixth generic mitigation, and the first that removes something rather
@@ -334,8 +609,36 @@ class DiscardCacheEntries(BaseModel):
     service: str
     keys: tuple[str, ...] = Field(min_length=1)
 
+    @property
+    def subject(self) -> str:
+        # The service rather than the keys, and the keys are the reason to say
+        # so. A subject is what an action is known by across attempts, and the
+        # entries a check finds stale differ between one run and the next - so
+        # a subject carrying them would make every discard a different action
+        # and the cap on repeating one unreachable.
+        return self.service
 
-class PinToAccelerator(BaseModel):
+    @property
+    def service_addressed(self) -> str | None:
+        # An address like a restart's, not a flag's. The store holds one
+        # service's derived copies, so the discard is aimed at that service -
+        # which is what lets the gate ask whether it is within the estate Argus
+        # may touch, and the account say why Argus was allowed to.
+        return self.service
+
+    @property
+    def direction(self) -> bool | None:
+        return None
+
+    @property
+    def pinned_to(self) -> str | None:
+        return None
+
+
+class PinToAccelerator(ActionKind,
+                       platform=DEPLOYMENT_PLATFORM,
+                       leaves=Leaves.SOMETHING_TO_PUT_BACK,
+                       reports_what_it_changed=False):
     """Holding a deployment's pods to one kind of accelerator.
 
     The seventh generic mitigation, and a drain in Google SRE's sense: traffic is
@@ -364,6 +667,24 @@ class PinToAccelerator(BaseModel):
     action_type: Literal["pin-to-accelerator"] = "pin-to-accelerator"
     application: str
     accelerator: str
+
+    @property
+    def subject(self) -> str:
+        # The application rather than the card: which card is half of what was
+        # done, and not what the action is known by across attempts.
+        return self.application
+
+    @property
+    def service_addressed(self) -> str | None:
+        return self.application
+
+    @property
+    def direction(self) -> bool | None:
+        return None
+
+    @property
+    def pinned_to(self) -> str | None:
+        return self.accelerator
 
 
 # `action_type` is Argus's own word for what was done - it is a column on the
@@ -402,24 +723,44 @@ PIN_AUTOSCALER: Final = "pin-autoscaler"
 DISCARD_CACHE_ENTRIES: Final = "discard-cache-entries"
 PIN_TO_ACCELERATOR: Final = "pin-to-accelerator"
 
+# Each kind by its tag, read off the union's own members rather than listed a
+# second time: a kind added to the union is here without anybody adding it.
+_THE_KINDS: Final[dict[str, type[ActionKind]]] = {
+    kind.model_fields["action_type"].default: kind
+    for kind in get_args(get_args(Action.__value__)[0])
+}
 
-# What an action reaches the estate through. A role rather than a vendor, for
-# the reason the read tier's Argo CD adapter is a `deploy` source and not an
-# `argocd` one: nothing above the retrieval boundary learns which product
-# answered, and a walk that narrowed itself by the word "argo" would have to be
-# rewritten by whoever replaces it.
-type Platform = Literal["deployment-platform", "flag-provider", "cache"]
+# The union and the tags are two declarations of one set of kinds, and nothing
+# else holds them together: a tag with no class would be a kind with no facts,
+# and a class with no tag a kind no row could name. So the module refuses to
+# import where they differ.
+if set(_THE_KINDS) != set(get_args(ActionType.__value__)):
+    raise TypeError(
+        f"the kinds in Action {sorted(_THE_KINDS)} and the tags in ActionType "
+        f"{sorted(get_args(ActionType.__value__))} differ"
+    )
 
-DEPLOYMENT_PLATFORM: Final = "deployment-platform"
-FLAG_PROVIDER: Final = "flag-provider"
-# The store a service keeps its derived copies in, reached over that store's own
-# protocol rather than through anything that manages the service. A third role
-# because no control plane offers this write: a platform's built-in actions reach
-# a workload's lifecycle and its size, and none of them reaches what a cache
-# holds. Filing it under the deployment platform for tidiness would mean a walk
-# that lost that platform passed over a discard, abandoning it over an outage
-# that never touched the store it acts on.
-CACHE: Final = "cache"
+# And a kind that leaves a fact about one action unstated would import, and be
+# refused only when an action of it was first built - which, for an action
+# parsed from a model's proposal, is the walk. Refused here instead, as a kind
+# that leaves out a keyword is.
+_THE_FACTS_LEFT_UNSTATED: Final = {
+    tag: sorted(kind.__abstractmethods__)
+    for tag, kind in _THE_KINDS.items() if kind.__abstractmethods__
+}
+if _THE_FACTS_LEFT_UNSTATED:
+    raise TypeError(f"these kinds leave facts unstated: {_THE_FACTS_LEFT_UNSTATED}")
+
+
+def the_kind(action_type: ActionType) -> type[ActionKind]:
+    """The kind an action of this tag is, for a fact asked of the tag.
+
+    The row records a kind, and the walk that reads it back hours later has the
+    column and not the action it came from; a platform that has gone away is
+    asked about kinds nobody has attempted. Both ask the class, which states
+    every fact a kind has (`ActionKind`).
+    """
+    return _THE_KINDS[action_type]
 
 
 class RestartedService(BaseModel):
@@ -580,40 +921,6 @@ class AutoscalingRestored(BaseModel):
     sync_still_suspended: bool = False
 
 
-class Leaves(StrEnum):
-    """What an action of a kind leaves behind it, once it has been taken.
-
-    One answer per kind rather than one set per question, because the questions
-    asked of it overlap and two literals maintained by hand is exactly how a
-    kind gets entered in one and forgotten in the other. Whether a kind leaves
-    something to put back, whether it changes anything that outlives it, and
-    whether Argus may ever take it unasked are all read off this one word, so a
-    kind cannot be reported as both unaccounted for and inert.
-
-    `SOMETHING_TO_PUT_BACK` - a value, a revision, a count, a floor or a
-    selector, recorded so a refuted change can be restored. `NOTHING_THAT_OUTLIVES_IT`
-    - the restart: a process that came back up carries nothing forward.
-    `NOTHING_OWED_BACK` - the discard, the one kind that changes something real
-    and owes nothing back: what it removes was derived from records it never
-    touches, so writing those figures in again would recreate the incident
-    rather than undo it. A row with no descriptor against it means one of three
-    things, and only the kind says which.
-
-    `IRREVERSIBLE` - a change that cannot be put back and is not recomputed
-    either: a stored record rewritten, a fleet rolled forward that cannot be
-    returned to half-deployed. No kind Argus has today leaves this, and the
-    declared set of generic mitigations (`core.autonomy`) is held by its own
-    test to hold none. It is the one place reversibility decides anything about
-    autonomy (spec §13): membership admits an action, and a kind like this is
-    never a member.
-    """
-
-    SOMETHING_TO_PUT_BACK = "something-to-put-back"
-    NOTHING_THAT_OUTLIVES_IT = "nothing-that-outlives-it"
-    NOTHING_OWED_BACK = "nothing-owed-back"
-    IRREVERSIBLE = "irreversible"
-
-
 class ActionIdentity(BaseModel, frozen=True):
     """What an action *is*, for the purpose of asking whether it was done before.
 
@@ -674,14 +981,12 @@ class WhatArgusDid(BaseModel):
 def the_identity_of(action: Action) -> ActionIdentity:
     """The pair this action is known by, wherever one is compared to another.
 
-    Built from the action rather than assembled at each caller, for the reason
-    `the_subject_of` is: the two fields are only an identity together, and a
-    caller free to build one from a subject it had lying around is a caller
-    free to build one from the wrong subject.
+    Built from the action rather than assembled at each caller: the two fields
+    are only an identity together, and a caller free to build one from a
+    subject it had lying around is a caller free to build one from the wrong
+    subject.
     """
-    return ActionIdentity(
-        action_type=action.action_type, subject=the_subject_of(action)
-    )
+    return ActionIdentity(action_type=action.action_type, subject=action.subject)
 
 
 def the_identity_recorded(action_type: str, subject: str) -> ActionIdentity | None:
@@ -708,147 +1013,6 @@ def the_identity_recorded(action_type: str, subject: str) -> ActionIdentity | No
         return None
 
 
-def the_subject_of(action: Action) -> str:
-    """What the action acts on, whatever kind of thing that is.
-
-    Here rather than at each caller because the readers that ask are several -
-    the row the claim writes, the event a reader sees, and the identity above -
-    and a union unpacked in that many places is that many places that grow a
-    branch when a fourth kind arrives, most of which will be found by a bug.
-    """
-    match action:
-        case RevertFeatureFlag():
-            return action.flag
-        case RestartService():
-            return action.service
-        case (
-            RollBackDeployment() | ScaleOut() | PinAutoscaler() | PinToAccelerator()
-        ):
-            # The application rather than the card, for a pin to an accelerator:
-            # see `PinToAccelerator`.
-            return action.application
-        case DiscardCacheEntries():
-            # The service rather than the keys, and the keys are the reason to
-            # say so. A subject is what an action is known by across attempts,
-            # and the entries a check finds stale differ between one run and the
-            # next - so a subject carrying them would make every discard a
-            # different action and the cap on repeating one unreachable.
-            return action.service
-        case _:
-            assert_never(action)
-
-
-def the_service_addressed_by(action: Action) -> str | None:
-    """Which service this action acts on, or `None` where it acts on none.
-
-    Not `the_subject_of`, and the difference is what this exists for. A subject
-    is whatever an action acts on, of whatever kind; this is an *address*, and
-    only some of the things Argus acts on have one. A feature flag is a switch
-    in Argus's own provider: nobody owns it but Argus, and treating its name as
-    an address compares a flag against a list of service names and gets a
-    confident wrong answer. A rollback's application is a service under the
-    platform's word for it, so that one has an address like a restart does.
-
-    `None` rather than the alerting service's name, because they are not the
-    same claim. One says this action is aimed at nothing anybody owns; the other
-    would say it is aimed at the service that alerted - which is false, and
-    false in a way that reads correctly in every account of the incident
-    afterwards.
-
-    In the kernel because two modules ask it and neither could own it. The gate
-    asks whether the address is within the estate Argus may touch; the walk asks
-    whether the action went somewhere the incident was not about, so the account
-    can say why Argus was allowed to. Kept inside either of them, it would be
-    the other installing an agent to read a `match` over three classes - and a
-    second copy of that `match` is the thing this module exists to prevent.
-
-    Exhaustive on purpose. A fourth kind of action stops this type-checking
-    rather than quietly acquiring an address of `None` and the authority that
-    comes with it.
-    """
-    match action:
-        case RevertFeatureFlag():
-            return None
-        case RestartService():
-            return action.service
-        case (
-            RollBackDeployment() | ScaleOut() | PinAutoscaler() | PinToAccelerator()
-        ):
-            return action.application
-        case DiscardCacheEntries():
-            # An address like a restart's, not a flag's. The store holds one
-            # service's derived copies, so the discard is aimed at that service
-            # - which is what lets the gate ask whether it is within the estate
-            # Argus may touch, and the account say why Argus was allowed to.
-            return action.service
-        case _:
-            assert_never(action)
-
-
-def the_direction_of(action: Action) -> bool | None:
-    """Which way a two-state action moved its subject, or `None` for an action
-    that has no direction to move in.
-
-    A flag is set on or off, and which of those happened is the half of the
-    sentence a reader can act on. A restart has no such half: there is one
-    thing it does, and reporting it as having been moved to `true` would be a
-    field invented to keep a shape.
-    """
-    match action:
-        case RevertFeatureFlag():
-            return action.enabled
-        case (
-            RestartService() | RollBackDeployment() | ScaleOut() | PinAutoscaler()
-            | DiscardCacheEntries() | PinToAccelerator()
-        ):
-            return None
-        case _:
-            assert_never(action)
-
-
-def the_accelerator_of(action: Action) -> str | None:
-    """The card a pin held its deployment to, or `None` for an action that pins
-    nothing to a card.
-
-    Asked of the action rather than read off its subject, because the subject of
-    a pin is the application: that a deployment was held to a card is half of
-    what was done, and which card is the half a reader checks against the
-    placement recorded at the onset.
-    """
-    match action:
-        case PinToAccelerator():
-            return action.accelerator
-        case (
-            RevertFeatureFlag() | RestartService() | RollBackDeployment() | ScaleOut()
-            | PinAutoscaler() | DiscardCacheEntries()
-        ):
-            return None
-        case _:
-            assert_never(action)
-
-
-def what_it_leaves(action_type: ActionType) -> Leaves:
-    """What an action of this kind leaves behind it (`Leaves`).
-
-    Asked of the tag rather than of an action - the row records a kind, and the
-    walk that reads it back hours later has the column and not the action it
-    came from. A `match` rather than a mapping, for `the_platform_of`'s reason:
-    a kind nobody has placed is a type error here, before anything runs, where
-    a mapping would answer it with a `KeyError` at walk time or a default that
-    quietly said it left nothing.
-    """
-    match action_type:
-        case "revert-feature-flag" | "roll-back-deployment" | "scale-out" \
-                | "pin-autoscaler" | "pin-to-accelerator":
-            return Leaves.SOMETHING_TO_PUT_BACK
-        case "restart-service":
-            return Leaves.NOTHING_THAT_OUTLIVES_IT
-        case "discard-cache-entries":
-            return Leaves.NOTHING_OWED_BACK
-
-    assert_never(action_type)
-
-
 def leaves_something_to_put_back(action_type: ActionType) -> bool:
     """Whether an action of this kind changes state somebody could restore.
 
@@ -860,7 +1024,7 @@ def leaves_something_to_put_back(action_type: ActionType) -> bool:
     back; one of a kind that does, and carries no descriptor, is a change nobody
     has accounted for.
     """
-    return what_it_leaves(action_type) is Leaves.SOMETHING_TO_PUT_BACK
+    return the_kind(action_type).leaves is Leaves.SOMETHING_TO_PUT_BACK
 
 
 def changes_something_persistent(action_type: ActionType) -> bool:
@@ -880,86 +1044,22 @@ def changes_something_persistent(action_type: ActionType) -> bool:
     with the restart's answer flipped - a synonym for the predicate beside it,
     whose one distinguishing answer would be the wrong one.
     """
-    return what_it_leaves(action_type) is not Leaves.NOTHING_THAT_OUTLIVES_IT
-
-
-def the_platform_of(action_type: ActionType) -> Platform:
-    """What an action of this kind reaches the estate through.
-
-    Asked of kinds that have not been attempted, which is what decides
-    everything about its shape. A platform that did not answer one action has
-    taken every action through it away at once, and a walk finding that out
-    has to say which of its remaining candidates are still worth reaching for -
-    so this has to be answerable about an action nobody has performed, and
-    cannot be derived by watching one fail.
-
-    A `match` rather than a mapping, and the difference is the whole reason this
-    is a function. A `dict` answers a sixth kind with a `KeyError` at walk time
-    or, worse, with a default that quietly files it under the platform that
-    happens to be commonest - and the walk would then pass over a candidate that
-    was never on the failed platform at all. Here `assert_never` makes a kind
-    nobody has placed a type error, before anything runs.
-
-    Matched on the literals rather than on the constants above, which is not the
-    duplication it looks like: `case REVERT_FEATURE_FLAG` is a capture pattern
-    and would match everything. The literals are what mypy checks the union
-    against, so a misspelling here fails the build rather than the walk.
-    """
-    match action_type:
-        case "revert-feature-flag":
-            return FLAG_PROVIDER
-        case "restart-service" | "roll-back-deployment" | "scale-out" \
-                | "pin-autoscaler" | "pin-to-accelerator":
-            return DEPLOYMENT_PLATFORM
-        case "discard-cache-entries":
-            return CACHE
-
-    assert_never(action_type)
-
-
-# The kinds of action whose own answer states what they changed, rather than that
-# a request was accepted. A frozen set over the tag, because the gate asks this
-# before anything has been performed: there is no answer yet to inspect, and the
-# question has to be answerable about a kind nobody has called.
-#
-# What it decides is which confirmation an attempt gets. A count of entries
-# removed is the store saying they are gone, and that is the whole of what the
-# incident was; a platform's acknowledgement of a restart says a request was
-# taken, and whether it helped has to be watched for in the service's own
-# window. Where that window never departed there is nothing to watch, so a kind
-# that answers for itself is the only kind that can be confirmed at all.
-_REPORT_WHAT_THEY_CHANGED: Final[frozenset[ActionType]] = frozenset(
-    {DISCARD_CACHE_ENTRIES}
-)
-
-
-def reports_what_it_changed(action_type: ActionType) -> bool:
-    """Whether an action of this kind answers with what it did.
-
-    Asked of the tag rather than of a performed action, and asked before the
-    action is taken: the gate decides whether a confirmation could ever arrive
-    while there is still nothing to inspect.
-
-    Declared in the kernel rather than inside `mitigation`, because the gate
-    asks it as well as the agent - and a second copy kept where it is used is a
-    second copy that comes to disagree.
-    """
-    return action_type in _REPORT_WHAT_THEY_CHANGED
+    return the_kind(action_type).leaves is not Leaves.NOTHING_THAT_OUTLIVES_IT
 
 
 def the_actions_through(platform: Platform) -> list[ActionType]:
     """Every kind of action that reaches the estate through `platform`.
 
-    The question `the_platform_of` answers backwards, and it has two askers that
-    must agree: the escalation raised when an unreachable platform leaves nothing
-    to try, and the line an incident's record is narrated as. Both have to say
-    what the platform *took away* rather than only that it is down - a reader
-    told a platform's name has to go and look up which of Argus's actions went
-    with it, which is the thing saying it at all exists to prevent.
+    A kind's `platform` asked backwards, and it has two askers that must agree:
+    the escalation raised when an unreachable platform leaves nothing to try,
+    and the line an incident's record is narrated as. Both have to say what the
+    platform *took away* rather than only that it is down - a reader told a
+    platform's name has to go and look up which of Argus's actions went with
+    it, which is the thing saying it at all exists to prevent.
 
-    Derived from the same mapping rather than listed here, which is what makes a
-    sixth mitigation safe: the kind has to be placed in `the_platform_of` or the
-    type check fails, and once placed it appears here without anybody adding it.
+    Derived from the kinds rather than listed here, which is what makes a new
+    mitigation safe: the kind has to state its platform or the module fails as
+    it is imported, and once stated it appears here without anybody adding it.
     A second list would be a second thing to forget.
 
     Ordered as `ActionType` declares them, not as a set, because this is read out
@@ -968,7 +1068,7 @@ def the_actions_through(platform: Platform) -> list[ActionType]:
     """
     return [
         action_type for action_type in get_args(ActionType.__value__)
-        if the_platform_of(action_type) == platform
+        if the_kind(action_type).platform == platform
     ]
 
 

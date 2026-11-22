@@ -69,7 +69,7 @@ from core.models import (
     RollBackDeployment,
     ScaleOut,
     ServiceDependency,
-    what_it_leaves,
+    the_kind,
 )
 
 DONT_CARE_FLAG = "dont-care-flag"
@@ -481,7 +481,7 @@ def test_the_declared_set_holds_no_kind_whose_change_is_irreversible() -> None:
     # every account of the incident, which is what keeps it honest.
     Scenario() \
         .given(GENERIC_MITIGATIONS) \
-        .when(lambda: {kind: what_it_leaves(kind) for kind in GENERIC_MITIGATIONS}) \
+        .when(lambda: {kind: the_kind(kind).leaves for kind in GENERIC_MITIGATIONS}) \
         .then(_none_of_them_is_irreversible())
 
 

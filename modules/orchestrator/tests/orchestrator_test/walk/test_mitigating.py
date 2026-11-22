@@ -91,8 +91,6 @@ from core.models import (
     UnreadVerdict,
     Verdict,
     the_actions_through,
-    the_service_addressed_by,
-    the_subject_of,
     why_it_was_refused,
 )
 from incident_record import IsStillWanted
@@ -2995,7 +2993,7 @@ def _a_register_vouching_for(action: Action | None,
     """The register the gate admitted `action` against: empty where it is aimed
     at the service that alerted or at no service, and otherwise listing the
     service it is aimed at as the organisation's own."""
-    addressed_to = the_service_addressed_by(action) if action is not None else None
+    addressed_to = action.service_addressed if action is not None else None
 
     if addressed_to is None or addressed_to == alerting_service:
         return []
@@ -3930,7 +3928,7 @@ def _the_verdict_names(state: IncidentState,
         narrating = _the_completion(complete_action)["narrating"]
         said = (narrating.action_type, narrating.subject, narrating.performed)
         wanted = (state.proposed_action.action_type,
-                  the_subject_of(state.proposed_action), performed)
+                  state.proposed_action.subject, performed)
         if said != wanted:
             raise AssertionError(f"Expected the verdict to name {wanted}, it named {said}.")
 

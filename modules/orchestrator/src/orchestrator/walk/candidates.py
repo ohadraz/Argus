@@ -29,7 +29,7 @@ from core.models import (
     RecordedPlacement,
     WhatWouldBeTried,
     the_identity_of,
-    the_platform_of,
+    the_kind,
 )
 from mitigation import propose_action
 
@@ -192,7 +192,7 @@ def the_next_worth_trying(
             continue
 
         if entry.identity is not None and \
-                the_platform_of(entry.identity.action_type) in unreachable:
+                the_kind(entry.identity.action_type).platform in unreachable:
             continue
 
         return index, entry.candidate

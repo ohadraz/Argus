@@ -19,7 +19,7 @@ from core.models import (
     Undone,
     Verdict,
     leaves_something_to_put_back,
-    the_platform_of,
+    the_kind,
 )
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
@@ -145,11 +145,11 @@ def claim(
     change never made. `None` for a kind that plans nothing.
 
     The realm the subject is a name in is the kind's platform
-    (`the_platform_of`), written beside it: a flag and an application can be
+    (`ActionKind.platform`), written beside it: a flag and an application can be
     called alike, and only a change in the same realm is a change to the same
     thing.
     """
-    realm = the_platform_of(action_type) if subject is not None else None
+    realm = the_kind(action_type).platform if subject is not None else None
     columns = (
         incident_id,
         hypothesis_id,
