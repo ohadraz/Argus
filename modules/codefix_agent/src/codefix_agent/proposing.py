@@ -37,6 +37,7 @@ from core.llm import (
     Conversations,
     ModelRefused,
     the_call,
+    told_next,
 )
 from core.models import (
     Ask,
@@ -50,7 +51,6 @@ from core.models import (
     ProposedFix,
     ToolCall,
     ToolResult,
-    ToolResults,
     Turn,
     WhatArgusDid,
     no_leads,
@@ -751,27 +751,9 @@ def _what_it_is_told_next(results: list[ToolResult],
     With `question_open`, a turn that asked for nothing is asked the question
     again: what is wanted then is the answer, not another read or patch.
     """
-    postscript = news + (_ONE_CALL_LEFT if one_call_left else "")
-
-    if not results:
-        reply = (THE_QUESTION_A_SUBMISSION_IS_ASKED if question_open
-                 else _A_TURN_THAT_ASKED_FOR_NOTHING)
-
-        return Ask(text=reply + postscript)
-
-    if not postscript:
-        return ToolResults(results=results)
-
-    last = results[-1]
-
-    return ToolResults(results=[
-        *results[:-1],
-        ToolResult(
-            call_id=last.call_id,
-            content=last.content + postscript,
-            failed=last.failed
-        )
-    ])
+    return told_next(results, news + (_ONE_CALL_LEFT if one_call_left else ""),
+                     nothing_asked=(THE_QUESTION_A_SUBMISSION_IS_ASKED if question_open
+                                    else _A_TURN_THAT_ASKED_FOR_NOTHING))
 
 
 def _sent_back(turn: Turn, submission: ToolResult) -> list[ToolResult]:

@@ -50,6 +50,7 @@ from core.llm import (
     on_one_line,
     the_call,
     the_calls,
+    told_next,
 )
 from core.models import (
     DISCARD_CACHE_ENTRIES,
@@ -85,7 +86,6 @@ from core.models import (
     ToolCall,
     ToolDefinition,
     ToolResult,
-    ToolResults,
     Weighing,
     WorseWhen,
     labelled,
@@ -934,17 +934,9 @@ def _what_the_model_is_told_next(results: list[ToolResult],
     that changed for nothing.
     """
     last_turn = _ONE_TURN_LEFT + (_WEIGH_IN_THE_LAST_TURN if leads_shown else "")
-    postscript = news + (last_turn if one_turn_left else "")
 
-    if not results:
-        return Ask(text=_A_TURN_THAT_ANSWERED_NOTHING + postscript)
-
-    last = results[-1]
-
-    return ToolResults(results=[
-        *results[:-1],
-        ToolResult(call_id=last.call_id, content=last.content + postscript, failed=last.failed)
-    ])
+    return told_next(results, news + (last_turn if one_turn_left else ""),
+                     nothing_asked=_A_TURN_THAT_ANSWERED_NOTHING)
 
 
 def _the_tools_for(tools: list[ToolDefinition],
