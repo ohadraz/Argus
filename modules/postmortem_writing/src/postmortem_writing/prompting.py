@@ -27,6 +27,7 @@ from typing import Any, Final, NamedTuple
 
 from core import parse_iso, to_iso
 from core.anomaly import the_end_of_the_onset
+from core.llm import sent_back
 from core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ActionItemType,
@@ -45,8 +46,6 @@ from core.models import (
     ThreadMessage,
     TimelineEntry,
     ToolDefinition,
-    ToolResult,
-    ToolResults,
     Transcript,
     Turn,
     Unit,
@@ -1774,19 +1773,12 @@ def rejecting(asked: Transcript, submitted: Turn, faults: list[str]) -> Transcri
     the second a placeholder - would otherwise be refused in a conversation
     the provider will not continue.
     """
-    refusal = "\n".join([
+    return sent_back(asked, submitted, "\n".join([
         "Your postmortem was not accepted:",
         *(f"  - {fault}" for fault in faults),
         "",
         f"Call {SUBMIT_TOOL_NAME} again with the whole answer, corrected."
-    ])
-
-    return [
-        *asked,
-        submitted,
-        ToolResults(results=[ToolResult(call_id=call.id, content=refusal, failed=True)
-                             for call in submitted.tool_calls])
-    ]
+    ]))
 
 
 def _shown(name: str, figures: Mapping[str, Figure]) -> str:

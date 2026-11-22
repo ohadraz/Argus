@@ -31,6 +31,7 @@ from core.llm.conversing import Conversations, conversations_through
 from core.llm.escapes import with_escapes_resolved
 from core.llm.line_breaks import on_one_line
 from core.llm.recorded_client import RecordedLLMClient
+from core.llm.sending_back import sent_back
 from core.llm.traced_client import TracedLLMClient
 
 __all__ = [
@@ -51,6 +52,7 @@ __all__ = [
     "build_llm_client",
     "conversations_through",
     "on_one_line",
+    "sent_back",
     "the_call",
     "the_calls",
     "with_escapes_resolved"

@@ -56,7 +56,7 @@ from postmortem_writing.figures import (
     with_figures_written,
     with_figures_written_with_every_day,
 )
-from postmortem_writing.grounding import Flag, faults_of, flags_on
+from postmortem_writing.grounding import Grounding, faults_of
 from postmortem_writing.labels import (
     ACTION_PREFIX,
     AS_IT_RAN_PREFIX,
@@ -170,11 +170,11 @@ def answer_worth_writing(llm: LLMClient,
         "why_it_did_not_help_asked": WHY_IT_DID_NOT_HELP_FIELD in submit.required,
         "cause_asked": cause_asked})
     submitted = llm.converse(asked, [submit])
-    grounding = _Grounding(judge, asked, given, evidence.incident_id)
+    grounding = _the_grounding(judge, asked, given, evidence.incident_id)
 
     first = _reading_of(submitted, evidence.leads, given, figures, off_the_page,
                         evidence.pull_request)
-    told = first.faults or grounding.faults_in(first.shown)
+    told = first.faults or _the_faults_in(grounding, first.shown)
     if not told:
         return _finished(llm, (first.answer, []), cause_asked=cause_asked)
 
@@ -188,8 +188,13 @@ def answer_worth_writing(llm: LLMClient,
     # Judged only where the checks passed, and its flags sent back only where
     # they never were: a claim told once and written again is kept, and said
     # in the log.
-    found = second.faults or (grounding.faults_in(second.shown) if _GROUNDING not in told
-                              else grounding.logged(second.shown))
+    if second.faults:
+        found = second.faults
+    elif _GROUNDING not in told:
+        found = _the_faults_in(grounding, second.shown)
+    else:
+        grounding.logged(second.shown)
+        found = {}
     # Untold is what a check found that found nothing in the first answer: a
     # fault quotes the answer, so one it was told of in other words is new
     # text and the same fault.
@@ -223,35 +228,22 @@ class _Reading(NamedTuple):
     shown: dict[str, str]
 
 
-class _Grounding:
+def _the_grounding(judge: LLMClient | None, asked: Transcript, given: Given,
+                   incident_id: str) -> Grounding:
     """The grounding judge as the write-up's attempts call on it: once an
     answer the checks passed, with its flags as faults - or, on the answer
-    kept, its flags said in the log. Nothing where there is no judge."""
+    kept, its flags said in the log."""
+    record = "\n".join(exchange.text for exchange in asked if isinstance(exchange, Ask))
 
-    def __init__(self, judge: LLMClient | None, asked: Transcript, given: Given,
-                 incident_id: str) -> None:
-        self._judge = judge
-        self._record = "\n".join(exchange.text for exchange in asked
-                                 if isinstance(exchange, Ask))
-        self._rows = given.labels | given.timeline_rows
-        self._incident_id = incident_id
+    return Grounding(judge, record, given.labels | given.timeline_rows, WRITE_UP_SCOPE,
+                     incident_id, logger=logger, logged_as="postmortem claim not grounded")
 
-    def faults_in(self, shown: dict[str, str]) -> dict[str, list[str]]:
-        flags = self._flags_on(shown)
-        return {_GROUNDING: faults_of(flags)} if flags else {}
 
-    def logged(self, shown: dict[str, str]) -> dict[str, list[str]]:
-        for flag in self._flags_on(shown):
-            logger.warning("postmortem claim not grounded", extra={
-                "incident_id": self._incident_id, "fields": list(flag.fields),
-                "quote": flag.quote, "rows": list(flag.rows), "why": flag.why})
-        return {}
-
-    def _flags_on(self, shown: dict[str, str]) -> list[Flag]:
-        if self._judge is None:
-            return []
-        return flags_on(self._judge, record=self._record, answer=shown, rows=self._rows,
-                        scope=WRITE_UP_SCOPE)
+def _the_faults_in(grounding: Grounding, shown: dict[str, str]) -> dict[str, list[str]]:
+    """The judge's flags on an answer, as faults filed under the grounding
+    check - or none."""
+    flags = grounding.flags_on(shown)
+    return {_GROUNDING: faults_of(flags)} if flags else {}
 
 
 def _finished(llm: LLMClient,

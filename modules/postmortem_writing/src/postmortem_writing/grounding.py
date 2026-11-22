@@ -264,6 +264,49 @@ def flags_on(judge: LLMClient,
             if (kept := _kept(flag, answer, rows, record)) is not None]
 
 
+class Grounding:
+    """The grounding judge as a write-up's attempts call on it: its flags on an
+    answer, to send back - or, on the answer kept, said in the writer's log.
+    Nothing where there is no judge.
+
+    Built once per write-up with what does not change between its attempts:
+    the record the answer is judged against, the rows a flag may cite, what is
+    not judged, and whose log a flag is said in and in what words - each
+    write-up's own, since a reader of one write-up's log looks there.
+    """
+
+    def __init__(self,
+                 judge: LLMClient | None,
+                 record: str,
+                 rows: frozenset[str],
+                 scope: Sequence[str],
+                 incident_id: str,
+                 *,
+                 logger: logging.Logger,
+                 logged_as: str) -> None:
+        self._judge = judge
+        self._record = record
+        self._rows = rows
+        self._scope = scope
+        self._incident_id = incident_id
+        self._logger = logger
+        self._logged_as = logged_as
+
+    def flags_on(self, answer: Mapping[str, str]) -> list[Flag]:
+        """The judge's flags on `answer`, or none where there is no judge."""
+        if self._judge is None:
+            return []
+        return flags_on(self._judge, record=self._record, answer=answer, rows=self._rows,
+                        scope=self._scope)
+
+    def logged(self, answer: Mapping[str, str]) -> None:
+        """Each of the judge's flags on `answer` said in the writer's log."""
+        for flag in self.flags_on(answer):
+            self._logger.warning(self._logged_as, extra={
+                "incident_id": self._incident_id, "fields": list(flag.fields),
+                "quote": flag.quote, "rows": list(flag.rows), "why": flag.why})
+
+
 def faults_of(flags: Sequence[Flag]) -> list[str]:
     """Each flag as a fault sent back to the writer: that one claim to
     correct or hedge, and the rest kept as it is.

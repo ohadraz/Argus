@@ -41,6 +41,7 @@ from postmortem_writing.grounding import (
     SUPPORTED_FIELD,
     WHY_FIELD,
     Flag,
+    Grounding,
     faults_of,
     flags_on,
     is_quoted_in,
@@ -83,6 +84,10 @@ SOME_SCOPE = ("Placeholders in braces are filled in by code and are not judged."
 DONT_CARE_REASON = "dont care"
 THE_JUDGE_S_LOGGER = "postmortem_writing.grounding"
 DID_NOT_ANSWER = "grounding judge did not answer"
+# Whose log a grounding's flags are said in, and in what words: the caller's.
+SOME_LOGGER = "some.writer"
+SOME_LOG_MESSAGE = "some claim not grounded"
+SOME_INCIDENT_ID = "some-incident"
 
 
 @pytest.mark.unit
@@ -628,8 +633,79 @@ def test_the_judge_is_asked_under_its_own_brief_one_call_a_turn() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_grounding_with_no_judge_flags_nothing_and_logs_nothing(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Where no judge is configured an answer is never judged: no flags, and
+    # nothing in the log - not a judge that failed to answer, and no claim.
+    caplog.set_level(logging.WARNING)
+
+    Scenario() \
+        .given(a_grounding := _a_grounding(judge=None)) \
+        .when(lambda: a_grounding.flags_on(SOME_ANSWER)) \
+        .then(all_of(_flagged([]), _nothing_was_logged(caplog)))
+
+
+@pytest.mark.unit
+def test_a_grounding_asks_its_judge_with_the_record_and_scope_it_was_given() -> None:
+    asked: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(a_grounding := _a_grounding(
+            judge=a_model_answering_in_turn(_judged(), recording_into=asked))) \
+        .when(lambda: a_grounding.flags_on(SOME_ANSWER)) \
+        .then(_asked_with(asked, [SOME_RECORD, *SOME_ANSWER.values(), *SOME_SCOPE]))
+
+
+@pytest.mark.unit
+def test_a_grounding_keeps_the_flags_its_judge_raised() -> None:
+    Scenario() \
+        .given(a_grounding := _a_grounding(
+            judge=_a_judge_flagging(_a_flag(SOME_CLAIM, [SOME_ROW])))) \
+        .when(lambda: a_grounding.flags_on(SOME_ANSWER)) \
+        .then(_flagged_once_quoting(SOME_CLAIM))
+
+
+@pytest.mark.unit
+def test_a_grounding_says_each_flag_in_its_caller_s_log_in_its_caller_s_words(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Each write-up's flags in its own log: a reader of the postmortem's log
+    # looks there, not in the judge's.
+    caplog.set_level(logging.WARNING, logger=SOME_LOGGER)
+
+    Scenario() \
+        .given(a_grounding := _a_grounding(
+            judge=_a_judge_flagging(_a_flag(SOME_CLAIM, [SOME_ROW])))) \
+        .when(lambda: a_grounding.logged(SOME_ANSWER)) \
+        .then(one_record_was_logged(caplog, SOME_LOGGER, logging.WARNING, SOME_LOG_MESSAGE,
+                                    values={"incident_id": SOME_INCIDENT_ID,
+                                            "fields": [SOME_FIELD],
+                                            "quote": SOME_CLAIM,
+                                            "rows": [SOME_ROW],
+                                            "why": SOME_REASON}))
+
+
 def _flags_from(judge: LLMClient, answer: dict[str, str] = SOME_ANSWER) -> list[Flag]:
     return flags_on(judge, record=SOME_RECORD, answer=answer, rows=SOME_ROWS, scope=SOME_SCOPE)
+
+
+def _a_grounding(*, judge: LLMClient | None) -> Grounding:
+    return Grounding(judge, SOME_RECORD, SOME_ROWS, SOME_SCOPE, SOME_INCIDENT_ID,
+                     logger=logging.getLogger(SOME_LOGGER), logged_as=SOME_LOG_MESSAGE)
+
+
+def _nothing_was_logged(caplog: pytest.LogCaptureFixture) -> Assertion[list[Flag]]:
+    def assertion(_: list[Flag]) -> bool:
+        if caplog.records:
+            raise AssertionError(
+                f"Expected nothing logged, and there were "
+                f"{[record.getMessage() for record in caplog.records]}.")
+
+        return True
+
+    return assertion
 
 
 def _a_flag(quote: str, rows: list[str]) -> dict[str, Any]:

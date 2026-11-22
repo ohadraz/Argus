@@ -19,11 +19,18 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected, the_call
-from core.models import Ask, ToolResult, ToolResults, Transcript, Turn
+from core.llm import (
+    LLMClient,
+    ModelRefused,
+    ModelUnavailable,
+    RequestRejected,
+    sent_back,
+    the_call,
+)
+from core.models import Ask, Transcript, Turn
 from pydantic import BaseModel
 
-from postmortem_writing.grounding import Flag, faults_of, flags_on
+from postmortem_writing.grounding import Grounding, faults_of
 from postmortem_writing.synopsis_checking import overview_faults
 from postmortem_writing.synopsis_prompting import (
     OVERVIEW_FIELD,
@@ -90,12 +97,13 @@ def the_overview(llm: LLMClient,
     instead, flag by flag.
     """
     asked = overview_ask(service, symptom, cause, figures, paging, disproven, resolution)
-    grounding = _Grounding(judge, asked, document, labels, incident_id)
+    grounding = _the_grounding(judge, asked, document, labels, incident_id)
     try:
         submitted = llm.converse(asked, [SUBMIT_EXECUTIVE_OVERVIEW])
         first, faults = _reading_of(submitted, figures, said)
         if not faults:
-            faults = faults_of(grounding.flags_on(_overview_from(submitted) or ""))
+            faults = faults_of(grounding.flags_on(
+                {OVERVIEW_FIELD: _overview_from(submitted) or ""}))
         if not faults:
             return Overview(text=first)
 
@@ -115,7 +123,7 @@ def the_overview(llm: LLMClient,
 
     second, still = _reading_of(resubmitted, figures, said)
     if not still:
-        grounding.logged(_overview_from(resubmitted) or "")
+        grounding.logged({OVERVIEW_FIELD: _overview_from(resubmitted) or ""})
         return Overview(text=second)
 
     logger.warning("executive overview given up", extra={"faults": still})
@@ -124,35 +132,20 @@ def the_overview(llm: LLMClient,
                     withheld_because="the overview was refused twice: " + "; ".join(still))
 
 
-class _Grounding:
+def _the_grounding(judge: LLMClient | None, asked: Transcript, document: str,
+                   labels: frozenset[str], incident_id: str) -> Grounding:
     """The grounding judge as the overview's attempts call on it: on the first
     the checks passed, with its flags to send back - or, on the last, its flags
-    said in the log. Nothing where there is no judge.
+    said in the log.
 
     It reads the overview as the model wrote it, each figure still a name in
     braces, against the postmortem and the ask whose list says what each name
     comes to."""
+    record = "\n".join([*(exchange.text for exchange in asked if isinstance(exchange, Ask)),
+                        "", "The postmortem it is written from:", document])
 
-    def __init__(self, judge: LLMClient | None, asked: Transcript, document: str,
-                 labels: frozenset[str], incident_id: str) -> None:
-        self._judge = judge
-        self._record = "\n".join([*(exchange.text for exchange in asked
-                                    if isinstance(exchange, Ask)),
-                                  "", "The postmortem it is written from:", document])
-        self._labels = labels
-        self._incident_id = incident_id
-
-    def flags_on(self, overview: str) -> list[Flag]:
-        if self._judge is None:
-            return []
-        return flags_on(self._judge, record=self._record, answer={OVERVIEW_FIELD: overview},
-                        rows=self._labels, scope=OVERVIEW_SCOPE)
-
-    def logged(self, overview: str) -> None:
-        for flag in self.flags_on(overview):
-            logger.warning("executive overview claim not grounded", extra={
-                "incident_id": self._incident_id, "fields": list(flag.fields),
-                "quote": flag.quote, "rows": list(flag.rows), "why": flag.why})
+    return Grounding(judge, record, labels, OVERVIEW_SCOPE, incident_id, logger=logger,
+                     logged_as="executive overview claim not grounded")
 
 
 def _reading_of(turn: Turn,
@@ -258,8 +251,4 @@ def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Tran
     if not submitted.tool_calls:
         return [*asked, Ask(text=f"Your previous answer could not be used:\n{said}")]
 
-    return [*asked, submitted,
-            ToolResults(results=[ToolResult(call_id=call.id,
-                                            content=f"Your overview was not accepted:\n{said}",
-                                            failed=True)
-                                 for call in submitted.tool_calls])]
+    return sent_back(asked, submitted, f"Your overview was not accepted:\n{said}")
