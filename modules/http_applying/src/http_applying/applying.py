@@ -10,10 +10,8 @@ adapter and the flag provider's write alike - because two lists of errors and
 statuses are two lists to keep in step, and the day one learns a status the
 other does not, one tier says it left nothing where the other would not.
 
-A door of its own and a narrow one, for the reason `llm` and `mcp_transport`
-are narrow: it names `httpx2`, which is an extra of the kernel's, and a module
-naming a `UuidStr` should not install an HTTP client to do it. The two modules
-that go through it declare `httpx2` themselves.
+A package of its own rather than part of the kernel: it names `httpx2`, and a
+module naming a `UuidStr` should not install an HTTP client to do it.
 """
 
 from __future__ import annotations

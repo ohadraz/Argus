@@ -37,8 +37,8 @@ from typing import Any, Final
 
 import httpx2
 from core import AdapterSettings, parse_iso, to_iso
-from core.applying import known_not_applied
 from core.models import FlagChange, FlagState, FlagUndo
+from http_applying import known_not_applied
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 

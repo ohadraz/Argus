@@ -145,6 +145,7 @@ root_packages = [
     "deployment_platform",
     "exchange_rate_source",
     "flag_provider",
+    "http_applying",
     "incident_memory",
     "incident_record",
     "investigation_agent",
@@ -186,6 +187,12 @@ ancestors = ["*"]
 name = "core is the kernel and depends on nothing in this workspace"
 type = "forbidden"
 source_modules = ["core"]
+forbidden_modules = ["*"]
+
+[[tool.importlinter.contracts]]
+name = "http_applying depends on nothing in this workspace"
+type = "forbidden"
+source_modules = ["http_applying"]
 forbidden_modules = ["*"]
 
 [[tool.importlinter.contracts]]
@@ -326,13 +333,6 @@ ignore_imports = [
     # and the server reading it back are one convention, kept in one module.
     # Each declares `mcp` itself, so each resolves on its own.
     "read_mcp_server.** -> core.mcp_transport",
-    # Whether a failed request is known not to have been applied, read off the
-    # HTTP client's error. Narrow for the reason `mcp_transport` is - `httpx2`
-    # is an extra - and taken by the two write paths that ask over HTTP: the
-    # deployment platform's adapter and the flag provider's. Each declares
-    # `httpx2` itself.
-    "deployment_platform.** -> core.applying",
-    "flag_provider.** -> core.applying",
     # The autonomy policy (spec §13), and narrow for a reason of its own rather
     # than an extra's: the walk asks it, and the Mitigator names the admission
     # its write accepts. Nobody else has any business with it. A door opens the

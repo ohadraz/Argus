@@ -13,7 +13,7 @@ from __future__ import annotations
 import httpx2
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from core.applying import known_not_applied
+from http_applying import known_not_applied
 
 DONT_CARE_URL = "http://platform.invalid/some/route"
 

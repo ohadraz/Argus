@@ -5,6 +5,7 @@ requires-python = ">=3.14"
 
 dependencies = [
     "argus-core",
+    "argus-http_applying",
     "httpx2",
 ]
 
@@ -17,6 +18,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-http_applying = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

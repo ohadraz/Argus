@@ -23,8 +23,8 @@ from typing import Any, Final, assert_never
 
 import httpx2
 from core import AdapterSettings
-from core.applying import known_not_applied
 from core.models import PodPlacement, RolloutProgress
+from http_applying import known_not_applied
 
 from deployment_platform.failures import PlatformRefused, PlatformUnreachable
 from deployment_platform.port import (
