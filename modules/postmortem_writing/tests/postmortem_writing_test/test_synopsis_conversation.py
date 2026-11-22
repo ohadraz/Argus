@@ -7,18 +7,22 @@ there is nothing to keep but the reason.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 
 import pytest
-from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
+from argus_testkit import Assertion, Kept, Scenario, all_of
 from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
-from core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
-from postmortem_writing.grounding import FLAGS_FIELD, QUOTE_FIELD, ROWS_FIELD, WHY_FIELD
-from postmortem_writing.synopsis_conversation import Overview, the_overview
+from core.models import ToolDefinition, ToolResults, Transcript, Turn
+from postmortem_writing.grounding import Flag, Grounding, GroundingFor
+from postmortem_writing.synopsis_conversation import OVERVIEW_SCOPE, Overview, the_overview
 from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD, Paging
 
-from postmortem_writing_test.framework.builders import a_model_answering_in_turn
+from postmortem_writing_test.framework.assertions import built_with
+from postmortem_writing_test.framework.builders import (
+    AGrounding,
+    a_grounding_flagging,
+    a_model_answering_in_turn,
+)
 
 SOME_MINUTES = 7
 SOME_SECONDS = 12
@@ -56,8 +60,6 @@ SOME_LABEL = "T1"
 SOME_DOCUMENT = f"Timeline\n{SOME_LABEL} 10:02 The flag was turned off."
 SOME_LABELS = frozenset({SOME_LABEL})
 SOME_INCIDENT_ID = "some-incident"
-# A label no row of the postmortem goes by.
-A_LABEL_NOT_IN_IT = "T9"
 # A claim no line of the postmortem supports, said in an overview otherwise
 # fine, and why the judge says the postmortem does not.
 SOME_UNGROUNDED_CLAIM = "The flag was switched by hand."
@@ -316,13 +318,14 @@ def test_a_request_the_api_rejects_gives_the_overview_up_in_the_api_s_words() ->
 
 def _the_overview_from(llm: LLMClient,
                        said: Mapping[str, str] = SOME_FIGURES_SAID,
-                       judge: LLMClient | None = None) -> Overview:
+                       judge: LLMClient | None = None,
+                       grounding_for: GroundingFor = Grounding) -> Overview:
     return the_overview(llm, service="io-shop", symptom="Checkout failed",
                         cause="A flag change turned off the path checkout relies on.",
                         figures=SOME_FIGURES, said=said, paging=Paging.ANSWERED,
                         disproven=False, resolution=DONT_CARE_RESOLUTION, judge=judge,
                         document=SOME_DOCUMENT, labels=SOME_LABELS,
-                        incident_id=SOME_INCIDENT_ID)
+                        incident_id=SOME_INCIDENT_ID, grounding_for=grounding_for)
 
 
 def _a_model_failing_with(failure: Exception) -> LLMClient:
@@ -375,7 +378,7 @@ def _the_second_ask_refused_quoting(asked: Kept[Transcript], quoted: str) -> Ass
 
 
 @pytest.mark.unit
-def test_an_overview_claim_the_judge_flags_is_sent_back_naming_it() -> None:
+def test_an_overview_claim_the_grounding_flags_is_sent_back_naming_it() -> None:
     # Judged against the postmortem once the checks pass, and sent back once
     # like any fault, quoting the claim.
     asked: Kept[Transcript] = Kept()
@@ -385,10 +388,10 @@ def test_an_overview_claim_the_judge_flags_is_sent_back_naming_it() -> None:
             a_model := a_model_answering_in_turn({OVERVIEW_FIELD: AN_OVERVIEW_CLAIMING_IT},
                                                  {OVERVIEW_FIELD: A_GOOD_OVERVIEW},
                                                  recording_into=asked),
-            a_judge := a_model_answering_in_turn(_flagging(SOME_UNGROUNDED_CLAIM), _flagging())
+            a_grounding := a_grounding_flagging([_a_flag_on(SOME_UNGROUNDED_CLAIM)])
         ) \
         .when(
-            lambda: _the_overview_from(a_model, judge=a_judge)
+            lambda: _the_overview_from(a_model, grounding_for=a_grounding)
         ) \
         .then(
             all_of(
@@ -399,146 +402,144 @@ def test_an_overview_claim_the_judge_flags_is_sent_back_naming_it() -> None:
 
 
 @pytest.mark.unit
-def test_an_overview_flagged_again_on_its_second_attempt_is_kept_and_logged(
-    caplog: pytest.LogCaptureFixture
+def test_an_overview_flagged_on_its_first_attempt_is_judged_on_its_second_only_in_the_log(
 ) -> None:
     # The second attempt is the last, and a flag withholds nothing: an
-    # overview the checks pass is sent, and the flag said where whoever
-    # watches the model reads.
-    caplog.set_level(logging.WARNING, logger=THE_OVERVIEW_S_LOGGER)
-
+    # overview the checks pass is sent, and its flags said in the log rather
+    # than sent back.
     Scenario() \
         .given(
             a_model := a_model_answering_in_turn({OVERVIEW_FIELD: AN_OVERVIEW_CLAIMING_IT},
                                                  {OVERVIEW_FIELD: AN_OVERVIEW_CLAIMING_IT}),
-            a_judge := a_model_answering_in_turn(_flagging(SOME_UNGROUNDED_CLAIM,
-                                                           against=[SOME_LABEL]),
-                                                 _flagging(SOME_UNGROUNDED_CLAIM,
-                                                           against=[SOME_LABEL]))
+            a_grounding := a_grounding_flagging([_a_flag_on(SOME_UNGROUNDED_CLAIM)])
         ) \
         .when(
-            lambda: _the_overview_from(a_model, judge=a_judge)
+            lambda: _the_overview_from(a_model, grounding_for=a_grounding)
         ) \
         .then(
             all_of(
                 _kept(AN_OVERVIEW_CLAIMING_IT_WRITTEN),
-                one_record_was_logged(caplog, THE_OVERVIEW_S_LOGGER, logging.WARNING,
-                                      "executive overview claim not grounded",
-                                      values={"incident_id": SOME_INCIDENT_ID,
-                                              "fields": [OVERVIEW_FIELD],
-                                              "quote": SOME_UNGROUNDED_CLAIM,
-                                              "rows": [SOME_LABEL],
-                                              "why": SOME_REASON_IT_IS_NOT})
+                _judged(a_grounding, [{OVERVIEW_FIELD: AN_OVERVIEW_CLAIMING_IT}]),
+                _logged(a_grounding, [{OVERVIEW_FIELD: AN_OVERVIEW_CLAIMING_IT}])
             )
         )
 
 
 @pytest.mark.unit
-def test_an_overview_flag_citing_a_row_the_postmortem_does_not_hold_is_dropped() -> None:
-    # A row nobody can be led to grounds nothing either way: the flag is the
-    # judge's mistake, not the overview's.
-    asked: Kept[Transcript] = Kept()
-
+def test_the_grounding_is_built_against_the_postmortem_s_rows_in_the_overview_s_own_log() -> None:
+    # Its rows are the postmortem's labels, so a flag citing a row nobody can be
+    # led to is the judge's mistake and dropped; and its flags are said in this
+    # write-up's log, in its words.
     Scenario() \
         .given(
-            a_model := a_model_answering_in_turn({OVERVIEW_FIELD: AN_OVERVIEW_CLAIMING_IT},
-                                                 recording_into=asked),
-            a_judge := a_model_answering_in_turn(_flagging(SOME_UNGROUNDED_CLAIM,
-                                                           against=[A_LABEL_NOT_IN_IT]))
+            a_model := a_model_answering_in_turn({OVERVIEW_FIELD: A_GOOD_OVERVIEW}),
+            some_judge := a_model_answering_in_turn(),
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
-            lambda: _the_overview_from(a_model, judge=a_judge)
+            lambda: _the_overview_from(a_model, grounding_for=a_grounding, judge=some_judge)
         ) \
         .then(
             all_of(
-                _kept(AN_OVERVIEW_CLAIMING_IT_WRITTEN),
-                _asked_once(asked)
+                built_with(a_grounding, judge=some_judge, rows_holding=SOME_LABELS,
+                           scope=OVERVIEW_SCOPE, incident_id=SOME_INCIDENT_ID,
+                           logger=THE_OVERVIEW_S_LOGGER,
+                           logged_as="executive overview claim not grounded"),
+                _its_rows_were(a_grounding, SOME_LABELS)
             )
         )
 
 
 @pytest.mark.unit
-def test_the_judge_reads_no_overview_the_checks_sent_back() -> None:
+def test_the_grounding_reads_no_overview_the_checks_sent_back() -> None:
     # The checks' faults are cheaper and certain; an overview they refuse is
     # rewritten before anyone reads its meaning.
-    judged: Kept[Transcript] = Kept()
-
     Scenario() \
         .given(
             a_model := a_model_answering_in_turn({OVERVIEW_FIELD: AN_OVERVIEW_IN_DIGITS},
                                                  {OVERVIEW_FIELD: A_GOOD_OVERVIEW}),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
-            lambda: _the_overview_from(a_model, judge=a_judge)
+            lambda: _the_overview_from(a_model, grounding_for=a_grounding)
         ) \
         .then(
             all_of(
                 _kept(A_GOOD_OVERVIEW_WRITTEN),
-                _the_judge_read_once(judged, shown=[A_GOOD_OVERVIEW],
-                                     not_shown=[AN_OVERVIEW_IN_DIGITS])
+                _judged(a_grounding, []),
+                _logged(a_grounding, [{OVERVIEW_FIELD: A_GOOD_OVERVIEW}])
             )
         )
 
 
 @pytest.mark.unit
-def test_the_judge_reads_the_overview_as_written_against_the_postmortem_and_its_ask() -> None:
+def test_the_grounding_reads_the_overview_as_written_against_the_postmortem_and_its_ask() -> None:
     # The postmortem it was written from, and the ask that defines each figure
     # it names: a name in braces is written in by code, and not the judge's.
     # Only the ask says what a figure comes to.
-    judged: Kept[Transcript] = Kept()
-
     Scenario() \
         .given(
             a_model := a_model_answering_in_turn({OVERVIEW_FIELD: A_GOOD_OVERVIEW}),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
-            lambda: _the_overview_from(a_model, judge=a_judge)
+            lambda: _the_overview_from(a_model, grounding_for=a_grounding)
         ) \
         .then(
-            _the_judge_read_once(judged,
-                                 shown=[SOME_DOCUMENT, A_GOOD_OVERVIEW, SOME_FIGURES["duration"]],
-                                 not_shown=[])
+            all_of(
+                _the_record_holds(a_grounding, [SOME_DOCUMENT, SOME_FIGURES["duration"]]),
+                _judged(a_grounding, [{OVERVIEW_FIELD: A_GOOD_OVERVIEW}])
+            )
         )
 
 
-def _flagging(*quotes: str,
-              against: list[str] | None = None) -> dict[str, list[dict[str, object]]]:
-    """A judge's answer flagging each of `quotes`, citing the rows `against`, or
-    none."""
-    return {FLAGS_FIELD: [{QUOTE_FIELD: quote, ROWS_FIELD: against or [],
-                           WHY_FIELD: SOME_REASON_IT_IS_NOT}
-                          for quote in quotes]}
+def _a_flag_on(quote: str) -> Flag:
+    return Flag(quote=quote, rows=(), why=SOME_REASON_IT_IS_NOT, fields=(OVERVIEW_FIELD,))
 
 
-def _asked_once(asked: Kept[Transcript]) -> Assertion[Overview]:
+def _judged(grounding: AGrounding, expected: list[dict[str, str]]) -> Assertion[Overview]:
     def assertion(_: Overview) -> bool:
-        if len(asked.taken) != 1:
-            raise AssertionError(
-                f"Expected the writer asked once, its first overview kept; it was asked "
-                f"{len(asked.taken)} times.")
+        if grounding.judged.taken != expected:
+            raise AssertionError(f"Expected the grounding asked to judge {expected}, got "
+                                 f"{grounding.judged.taken}.")
 
         return True
 
     return assertion
 
 
-def _the_judge_read_once(judged: Kept[Transcript], *, shown: list[str],
-                         not_shown: list[str]) -> Assertion[Overview]:
-    """That the judge was asked once, and shown each of `shown` and none of
-    `not_shown`."""
+def _logged(grounding: AGrounding, expected: list[dict[str, str]]) -> Assertion[Overview]:
     def assertion(_: Overview) -> bool:
-        said = ["\n".join(exchange.text for exchange in transcript if isinstance(exchange, Ask))
-                for transcript in judged.taken]
-        missing = [text for text in shown if not said or text not in said[0]]
-        present = [text for text in not_shown if said and text in said[0]]
+        if grounding.logged_answers.taken != expected:
+            raise AssertionError(f"Expected the grounding asked to log {expected}, got "
+                                 f"{grounding.logged_answers.taken}.")
 
-        if len(said) != 1 or missing or present:
-            raise AssertionError(
-                f"Expected the judge asked once, shown {shown} and not {not_shown}; it was "
-                f"asked {len(said)} times, {missing} were missing and {present} were shown, "
-                f"in {said}.")
+        return True
+
+    return assertion
+
+
+def _its_rows_were(grounding: AGrounding, expected: frozenset[str]) -> Assertion[Overview]:
+    """That the grounding's rows are exactly `expected`: a row beyond them is
+    one a flag could cite and survive."""
+    def assertion(_: Overview) -> bool:
+        rows = grounding.built.only().rows
+        if rows != expected:
+            raise AssertionError(f"Expected the grounding's rows to be exactly "
+                                 f"{sorted(expected)}, got {sorted(rows)}.")
+
+        return True
+
+    return assertion
+
+
+def _the_record_holds(grounding: AGrounding, expected: list[str]) -> Assertion[Overview]:
+    def assertion(_: Overview) -> bool:
+        record = grounding.built.only().record
+        missing = [text for text in expected if text not in record]
+        if missing:
+            raise AssertionError(f"Expected the grounding's record to hold {missing}; it was "
+                                 f"[{record}].")
 
         return True
 

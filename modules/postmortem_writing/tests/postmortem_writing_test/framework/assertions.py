@@ -12,15 +12,22 @@ on the failure this agent exists to avoid.
 Every one of them raises with what it expected and what it got. An assertion
 that only returns `False` makes a reader run the test again under a debugger to
 learn what a passing document would have looked like.
+
+The one exception reads the grounding judge as both write-ups build it, since
+the postmortem's conversation and the overview's each hand it what to judge by.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from decimal import Decimal
 
 from argus_testkit import Assertion
+from core.llm import LLMClient
 from core.models import PostmortemDocument
 from postmortem_writing.reviewing import ANALYSIS_COMPLETE
+
+from postmortem_writing_test.framework.builders import AGrounding
 
 
 def reports_root_cause(expected: str) -> Assertion[PostmortemDocument]:
@@ -397,6 +404,27 @@ def is_marked_complete() -> Assertion[PostmortemDocument]:
             raise AssertionError(
                 f"Expected a document with every field filled to meet every criterion "
                 f"it can, got {unmet} unmet.")
+
+        return True
+
+    return assertion
+
+
+def built_with(grounding: AGrounding, *, judge: LLMClient, rows_holding: Iterable[str],
+               scope: Sequence[str], incident_id: str, logger: str,
+               logged_as: str) -> Assertion[object]:
+    """That the grounding was built once: with the judge given, by identity,
+    rows holding each of `rows_holding`, and the rest exactly as given."""
+    def assertion(_: object) -> bool:
+        built = grounding.built.only()
+        missing = sorted(set(rows_holding) - built.rows)
+        wanted = (tuple(scope), incident_id, logger, logged_as)
+        got = (tuple(built.scope), built.incident_id, built.logger, built.logged_as)
+        if built.judge is not judge or missing or got != wanted:
+            raise AssertionError(
+                f"Expected the grounding built with {judge}, its rows holding "
+                f"{sorted(rows_holding)}, and {wanted}; got {built.judge}, rows "
+                f"{sorted(built.rows)}, and {got}.")
 
         return True
 

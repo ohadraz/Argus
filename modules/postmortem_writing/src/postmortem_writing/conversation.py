@@ -56,7 +56,7 @@ from postmortem_writing.figures import (
     with_figures_written,
     with_figures_written_with_every_day,
 )
-from postmortem_writing.grounding import Grounding, faults_of
+from postmortem_writing.grounding import Flagging, Grounding, GroundingFor, faults_of
 from postmortem_writing.labels import (
     ACTION_PREFIX,
     AS_IT_RAN_PREFIX,
@@ -126,7 +126,9 @@ _OUTSIDE_THE_TIMELINE: Final = frozenset({
 def answer_worth_writing(llm: LLMClient,
                          evidence: IncidentEvidence,
                          measured: Measurements,
-                         judge: LLMClient | None = None
+                         judge: LLMClient | None = None,
+                         *,
+                         grounding_for: GroundingFor = Grounding
                          ) -> tuple[SubmittedPostmortem, list[str]]:
     """The model's answer, and whatever is still wrong with it.
 
@@ -147,6 +149,9 @@ def answer_worth_writing(llm: LLMClient,
     support is sent back as a fault like any other, once. On the answer kept
     a flag withholds nothing - the document has no review line for meaning -
     and is said in the log instead, flag by flag.
+
+    `grounding_for` is how the judge is called on: a seam, so this module's suite
+    holds what the judge is handed and when, and leaves the grounding to its own.
     """
     asked = opening_ask(evidence, measured)
     # The tool for this incident, which asks what each lead changed only where
@@ -170,7 +175,7 @@ def answer_worth_writing(llm: LLMClient,
         "why_it_did_not_help_asked": WHY_IT_DID_NOT_HELP_FIELD in submit.required,
         "cause_asked": cause_asked})
     submitted = llm.converse(asked, [submit])
-    grounding = _the_grounding(judge, asked, given, evidence.incident_id)
+    grounding = _the_grounding(grounding_for, judge, asked, given, evidence.incident_id)
 
     first = _reading_of(submitted, evidence.leads, given, figures, off_the_page,
                         evidence.pull_request)
@@ -228,18 +233,18 @@ class _Reading(NamedTuple):
     shown: dict[str, str]
 
 
-def _the_grounding(judge: LLMClient | None, asked: Transcript, given: Given,
-                   incident_id: str) -> Grounding:
+def _the_grounding(grounding_for: GroundingFor, judge: LLMClient | None, asked: Transcript,
+                   given: Given, incident_id: str) -> Flagging:
     """The grounding judge as the write-up's attempts call on it: once an
     answer the checks passed, with its flags as faults - or, on the answer
     kept, its flags said in the log."""
     record = "\n".join(exchange.text for exchange in asked if isinstance(exchange, Ask))
 
-    return Grounding(judge, record, given.labels | given.timeline_rows, WRITE_UP_SCOPE,
-                     incident_id, logger=logger, logged_as="postmortem claim not grounded")
+    return grounding_for(judge, record, given.labels | given.timeline_rows, WRITE_UP_SCOPE,
+                         incident_id, logger=logger, logged_as="postmortem claim not grounded")
 
 
-def _the_faults_in(grounding: Grounding, shown: dict[str, str]) -> dict[str, list[str]]:
+def _the_faults_in(grounding: Flagging, shown: dict[str, str]) -> dict[str, list[str]]:
     """The judge's flags on an answer, as faults filed under the grounding
     check - or none."""
     flags = grounding.flags_on(shown)

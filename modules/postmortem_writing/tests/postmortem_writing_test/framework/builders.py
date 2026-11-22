@@ -13,10 +13,11 @@ about - which is what makes the thing it does name visible.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import logging
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, NamedTuple
 
 from argus_testkit import Kept
 from core.anomaly import AnomalyThresholds
@@ -81,6 +82,7 @@ from postmortem_writing.estimate import (
     RuleSeriesLevels,
     RuleSeriesSpan,
 )
+from postmortem_writing.grounding import Flag, Flagging
 from postmortem_writing.measuring import Measurements
 from postmortem_writing.responder_cost import ResponderCost
 from postmortem_writing.sources import (
@@ -1079,6 +1081,52 @@ def a_submission_of(arguments: dict[str, Any], tool_name: str) -> Turn:
 
 def _prose(text: str) -> Turn:
     return Turn(text=text, tool_calls=[], input_tokens=0, output_tokens=0)
+
+
+class Built(NamedTuple):
+    """What a grounding was built with."""
+
+    judge: LLMClient | None
+    record: str
+    rows: frozenset[str]
+    scope: Sequence[str]
+    incident_id: str
+    logger: str
+    logged_as: str
+
+
+class AGrounding:
+    """A grounding that keeps what it was built with, every answer it is asked to
+    judge and every answer it is asked to log, and flags each answer it judges
+    as the next of `flags` says."""
+
+    def __init__(self, flags: Sequence[list[Flag]]) -> None:
+        self._flags = list(flags)
+        self.built: Kept[Built] = Kept()
+        self.judged: Kept[dict[str, str]] = Kept()
+        self.logged_answers: Kept[dict[str, str]] = Kept()
+
+    def __call__(self, judge: LLMClient | None, record: str, rows: frozenset[str],
+                 scope: Sequence[str], incident_id: str, *, logger: logging.Logger,
+                 logged_as: str) -> Flagging:
+        self.built.take(Built(judge, record, rows, scope, incident_id, logger.name, logged_as))
+        return self
+
+    def flags_on(self, answer: Mapping[str, str]) -> list[Flag]:
+        self.judged.take(dict(answer))
+        if not self._flags:
+            raise AssertionError("The grounding was asked to judge more times than the test "
+                                 "expected.")
+        return self._flags.pop(0)
+
+    def logged(self, answer: Mapping[str, str]) -> None:
+        self.logged_answers.take(dict(answer))
+
+
+def a_grounding_flagging(*flags: list[Flag]) -> AGrounding:
+    """A grounding flagging the first answer it judges with the first of
+    `flags`, the second with the second, and so on."""
+    return AGrounding(flags)
 
 
 def hours_between(start: datetime, end: datetime) -> float:

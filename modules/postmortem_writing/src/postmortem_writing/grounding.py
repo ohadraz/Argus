@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping, Sequence
-from typing import Final
+from typing import Final, Protocol
 
 from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected, the_call
 from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript
@@ -53,7 +53,7 @@ QUOTE_FIELD: Final = "quote"
 ROWS_FIELD: Final = "rows"
 WHY_FIELD: Final = "why"
 
-# What the log says when no judging happened, for whatever reason.
+# What the log says when no grounding happened, for whatever reason.
 DID_NOT_ANSWER: Final = "grounding judge did not answer"
 
 # Left out of a quote before it is looked for: quote marks and dashes of every
@@ -262,6 +262,30 @@ def flags_on(judge: LLMClient,
 
     return [kept for flag in submitted.flags
             if (kept := _kept(flag, answer, rows, record)) is not None]
+
+
+class Flagging(Protocol):
+    """What a write-up's attempts call on: the flags on an answer, and the
+    flags on the answer kept said in its log."""
+
+    def flags_on(self, answer: Mapping[str, str]) -> list[Flag]: ...
+
+    def logged(self, answer: Mapping[str, str]) -> None: ...
+
+
+class GroundingFor(Protocol):
+    """How a write-up gets its grounding - `Grounding`, or a test's stand-in -
+    from what does not change between its attempts."""
+
+    def __call__(self,
+                 judge: LLMClient | None,
+                 record: str,
+                 rows: frozenset[str],
+                 scope: Sequence[str],
+                 incident_id: str,
+                 *,
+                 logger: logging.Logger,
+                 logged_as: str) -> Flagging: ...
 
 
 class Grounding:

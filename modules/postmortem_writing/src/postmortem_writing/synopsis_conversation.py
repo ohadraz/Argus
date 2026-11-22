@@ -30,7 +30,7 @@ from core.llm import (
 from core.models import Ask, Transcript, Turn
 from pydantic import BaseModel
 
-from postmortem_writing.grounding import Grounding, faults_of
+from postmortem_writing.grounding import Flagging, Grounding, GroundingFor, faults_of
 from postmortem_writing.synopsis_checking import overview_faults
 from postmortem_writing.synopsis_prompting import (
     OVERVIEW_FIELD,
@@ -80,7 +80,8 @@ def the_overview(llm: LLMClient,
                  judge: LLMClient | None,
                  document: str,
                  labels: frozenset[str],
-                 incident_id: str) -> Overview:
+                 incident_id: str,
+                 grounding_for: GroundingFor = Grounding) -> Overview:
     """The overview for the finished incident, asked of the model at most twice.
 
     A model that refuses or cannot be reached, or an API that rejects the
@@ -95,9 +96,12 @@ def the_overview(llm: LLMClient,
     sent back once, like any fault; on the last attempt a flag withholds
     nothing - the overview the checks passed is sent - and is said in the log
     instead, flag by flag.
+
+    `grounding_for` is how the judge is called on: a seam, so this module's suite
+    holds what the judge is handed and when, and leaves the grounding to its own.
     """
     asked = overview_ask(service, symptom, cause, figures, paging, disproven, resolution)
-    grounding = _the_grounding(judge, asked, document, labels, incident_id)
+    grounding = _the_grounding(grounding_for, judge, asked, document, labels, incident_id)
     try:
         submitted = llm.converse(asked, [SUBMIT_EXECUTIVE_OVERVIEW])
         first, faults = _reading_of(submitted, figures, said)
@@ -132,8 +136,8 @@ def the_overview(llm: LLMClient,
                     withheld_because="the overview was refused twice: " + "; ".join(still))
 
 
-def _the_grounding(judge: LLMClient | None, asked: Transcript, document: str,
-                   labels: frozenset[str], incident_id: str) -> Grounding:
+def _the_grounding(grounding_for: GroundingFor, judge: LLMClient | None, asked: Transcript,
+                   document: str, labels: frozenset[str], incident_id: str) -> Flagging:
     """The grounding judge as the overview's attempts call on it: on the first
     the checks passed, with its flags to send back - or, on the last, its flags
     said in the log.
@@ -144,8 +148,8 @@ def _the_grounding(judge: LLMClient | None, asked: Transcript, document: str,
     record = "\n".join([*(exchange.text for exchange in asked if isinstance(exchange, Ask)),
                         "", "The postmortem it is written from:", document])
 
-    return Grounding(judge, record, labels, OVERVIEW_SCOPE, incident_id, logger=logger,
-                     logged_as="executive overview claim not grounded")
+    return grounding_for(judge, record, labels, OVERVIEW_SCOPE, incident_id, logger=logger,
+                         logged_as="executive overview claim not grounded")
 
 
 def _reading_of(turn: Turn,

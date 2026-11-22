@@ -24,6 +24,7 @@ conversation a provider will not accept, or one the model cannot make sense of.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import timedelta
 from decimal import Decimal
 
@@ -74,14 +75,17 @@ from postmortem_writing.answer import (
     WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
 )
-from postmortem_writing.conversation import answer_worth_writing
-from postmortem_writing.grounding import FLAGS_FIELD, QUOTE_FIELD, ROWS_FIELD, WHY_FIELD
+from postmortem_writing.conversation import WRITE_UP_SCOPE, answer_worth_writing
+from postmortem_writing.grounding import Flag
 from postmortem_writing.log_groups import grouped
 from postmortem_writing.ordering import ORDER_FIELD
 
+from postmortem_writing_test.framework.assertions import built_with
 from postmortem_writing_test.framework.builders import (
     ONSET,
+    AGrounding,
     a_candidate,
+    a_grounding_flagging,
     a_lead,
     a_measured_incident,
     a_model_answering_in_prose_then,
@@ -123,6 +127,9 @@ DONT_CARE_WORDS = "dont care what the model wrote for it"
 # A read of Argus's own that ruled something out, as the timeline carries it:
 # its kind mirroring the event's, and its lead mirroring narration's.
 THE_FIRST_ROW = "T1"
+# The label of the first candidate the investigation ranked, as the evidence
+# gives it. MIRRORED FROM THE EVIDENCE'S LABELS - NOT AN ARBITRARY VALUE.
+THE_FIRST_CANDIDATE = "C1"
 # When the read was made, which nothing here reads.
 DONT_CARE_READ_AT = ONSET + timedelta(minutes=5)
 CHANGES_RETRIEVED = "changes-retrieved"
@@ -1937,7 +1944,7 @@ def _what_was_said_to_the_model(transcript: Transcript) -> str:
 
 
 @pytest.mark.unit
-def test_a_claim_the_judge_flags_is_sent_back_naming_it() -> None:
+def test_a_claim_the_grounding_flags_is_sent_back_naming_it() -> None:
     # Sent back like any fault the checks find: once, quoting the claim. How
     # the fault is worded is the judge's own suite's subject.
     asks: Kept[Transcript] = Kept()
@@ -1947,11 +1954,11 @@ def test_a_claim_the_judge_flags_is_sent_back_naming_it() -> None:
             a_model := a_model_answering_in_turn(an_answer(root_cause=A_ROOT_CAUSE_CLAIMING_IT),
                                                  an_answer(root_cause=A_GROUNDED_ROOT_CAUSE),
                                                  recording_into=asks),
-            a_judge := a_model_answering_in_turn(_flagging(SOME_UNGROUNDED_CLAIM), _flagging())
+            a_grounding := a_grounding_flagging([_a_flag_on(SOME_UNGROUNDED_CLAIM)])
         ) \
         .when(
             lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
-                                         judge=a_judge)
+                                         grounding_for=a_grounding)
         ) \
         .then(
             all_of(
@@ -1964,64 +1971,53 @@ def test_a_claim_the_judge_flags_is_sent_back_naming_it() -> None:
 
 
 @pytest.mark.unit
-def test_the_judge_reads_no_answer_the_checks_sent_back() -> None:
+def test_the_grounding_reads_no_answer_the_checks_sent_back() -> None:
     # The checks' faults are cheaper and certain; an answer they refuse is
     # rewritten before anyone reads its meaning.
-    judged: Kept[Transcript] = Kept()
-
     Scenario() \
         .given(
             a_model := a_model_answering_in_turn(an_answer_without(ROOT_CAUSE_FIELD),
                                                  an_answer(root_cause=A_GROUNDED_ROOT_CAUSE)),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
             lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
-                                         judge=a_judge)
+                                         grounding_for=a_grounding)
         ) \
         .then(
-            _the_judge_read_once(judged, [A_GROUNDED_ROOT_CAUSE])
+            _judged_once_saying(a_grounding, [A_GROUNDED_ROOT_CAUSE])
         )
 
 
 @pytest.mark.unit
-def test_a_claim_flagged_again_after_it_was_sent_back_is_kept_and_logged(
-    caplog: pytest.LogCaptureFixture
-) -> None:
+def test_a_claim_flagged_again_after_it_was_sent_back_is_kept_and_logged() -> None:
     # Told once, written again: the answer is kept, as one twice wrong in a way
-    # it was told of is. The page has no line for meaning, so the flag is said
-    # where whoever watches the model reads.
-    caplog.set_level(logging.WARNING, logger=THE_CONVERSATION_S_LOGGER)
-    some_evidence = an_evidence_bundle()
-
+    # it was told of is. The page has no line for meaning, so the flags on it
+    # are said in the log rather than sent back.
     Scenario() \
         .given(
             a_model := a_model_answering_in_turn(an_answer(root_cause=A_ROOT_CAUSE_CLAIMING_IT),
                                                  an_answer(root_cause=A_ROOT_CAUSE_CLAIMING_IT)),
-            a_judge := a_model_answering_in_turn(_flagging(SOME_UNGROUNDED_CLAIM),
-                                                 _flagging(SOME_UNGROUNDED_CLAIM))
+            a_grounding := a_grounding_flagging([_a_flag_on(SOME_UNGROUNDED_CLAIM)])
         ) \
         .when(
-            lambda: answer_worth_writing(a_model, some_evidence, a_measured_incident(),
-                                         judge=a_judge)
+            lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
+                                         grounding_for=a_grounding)
         ) \
         .then(
             all_of(
                 _answered_with(ROOT_CAUSE_FIELD, A_ROOT_CAUSE_CLAIMING_IT),
                 _found_no_fault(),
-                _the_claim_was_logged(caplog, some_evidence.incident_id)
+                _logged_once_saying(a_grounding, [A_ROOT_CAUSE_CLAIMING_IT])
             )
         )
 
 
 @pytest.mark.unit
-def test_a_third_answer_flagged_again_is_kept_and_logged(
-    caplog: pytest.LogCaptureFixture
-) -> None:
+def test_a_third_answer_flagged_again_is_kept_and_logged() -> None:
     # The checks refused the first answer, the judge the second: each told
-    # once, the third is the last, and a flag on it is logged rather than sent.
-    caplog.set_level(logging.WARNING, logger=THE_CONVERSATION_S_LOGGER)
-    some_evidence = an_evidence_bundle()
+    # once, the third is the last, and the flags on it are logged rather than
+    # sent.
     asks: Kept[Transcript] = Kept()
 
     Scenario() \
@@ -2030,12 +2026,11 @@ def test_a_third_answer_flagged_again_is_kept_and_logged(
                                                  an_answer(root_cause=A_ROOT_CAUSE_CLAIMING_IT),
                                                  an_answer(root_cause=A_ROOT_CAUSE_CLAIMING_IT),
                                                  recording_into=asks),
-            a_judge := a_model_answering_in_turn(_flagging(SOME_UNGROUNDED_CLAIM),
-                                                 _flagging(SOME_UNGROUNDED_CLAIM))
+            a_grounding := a_grounding_flagging([_a_flag_on(SOME_UNGROUNDED_CLAIM)])
         ) \
         .when(
-            lambda: answer_worth_writing(a_model, some_evidence, a_measured_incident(),
-                                         judge=a_judge)
+            lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
+                                         grounding_for=a_grounding)
         ) \
         .then(
             all_of(
@@ -2043,18 +2038,47 @@ def test_a_third_answer_flagged_again_is_kept_and_logged(
                 _the_correction_on_ask_named(asks, 3, SOME_UNGROUNDED_CLAIM),
                 _answered_with(ROOT_CAUSE_FIELD, A_ROOT_CAUSE_CLAIMING_IT),
                 _found_no_fault(),
-                _the_claim_was_logged(caplog, some_evidence.incident_id)
+                _logged_once_saying(a_grounding, [A_ROOT_CAUSE_CLAIMING_IT])
             )
         )
 
 
 @pytest.mark.unit
-def test_the_judge_is_not_shown_what_code_says_in_the_record_s_words() -> None:
+def test_the_grounding_is_built_from_the_asks_and_rows_in_the_write_up_s_own_log() -> None:
+    # Its record is what the writer was asked, its rows the labels the answer
+    # could cite - the narration's and the evidence's alike - and its flags
+    # said in this write-up's log, in its words.
+    some_evidence = an_evidence_bundle(candidates=[a_candidate(DONT_CARE_WORDS)])
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model := a_model_answering_in_turn(an_answer(), recording_into=asks),
+            some_judge := a_model_answering_in_turn(),
+            a_grounding := a_grounding_flagging([])
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model, some_evidence, a_measured_incident(),
+                                         judge=some_judge, grounding_for=a_grounding)
+        ) \
+        .then(
+            all_of(
+                built_with(a_grounding, judge=some_judge,
+                           rows_holding=[THE_FIRST_ROW, THE_FIRST_CANDIDATE],
+                           scope=WRITE_UP_SCOPE, incident_id=some_evidence.incident_id,
+                           logger=THE_CONVERSATION_S_LOGGER,
+                           logged_as="postmortem claim not grounded"),
+                _its_record_was_what_the_writer_was_asked(a_grounding, asks)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_grounding_is_not_shown_what_code_says_in_the_record_s_words() -> None:
     # A rule-out resting on Argus's own read, and an item timed by a row, are
     # said by code from the record: the model's words for them are gone from
     # the page, and judged they would be sent back for nothing. The step they
     # sit beside is shown, so an answer shown not at all would not pass.
-    judged: Kept[Transcript] = Kept()
     some_item_code_replaces = "The Investigator Agent read the flags and much else besides."
     the_flags_read = a_timeline_entry(READ_NO_FLAG_CHANGES, at=DONT_CARE_READ_AT,
                                       who=ARGUS, kind=FLAG_CHANGES_RETRIEVED,
@@ -2068,50 +2092,48 @@ def test_the_judge_is_not_shown_what_code_says_in_the_record_s_words() -> None:
                                                   CITES_FIELD: [THE_FIRST_ROW]}]}],
                 lessons={WENT_WELL_FIELD: [{ITEM_FIELD: some_item_code_replaces,
                                             TIMED_BY_FIELD: THE_FIRST_ROW}]})),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
             lambda: answer_worth_writing(a_model, an_evidence_bundle(timeline=[the_flags_read]),
-                                         a_measured_incident(), judge=a_judge)
+                                         a_measured_incident(), grounding_for=a_grounding)
         ) \
         .then(
-            _the_judge_read_places(judged,
-                                   shown=[f"{CAUSAL_CHAIN_FIELD} 1: {DONT_CARE_STEP}"],
-                                   not_shown=[f"{CAUSAL_CHAIN_FIELD} 1 {RULED_OUT_FIELD} 1",
-                                              some_item_code_replaces])
+            _the_grounding_was_shown(a_grounding,
+                                     shown=[f"{CAUSAL_CHAIN_FIELD} 1: {DONT_CARE_STEP}"],
+                                     not_shown=[f"{CAUSAL_CHAIN_FIELD} 1 {RULED_OUT_FIELD} 1",
+                                                some_item_code_replaces])
         )
 
 
 @pytest.mark.unit
-def test_the_judge_is_told_where_a_went_wrong_item_sits_is_judged() -> None:
+def test_the_grounding_is_told_where_a_went_wrong_item_sits_is_judged() -> None:
     # Told a lesson's verdict is not judged and nothing more - and given one
     # job in its opening - the judge let a factor said again under went_wrong
     # stand in 3 draws of 5. Told this and the job together, in none.
-    judged: Kept[Transcript] = Kept()
-
     Scenario() \
         .given(
             a_model := a_model_answering_in_turn(an_answer()),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
             lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
-                                         judge=a_judge)
+                                         grounding_for=a_grounding)
         ) \
         .then(
-            _the_judge_read_places(judged,
-                                   shown=[f"whether a {WENT_WRONG_FIELD} item is one its field "
-                                          "excludes"],
-                                   not_shown=[])
+            _the_grounding_was_shown(a_grounding,
+                                     shown=[f"whether a {WENT_WRONG_FIELD} item is one its field "
+                                            "excludes"],
+                                     not_shown=[])
         )
 
 
 @pytest.mark.unit
-def test_the_judge_is_shown_a_root_cause_resting_on_an_unrun_reading_as_the_page_says_it() -> None:
+def test_the_grounding_is_shown_a_root_cause_resting_on_an_unrun_reading_as_the_page_says_it(
+) -> None:
     # The page says beside the model's root cause that it rests on a reading
     # nothing ran. Shown the model's words alone, the judge flagged as said
     # flat a cause the page calls unverified.
-    judged: Kept[Transcript] = Kept()
     some_root_cause = "The average divides by this month's purchases, which can be none."
     its_label = "F1"
 
@@ -2121,30 +2143,29 @@ def test_the_judge_is_shown_a_root_cause_resting_on_an_unrun_reading_as_the_page
                 root_cause=some_root_cause, cause_rests_on_an_unrun_reading=True,
                 causal_chain=[{STEP_FIELD: DONT_CARE_STEP,
                                CITES_FIELD: [THE_FIRST_ROW, its_label]}])),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
             lambda: answer_worth_writing(a_model,
                                          an_evidence_bundle(fix_explanation=DONT_CARE_WORDS),
-                                         a_measured_incident(), judge=a_judge)
+                                         a_measured_incident(), grounding_for=a_grounding)
         ) \
         .then(
-            _the_judge_read_places(judged,
-                                   shown=[f"{ROOT_CAUSE_FIELD}: {some_root_cause} It rests on "
-                                          f"{its_label}, a reading of the source nothing ran, "
-                                          f"so it is unverified."],
-                                   not_shown=[])
+            _the_grounding_was_shown(a_grounding,
+                                     shown=[f"{ROOT_CAUSE_FIELD}: {some_root_cause} It rests on "
+                                            f"{its_label}, a reading of the source nothing ran, "
+                                            f"so it is unverified."],
+                                     not_shown=[])
         )
 
 
 @pytest.mark.unit
-def test_the_judge_is_shown_each_step_with_what_it_cites() -> None:
+def test_the_grounding_is_shown_each_step_with_what_it_cites() -> None:
     # The page shows each step beside its citations, each as its row says it,
     # and a reading of the source under the heading saying it is Code-Fix's
     # and nothing ran it. Shown the step alone, or beside bare labels, the
     # judge flagged it as said flat. The heading only, not what the writer is
     # told beneath it: beside a claim, that argues the flag it answers.
-    judged: Kept[Transcript] = Kept()
     some_step = "The average divides by this month's purchases."
     its_label = "F1"
     # What the headings the record lists the two beneath say they are, with
@@ -2159,27 +2180,26 @@ def test_the_judge_is_shown_each_step_with_what_it_cites() -> None:
             a_model := a_model_answering_in_turn(an_answer(
                 cause_rests_on_an_unrun_reading=True,
                 causal_chain=[{STEP_FIELD: some_step, CITES_FIELD: [THE_FIRST_ROW, its_label]}])),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
             lambda: answer_worth_writing(a_model,
                                          an_evidence_bundle(fix_explanation=DONT_CARE_WORDS),
-                                         a_measured_incident(), judge=a_judge)
+                                         a_measured_incident(), grounding_for=a_grounding)
         ) \
         .then(
-            _the_judge_read_places(judged,
-                                   shown=[f'{CAUSAL_CHAIN_FIELD} 1: {some_step} (cites '
-                                          f'{THE_FIRST_ROW}, under "{the_narration_s_heading}"; '
-                                          f'{its_label}, under "{the_reading_s_heading}")'],
-                                   not_shown=[])
+            _the_grounding_was_shown(a_grounding,
+                                     shown=[f'{CAUSAL_CHAIN_FIELD} 1: {some_step} (cites '
+                                            f'{THE_FIRST_ROW}, under "{the_narration_s_heading}"; '
+                                            f'{its_label}, under "{the_reading_s_heading}")'],
+                                     not_shown=[])
         )
 
 
 @pytest.mark.unit
-def test_the_judge_is_shown_each_rule_out_the_model_says_with_what_it_cites() -> None:
+def test_the_grounding_is_shown_each_rule_out_the_model_says_with_what_it_cites() -> None:
     # A rule-out the record does not say is the model's, and the page shows
     # it beside its citations as it does a step.
-    judged: Kept[Transcript] = Kept()
     some_rule_out = "Nothing else changed in the window."
     # MIRRORED FROM THE RECORD'S HEADINGS - NOT AN ARBITRARY VALUE.
     the_narration_s_heading = "What Argus did, in order"
@@ -2190,18 +2210,18 @@ def test_the_judge_is_shown_each_rule_out_the_model_says_with_what_it_cites() ->
                 causal_chain=[{STEP_FIELD: DONT_CARE_STEP, CITES_FIELD: [THE_FIRST_ROW],
                                RULED_OUT_FIELD: [{WHAT_FIELD: some_rule_out,
                                                   CITES_FIELD: [THE_FIRST_ROW]}]}])),
-            a_judge := a_model_answering_in_turn(_flagging(), recording_into=judged)
+            a_grounding := a_grounding_flagging([])
         ) \
         .when(
             lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
-                                         judge=a_judge)
+                                         grounding_for=a_grounding)
         ) \
         .then(
-            _the_judge_read_places(judged,
-                                   shown=[f"{CAUSAL_CHAIN_FIELD} 1 {RULED_OUT_FIELD} 1: "
-                                          f'{some_rule_out} (cites {THE_FIRST_ROW}, under '
-                                          f'"{the_narration_s_heading}")'],
-                                   not_shown=[])
+            _the_grounding_was_shown(a_grounding,
+                                     shown=[f"{CAUSAL_CHAIN_FIELD} 1 {RULED_OUT_FIELD} 1: "
+                                            f'{some_rule_out} (cites {THE_FIRST_ROW}, under '
+                                            f'"{the_narration_s_heading}")'],
+                                     not_shown=[])
         )
 
 
@@ -2306,48 +2326,78 @@ def test_a_rule_out_after_one_code_drops_is_still_held_to_the_rules() -> None:
         )
 
 
-def _flagging(*quotes: str) -> dict[str, list[dict[str, object]]]:
-    """A judge's answer flagging each of `quotes`, against no row."""
-    return {FLAGS_FIELD: [{QUOTE_FIELD: quote, ROWS_FIELD: [], WHY_FIELD: SOME_REASON_IT_IS_NOT}
-                          for quote in quotes]}
+def _a_flag_on(quote: str) -> Flag:
+    """A flag on `quote` in the root cause, against no row."""
+    return Flag(quote=quote, rows=(), why=SOME_REASON_IT_IS_NOT, fields=(ROOT_CAUSE_FIELD,))
 
 
-def _the_claim_was_logged(caplog: pytest.LogCaptureFixture,
-                          incident_id: str) -> Assertion[Reading]:
-    """One warning for the one flag on the answer kept, saying where it is."""
-    return one_record_was_logged(caplog, THE_CONVERSATION_S_LOGGER, logging.WARNING,
-                                 "postmortem claim not grounded",
-                                 values={"incident_id": incident_id,
-                                         "fields": [ROOT_CAUSE_FIELD],
-                                         "quote": SOME_UNGROUNDED_CLAIM,
-                                         "rows": [],
-                                         "why": SOME_REASON_IT_IS_NOT})
+def _as_the_judge_reads(answer: Mapping[str, str]) -> str:
+    """An answer by field, as the judge's ask lists it."""
+    return "\n".join(f"{field}: {text}" for field, text in answer.items())
 
 
-def _the_judge_read_once(judged: Kept[Transcript], expected: list[str]) -> Assertion[Reading]:
-    """That the judge was asked once, and of an answer saying each of these."""
+def _judged_once_saying(grounding: AGrounding, expected: list[str]) -> Assertion[Reading]:
+    """That one answer was judged, saying each of these."""
     def assertion(dont_care_reading: Reading) -> bool:
-        said = [_what_was_said_to_the_model(transcript) for transcript in judged.taken]
+        said = [_as_the_judge_reads(answer) for answer in grounding.judged.taken]
         if len(said) != 1 or any(text not in said[0] for text in expected):
             raise AssertionError(
-                f"Expected the judge asked once, of an answer saying {expected}; it was "
-                f"asked {len(said)} times: {said}.")
+                f"Expected one answer judged, saying {expected}; {len(said)} were: {said}.")
 
         return True
 
     return assertion
 
 
-def _the_judge_read_places(judged: Kept[Transcript], *, shown: list[str],
-                           not_shown: list[str]) -> Assertion[Reading]:
+def _logged_once_saying(grounding: AGrounding, expected: list[str]) -> Assertion[Reading]:
+    """That the flags on one answer were said in the log, and that answer said
+    each of these."""
     def assertion(dont_care_reading: Reading) -> bool:
-        said = "\n".join(_what_was_said_to_the_model(transcript) for transcript in judged.taken)
+        said = [_as_the_judge_reads(answer) for answer in grounding.logged_answers.taken]
+        if len(said) != 1 or any(text not in said[0] for text in expected):
+            raise AssertionError(
+                f"Expected one answer's flags logged, the answer saying {expected}; "
+                f"{len(said)} were: {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_grounding_was_shown(grounding: AGrounding, *, shown: list[str],
+                             not_shown: list[str]) -> Assertion[Reading]:
+    """That what the judge reads - every answer it judged or logged, and what it
+    is not to judge - says each of `shown` and none of `not_shown`."""
+    def assertion(dont_care_reading: Reading) -> bool:
+        said = "\n".join([
+            *(_as_the_judge_reads(answer)
+              for answer in [*grounding.judged.taken, *grounding.logged_answers.taken]),
+            *(note for built in grounding.built.taken for note in built.scope)
+        ])
         missing = [text for text in shown if text not in said]
         present = [text for text in not_shown if text in said]
-        if not judged.taken or missing or present:
+        if not (grounding.judged.taken or grounding.logged_answers.taken) or missing or present:
             raise AssertionError(
-                f"Expected the judge shown {shown} and not {not_shown}; {missing} were "
-                f"missing and {present} were shown, in {judged.taken}.")
+                f"Expected the grounding shown {shown} and not {not_shown}; {missing} were "
+                f"missing and {present} were shown, in [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _its_record_was_what_the_writer_was_asked(grounding: AGrounding,
+                                              asks: Kept[Transcript]) -> Assertion[Reading]:
+    """That the grounding's record is what the writer was asked on its one
+    turn, every ask of it in order - read when the assertion runs, since the
+    asking is done in the `when`."""
+    def assertion(dont_care_reading: Reading) -> bool:
+        asked = "\n".join(exchange.text for exchange in asks.only() if isinstance(exchange, Ask))
+        record = grounding.built.only().record
+        if record != asked:
+            raise AssertionError(
+                f"Expected the grounding's record to be what the writer was asked, [{asked}]; "
+                f"it was [{record}].")
 
         return True
 
