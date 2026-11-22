@@ -20,7 +20,7 @@ whole would spend a model's entire remaining context; an answer shortened in
 silence would be read as the whole change, which is how a cause gets attributed
 to the last file that happened to fit.
 
-No scope. `github_source_paths` narrows what this tier searches and indexes to
+No scope. `service_source_paths` narrows what this tier searches and indexes to
 the directories holding the service itself, which is right for reading code and
 inverting here - the configuration a deployment ships lives outside the source
 tree by definition, so a narrowed comparison would hide the one file that answers
@@ -62,7 +62,7 @@ AN_EARLIER_DEPLOY_MINUTE = "2026-08-20T10:05:00Z"
 THE_EARLIEST_DEPLOY_MINUTE = "2026-08-19T10:05:00Z"
 
 # The two shapes the whole channel exists to tell apart. The first is outside
-# `github_source_paths`, which is the trap: scoped, it disappears.
+# `service_source_paths`, which is the trap: scoped, it disappears.
 THE_CONFIGURATION_FILE = "deploy/values-production.yaml"
 THE_SOURCE_FILE = "src/io_shop/spend_summary.py"
 
@@ -238,7 +238,7 @@ def test_a_deployment_that_changed_nothing_says_so() -> None:
 @pytest.mark.unit
 def test_a_file_outside_the_service_s_own_source_is_reported_like_any_other() -> None:
     # THE ONE THAT INVERTS THE ANSWER IF IT IS EVER GOT WRONG. This tier narrows
-    # what it searches and what it indexes to `github_source_paths`, and every
+    # what it searches and what it indexes to `service_source_paths`, and every
     # deployment's configuration is outside them. `what_a_deployment_changed`
     # takes no scope at all - its signature is what holds this now - so what is
     # pinned here is that the comparison's every file reaches the answer: were

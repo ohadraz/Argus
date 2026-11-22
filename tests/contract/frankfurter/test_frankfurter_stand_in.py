@@ -32,8 +32,7 @@ from argus_testkit import (
 )
 from core import get_settings
 from core.models import PublishedRates, RatesUnavailable
-from exchange_rate_source import rates_published_for
-from exchange_rate_source.frankfurter import ExchangeRateSettings
+from exchange_rate_source.frankfurter import ExchangeRateSettings, rates_published_for
 
 # Where each half answers. The real one is the public service; the stand-in is
 # wherever Argus itself is configured to read rates from.

@@ -32,6 +32,13 @@ by that vendor's adapter alone. import-linter sees a third party only with
 against the standard library - so the graph with third parties in it is built
 here, for these two rules alone.
 
+And it holds every vendor's *name* to its adapter, which is not an import at all:
+a port declaring the vendor's settings, a kernel enum with a member per vendor,
+a stored value spelled for one, an agent reading the vendor's setting. Nothing
+shipped names a vendor in code - an identifier or a string, prose aside - but
+the module named for it, each process's wiring, and the debts listed with what
+clears each.
+
 And it holds who may make an admission, which import-linter cannot say either.
 The Mitigator imports the autonomy policy (`core.autonomy`) because its write
 accepts only an `Admitted`, and import-linter allows a module or forbids it -
@@ -46,9 +53,10 @@ locally-generated `.exe` stubs in `.venv/Scripts/`, which Windows Smart App
 Control has blocked before. See the `smart-app-control-blocks` skill.
 """
 import ast
+import re
 import sys
 import tomllib
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from io import TextIOWrapper
 from pathlib import Path
 
@@ -142,6 +150,92 @@ ADMIT = "admit"
 # the address its own action names would admit that action wherever it was
 # aimed.
 WHO_MAY_ADMIT = frozenset({"orchestrator", KERNEL})
+
+# Every vendor Argus speaks to, by each spelling code gives it, as the words it
+# is made of. Code and strings alike are read as words - split at an underscore,
+# a hyphen, a space or a change of case, so `ArgoCd`, `argo_cd`, `"argo-cd"` and
+# `"Argo CD"` are each `argo cd` - and a spelling is found only as whole words in
+# a row: `unleashed` and `striped` name nobody. PromQL is Prometheus's language
+# and Claude is Anthropic's models, each named for its vendor. A vendor is
+# spoken by its adapter, and an adapter is a module named for it - so a name or
+# a string carrying one anywhere else is the vendor leaking past its port.
+VENDORS = {
+    "anthropic": ("anthropic", "claude"),
+    "argocd": ("argocd", "argo cd"),
+    "bamboohr": ("bamboohr", "bamboo hr"),
+    "frankfurter": ("frankfurter",),
+    "github": ("github", "git hub"),
+    "grafana": ("grafana",),
+    "langfuse": ("langfuse",),
+    "pagerduty": ("pagerduty", "pager duty"),
+    "prometheus": ("prometheus", "promql", "prom ql"),
+    "qdrant": ("qdrant",),
+    "slack": ("slack",),
+    "stripe": ("stripe",),
+    "unleash": ("unleash",)
+}
+
+# A word, as `VENDORS` reads one: a run of capitals not starting a capitalised
+# word (`CD` in `ArgoCD`), a word with or without its capital, or a number.
+WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+
+# Each process's wiring: where adapters are built and handed out as their
+# ports, which is the one job that has to name every vendor it builds. The same
+# modules the layering contracts allow to import each adapter.
+WIRING = frozenset({
+    "communication.watching",
+    "incident_memory.delivering",
+    "message_intent.watching",
+    "orchestrator.assembling",
+    "orchestrator.sources",
+    "read_mcp_server.server",
+    "repository_index.catching_up",
+    "web_app.app",
+    "write_mcp_server.server"
+})
+
+# What still names a vendor outside its adapter: which vendors, and what takes
+# them away. An allowance is a debt with a name on it, and covers the vendors it
+# lists and no other - a module allowed GitHub that starts naming Slack is
+# refused - and each vendor the module stops naming is reported as stale and
+# must go from the list.
+NOT_YET: dict[str, tuple[frozenset[str], str]] = {
+    "core.config": (
+        frozenset({"anthropic", "argocd", "bamboohr", "frankfurter", "github", "grafana",
+                   "langfuse", "pagerduty", "prometheus", "qdrant", "slack", "stripe"}),
+        "item 15: every vendor's settings move into its adapter"),
+    "core.models.model_policy": (
+        frozenset({"anthropic"}),
+        "item 15: the default model is the model provider's, and moves into its adapter"),
+    "read_mcp_server.meaning": (
+        frozenset({"qdrant"}),
+        "item 15: the vector store's URL moves into its adapter"),
+    "telemetry.destinations": (
+        frozenset({"langfuse"}),
+        "item 15: Langfuse's settings move into an adapter of its own"),
+    "web_app.oncall": (
+        frozenset({"pagerduty"}),
+        "item 15: PagerDuty's webhook secret moves into its adapter"),
+    "web_app.pushes": (
+        frozenset({"github"}),
+        "item 15: GitHub's webhook secret and repository move into its adapter")
+}
+
+# Another vendor's name an adapter has to say because its own vendor's wire
+# says it, by adapter: a route of Grafana's is named for the Prometheus-
+# compatible API it serves. The adapter may say that vendor's name and no other;
+# reported stale the day it no longer does.
+SAID_ON_ITS_VENDOR_S_WIRE = {
+    "alerting_platform.grafana": frozenset({"prometheus"})
+}
+
+# Every vendor a module may name beside its own, by module: the debts and the
+# words an adapter's wire says, held to the same rule.
+ALLOWED_BESIDE_ITS_OWN: dict[str, frozenset[str]] = {
+    module: (NOT_YET[module][0] if module in NOT_YET else frozenset())
+    | SAID_ON_ITS_VENDOR_S_WIRE.get(module, frozenset())
+    for module in NOT_YET.keys() | SAID_ON_ITS_VENDOR_S_WIRE.keys()
+}
 
 
 def _the_modules_on_disk() -> set[str]:
@@ -695,10 +789,179 @@ def _only_the_walk_admits() -> None:
         sys.exit(1)
 
 
+def _the_vendors_in(text: str) -> set[str]:
+    """Every vendor `text` names: a spelling of it found as whole words in a
+    row among the words `text` is made of."""
+    words = [word.lower() for word in WORD.findall(text)]
+
+    return {
+        vendor
+        for vendor, spellings in VENDORS.items()
+        for spelling in spellings
+        if _in_a_row(spelling.split(), words)
+    }
+
+
+def _in_a_row(spelling: list[str], words: list[str]) -> bool:
+    """Whether `spelling`'s words appear in `words` one after another."""
+    return any(words[start:start + len(spelling)] == spelling
+               for start in range(len(words) - len(spelling) + 1))
+
+
+def _the_prose_in(tree: ast.AST) -> set[int]:
+    """The string constants that are prose rather than code: a docstring, or
+    any string standing alone as a statement - said to a reader, and passed to
+    nothing."""
+    return {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    }
+
+
+def _the_names_in(node: ast.AST) -> list[str]:
+    """What `node` names, where it names anything: a definition, an argument,
+    a name or an attribute read or bound, a keyword passed, a module imported
+    and what is imported from it."""
+    match node:
+        case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name) | ast.ClassDef(name=name):
+            return [name]
+        case ast.Name(id=name) | ast.Attribute(attr=name) | ast.arg(arg=name):
+            return [name]
+        case ast.keyword(arg=str(name)):
+            return [name]
+        case ast.alias(name=name, asname=asname):
+            return [name] if asname is None else [name, asname]
+        case ast.ImportFrom(module=str(module)):
+            return [module]
+
+    return []
+
+
+def _what_names_a_vendor(source: str) -> list[tuple[int, str, str]]:
+    """Each line of `source` that names a vendor in code, with the vendor and
+    what named it - once per line, vendor and name."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []  # not this guard's complaint; ruff and mypy both say so first
+
+    prose = _the_prose_in(tree)
+    named: set[tuple[int, str, str]] = set()
+
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+
+        for name in _the_names_in(node):
+            named.update((line, vendor, name) for vendor in _the_vendors_in(name))
+
+        if isinstance(node, ast.Constant) and id(node) not in prose:
+            # A header or a signature is as often bytes as it is text.
+            text = (node.value.decode("utf-8", "replace") if isinstance(node.value, bytes)
+                    else node.value if isinstance(node.value, str) else "")
+            # Line by line, so a long string - a query, a schema - is reported at
+            # the line that names the vendor, quoting that line.
+            named.update(
+                (line + offset, vendor, said.strip())
+                for offset, said in enumerate(text.splitlines() or [text])
+                for vendor in _the_vendors_in(said)
+            )
+
+    return sorted(named)
+
+
+def _whose_adapter(module: str) -> set[str]:
+    """The vendors a module is the adapter of: those a part of its dotted name
+    is named for - `chat_platform.slack_posting`, `vector_store_qdrant.indexing`."""
+    return _the_vendors_in(module)
+
+
+def the_vendors_named_outside_their_adapter(
+    sources: Mapping[str, str],
+    wiring: Collection[str] = WIRING,
+    allowed: Mapping[str, frozenset[str]] = ALLOWED_BESIDE_ITS_OWN
+) -> list[tuple[str, int, str, str]]:
+    """Every place a shipped module names a vendor it is not the adapter of, as
+    the module, the line, the vendor and what named it.
+
+    `sources` is each module's source by its dotted name, which is what says
+    whose adapter it is. Named in code - an identifier, an import, a keyword, a
+    string a function is handed - and not in prose: a docstring saying what Argo
+    CD does is an explanation, and the module it is in still speaks Argus's
+    words. `wiring` is the modules that may name any vendor, and `allowed` the
+    vendors each other module may name beside its own - the debts `NOT_YET`
+    lists, and the vendors an adapter's own vendor's wire names.
+
+    Empty where every vendor is named by its adapter alone.
+    """
+    return [
+        (module, line, vendor, said)
+        for module, source in sorted(sources.items())
+        if module not in wiring
+        for line, vendor, said in _what_names_a_vendor(source)
+        if vendor not in _whose_adapter(module) | allowed.get(module, frozenset())
+    ]
+
+
+def the_stale_allowances(sources: Mapping[str, str],
+                         wiring: Collection[str] = WIRING,
+                         allowed: Mapping[str, frozenset[str]] = ALLOWED_BESIDE_ITS_OWN
+                         ) -> list[str]:
+    """Every wiring module that names no vendor, or is not there at all, and
+    every vendor a module is allowed that it no longer names - an allowance
+    outliving its reason, which would let that vendor back in without anybody
+    deciding it should."""
+    return sorted(
+        [module for module in wiring
+         if module not in sources or not _what_names_a_vendor(sources[module])]
+        + [f"{module}: {vendor}" for module, vendors in allowed.items()
+           for vendor in sorted(vendors)
+           if module not in sources
+           or vendor not in {named for _, named, _ in _what_names_a_vendor(sources[module])}]
+    )
+
+
+def _every_vendor_is_named_by_its_adapter_alone() -> None:
+    """Refuses a shipped module naming a vendor past its port, and an allowance
+    nothing uses any more."""
+    modules = _the_shipped_modules()
+    sources = {module: path.read_text(encoding="utf-8") for module, path in modules.items()}
+    named = the_vendors_named_outside_their_adapter(sources)
+    stale = the_stale_allowances(sources)
+
+    if named:
+        print(
+            "these name a vendor outside its adapter:\n"
+            + "\n".join(
+                f"  {modules[module].relative_to(REPOSITORY).as_posix()}:{line} -> "
+                f"{said!r} names {vendor}"
+                for module, line, vendor, said in named
+            )
+            + "\nSay it in Argus's words, and let the adapter - a module named for the "
+              "vendor - be the one place the vendor is named.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+    if stale:
+        print(
+            "these allowances outlive their reason - wiring naming no vendor, a vendor "
+            "the module no longer names, or a module that is not there:\n"
+            + "\n".join(f"  {module}" for module in stale)
+            + "\nTake them out of `WIRING`, `NOT_YET` or `SAID_ON_ITS_VENDOR_S_WIRE` "
+              "in scripts/guard_layering.py.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
 def main() -> None:
     """Checks the graph is whole, the suites behave, no repository commits, every
-    vendor's SDK is spoken by its adapter alone, the walk reaches no unfenced
-    store and only the walk admits, then runs every contract.
+    vendor's SDK is spoken by its adapter alone and its name named by it alone,
+    the walk reaches no unfenced store and only the walk admits, then runs every
+    contract.
 
     Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
@@ -714,6 +977,7 @@ def main() -> None:
     _the_suites_keep_the_agents_apart(_the_independent_modules())
     _no_repository_commits()
     _every_vendor_is_spoken_by_its_adapter_alone()
+    _every_vendor_is_named_by_its_adapter_alone()
     _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
     _only_the_walk_admits()
     sys.exit(lint_imports_command())

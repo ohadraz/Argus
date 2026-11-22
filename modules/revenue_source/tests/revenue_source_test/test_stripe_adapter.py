@@ -33,7 +33,7 @@ from argus_testkit import (
 )
 from revenue_source import Charge, RevenueUnavailable
 from revenue_source.stripe_adapter import charges_between
-from revenue_source.takings import RevenueSettings
+from revenue_source.stripe_settings import StripeSettings
 
 # The provider's own words for what happened to a charge, spelled out here
 # rather than shared with the module under test: the assertion is that Argus
@@ -199,10 +199,10 @@ def test_a_listing_is_read_only_as_far_as_it_is_drawn() -> None:
         )
 
 
-def _settings_with(api_key: str) -> RevenueSettings:
+def _settings_with(api_key: str) -> StripeSettings:
     """The slice these tests hand the reader, built rather than narrowed.
 
-    Constructed directly instead of through `RevenueSettings.of(Settings())`,
+    Constructed directly instead of through `StripeSettings.of(Settings())`,
     so that a unit test of what a listing means does not also depend on what
     the environment happens to hold. Where the provider is reached is the one
     field these never care about: the client is injected, so no address is
@@ -210,8 +210,8 @@ def _settings_with(api_key: str) -> RevenueSettings:
     """
     dont_care_base_url = ""
 
-    return RevenueSettings(stripe_api_key=api_key,
-                           stripe_base_url=dont_care_base_url)
+    return StripeSettings(stripe_api_key=api_key,
+                          stripe_base_url=dont_care_base_url)
 
 
 def _the_source_said_it_could_not_be_read() -> Assertion[Any]:

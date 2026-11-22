@@ -84,6 +84,13 @@ from tests.e2e.framework.oncall import (
 )
 from tests.e2e.framework.world import a_scenario_was_seeded
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
+# The on-call platform's name, as its adapter gives it.
+THE_ON_CALL_PLATFORM = "PagerDuty"
+
 _A_POLL = 0.5
 
 A_MINUTE = timedelta(minutes=1)
@@ -164,7 +171,8 @@ def test_an_incident_resolved_in_pagerduty_keeps_its_flag_off_and_is_written_up(
                     _the_flag_is_still_off(),
                     _the_account_says_it_was_resolved(
                         Report(by=some_person,
-                               channel=ReportChannel.PAGERDUTY,
+                               channel=ReportChannel.ON_CALL_PLATFORM,
+                               platform=THE_ON_CALL_PLATFORM,
                                note=some_resolution_note)),
                     _no_fix_was_looked_for()
                 ),
@@ -206,7 +214,8 @@ def test_an_incident_resolved_from_its_slack_thread_is_written_up_and_nothing_mo
                     argus_wrote_a_postmortem(),
                     _the_account_says_it_was_resolved(
                         Report(by=some_person,
-                               channel=ReportChannel.SLACK,
+                               channel=ReportChannel.CHAT_PLATFORM,
+                               platform=THE_CHAT_PLATFORM,
                                note=THE_WORDS_CLASSIFIED_AS_RESOLVED)),
                     _no_fix_was_looked_for(),
                     the_offer_now_names(offered, some_person)

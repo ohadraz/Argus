@@ -197,7 +197,8 @@ def get_change_events(service: str,
                       window_start: str,
                       window_end: str,
                       *,
-                      source: ChangeSource) -> list[ChangeEvent]:
+                      source: ChangeSource,
+                      excluding_argus_s_own: bool = False) -> list[ChangeEvent]:
     """Returns what changed on a service within one window (spec §16).
 
     The third retrieval channel, beside logs and metrics. Metrics say when an
@@ -215,5 +216,10 @@ def get_change_events(service: str,
     provider's audit log when that exists. A source that cannot be reached
     raises `ChangeSourceUnavailable` and that propagates - "could not ask" must
     never arrive at a caller as "nothing changed".
+
+    `excluding_argus_s_own` is for a caller deciding what to undo, which must
+    not read Argus's own rollback as somebody else's change: the source leaves
+    out what it says Argus made.
     """
-    return source(service, window_start=window_start, window_end=window_end)
+    return source(service, window_start=window_start, window_end=window_end,
+                  excluding_argus_s_own=excluding_argus_s_own)

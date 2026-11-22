@@ -23,13 +23,16 @@ from core.models import (
     Meaning,
     PodPlacement,
     RecordedPlacement,
-    ReportChannel,
     ThreadMessage,
     Weighing,
     a_chat_message,
 )
 from incident_record.ending import EndedByAPerson
 from orchestrator.walk.state import IncidentState
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 
 def an_incident_state(
@@ -307,7 +310,7 @@ def a_lead(words: str,
     walk does with a lead reads which incident it belongs to.
     """
     return ThreadMessage(incident_id=new_id(),
-                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                         message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", ts),
                          person_id="U-some-person",
                          text=words,
                          written_at=datetime(2026, 8, 20, 11, 5, tzinfo=UTC),

@@ -52,10 +52,13 @@ SUBMIT_MEANING = ToolDefinition(
 )
 
 
-def opening_ask(words: str) -> Transcript:
-    """The person's message, and the question, in one message."""
+def opening_ask(words: str, platform: str) -> Transcript:
+    """The person's message, and the question, in one message.
+
+    `platform` is the chat platform's name, as its adapter gives it, which is
+    where the person wrote."""
     return [Ask(text="\n".join([
-        "A person wrote this in the Slack thread of an incident Argus is "
+        f"A person wrote this in the {platform} thread of an incident Argus is "
         "responding to:",
         "",
         words,

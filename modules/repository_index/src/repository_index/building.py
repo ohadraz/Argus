@@ -38,7 +38,7 @@ class IndexSettings(SettingsSlice):
     alone, since building an index changes a repository in no way.
     """
 
-    github_source_paths: str
+    service_source_paths: str
     # The branch that is actually deployed, and so the one the index is meant
     # to describe. A pass aimed at anything else builds an index of code
     # nobody is running, which every later search answers from without ever
@@ -112,7 +112,7 @@ def _the_passages_of(path: str,
 
     return candidates_for(
         {path: said},
-        settings.github_source_paths,
+        settings.service_source_paths,
         max_lines=settings.repository_index_max_lines,
         overlap=settings.repository_index_chunk_overlap
     )

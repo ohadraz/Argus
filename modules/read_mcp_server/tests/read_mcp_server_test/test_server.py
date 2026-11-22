@@ -41,7 +41,8 @@ from flag_provider import FlagProviderReads, FlagProviderUnavailable
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, Tool
-from metrics_source import MetricsSettings, SeriesClassifier
+from metrics_source import SeriesClassifier
+from metrics_source.prometheus_settings import PrometheusSettings
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
@@ -473,7 +474,7 @@ def _a_read_tier(mode: CodeSearch,
                           log_max_window_minutes=60,
                           metrics_window_minutes=60),
         TargetServiceSettings(target_service_url="http://target.invalid"),
-        MetricsSettings(prometheus_base_url="http://prometheus.invalid"),
+        PrometheusSettings(prometheus_base_url="http://prometheus.invalid"),
         flags if flags is not None else _a_flag_provider(),
         create_autospec(DeploymentPlatformReads, instance=True),
         code if code is not None else _a_code_host(),
@@ -481,7 +482,7 @@ def _a_read_tier(mode: CodeSearch,
             service_registry_base_url="http://registry.invalid",
             service_registry_service_path="/registry/services/{service}"
         ),
-        RepositoryReadSettings(github_source_paths="src"),
+        RepositoryReadSettings(service_source_paths="src"),
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           repository_index_collection="dont-care-collection",
                           code_search=mode),

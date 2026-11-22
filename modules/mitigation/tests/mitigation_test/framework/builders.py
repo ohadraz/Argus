@@ -147,18 +147,17 @@ def a_disabling_of(flag: str, at: str = LATER_IN_THE_WINDOW) -> FlagChange:
     return FlagChange(flag=flag, enabled=False, occurred_at=at, actor=DONT_CARE_ACTOR)
 
 
-def a_deployment(actor: str | None = None) -> ChangeEvent:
+def a_deployment() -> ChangeEvent:
     """A revision the platform recorded going out.
 
-    Nothing that reads it here asks which revision or when - only that one is
-    there, that the one reported is the one that came back, or who asked for it.
+    Nothing that reads it here asks which revision, when or who asked for it -
+    only that one is there, and that the one reported is the one that came back.
     """
     return ChangeEvent(
         kind=ChangeKind.DEPLOY,
         occurred_at=LATER_IN_THE_WINDOW,
         reference="26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2",
-        summary="dont-care-summary",
-        actor=actor
+        summary="dont-care-summary"
     )
 
 

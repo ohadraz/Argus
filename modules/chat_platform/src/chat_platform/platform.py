@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import NamedTuple, Protocol
 
-from core.models import Reference, ReportChannel
+from core.models import Reference
 from pydantic import BaseModel, Field
 
 
@@ -157,8 +157,10 @@ class ChatPlatformReads(Protocol):
     """The chat platform, for what Argus receives from it and asks of it."""
 
     @property
-    def channel(self) -> ReportChannel:
-        """Where a person's report through this platform reached Argus."""
+    def name(self) -> str:
+        """The platform's name, as people know it: where a person's report
+        through it is said to have come from, and the source the incident's
+        references file what it said under."""
         ...
 
     def parse_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
@@ -179,9 +181,10 @@ class ChatPlatformWrites(Protocol):
     """
 
     @property
-    def channel(self) -> ReportChannel:
+    def name(self) -> str:
         """Which platform a thread or an offer posted here belongs to, as the
-        incident's references name it."""
+        incident's references name it - and as a reader is told where Argus
+        posted."""
         ...
 
     def post(self,

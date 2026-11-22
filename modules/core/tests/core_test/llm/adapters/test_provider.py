@@ -19,9 +19,13 @@ from core.models import ModelPolicy, Reasoning
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Ask
 from core.models.turn import Turn
-from core.telemetry import GEN_AI_PROVIDER_ANTHROPIC
 
 from core_test.framework.llm import an_api_that_answers, settings_that_reach_no_api
+
+# How OTel's GenAI conventions spell Anthropic in `gen_ai.provider.name`, stated
+# here rather than imported from the adapter that declares it, for the reason
+# the field names below are.
+OTEL_S_NAME_FOR_ANTHROPIC: Final = "anthropic"
 
 # Anthropic's names for the request's fields this file reads, stated here rather
 # than imported: a test borrowing the adapter's spelling would agree with it
@@ -41,7 +45,7 @@ def test_the_provider_is_named_as_telemetry_names_anthropic() -> None:
             lambda: AnthropicProvider(settings_that_reach_no_api()).name
         ) \
         .then(
-            the_answer_was(GEN_AI_PROVIDER_ANTHROPIC)
+            the_answer_was(OTEL_S_NAME_FOR_ANTHROPIC)
         )
 
 

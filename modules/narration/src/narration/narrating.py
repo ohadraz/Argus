@@ -88,7 +88,7 @@ from core.models import (
     RecordedPlacement,
     Reference,
     Refusal,
-    ReportChannel,
+    Report,
     RetrievalChannel,
     RolloutAccount,
     Verdict,
@@ -213,13 +213,10 @@ _CHANNELS = {
                                "changes from the flag provider's history")
 }
 
-# Where a person's report reached Argus, said as the place a reader would go to
-# find whoever made it.
-_REPORT_CHANNELS = {
-    ReportChannel.ARGUS_UI: "the Argus UI",
-    ReportChannel.PAGERDUTY: "PagerDuty",
-    ReportChannel.SLACK: "Slack"
-}
+# Where a person's report reached Argus when it came through Argus's own page,
+# said as the place a reader would go to find whoever made it. A platform's
+# report is said by the platform's own name, which its adapter gave the report.
+_ARGUS_UI = "the Argus UI"
 
 # What a person's message was read as, said as what it is rather than as the
 # label. "Other" is said as what it means for the person who wrote it.
@@ -511,7 +508,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             who = event.reported.by
             emphasis = str(event.to_status).upper()
             text = (f"Moved the incident to {emphasis} from "
-                    f"{where_a_report_came_from(event.reported.channel)}"
+                    f"{where_a_report_came_from(event.reported)}"
                     f"{f' - {event.reported.note}' if event.reported.note else ''}")
         case StatusChanged():
             who = _ARGUS
@@ -1558,15 +1555,19 @@ def _why_it_moved(event: StatusChanged) -> str:
     return f" - {event.detail}" if event.detail else ""
 
 
-def where_a_report_came_from(channel: ReportChannel) -> str:
+def where_a_report_came_from(report: Report) -> str:
     """Where a person's report reached Argus, said as the place a reader would
-    go to find whoever made it.
+    go to find whoever made it: Argus's own page, or the platform by its own
+    name.
 
     Public because the postmortem page says it too, beside the document, and
     two spellings of one door are two things a reader has to recognise as the
     same.
     """
-    return _REPORT_CHANNELS[channel]
+    if report.platform is None:
+        return _ARGUS_UI
+
+    return report.platform
 
 
 def _an_agent(agent: Actor) -> str:

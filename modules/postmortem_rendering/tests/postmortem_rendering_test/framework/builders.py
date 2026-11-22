@@ -198,13 +198,13 @@ def the_page_of(incident_id: str) -> str:
 
 def a_person_resolved_it(by: str,
                          at: datetime = DONT_CARE_MOMENT,
-                         channel: ReportChannel = ReportChannel.ARGUS_UI,
                          note: str | None = None) -> StatusChanged:
-    """The event a person's report of the incident over is recorded as."""
+    """The event a person's report of the incident over is recorded as - typed
+    into Argus's own page, which no case here tells apart from a platform."""
     return StatusChanged(incident_id=new_id(),
                          at=at,
                          to_status=IncidentStatus.RESOLVED,
-                         reported=Report(by=by, channel=channel, note=note))
+                         reported=Report(by=by, channel=ReportChannel.ARGUS_UI, note=note))
 
 
 def a_postmortem_with_every_section_filled() -> Postmortem:

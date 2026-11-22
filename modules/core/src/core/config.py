@@ -37,6 +37,13 @@ _WRITE_MCP_ANSWERED_WITHIN_SECONDS: Final = 720.0
 # allowed, and means no channel was configured.
 _A_SLACK_CHANNEL_ID: Final = r"^([CG][A-Z0-9]+)?$"
 
+# The environment variables settings were once read from and are no longer, by
+# the one each became. Refused where set, never read: a setting nobody declares
+# is ignored, so a deployment still using the old name would run on the default
+# and nothing would say so.
+RETIRED_SOURCE_PATHS: Final = "GITHUB_SOURCE_PATHS"
+SOURCE_PATHS: Final = "SERVICE_SOURCE_PATHS"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
@@ -165,7 +172,14 @@ class Settings(BaseSettings):
     # that stages incidents against it, and a fix agent reading the rig is
     # reading how its own incidents are generated. A real deployment points
     # Argus at a service repository and leaves this empty.
-    github_source_paths: str = Field(default="")
+    service_source_paths: str = Field(default="")
+    # The name the setting above went by before it said whose paths they are.
+    # Read only to be refused (`_no_retired_names`): every name nothing declares
+    # is ignored, so a deployment still spelling it this way would start on the
+    # whole repository and change what Code-Fix reads with no word why.
+    retired_source_paths: str | None = Field(default=None,
+                                             validation_alias=RETIRED_SOURCE_PATHS,
+                                             exclude=True)
     # The credential that can push a branch and open a pull request. Scoped to
     # the repository above and to nothing else: "Argus cannot touch its own
     # codebase" is a property of what this token reaches, not of what the agent
@@ -888,6 +902,22 @@ class Settings(BaseSettings):
                 f"repository_index_chunk_overlap ({self.repository_index_chunk_overlap}) must be "
                 f"smaller than repository_index_max_lines ({self.repository_index_max_lines}), "
                 f"or a window repeats everything it was meant to advance past"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def _no_retired_names(self) -> Settings:
+        """Refuses to start on a setting spelled by a name it no longer has.
+
+        Set at all, empty included: the old name says the deployment meant to
+        configure this, and whatever it holds is not what is read.
+        """
+        if self.retired_source_paths is not None:
+            raise ValueError(
+                f"{RETIRED_SOURCE_PATHS} is set and is no longer read: the directories "
+                f"of the repository that hold the service are {SOURCE_PATHS} now. "
+                f"Rename it, or Argus reads the whole repository"
             )
 
         return self

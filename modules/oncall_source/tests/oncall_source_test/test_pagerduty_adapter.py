@@ -36,9 +36,8 @@ from argus_testkit import (
     nothing_was_collected,
     one_record_was_logged,
 )
-from core.models import Lifespan, ReportChannel
+from core.models import Lifespan
 from oncall_source import OnCallUnavailable
-from oncall_source.engagement import OnCallSettings
 from oncall_source.pagerduty_adapter import (
     ALERT_KEY,
     ALERTS_OF_AN_INCIDENT,
@@ -54,6 +53,7 @@ from oncall_source.pagerduty_adapter import (
     reported_incident,
     resolution_note,
 )
+from oncall_source.pagerduty_settings import PagerDutySettings
 from oncall_source.pagerduty_webhooks import (
     AGENT,
     DATA,
@@ -444,14 +444,18 @@ def test_without_a_credential_there_is_no_platform() -> None:
 
 
 @pytest.mark.unit
-def test_a_report_through_pagerduty_reached_argus_through_pagerduty() -> None:
+def test_a_report_through_pagerduty_is_said_to_come_from_pagerduty() -> None:
+    # Spelled out rather than imported: the name is what a postmortem's model
+    # is told a person's resolution came from, so its bytes are the claim.
+    the_name_people_know_it_by = "PagerDuty"
+
     Scenario() \
         .when(
             lambda: pagerduty_from(_settings_with(api_key="dont care"),
                                    webhook_secret="dont care")
         ) \
         .then(
-            _its_channel_is(ReportChannel.PAGERDUTY)
+            _its_name_is(the_name_people_know_it_by)
         )
 
 
@@ -563,17 +567,17 @@ def _it_answers(expected: object) -> Assertion[object]:
     return assertion
 
 
-def _its_channel_is(expected: ReportChannel) -> Assertion[PagerDuty | None]:
+def _its_name_is(expected: str) -> Assertion[PagerDuty | None]:
     def assertion(platform: PagerDuty | None) -> bool:
         if platform is None:
             raise AssertionError(
                 "Expected a platform for a deployment holding a key, got none."
             )
 
-        if platform.channel is not expected:
+        if platform.name != expected:
             raise AssertionError(
-                f"Expected reports through it to have come through [{expected}], "
-                f"got [{platform.channel}]."
+                f"Expected reports through it to be said to come from [{expected}], "
+                f"got [{platform.name}]."
             )
 
         return True
@@ -581,7 +585,7 @@ def _its_channel_is(expected: ReportChannel) -> Assertion[PagerDuty | None]:
     return assertion
 
 
-def _settings_with(api_key: str) -> OnCallSettings:
+def _settings_with(api_key: str) -> PagerDutySettings:
     """The slice this reader runs under.
 
     Only the credential matters here; the client is injected, so no address is
@@ -590,7 +594,7 @@ def _settings_with(api_key: str) -> OnCallSettings:
     dont_care_base_url = ""
     dont_care_verify_tls = True
 
-    return OnCallSettings(
+    return PagerDutySettings(
         pagerduty_api_key=api_key,
         pagerduty_base_url=dont_care_base_url,
         pagerduty_verify_tls=dont_care_verify_tls

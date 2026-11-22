@@ -102,6 +102,10 @@ from web_app_test.framework.assertions import (
 )
 from web_app_test.framework.reading import attribute, page_at
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
 # What htmx's "ask again in a moment" looks like in the rendered page. Named
 # because two assertions read it and they must read the same thing: one saying
 # the page polls and one saying it has stopped, disagreeing about the spelling,
@@ -1548,7 +1552,7 @@ def test_the_postmortem_header_says_when_argus_first_posted_before_who_ended_it(
         incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(detection=Detection(
             alerted_at=DONT_CARE_MOMENT, rule=None, onset_at=None, gap=None,
-            first_told=FirstTold(channel=ReportChannel.SLACK, at=DONT_CARE_MOMENT)
+            first_told=FirstTold(platform=THE_CHAT_PLATFORM, at=DONT_CARE_MOMENT)
         )), at=utc_now())
 
     Scenario() \

@@ -71,9 +71,10 @@ def resolve_incident(incident_id: str,
             publish_beside(conn, narrating, publisher_for(conn))
 
     if resolved:
-        # The channel and not the name: which door the report came through is
-        # what an operator reading the log needs, and the name is in the
-        # account for anybody who needs that.
-        logger.info("incident resolved", extra={"channel": reported.channel})
+        # The channel and the platform and not the name: which door the report
+        # came through is what an operator reading the log needs, and the name
+        # is in the account for anybody who needs that.
+        logger.info("incident resolved",
+                    extra={"channel": reported.channel, "platform": reported.platform})
 
     return resolved

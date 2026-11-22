@@ -21,12 +21,12 @@ from datetime import datetime
 from typing import Any, Final
 
 from core import SettingsSlice, utc_now
-from core.models import ReportChannel, the_place_of
+from core.models import the_place_of
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from chat_platform.platform import Delivery, Line, Offer, Posted
-from chat_platform.slack_deliveries import CONFIRM_ACTION, parse_delivery
+from chat_platform.slack_deliveries import CONFIRM_ACTION, SLACK, parse_delivery
 from chat_platform.slack_posting import (
     a_line_with_a_button,
     as_slack_says_it,
@@ -85,9 +85,9 @@ class Slack:
         )
 
     @property
-    def channel(self) -> ReportChannel:
-        """Where a person's report through Slack reached Argus."""
-        return ReportChannel.SLACK
+    def name(self) -> str:
+        """Slack, as people know it and as the incident's references file it."""
+        return SLACK
 
     def parse_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
         """What one delivery says, believed only under this workspace's secret

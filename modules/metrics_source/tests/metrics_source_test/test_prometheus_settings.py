@@ -1,4 +1,4 @@
-"""What a metrics source is told about where it answers.
+"""What the Prometheus adapter is told about where it answers.
 
 One claim: the slice is taken out of the deployment's whole configuration, and
 the address arrives intact. A composition root builds it at the top of a
@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from argus_testkit import Scenario, the_answer_was
 from core import Settings
-from metrics_source.minutes import MetricsSettings
+from metrics_source.prometheus_settings import PrometheusSettings
 
 
 @pytest.mark.unit
@@ -23,7 +23,7 @@ def test_the_address_a_deployment_configures_is_the_one_the_source_is_given() ->
             some_settings := Settings(prometheus_base_url=some_base_url)
         ) \
         .when(
-            lambda: MetricsSettings.of(some_settings).prometheus_base_url
+            lambda: PrometheusSettings.of(some_settings).prometheus_base_url
         ) \
         .then(
             the_answer_was(some_base_url)

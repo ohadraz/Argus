@@ -14,10 +14,10 @@ admission - the layering guard refuses `admit` named anywhere here - so nothing
 changed here can widen what Argus does on its own authority without failing
 the build.
 
-`accelerators.py`, `attribution.py` and `binding.py` are what those four work
-with - which card a pin holds a deployment to, how Argus tells its own
-deployments from everybody else's, and where those capabilities are bound to the
-tier they run over.
+`accelerators.py` and `binding.py` are what those four work with - which card
+a pin holds a deployment to, and where those capabilities are bound to the tier
+they run over. How Argus tells its own changes from everybody else's is not
+here: each change says, as the adapter that read it was able to tell.
 
 `tools.py` is behind the same door rather than a module of its own to import.
 What a caller running the Mitigator has to supply - the settings slice it behaves

@@ -32,6 +32,7 @@ from core.models import (
     Lifespan,
     Reference,
     Report,
+    ReportChannel,
 )
 from oncall_source.platform import (
     Merged,
@@ -136,14 +137,17 @@ def _resolve(platform_incident: str,
         return
 
     reported = Report(
-        by=by, channel=platform.channel, note=platform.resolution_note(platform_incident)
+        by=by,
+        channel=ReportChannel.ON_CALL_PLATFORM,
+        platform=platform.name,
+        note=platform.resolution_note(platform_incident)
     )
 
     # Each is resolved on its own, and refuses on its own: one of them may have
     # ended in a way a resolution would contradict.
     for incident_id in about:
         record.know_it_as(incident_id, Reference(
-            source=platform.channel, kind=ON_CALL_INCIDENT, value=platform_incident
+            source=platform.name, kind=ON_CALL_INCIDENT, value=platform_incident
         ))
         record.resolve(incident_id, reported)
 

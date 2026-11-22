@@ -25,7 +25,8 @@ NOTIFICATION_KEY: Final = "notification-key"
 # The kind of name an on-call platform's own incident is: the id the platform
 # gave it, recorded once a person's resolution there was matched to an Argus
 # incident, so that the next question about it goes straight to it. The source
-# is the platform's report channel, so two platforms' ids never meet.
+# is the platform's name, as its adapter gives it, so two platforms' ids never
+# meet.
 ON_CALL_INCIDENT: Final = "on-call-incident"
 
 # The kind of name one firing of one alert is: the monitor's identity for the
@@ -43,8 +44,8 @@ ALERT_FIRING: Final = "alert-firing"
 # incident: the thread it is told in, a message a person wrote there, and an
 # offer Argus posted there - one kind per ending offered, because an incident
 # can stop accepting one ending and still accept the other, and an offer is
-# retired by what it offers. The source is the platform's report channel, as an
-# on-call platform's is.
+# retired by what it offers. The source is the platform's name, as an on-call
+# platform's is.
 CHAT_THREAD: Final = "chat-thread"
 CHAT_MESSAGE: Final = "chat-message"
 CHAT_RESOLUTION_OFFER: Final = "chat-resolution-offer"
@@ -70,8 +71,10 @@ class Reference(BaseModel):
     and `value` is the name as that tool spells it, never normalised, because it
     is matched against what the tool says later.
 
-    Rows rather than fields on the incident: a new tool is one more `source`,
-    not one more column.
+    The tool's own name in `source` is the point rather than a leak: it is what
+    keeps two tools' ids apart. It is minted by that tool's adapter and never
+    spelled here, so a new tool is one more adapter and one more `source`, not
+    one more word in the kernel - nor one more column.
     """
 
     source: str

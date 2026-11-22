@@ -612,9 +612,12 @@ def _a_deployment(history_id: int,
                   revision: str,
                   by: str | None,
                   deployed_at: datetime = BEFORE_THE_PLAN) -> DeploymentRecord:
+    """Whose it is said as the platform's adapter says it, of the account the
+    server here is built with."""
     return DeploymentRecord(history_id=history_id, revision=revision,
                             deployed_at=deployed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                            repo_url=None, path=None, initiated_by=by)
+                            repo_url=None, path=None, initiated_by=by,
+                            made_by_argus=None if by is None else by == SOME_ARGUS_ACCOUNT)
 
 
 def _the_history_a_rollback_is_planned_from() -> list[DeploymentRecord]:

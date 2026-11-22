@@ -171,13 +171,18 @@ def _understanding(connections: Connections,
     publisher = events_into(connections)
     record = _TheRecord(connections)
 
-    def meaning_of(incident_id: str) -> MeaningOf:
+    # Where a message was written is the platform its reference is filed under -
+    # the name the chat platform's adapter gave it, which is the name a person
+    # knows it by - so the model is told the platform the person used, as a
+    # postmortem is told where a report came from, and nothing here names one.
+    def meaning_of(incident_id: str, platform: str) -> MeaningOf:
         # A client per message, recording into that incident's replay log, as
         # the postmortem's is built per incident.
         return partial(classify,
-                       llm=model_for(Replay(incident_id, recorder)))
+                       llm=model_for(Replay(incident_id, recorder)),
+                       platform=platform)
 
-    def answer_of(incident_id: str) -> AnswerOf:
+    def answer_of(incident_id: str, platform: str) -> AnswerOf:
         # The incident's timeline as it stands when the question is answered,
         # read only for a question - the one meaning that needs it.
         def answered(question: str) -> str | None:
@@ -185,7 +190,8 @@ def _understanding(connections: Connections,
                 story = build_narration(events.get_by_incident(conn, incident_id))
 
             return answer(question, story,
-                          model_for(Replay(incident_id, recorder)))
+                          model_for(Replay(incident_id, recorder)),
+                          platform=platform)
 
         return answered
 
@@ -197,8 +203,8 @@ def _understanding(connections: Connections,
 
     def understand_one(written: ThreadMessage) -> None:
         understand(written,
-                   meaning_of=meaning_of(written.incident_id),
-                   answer_of=answer_of(written.incident_id),
+                   meaning_of=meaning_of(written.incident_id, written.message.source),
+                   answer_of=answer_of(written.incident_id, written.message.source),
                    status_of=status_of,
                    person_named=person_named,
                    record=record,

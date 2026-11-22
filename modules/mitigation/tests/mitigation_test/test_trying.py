@@ -4703,8 +4703,8 @@ def _nothing_was_narrated(published: list[IncidentEvent]) -> Assertion[Outcome]:
 def _some_mitigation_settings(reporting_lag_minutes: int = 0) -> MitigationSettings:
     """How Mitigation behaves, as this suite sets it.
 
-    The lookback and the actor are named because the attribution tests turn on
-    them; the wait is named because the expiry tests do. The cap is named only
+    The lookback is named because the window tests turn on it; the wait is
+    named because the expiry tests do. The cap is named only
     because the slice requires one - how many attempts a subject is allowed is
     the gate's question, and nothing taken here ever asks it twice. The
     reporting lag is 0 unless a test names it: a source that reports the minute
@@ -4712,7 +4712,6 @@ def _some_mitigation_settings(reporting_lag_minutes: int = 0) -> MitigationSetti
     """
     return MitigationSettings(
         mitigation_change_lookback_minutes=60,
-        argocd_actor="argus",
         mitigation_verification_timeout_seconds=A_SHORT_WAIT_IN_SECONDS,
         mitigation_attempts_per_subject=1,
         metrics_reporting_lag_minutes=reporting_lag_minutes

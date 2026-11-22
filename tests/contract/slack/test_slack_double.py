@@ -29,10 +29,14 @@ from argus_testkit import Assertion, Scenario, all_of
 from chat_platform import Line, Offer, Posted
 from chat_platform.slack import ChatSettings, Slack
 from core import get_settings
-from core.models import ReportChannel, a_chat_message
+from core.models import a_chat_message
 from slack_double.server import DEFAULT_BASE_URL
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 # Enough to tell a reader of the war room why a message they did not expect is
 # there, and enough that two runs never look like one message posted twice.
@@ -201,7 +205,7 @@ def _said(text: str) -> Line:
 def _an_offer() -> Offer:
     """An offer about a message no channel holds: the button is what is
     checked, not what pressing it would find."""
-    return Offer(about=a_chat_message(ReportChannel.SLACK, "C-war-room", NO_SUCH_MESSAGE),
+    return Offer(about=a_chat_message(THE_CHAT_PLATFORM, "C-war-room", NO_SUCH_MESSAGE),
                  label="Mark resolved")
 
 

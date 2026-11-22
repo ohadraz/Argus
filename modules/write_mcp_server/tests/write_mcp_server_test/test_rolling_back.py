@@ -246,7 +246,7 @@ EVERY_HISTORY_WHOSE_NEWEST_RUN_IS_A_RETURN = [
     pytest.param(
         lambda: [*_two_deployments(),
                  _a_deployment(THE_NEXT_ENTRY, THE_REVISION_BEFORE_IT,
-                               initiated_by=SOME_ARGUS_ACCOUNT)],
+                               initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True)],
         id="argus-s-own-rollback"
     ),
     pytest.param(
@@ -283,7 +283,8 @@ EVERY_RETURN_TO_THE_TARGET_NOT_ARGUS_S = [
     ),
     pytest.param(
         lambda: _a_deployment(THE_NEXT_ENTRY, THE_REVISION_BEFORE_IT,
-                              deployed_at=BEFORE_THE_PLAN, initiated_by=SOME_ARGUS_ACCOUNT),
+                              deployed_at=BEFORE_THE_PLAN, initiated_by=SOME_ARGUS_ACCOUNT,
+                              made_by_argus=True),
         id="argus-s-rollback-from-before-the-plan"
     )
 ]
@@ -296,16 +297,18 @@ EVERY_WRITE = ["suspend_sync", "resume_sync", "roll_back", "scale", "restart",
 def _a_deployment(history_id: int,
                   revision: str,
                   deployed_at: datetime = BEFORE_THE_PLAN,
-                  initiated_by: str | None = None) -> DeploymentRecord:
+                  initiated_by: str | None = None,
+                  made_by_argus: bool | None = None) -> DeploymentRecord:
     """Landed before any plan here was read, unless a case says otherwise -
-    and stamped as the platform stamps it."""
+    and stamped as the platform stamps it, whose it is included."""
     return DeploymentRecord(
         history_id=history_id,
         revision=revision,
         deployed_at=deployed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         repo_url=None,
         path=None,
-        initiated_by=initiated_by
+        initiated_by=initiated_by,
+        made_by_argus=made_by_argus
     )
 
 
@@ -326,14 +329,15 @@ def _argus_s_rollback() -> DeploymentRecord:
     """The entry Argus's rollback added: by Argus's account, of the revision
     before the one that was running."""
     return _a_deployment(THE_NEXT_ENTRY, THE_REVISION_BEFORE_IT,
-                         initiated_by=SOME_ARGUS_ACCOUNT)
+                         initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True)
 
 
 def _argus_s_rollback_since_the_plan() -> DeploymentRecord:
     """The entry this rollback adds: Argus's own, of the revision the plan
     returns to, landed after the plan was read."""
     return _a_deployment(THE_NEXT_ENTRY, THE_REVISION_BEFORE_IT,
-                         deployed_at=AFTER_THE_PLAN, initiated_by=SOME_ARGUS_ACCOUNT)
+                         deployed_at=AFTER_THE_PLAN, initiated_by=SOME_ARGUS_ACCOUNT,
+                         made_by_argus=True)
 
 
 def _a_plan(was_syncing_itself: bool) -> Planned[DeploymentRollbackUndo]:
@@ -353,10 +357,10 @@ def _a_run(phase: SyncPhase,
     completes, and none asked once it has."""
     return SyncOperations(
         requested=(
-            RequestedSync(revision=revision, initiated_by=SOME_ARGUS_ACCOUNT)
+            RequestedSync(revision=revision, initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True)
             if phase in THE_PHASES_A_REQUEST_IS_KEPT_THROUGH else None
         ),
-        last_run=SyncRun(revision=revision, initiated_by=SOME_ARGUS_ACCOUNT,
+        last_run=SyncRun(revision=revision, initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True,
                          started_at=started_at, phase=phase)
     )
 
@@ -761,7 +765,7 @@ def test_a_rollback_argus_made_in_the_plan_s_own_second_is_answered_as_made() ->
     # action's own rollback would be refused as somebody's.
     in_the_plan_s_second = _a_deployment(THE_NEXT_ENTRY, THE_REVISION_BEFORE_IT,
                                          deployed_at=SOME_PLATFORM_TIME,
-                                         initiated_by=SOME_ARGUS_ACCOUNT)
+                                         initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True)
     platform = a_platform(history=[*_two_deployments(), in_the_plan_s_second],
                           syncing_itself=False,
                           marked_by=THIS_CLAIM)
@@ -786,7 +790,8 @@ def test_a_rollback_argus_asked_for_that_the_platform_has_not_run_is_answered_as
     platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
                           operations=SyncOperations(
                               requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
-                                                      initiated_by=SOME_ARGUS_ACCOUNT),
+                                                      initiated_by=SOME_ARGUS_ACCOUNT,
+                                                      made_by_argus=True),
                               last_run=None
                           ))
 
@@ -988,7 +993,7 @@ def test_a_sync_another_account_started_since_the_plan_is_a_change_since(
     [
         pytest.param(SyncOperations(
             requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
-                                    initiated_by=SOME_ARGUS_ACCOUNT),
+                                    initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True),
             last_run=None
         ), id="asked-and-not-yet-run"),
         pytest.param(_a_run(SyncPhase.RUNNING, started_at=AFTER_THE_PLAN), id="running")
@@ -1480,14 +1485,15 @@ def test_a_deployment_already_back_on_its_revision_is_not_rolled_back_again() ->
     [
         pytest.param(SyncOperations(
             requested=RequestedSync(revision=THE_REVISION_RUNNING,
-                                    initiated_by=SOME_ARGUS_ACCOUNT),
+                                    initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True),
             last_run=None
         ), id="asked-and-not-yet-run"),
         pytest.param(SyncOperations(
             # Kept beside the run while it runs, as the platform keeps it.
             requested=RequestedSync(revision=THE_REVISION_RUNNING,
-                                    initiated_by=SOME_ARGUS_ACCOUNT),
+                                    initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True),
             last_run=SyncRun(revision=THE_REVISION_RUNNING, initiated_by=SOME_ARGUS_ACCOUNT,
+                             made_by_argus=True,
                              started_at=AFTER_THE_PLAN, phase=SyncPhase.RUNNING)
         ), id="running")
     ]
@@ -1580,7 +1586,8 @@ def test_a_restore_is_not_asked_while_argus_s_own_rollback_is_still_being_run() 
     platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
                           operations=SyncOperations(
                               requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
-                                                      initiated_by=SOME_ARGUS_ACCOUNT),
+                                                      initiated_by=SOME_ARGUS_ACCOUNT,
+                                                      made_by_argus=True),
                               last_run=None
                           ))
 
@@ -2378,7 +2385,7 @@ def _dated(descriptor: DeploymentRollbackUndo, at: datetime | None) -> Deploymen
 EVERY_WAY_ARGUS_S_ROLLBACK_IS_UNDER_WAY = [
     pytest.param(SyncOperations(
         requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
-                                initiated_by=SOME_ARGUS_ACCOUNT),
+                                initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True),
         last_run=None
     ), id="asked-and-not-yet-run"),
     pytest.param(_a_run(SyncPhase.RUNNING, started_at=AFTER_THE_PLAN), id="running")
@@ -2414,7 +2421,7 @@ def test_a_rollback_whose_newest_entry_is_argus_s_and_runs_its_images_stands_as_
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_stands(RollbackStanding.STILL_ARGUS_S))
 
 
@@ -2427,7 +2434,7 @@ def test_a_deployment_back_on_the_revision_argus_found_stands_as_already_back() 
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_stands(RollbackStanding.ALREADY_BACK))
 
 
@@ -2437,7 +2444,7 @@ def test_the_platform_in_a_sync_of_its_own_stands_as_mid_sync() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_stands(RollbackStanding.MID_SYNC))
 
 
@@ -2453,7 +2460,7 @@ def test_argus_s_own_rollback_not_yet_in_the_history_stands_as_under_way(
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_stands(RollbackStanding.UNDER_WAY))
 
 
@@ -2467,7 +2474,7 @@ def test_argus_s_own_rollback_somebody_is_terminating_is_said_as_what_was_found(
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_was_found_somebody_s(THE_REVISION_BEFORE_IT))
 
 
@@ -2480,7 +2487,7 @@ def test_argus_s_own_rollback_somebody_terminated_is_said_as_what_was_found() ->
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_was_found_somebody_s(THE_REVISION_BEFORE_IT))
 
 
@@ -2492,14 +2499,15 @@ def test_argus_s_rollback_asked_again_after_a_terminated_run_stands_as_under_way
     # rollback is on its way - not stopped.
     platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
         requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
-                                initiated_by=SOME_ARGUS_ACCOUNT),
+                                initiated_by=SOME_ARGUS_ACCOUNT, made_by_argus=True),
         last_run=SyncRun(revision=THE_REVISION_BEFORE_IT, initiated_by=SOME_ARGUS_ACCOUNT,
+                         made_by_argus=True,
                          started_at=AFTER_THE_PLAN, phase=SyncPhase.TERMINATED)
     ))
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_stands(RollbackStanding.UNDER_WAY))
 
 
@@ -2515,7 +2523,7 @@ def test_a_put_back_somebody_terminated_is_said_as_what_was_found(phase: SyncPha
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_was_found_somebody_s(THE_REVISION_RUNNING))
 
 
@@ -2528,7 +2536,7 @@ def test_a_revision_somebody_deployed_since_is_said_as_what_was_found() -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_was_found_somebody_s(A_REVISION_SOMEBODY_ELSE_DEPLOYED, SOME_PERSON))
 
 
@@ -2542,7 +2550,7 @@ def test_images_set_by_hand_on_argus_s_entry_are_said_as_what_was_found() -> Non
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_was_found_somebody_s(AN_IMAGE_SET_BY_HAND))
 
 
@@ -2556,7 +2564,7 @@ def test_a_sync_somebody_else_asked_for_still_being_run_is_said_as_what_was_foun
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_was_found_somebody_s(A_REVISION_SOMEBODY_ELSE_DEPLOYED, SOME_PERSON))
 
 
@@ -2570,8 +2578,7 @@ def test_the_check_raises_where_a_read_never_came_back(read: str) -> None:
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(attempting(lambda: what_became_of_the_rollback(
-            a_descriptor, platform, SOME_ARGUS_ACCOUNT))) \
+        .when(attempting(lambda: what_became_of_the_rollback(a_descriptor, platform))) \
         .then(an_error_was_raised(PlatformUnreachable))
 
 
@@ -2607,6 +2614,22 @@ def test_a_rollback_as_argus_left_it_is_still_argus_s(was_syncing_itself: bool) 
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=was_syncing_itself)) \
+        .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .then(it_is_still_argus_s())
+
+
+@pytest.mark.unit
+def test_whose_an_entry_is_is_the_platform_s_to_say_whatever_case_names_the_account() -> None:
+    # The entry names Argus's account in another case than the setting does, and
+    # the platform's adapter says it is Argus's: the write reads it as the read
+    # tier does, rather than by a rule of its own that would make it somebody's.
+    platform = a_platform_as_the_rollback_left_it(
+        newest=_a_deployment(THE_NEXT_ENTRY, THE_REVISION_BEFORE_IT,
+                             initiated_by=SOME_ARGUS_ACCOUNT.upper(), made_by_argus=True)
+    )
+
+    Scenario() \
+        .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
         .when(lambda: still_argus_s(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
         .then(it_is_still_argus_s())
 
@@ -2665,7 +2688,8 @@ def test_a_rollback_whose_newest_entry_is_argus_s_at_another_revision_is_nobody_
     # other walk's doing, or a person's under Argus's account. Not a change of
     # somebody else's since - and not this rollback either.
     platform = a_platform_as_the_rollback_left_it(
-        newest=_a_deployment(THE_NEXT_ENTRY, AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT)
+        newest=_a_deployment(THE_NEXT_ENTRY, AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT,
+                             made_by_argus=True)
     )
 
     Scenario() \
@@ -2833,13 +2857,14 @@ def test_argus_s_sync_to_another_revision_stands_as_mid_sync() -> None:
     # rollback under way, and not its put-back - nothing that can be asked
     # beside.
     platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
-        requested=RequestedSync(revision=AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT),
+        requested=RequestedSync(revision=AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT,
+                                made_by_argus=True),
         last_run=None
     ))
 
     Scenario() \
         .given(a_descriptor := _a_descriptor(was_syncing_itself=True)) \
-        .when(lambda: what_became_of_the_rollback(a_descriptor, platform, SOME_ARGUS_ACCOUNT)) \
+        .when(lambda: what_became_of_the_rollback(a_descriptor, platform)) \
         .then(_it_stands(RollbackStanding.MID_SYNC))
 
 
@@ -2849,7 +2874,8 @@ def test_argus_s_sync_to_another_revision_is_nobody_s_to_say() -> None:
     # named: some other walk's doing, or a person's under Argus's account - and
     # whatever it lands is not known yet.
     platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
-        requested=RequestedSync(revision=AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT),
+        requested=RequestedSync(revision=AN_OLDER_REVISION, initiated_by=SOME_ARGUS_ACCOUNT,
+                                made_by_argus=True),
         last_run=None
     ))
 
@@ -2869,6 +2895,7 @@ def test_a_rollback_whose_run_failed_is_a_change_since_saying_so(phase: SyncPhas
     platform = _a_platform_mid_way_through_argus_s_rollback(SyncOperations(
         requested=None,
         last_run=SyncRun(revision=THE_REVISION_BEFORE_IT, initiated_by=SOME_ARGUS_ACCOUNT,
+                         made_by_argus=True,
                          started_at=AFTER_THE_PLAN, phase=phase)
     ))
 
@@ -2932,7 +2959,8 @@ def test_a_rollback_argus_asked_for_that_has_not_started_is_found_made_with_no_m
     platform = a_platform(syncing_itself=False, marked_by=THIS_CLAIM,
                           operations=SyncOperations(
                               requested=RequestedSync(revision=THE_REVISION_BEFORE_IT,
-                                                      initiated_by=SOME_ARGUS_ACCOUNT),
+                                                      initiated_by=SOME_ARGUS_ACCOUNT,
+                                                      made_by_argus=True),
                               last_run=None
                           ))
 

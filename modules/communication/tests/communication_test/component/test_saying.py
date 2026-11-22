@@ -89,6 +89,12 @@ from slack_sdk import WebClient
 
 from communication_test.framework.slack import messages_posted_to
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+# The on-call platform's name, as its adapter gives it.
+THE_ON_CALL_PLATFORM = "PagerDuty"
+
 A_WAR_ROOM = "C-war-room"
 
 # Where write-ups are kept, which a team may well configure to be the war room
@@ -619,9 +625,12 @@ def test_an_incident_past_resolving_takes_the_button_off_its_offer(
                                               Register.FOLLOWED))
             ) \
             .when(lambda: a_destination(an_incident_id,
-                                        a_narration_line(_resolved_by(an_incident_id,
-                                                                      SOME_PERSON_NAME,
-                                                                      ReportChannel.PAGERDUTY)),
+                                        a_narration_line(_resolved_by(
+                                            an_incident_id,
+                                            SOME_PERSON_NAME,
+                                            ReportChannel.ON_CALL_PLATFORM,
+                                            THE_ON_CALL_PLATFORM
+                                        )),
                                         Register.ANNOUNCED)) \
             .then(all_of(
                 _it_landed(),
@@ -785,7 +794,8 @@ def test_an_ending_past_resolving_or_an_expiry_takes_the_button_off_every_offer(
         conn.commit()
         a_destination = _a_destination_pointed_at(slack)
         an_ending = {
-            "resolved": _resolved_by(an_incident_id, SOME_PERSON_NAME, ReportChannel.PAGERDUTY),
+            "resolved": _resolved_by(an_incident_id, SOME_PERSON_NAME,
+                                     ReportChannel.ON_CALL_PLATFORM, THE_ON_CALL_PLATFORM),
             "expired": _the_offer_expiring_on(an_incident_id)
         }[ending]
 
@@ -820,7 +830,8 @@ def test_an_offer_slack_would_not_take_the_button_off_is_written_down(
     with connect_from_env() as conn:
         an_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
         conn.commit()
-        an_ending = _resolved_by(an_incident_id, SOME_PERSON_NAME, ReportChannel.SLACK)
+        an_ending = _resolved_by(an_incident_id, SOME_PERSON_NAME,
+                                 ReportChannel.CHAT_PLATFORM, THE_CHAT_PLATFORM)
 
         Scenario() \
             .given(
@@ -1004,9 +1015,12 @@ def test_an_offer_that_keeps_its_button_is_logged_as_a_warning(
                 calling(lambda: _an_offer_slack_no_longer_holds(conn, an_incident_id))
             ) \
             .when(lambda: a_destination(an_incident_id,
-                                        a_narration_line(_resolved_by(an_incident_id,
-                                                                      SOME_PERSON_NAME,
-                                                                      ReportChannel.SLACK)),
+                                        a_narration_line(_resolved_by(
+                                            an_incident_id,
+                                            SOME_PERSON_NAME,
+                                            ReportChannel.CHAT_PLATFORM,
+                                            THE_CHAT_PLATFORM
+                                        )),
                                         Register.ANNOUNCED)) \
             .then(
                 one_record_was_logged(caplog, LOGGED_BY,
@@ -1257,17 +1271,20 @@ def _the_action_on(incident_id: str) -> IncidentEvent:
 def _the_offer_on(incident_id: str) -> IncidentEvent:
     return ResolutionOffered(
         incident_id=incident_id,
-        message=a_chat_message(ReportChannel.SLACK, A_WAR_ROOM, SOME_PERSONS_MESSAGE),
+        message=a_chat_message(THE_CHAT_PLATFORM, A_WAR_ROOM, SOME_PERSONS_MESSAGE),
         person_id=DONT_CARE_PERSON_ID,
         person_name=SOME_PERSON_NAME,
         said=DONT_CARE_SAID
     )
 
 
-def _resolved_by(incident_id: str, by: str, through: ReportChannel) -> IncidentEvent:
+def _resolved_by(incident_id: str,
+                 by: str,
+                 through: ReportChannel,
+                 platform: str) -> IncidentEvent:
     return StatusChanged(incident_id=incident_id,
                          to_status=IncidentStatus.RESOLVED,
-                         reported=Report(by=by, channel=through))
+                         reported=Report(by=by, channel=through, platform=platform))
 
 
 def _a_move_of(incident_id: str, to: IncidentStatus) -> IncidentEvent:
@@ -1279,7 +1296,7 @@ def _the_withdrawal_offer_on(incident_id: str) -> IncidentEvent:
     so that an incident can hold both."""
     return WithdrawalOffered(
         incident_id=incident_id,
-        message=a_chat_message(ReportChannel.SLACK, A_WAR_ROOM, ANOTHER_PERSONS_MESSAGE),
+        message=a_chat_message(THE_CHAT_PLATFORM, A_WAR_ROOM, ANOTHER_PERSONS_MESSAGE),
         person_id=DONT_CARE_OTHER_PERSON_ID,
         person_name=DONT_CARE_OTHER_PERSON_NAME,
         said=DONT_CARE_OTHER_SAID
@@ -1289,14 +1306,14 @@ def _the_withdrawal_offer_on(incident_id: str) -> IncidentEvent:
 def _the_offer_expiring_on(incident_id: str) -> IncidentEvent:
     return OfferExpired(
         incident_id=incident_id,
-        message=a_chat_message(ReportChannel.SLACK, A_WAR_ROOM, SOME_PERSONS_MESSAGE)
+        message=a_chat_message(THE_CHAT_PLATFORM, A_WAR_ROOM, SOME_PERSONS_MESSAGE)
     )
 
 
 def _an_offer_slack_no_longer_holds(conn: psycopg.Connection, incident_id: str) -> None:
     """An offer the incident remembers, for a message Slack never posted."""
     references.add(conn, incident_id,
-                   [a_chat_resolution_offer(ReportChannel.SLACK, A_WAR_ROOM,
+                   [a_chat_resolution_offer(THE_CHAT_PLATFORM, A_WAR_ROOM,
                                             A_MESSAGE_NEVER_POSTED)])
     conn.commit()
 
@@ -1658,7 +1675,7 @@ def _the_offers_remembered_are_the_ones_slack_holds(
     rewrite, and that message is somebody else's line.
     """
     def assertion(_: Any) -> bool:
-        held = [an_offer(ReportChannel.SLACK, message["channel"], message["ts"])
+        held = [an_offer(THE_CHAT_PLATFORM, message["channel"], message["ts"])
                 for message in messages_posted_to(base_url)]
         kind = held[0].kind if held else "nothing posted"
         remembered = references.get_values_for(conn, incident_id, kind)

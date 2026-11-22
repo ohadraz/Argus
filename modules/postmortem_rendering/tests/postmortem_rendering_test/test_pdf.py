@@ -37,7 +37,6 @@ from core.models import (
     OpenedPullRequest,
     Postmortem,
     PostmortemLead,
-    ReportChannel,
     ResolutionStep,
     ReviewCriterion,
     RuleSeriesHarm,
@@ -64,6 +63,10 @@ from postmortem_rendering_test.framework.builders import (
     the_page_of,
 )
 from postmortem_rendering_test.framework.reading import everything_held
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
@@ -150,7 +153,7 @@ def test_a_confirmed_cause_with_no_trigger_is_printed_saying_why() -> None:
 def test_the_head_says_when_argus_first_posted_below_the_rule_before_who_ended_it() -> None:
     # Under the title sit the two times a reader most easily takes for each
     # other; the post is neither, so it sits below the rule.
-    some_post = FirstTold(channel=ReportChannel.SLACK, at=SOME_ONSET + timedelta(minutes=2))
+    some_post = FirstTold(platform=THE_CHAT_PLATFORM, at=SOME_ONSET + timedelta(minutes=2))
 
     Scenario() \
         .given(

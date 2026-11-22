@@ -484,6 +484,32 @@ def test_the_service_and_window_asked_about_are_the_ones_passed_on() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("excluding", [True, False])
+def test_whether_argus_s_own_changes_are_left_out_is_passed_on(excluding: bool) -> None:
+    # Which changes are Argus's is the source's adapter's to say, so the tool
+    # decides nothing about it: it passes the caller's question on as asked.
+    change_source = _a_mock_change_source()
+    the_change_source_reported = partial(returning, change_source)
+
+    Scenario() \
+        .given(
+            calling(the_change_source_reported([]))
+        ) \
+        .when(
+            lambda: get_change_events(
+                SOME_SERVICE,
+                window_start=_a_while_before(A_CHANGE_MINUTE),
+                window_end=_a_while_after(A_CHANGE_MINUTE),
+                source=change_source,
+                excluding_argus_s_own=excluding
+            )
+        ) \
+        .then(
+            _the_source_was_asked_to_leave_argus_s_own_out(change_source, excluding)
+        )
+
+
+@pytest.mark.unit
 def test_an_unreachable_source_surfaces_as_a_failure() -> None:
     # The tool must not turn "could not ask" into "nothing changed" on its way
     # back up - that is the whole reason the source raises rather than
@@ -785,6 +811,22 @@ def _every_change_is_of_kind(expected_kind: ChangeKind) -> Assertion[list[Change
 
         if kinds != {expected_kind}:
             raise AssertionError(f"Expected only [{expected_kind}], got {kinds}.")
+
+        return True
+
+    return assertion
+
+
+def _the_source_was_asked_to_leave_argus_s_own_out(change_source: Any,
+                                                   expected: bool) -> Assertion[Any]:
+    def assertion(_result: Any) -> bool:
+        asked = change_source.call_args.kwargs.get("excluding_argus_s_own")
+
+        if asked is not expected:
+            raise AssertionError(
+                f"Expected the source asked to leave Argus's own changes out: "
+                f"[{expected}], got [{asked}]."
+            )
 
         return True
 

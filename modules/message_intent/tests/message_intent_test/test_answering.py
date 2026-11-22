@@ -28,6 +28,8 @@ from narration import CandidateLine, NarrationLine
 
 SOME_QUESTION = "why did you revert the checkout flag?"
 SOME_ANSWER = "The checkout flag was switched on at 12:01, a minute before errors rose."
+# Where the question was asked, by the name a chat platform's adapter gives it.
+SOME_PLATFORM = "Kukichat"
 
 # What the model is held to - answering from the timeline alone, and saying so
 # when the timeline is silent - in words rather than sentences, so the prose
@@ -44,8 +46,21 @@ WHAT_A_MEASURE_IS_TOLD_IN = "in that line's own words"
 def test_the_answer_the_model_submits_is_the_answer_given() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}))) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
         .then(_it_was_answered(SOME_ANSWER))
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_platform_the_question_was_asked_on() -> None:
+    # Said by the name its adapter gives it, so the sentence names no vendor
+    # of its own - and with Slack's name says exactly what it always said.
+    asked: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
+        .then(_the_model_was_shown(asked, f"in the {SOME_PLATFORM} thread of an incident"))
 
 
 @pytest.mark.unit
@@ -55,7 +70,7 @@ def test_the_question_reaches_the_model_exactly_as_written() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
         .then(_the_model_was_shown(asked, SOME_QUESTION))
 
 
@@ -69,7 +84,7 @@ def test_the_model_is_shown_every_line_of_the_timeline_with_when_and_who() -> No
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model, platform=SOME_PLATFORM)) \
         .then(all_of(*(
             _the_model_was_shown(asked, said)
             for line in some_timeline
@@ -95,7 +110,7 @@ def test_the_model_is_shown_what_a_line_says_beside_itself() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model, platform=SOME_PLATFORM)) \
         .then(_the_model_was_shown(asked, some_aside))
 
 
@@ -115,7 +130,7 @@ def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model, platform=SOME_PLATFORM)) \
         .then(_the_model_was_shown(asked,
                                    "\n  Code-Fix's reading: scrape.yaml\n  names the old port\n"))
 
@@ -144,7 +159,7 @@ def test_the_model_is_shown_each_line_in_full(line: NarrationLine, said: str) ->
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, [line], a_model)) \
+        .when(lambda: answer(SOME_QUESTION, [line], a_model, platform=SOME_PLATFORM)) \
         .then(_the_model_was_shown(asked, said))
 
 
@@ -155,7 +170,7 @@ def test_the_model_is_held_to_the_timeline() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
         .then(all_of(_the_model_was_shown(asked, WHAT_THE_MODEL_IS_HELD_TO),
                      _the_model_was_shown(asked, WHAT_IT_SAYS_OF_A_SILENT_RECORD)))
 
@@ -167,7 +182,7 @@ def test_the_model_is_held_to_each_lines_own_words_for_what_it_measured() -> Non
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
         .then(_the_model_was_shown(asked, WHAT_A_MEASURE_IS_TOLD_IN))
 
 
@@ -178,7 +193,7 @@ def test_the_model_is_offered_the_one_tool_to_answer_with() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
                                              offered=offered)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
         .then(_the_tools_offered_were(offered, [ANSWER_TOOL_NAME]))
 
 
@@ -194,7 +209,7 @@ def test_an_unusable_answer_is_asked_for_once_more_and_the_second_is_taken(
     Scenario() \
         .given(a_model := _a_model_answering(unusable(),
                                              _a_submission({ANSWER_FIELD: SOME_ANSWER}))) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
         .then(_it_was_answered(SOME_ANSWER))
 
 
@@ -204,7 +219,7 @@ def test_two_unusable_answers_leave_the_question_unanswered() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_prose("Hard to say."),
                                              ModelDidNotAnswer("refused"))) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
         .then(_it_was_answered(None))
 
 

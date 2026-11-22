@@ -65,7 +65,6 @@ from core.models.transcript import (
     Transcript,
 )
 from core.models.turn import ToolCall, Turn
-from core.telemetry import GEN_AI_PROVIDER_ANTHROPIC
 
 # Anthropic's own vocabulary for the parts of a message. Named here because
 # this is the module that reads and writes them - a loop above holds a
@@ -98,6 +97,11 @@ END_TURN_STOP_REASON: Final = "end_turn"
 TOOL_USE_STOP_REASON: Final = "tool_use"
 
 AUTO_TOOL_CHOICE: Final = "auto"
+
+# Which provider answered, as OTel's GenAI conventions spell Anthropic for the
+# `gen_ai.provider.name` attribute (`core.telemetry`). Here, with the provider,
+# because only the adapter knows which provider it is.
+GEN_AI_PROVIDER_ANTHROPIC: Final = "anthropic"
 
 # What an agent held to one tool call per turn asks for. `auto` rather than a
 # forced choice, which the current models refuse outright; with parallel use

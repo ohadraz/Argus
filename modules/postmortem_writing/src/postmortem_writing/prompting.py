@@ -67,7 +67,6 @@ from core.models import (
     the_detection_lesson_said,
     whether_it_can_be_put_back,
 )
-from narration import where_a_report_came_from
 
 from postmortem_writing.answer import (
     ACTION_ITEMS_FIELD,
@@ -2267,7 +2266,7 @@ def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None,
     told = ""
     if posted is not None:
         told = (f" Argus first posted about the incident in "
-                f"{where_a_report_came_from(posted.channel)} at "
+                f"{posted.platform} at "
                 f"{_shown(FIRST_TOLD_FIGURE, figures)}, and the document says so already: "
                 f"leave that post out, and do not say that no person was told or took "
                 f"part. That nobody was paged is a finding of its own.")

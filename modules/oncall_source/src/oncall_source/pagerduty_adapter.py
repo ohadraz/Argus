@@ -25,20 +25,25 @@ from datetime import datetime
 from typing import Any, Final
 
 from core import parse_iso
-from core.models import Lifespan, ReportChannel
+from core.models import Lifespan
 from pagerduty import Error as PagerDutyError
 from pagerduty import RestApiV2Client
 
 from oncall_source.engagement import (
     Acknowledgement,
-    OnCallSettings,
     OnCallUnavailable,
     ReportedIncident,
 )
+from oncall_source.pagerduty_settings import PagerDutySettings
 from oncall_source.pagerduty_webhooks import parse_delivery
 from oncall_source.platform import Delivery, PagedIncident
 
 logger = logging.getLogger(__name__)
+
+# The platform's name, as people know it: what a reader is told a person's
+# resolution came from, and the source its incidents are filed under among an
+# incident's references. Changing its spelling orphans every one already filed.
+PAGERDUTY: Final = "PagerDuty"
 
 # How a client is built. Injected rather than constructed outright so that a
 # test can assert the case that matters most here - that a deployment holding
@@ -106,7 +111,7 @@ class PagerDuty:
     """
 
     def __init__(self,
-                 settings: OnCallSettings,
+                 settings: PagerDutySettings,
                  webhook_secret: str,
                  client_of: ClientOf = RestApiV2Client) -> None:
         self._settings = settings
@@ -114,8 +119,8 @@ class PagerDuty:
         self._client_of = client_of
 
     @property
-    def channel(self) -> ReportChannel:
-        return ReportChannel.PAGERDUTY
+    def name(self) -> str:
+        return PAGERDUTY
 
     def parse_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
         return parse_delivery(body, headers, self._webhook_secret)
@@ -133,7 +138,7 @@ class PagerDuty:
         return reported_incident(platform_incident, self._settings, self._client_of)
 
 
-def pagerduty_from(settings: OnCallSettings,
+def pagerduty_from(settings: PagerDutySettings,
                    webhook_secret: str,
                    client_of: ClientOf = RestApiV2Client) -> PagerDuty | None:
     """PagerDuty as the on-call platform, or `None` where the deployment has none.
@@ -149,7 +154,7 @@ def pagerduty_from(settings: OnCallSettings,
 
 
 def keys_of(incident_id: str,
-            settings: OnCallSettings,
+            settings: PagerDutySettings,
             client_of: ClientOf = RestApiV2Client) -> list[str]:
     """The keys the incident's senders stamped on it: each alert's key.
 
@@ -163,7 +168,7 @@ def keys_of(incident_id: str,
 
 
 def incidents_for(keys: Iterable[str],
-                  settings: OnCallSettings,
+                  settings: PagerDutySettings,
                   client_of: ClientOf = RestApiV2Client) -> list[PagedIncident]:
     """Every incident carrying any of these keys, with when each was open -
     one carrying several of them once.
@@ -206,7 +211,7 @@ def incidents_for(keys: Iterable[str],
 
 
 def resolution_note(incident_id: str,
-                    settings: OnCallSettings,
+                    settings: PagerDutySettings,
                     client_of: ClientOf = RestApiV2Client) -> str | None:
     """What the person wrote when they resolved the incident, or `None`.
 
@@ -239,7 +244,7 @@ def resolution_note(incident_id: str,
     return None
 
 
-def _the_client(settings: OnCallSettings, client_of: ClientOf) -> RestApiV2Client:
+def _the_client(settings: PagerDutySettings, client_of: ClientOf) -> RestApiV2Client:
     """A client aimed where the settings say, holding their credential."""
     return client_of(
         settings.pagerduty_api_key,
@@ -259,7 +264,7 @@ def _read(client: RestApiV2Client, path: str, **request: Any) -> Any:
 
 
 def reported_incident(incident_id: str,
-                      settings: OnCallSettings,
+                      settings: PagerDutySettings,
                       client_of: ClientOf = RestApiV2Client) -> ReportedIncident:
     """One incident as the on-call provider holds it.
 

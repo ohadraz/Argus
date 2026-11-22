@@ -55,9 +55,13 @@ from core.models import (
 )
 from web_app.chat import ChatRecord, receive_chat_delivery
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
 SOME_ARGUS_INCIDENT = "4c1e2a50-0000-4000-8000-000000000001"
-SOME_THREAD = a_chat_thread(ReportChannel.SLACK, "C-some-channel", "1760000000.000100")
-SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
+SOME_THREAD = a_chat_thread(THE_CHAT_PLATFORM, "C-some-channel", "1760000000.000100")
+SOME_MESSAGE = a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", "1760000100.000200")
 SOME_PERSON = "U-some-person"
 SOME_WORDS = "rolled the flag back by hand, we're fine"
 DONT_CARE_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
@@ -153,7 +157,8 @@ def test_the_person_an_offer_was_made_to_pressing_it_resolves_the_incident() -> 
         .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                             platform=platform, record=record)) \
         .then(_it_was_resolved(record, SOME_ARGUS_INCIDENT,
-                               Report(by=some_name, channel=ReportChannel.SLACK,
+                               Report(by=some_name, channel=ReportChannel.CHAT_PLATFORM,
+                                      platform=THE_CHAT_PLATFORM,
                                       note=SOME_WORDS)))
 
 
@@ -171,7 +176,8 @@ def test_an_offer_to_a_person_the_platform_could_not_name_credits_them_by_their_
         .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                             platform=platform, record=record)) \
         .then(_it_was_resolved(record, SOME_ARGUS_INCIDENT,
-                               Report(by=SOME_PERSON, channel=ReportChannel.SLACK,
+                               Report(by=SOME_PERSON, channel=ReportChannel.CHAT_PLATFORM,
+                                      platform=THE_CHAT_PLATFORM,
                                       note=SOME_WORDS)))
 
 
@@ -195,7 +201,8 @@ def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_inc
                                             platform=platform, record=record)) \
         .then(all_of(
             _it_was_withdrawn(record, SOME_ARGUS_INCIDENT,
-                              Report(by=credited, channel=ReportChannel.SLACK,
+                              Report(by=credited, channel=ReportChannel.CHAT_PLATFORM,
+                                     platform=THE_CHAT_PLATFORM,
                                      note=SOME_WORDS)),
             _nothing_was_resolved(record)
         ))
@@ -409,7 +416,7 @@ def test_an_unverified_delivery_is_refused_and_changes_nothing() -> None:
 
 def _a_platform(saying: Delivery) -> Any:
     platform = create_autospec(ChatPlatformReads, instance=True)
-    platform.channel = ReportChannel.SLACK
+    platform.name = THE_CHAT_PLATFORM
     platform.parse_delivery.return_value = saying
 
     return platform

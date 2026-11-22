@@ -26,6 +26,21 @@ from message_intent.classifying import classify
 from message_intent.prompting import MEANING_FIELD, SUBMIT_TOOL_NAME
 
 SOME_WORDS = "rolled the flag back by hand, we're fine now"
+# Where the words were written, by the name a chat platform's adapter gives it.
+SOME_PLATFORM = "Kukichat"
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_platform_the_person_wrote_on() -> None:
+    # Said by the name its adapter gives it, so the sentence names no vendor
+    # of its own - and with Slack's name says exactly what it always said.
+    asked: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({MEANING_FIELD: "resolve"}),
+                                             recording_into=asked)) \
+        .when(lambda: classify(SOME_WORDS, a_model, platform=SOME_PLATFORM)) \
+        .then(_the_model_was_shown(asked, f"in the {SOME_PLATFORM} thread of an incident"))
 
 
 @pytest.mark.unit
@@ -33,7 +48,7 @@ SOME_WORDS = "rolled the flag back by hand, we're fine now"
 def test_the_meaning_the_model_submits_is_the_meaning_classified(meaning: Meaning) -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({MEANING_FIELD: str(meaning)}))) \
-        .when(lambda: classify(SOME_WORDS, a_model)) \
+        .when(lambda: classify(SOME_WORDS, a_model, platform=SOME_PLATFORM)) \
         .then(_it_was_classified_as(meaning))
 
 
@@ -44,7 +59,7 @@ def test_the_persons_words_reach_the_model_exactly_as_written() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({MEANING_FIELD: "resolve"}),
                                              recording_into=asked)) \
-        .when(lambda: classify(SOME_WORDS, a_model)) \
+        .when(lambda: classify(SOME_WORDS, a_model, platform=SOME_PLATFORM)) \
         .then(_the_model_was_shown(asked, SOME_WORDS))
 
 
@@ -55,7 +70,7 @@ def test_the_model_is_offered_the_one_tool_to_answer_with() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_a_submission({MEANING_FIELD: "resolve"}),
                                              offered=offered)) \
-        .when(lambda: classify(SOME_WORDS, a_model)) \
+        .when(lambda: classify(SOME_WORDS, a_model, platform=SOME_PLATFORM)) \
         .then(_the_tools_offered_were(offered, [SUBMIT_TOOL_NAME]))
 
 
@@ -71,7 +86,7 @@ def test_an_unusable_answer_is_asked_for_once_more_and_the_second_is_taken(
     Scenario() \
         .given(a_model := _a_model_answering(unusable(),
                                              _a_submission({MEANING_FIELD: "question"}))) \
-        .when(lambda: classify(SOME_WORDS, a_model)) \
+        .when(lambda: classify(SOME_WORDS, a_model, platform=SOME_PLATFORM)) \
         .then(_it_was_classified_as(Meaning.QUESTION))
 
 
@@ -81,7 +96,7 @@ def test_two_unusable_answers_leave_the_message_unclassified() -> None:
     Scenario() \
         .given(a_model := _a_model_answering(_prose("Hard to say."),
                                              ModelDidNotAnswer("refused"))) \
-        .when(lambda: classify(SOME_WORDS, a_model)) \
+        .when(lambda: classify(SOME_WORDS, a_model, platform=SOME_PLATFORM)) \
         .then(_it_was_classified_as(None))
 
 

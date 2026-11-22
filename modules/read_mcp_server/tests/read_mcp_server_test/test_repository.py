@@ -349,7 +349,7 @@ def some_settings(source_paths: str = "") -> RepositoryReadSettings:
     whole repository, which is right whenever the repository is nothing but the
     service.
     """
-    return RepositoryReadSettings(github_source_paths=source_paths)
+    return RepositoryReadSettings(service_source_paths=source_paths)
 
 
 def a_code_host_listing(*paths: str) -> Any:

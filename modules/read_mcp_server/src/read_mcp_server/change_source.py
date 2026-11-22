@@ -26,8 +26,17 @@ class ChangeSource(Protocol):
     honours it identically - whether the vendor filters server-side or, like
     Argo CD, hands over an application's whole history and leaves the filtering
     to the adapter. Nothing above this line can tell which happened.
+
+    `excluding_argus_s_own` leaves out the changes the system says Argus made,
+    which only the system's adapter can tell - it knows what Argus is called
+    there.
     """
 
     def __call__(
-        self, application: str, *, window_start: str, window_end: str
+        self,
+        application: str,
+        *,
+        window_start: str,
+        window_end: str,
+        excluding_argus_s_own: bool = False
     ) -> list[ChangeEvent]: ...

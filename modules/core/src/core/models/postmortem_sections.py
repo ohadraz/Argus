@@ -25,7 +25,6 @@ from core.models.change_event import ChangeEvent, ChangeKind
 from core.models.metrics import Quantile, WorseWhen
 from core.models.reading import RetrievalChannel
 from core.models.refusal import Refusal
-from core.models.report import ReportChannel
 from core.models.unit import Unit
 
 
@@ -495,11 +494,11 @@ class FirstTold(BaseModel):
     `at` is when the platform accepted that post - the moment the thread it
     opened was written down - and not when the alert came: an opening post the
     platform refused leaves the first line said after it to open the thread.
-    `channel` names the platform as a thread's reference does, by its report
-    channel. Nothing says anybody read it.
+    `platform` names the platform as a thread's reference does, by the name its
+    adapter gives it. Nothing says anybody read it.
     """
 
-    channel: ReportChannel
+    platform: str
     at: datetime
 
 

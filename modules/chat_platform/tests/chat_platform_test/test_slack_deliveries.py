@@ -61,7 +61,11 @@ from chat_platform.slack_deliveries import (
     VALUE,
     parse_delivery,
 )
-from core.models import ReportChannel, a_chat_message, a_chat_thread
+from core.models import a_chat_message, a_chat_thread
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_SECRET = "some-signing-secret"
 NOW = datetime(2026, 10, 10, 3, 30, tzinfo=UTC)
@@ -82,8 +86,8 @@ def test_a_reply_in_a_thread_is_parsed_as_a_person_writing() -> None:
         .given(some_delivery) \
         .when(lambda: parse_delivery(some_delivery, _signed(some_delivery), SOME_SECRET, NOW)) \
         .then(_it_is_parsed_as(Written(
-            thread=a_chat_thread(ReportChannel.SLACK, SOME_CHANNEL, SOME_THREAD),
-            message=a_chat_message(ReportChannel.SLACK, SOME_CHANNEL, SOME_REPLY),
+            thread=a_chat_thread(THE_CHAT_PLATFORM, SOME_CHANNEL, SOME_THREAD),
+            message=a_chat_message(THE_CHAT_PLATFORM, SOME_CHANNEL, SOME_REPLY),
             person_id=SOME_PERSON,
             text=some_words
         )))
@@ -100,9 +104,9 @@ def test_a_press_of_the_confirm_button_is_parsed_as_that_person_pressing_it() ->
         .when(lambda: parse_delivery(some_delivery, _signed(some_delivery, form=True),
                                     SOME_SECRET, NOW)) \
         .then(_it_is_parsed_as(Pressed(
-            thread=a_chat_thread(ReportChannel.SLACK, SOME_CHANNEL, SOME_THREAD),
+            thread=a_chat_thread(THE_CHAT_PLATFORM, SOME_CHANNEL, SOME_THREAD),
             person_id=SOME_PERSON,
-            message=a_chat_message(ReportChannel.SLACK, SOME_CHANNEL, SOME_REPLY)
+            message=a_chat_message(THE_CHAT_PLATFORM, SOME_CHANNEL, SOME_REPLY)
         )))
 
 

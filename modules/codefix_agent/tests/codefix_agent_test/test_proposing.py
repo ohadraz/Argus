@@ -72,7 +72,6 @@ from core.models import (
     OpenedPullRequest,
     ProposedFix,
     Reasoning,
-    ReportChannel,
     Standing,
     ThreadMessage,
     ToolCall,
@@ -89,6 +88,10 @@ from core.replay import Recorder
 from narration import what_was_done
 from read_mcp_client import ReadTier
 from write_mcp_client import WriteTier
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 DONT_CARE_INCIDENT = "incident-41"
 
@@ -3653,7 +3656,7 @@ def _what_it_showed(done: WhatArgusDid) -> str:
 def _a_lead(words: str, weighing: Weighing | None = None) -> ThreadMessage:
     """Something a person told the incident, understood as information."""
     return ThreadMessage(incident_id=new_id(),
-                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel",
+                         message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel",
                                                 "1760000100.000200"),
                          person_id="U-some-person",
                          text=words,

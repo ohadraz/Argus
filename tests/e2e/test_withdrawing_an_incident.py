@@ -90,6 +90,10 @@ from tests.e2e.framework.world import (
     the_shops_window,
 )
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
 _A_POLL = 0.5
 
 # The size the shop is declared with, in `deploy/values-production.yaml`. It is
@@ -178,7 +182,8 @@ def test_an_incident_withdrawn_from_its_slack_thread_stops_where_it_is() -> None
                     argus_ended_with_status(IncidentStatus.WITHDRAWN),
                     _the_account_says_it_was_withdrawn(
                         Report(by=some_person,
-                               channel=ReportChannel.SLACK,
+                               channel=ReportChannel.CHAT_PLATFORM,
+                               platform=THE_CHAT_PLATFORM,
                                note=THE_WORDS_CLASSIFIED_AS_WITHDRAWN)),
                     _argus_changed_nothing(),
                     _nothing_was_written_up(),

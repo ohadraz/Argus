@@ -49,7 +49,6 @@ from write_mcp_client import WriteTier
 from mitigation_test.framework.builders import a_deployment
 
 SOME_FLAG = "kukibuki"
-SOME_ARGUS_USER = "Shuki Tuki"
 THE_MOMENT_IT_WAS_CLAIMED = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
 SOME_MOMENT = to_iso(THE_MOMENT_IT_WAS_CLAIMED)
 # When the write tier read the state a plan was worked out from: before the
@@ -442,17 +441,15 @@ def test_the_deployments_the_history_reported_are_what_comes_back() -> None:
 
 
 @pytest.mark.unit
-def test_deployments_argus_made_itself_are_left_out() -> None:
-    # Argus's own flag reverts are, and for the same reason: where no onset was
-    # stated the window ends now, so a round after Argus rolled back reads its
-    # rollback as the newest deployment - and proposes rolling that back.
-    somebody_elses = a_deployment(actor="some-human")
-
+def test_the_deploy_history_is_asked_to_leave_out_argus_s_own_deployments() -> None:
+    # Argus's own flag reverts are left out, and for the same reason: where no
+    # onset was stated the window ends now, so a round after Argus rolled back
+    # would read its rollback as the newest deployment - and propose rolling
+    # that back. Which deployments are Argus's is the platform adapter's to say,
+    # so the history is asked to leave them out rather than told Argus's name.
     Scenario() \
         .given(
-            fetch := _a_deploy_history_reporting(
-                a_deployment(actor=SOME_ARGUS_USER), somebody_elses
-            )
+            fetch := _a_deploy_history_reporting()
         ) \
         .when(
             lambda: fetch_recent_deployments(
@@ -463,7 +460,7 @@ def test_deployments_argus_made_itself_are_left_out() -> None:
             )
         ) \
         .then(
-            _it_returned_the_deployments(somebody_elses)
+            _it_asked_for_others_deployments_alone(fetch)
         )
 
 
@@ -794,22 +791,20 @@ def _it_returned_only(*expected: FlagChange) -> Assertion[list[FlagChange]]:
 
 
 def _some_mitigation_settings(
-    actor: str = SOME_ARGUS_USER,
     lookback: timedelta = timedelta(minutes=30)
 ) -> MitigationSettings:
     """How Mitigation behaves, as this suite sets it.
 
-    The actor and the lookback are what these tests are about - who a
-    deployment is attributed to, and how far back the window reaches. Whose a
-    flag change was is not here: the provider's adapter says so on the change.
-    The wait is never reached here, since nothing in this file takes an action,
-    and neither is the cap - nothing here proposes a second attempt on anything.
+    The lookback is what these tests are about - how far back the window
+    reaches. Whose a change was is not here: the adapter that read it says so
+    on the change. The wait is never reached here, since nothing in this file
+    takes an action, and neither is the cap - nothing here proposes a second
+    attempt on anything.
     """
     a_wait_nothing_here_reaches = 180.0
 
     return MitigationSettings(
         mitigation_change_lookback_minutes=int(lookback.total_seconds() // 60),
-        argocd_actor=actor,
         mitigation_verification_timeout_seconds=a_wait_nothing_here_reaches,
         metrics_reporting_lag_minutes=0,
         mitigation_attempts_per_subject=1
@@ -833,11 +828,26 @@ def _it_asked_for_the_window(fetch: MagicMock,
             "window_start": to_iso(starting),
             "window_end": to_iso(ending)
         }
+        asked = {name: value for name, value in fetch.call_args.kwargs.items()
+                 if name in expected}
 
-        if fetch.call_args.kwargs != expected:
+        if asked != expected:
             raise AssertionError(
                 f"Expected the deploy history to be asked for {expected}, "
                 f"got {fetch.call_args.kwargs}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_asked_for_others_deployments_alone(fetch: MagicMock) -> Assertion[list[ChangeEvent]]:
+    def assertion(dont_care_deployments: list[ChangeEvent]) -> bool:
+        if fetch.call_args.kwargs.get("excluding_argus_s_own") is not True:
+            raise AssertionError(
+                f"Expected the deploy history to be asked to leave Argus's own "
+                f"deployments out, got {fetch.call_args.kwargs}."
             )
 
         return True

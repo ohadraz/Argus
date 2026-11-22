@@ -21,7 +21,8 @@ from typing import Any, Final
 
 from stripe import StripeClient, StripeError
 
-from revenue_source.takings import Charge, RevenueSettings, RevenueUnavailable
+from revenue_source.stripe_settings import StripeSettings
+from revenue_source.takings import Charge, RevenueUnavailable
 
 # How a client is built. Injected rather than constructed outright so that a
 # test can assert the case that matters most here - that a deployment holding
@@ -64,7 +65,7 @@ _THE_API_ADDRESS: Final = "api"
 
 def charges_between(started_at: datetime,
                     ended_at: datetime,
-                    settings: RevenueSettings,
+                    settings: StripeSettings,
                     client_of: ClientOf = StripeClient) -> Iterable[Charge]:
     """Every charge the provider recorded in the window, newest first.
 

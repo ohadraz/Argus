@@ -37,6 +37,10 @@ from incident_record_test.framework.transactions import (
 
 # The withdraw button takes no note, so the report it makes carries none.
 SOME_REPORT = Report(by="some person", channel=ReportChannel.ARGUS_UI)
+# A report written in a chat platform's thread, by the name its adapter gives it.
+SOME_PLATFORM = "Kukichat"
+SOME_REPORT_IN_A_THREAD = Report(by="some person", channel=ReportChannel.CHAT_PLATFORM,
+                                 platform=SOME_PLATFORM)
 
 
 @pytest.mark.component
@@ -134,13 +138,14 @@ def test_a_withdrawal_that_took_effect_is_logged_with_where_it_came_from(
             calling(lambda: caplog.set_level(logging.INFO))
         ) \
         .when(
-            lambda: withdraw_incident(incident_id, SOME_REPORT, connect_from_env,
+            lambda: withdraw_incident(incident_id, SOME_REPORT_IN_A_THREAD, connect_from_env,
                                       publisher_for=_nobody_is_listening)
         ) \
         .then(
             one_record_was_logged(caplog, "incident_record.withdrawal", logging.INFO,
                                   "incident withdrawn",
-                                  values={"channel": ReportChannel.ARGUS_UI})
+                                  values={"channel": ReportChannel.CHAT_PLATFORM,
+                                          "platform": SOME_PLATFORM})
         )
 
 

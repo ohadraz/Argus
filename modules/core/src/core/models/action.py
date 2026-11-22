@@ -367,9 +367,7 @@ class PinToAccelerator(BaseModel):
 
 
 # `action_type` is Argus's own word for what was done - it is a column on the
-# `action` table and a field on the event a reader sees - so it tags the union,
-# where the descriptor's `tool` is the write tier's wire vocabulary and does
-# not.
+# `action` table and a field on the event a reader sees - so it tags the union.
 type Action = Annotated[
     RevertFeatureFlag | RestartService | RollBackDeployment | ScaleOut
     | PinAutoscaler | DiscardCacheEntries | PinToAccelerator,

@@ -138,6 +138,10 @@ from postmortem_writing import CandidateRecord, DeploymentChangesRecord, Inciden
 from postmortem_writing.grounding import FLAGS_FIELD
 from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
 # How many hours a year the bands are divided by. Any number does: nothing here
 # publishes a cost, and the arithmetic that would use it is the agent's own
 # suite's business.
@@ -1183,7 +1187,7 @@ def test_the_evidence_says_when_argus_first_posted_where_people_could_read_it(
     # of an incident Argus had announced in its thread. The thread is written
     # down once the chat platform accepted the line that opened it, and is the
     # only record a line was said.
-    some_thread = a_chat_thread(ReportChannel.SLACK, "C-some-channel", "1.000100")
+    some_thread = a_chat_thread(THE_CHAT_PLATFORM, "C-some-channel", "1.000100")
 
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
@@ -1196,7 +1200,7 @@ def test_the_evidence_says_when_argus_first_posted_where_people_could_read_it(
                 lambda: gather_evidence(conn, incident_id).first_told
             ) \
             .then(
-                _told_in_its_thread(conn, incident_id, ReportChannel.SLACK)
+                _told_in_its_thread(conn, incident_id, THE_CHAT_PLATFORM)
             )
 
 
@@ -3955,7 +3959,7 @@ def _a_message_understood_as(conn: psycopg.Connection,
     """Something a person wrote in the incident's thread, on the record and
     understood as `meaning` - the message named by `ts`."""
     written = ThreadMessage(incident_id=incident_id,
-                            message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                            message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", ts),
                             person_id="U-some-person",
                             text=words,
                             written_at=parse_iso("2026-08-20T11:05:00Z"))
@@ -4011,7 +4015,8 @@ def _an_incident_a_person_ended(conn: psycopg.Connection,
     events.record(conn, StatusChanged(
         incident_id=incident_id,
         to_status=IncidentStatus.RESOLVED,
-        reported=Report(by="some person", channel=ReportChannel.SLACK)))
+        reported=Report(by="some person", channel=ReportChannel.CHAT_PLATFORM,
+                        platform=THE_CHAT_PLATFORM)))
 
     return incident_id
 
@@ -4043,7 +4048,7 @@ def _no_line_of_the_timeline_says(words: str) -> Assertion[IncidentEvidence]:
 
 def _told_in_its_thread(conn: psycopg.Connection,
                         incident_id: str,
-                        channel: ReportChannel) -> Assertion[FirstTold | None]:
+                        platform: str) -> Assertion[FirstTold | None]:
     """Told on that platform, at the moment the thread's own row says it was
     written down."""
     def assertion(told: FirstTold | None) -> bool:
@@ -4051,7 +4056,7 @@ def _told_in_its_thread(conn: psycopg.Connection,
             "SELECT recorded_at FROM incident_reference WHERE incident_id = %s AND kind = %s",
             (incident_id, CHAT_THREAD)
         ).fetchone()
-        expected = FirstTold(channel=channel, at=row[0]) if row else None
+        expected = FirstTold(platform=platform, at=row[0]) if row else None
 
         if told != expected:
             raise AssertionError(f"Expected the incident first told as {expected}, got {told}.")

@@ -31,8 +31,9 @@ class PayBandSettings(SettingsSlice):
 
     Here rather than beside the adapter that uses it, because naming what a
     source needs must not cost the library that source talks to - the same
-    reason `RevenueSettings` and `OnCallSettings` sit beside their own domain
-    types rather than their own adapters.
+    reason `StripeSettings` and `PagerDutySettings` sit in modules of their own
+    rather than in their adapters. Its fields name no vendor, the HR source
+    being nobody's in particular.
     """
 
     hr_api_key: str

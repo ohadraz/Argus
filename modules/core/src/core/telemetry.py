@@ -24,11 +24,11 @@ from typing import Final
 # --- GenAI: a model call (OTel GenAI semantic conventions) ---
 
 # The operation a model call is - a chat completion, in OTel's vocabulary for
-# what `converse` does - and the provider answering it.
+# what `converse` does - and the attribute naming the provider answering it.
+# Which provider is the provider's adapter's to say, and its value is there.
 GEN_AI_OPERATION_NAME: Final = "gen_ai.operation.name"
 GEN_AI_CHAT_OPERATION: Final = "chat"
 GEN_AI_PROVIDER_NAME: Final = "gen_ai.provider.name"
-GEN_AI_PROVIDER_ANTHROPIC: Final = "anthropic"
 GEN_AI_REQUEST_MODEL: Final = "gen_ai.request.model"
 GEN_AI_REQUEST_MAX_TOKENS: Final = "gen_ai.request.max_tokens"
 

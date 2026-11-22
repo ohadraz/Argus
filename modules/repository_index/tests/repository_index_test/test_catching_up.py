@@ -463,7 +463,7 @@ def a_sleep_that_ends_the_loop() -> Any:
 def some_settings(base_branch: str = THE_DEPLOYED_BRANCH) -> IndexSettings:
     """What a pass is aimed at - the branch that is running."""
     return IndexSettings(
-        github_source_paths="",
+        service_source_paths="",
         deployed_branch=base_branch,
         repository_index_collection="dont-care-collection",
         repository_index_max_lines=DONT_CARE_MAX_LINES,

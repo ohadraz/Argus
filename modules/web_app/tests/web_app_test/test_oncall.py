@@ -63,6 +63,9 @@ from oncall_source.platform import (
 )
 from web_app.oncall import IncidentRecord, receive_delivery
 
+# The on-call platform's name, as its adapter gives it.
+THE_ON_CALL_PLATFORM = "PagerDuty"
+
 SOME_PLATFORM_INCIDENT = "Q2FJZEW25HFSAW"
 SOME_ARGUS_INCIDENT = "4c1e2a50-0000-4000-8000-000000000001"
 SOME_OTHER_ARGUS_INCIDENT = "4c1e2a50-0000-4000-8000-000000000002"
@@ -94,7 +97,8 @@ def test_a_persons_resolution_resolves_the_incident_its_keys_name() -> None:
         .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                        platform=platform, record=record)) \
         .then(_it_was_resolved(record, SOME_ARGUS_INCIDENT,
-                               Report(by=some_person, channel=ReportChannel.PAGERDUTY,
+                               Report(by=some_person, channel=ReportChannel.ON_CALL_PLATFORM,
+                                      platform=THE_ON_CALL_PLATFORM,
                                       note=some_note)))
 
 
@@ -111,7 +115,7 @@ def test_the_platforms_incident_becomes_a_name_for_the_argus_incident() -> None:
         .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                        platform=platform, record=record)) \
         .then(_it_was_given_the_name(record, SOME_ARGUS_INCIDENT,
-                                     Reference(source=ReportChannel.PAGERDUTY,
+                                     Reference(source=THE_ON_CALL_PLATFORM,
                                                kind=ON_CALL_INCIDENT,
                                                value=SOME_PLATFORM_INCIDENT)))
 
@@ -330,7 +334,7 @@ def _a_platform(saying: Delivery, keys: list[str], note: str | None = None) -> A
     """The platform, holding one page under `keys`, open from
     `THE_PAGE_OPENED` until the person resolved it."""
     platform = create_autospec(OnCallPlatform, instance=True)
-    platform.channel = ReportChannel.PAGERDUTY
+    platform.name = THE_ON_CALL_PLATFORM
     platform.parse_delivery.return_value = saying
     platform.keys_of.return_value = keys
     platform.resolution_note.return_value = note

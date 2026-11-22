@@ -50,8 +50,8 @@ from mitigation import (
     watch_what_was_performed,
     whether_it_was_made,
 )
-from oncall_source import OnCallSettings
 from oncall_source.pagerduty_adapter import pagerduty_from
+from oncall_source.pagerduty_settings import PagerDutySettings
 from postmortem_writing import judge_policy, postmortem_policy, synopsis_policy
 from read_mcp_client import ReadTier
 from write_mcp_client import WriteTier
@@ -216,7 +216,7 @@ def against(connections: Connections,
         # The worker reads the platform and never hears from it, so it holds
         # no webhook secret - an empty one refuses every delivery, and none
         # ever reaches this process to refuse.
-        oncall=pagerduty_from(OnCallSettings.of(settings), webhook_secret="")
+        oncall=pagerduty_from(PagerDutySettings.of(settings), webhook_secret="")
     )
     # Whoever answers every agent's model calls, chosen once for the process.
     models = the_models_at(LLMSettings.of(settings))

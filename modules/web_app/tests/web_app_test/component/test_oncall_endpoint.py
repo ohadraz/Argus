@@ -54,6 +54,9 @@ from web_app_test.framework.assertions import the_response_was
 from web_app_test.framework.event_loop import handed_off_the_event_loop, on_an_event_loop
 from web_app_test.framework.observing import observing_the_app, the_span_named
 
+# The on-call platform's name, as its adapter gives it.
+THE_ON_CALL_PLATFORM = "PagerDuty"
+
 ONCALL_WEBHOOK = "/webhooks/oncall"
 
 DONT_CARE_BODY = b"{}"
@@ -82,7 +85,8 @@ def test_a_persons_resolution_in_the_platform_resolves_the_incident() -> None:
                 _the_incident_is(incident_id, IncidentStatus.RESOLVED),
                 _the_account_says_it_was_reported_as(
                     incident_id,
-                    Report(by=some_person, channel=ReportChannel.PAGERDUTY, note=some_note)
+                    Report(by=some_person, channel=ReportChannel.ON_CALL_PLATFORM,
+                           platform=THE_ON_CALL_PLATFORM, note=some_note)
                 )
             ))
 
@@ -229,7 +233,7 @@ def _the_platform_saying(delivery: Delivery,
     """The platform saying `delivery` about a page under `keys`, opened at
     `paged_at` and resolved an hour later."""
     platform = create_autospec(OnCallPlatform, instance=True)
-    platform.channel = ReportChannel.PAGERDUTY
+    platform.name = THE_ON_CALL_PLATFORM
     platform.parse_delivery.return_value = delivery
     platform.resolution_note.return_value = note
 

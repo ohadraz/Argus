@@ -27,7 +27,6 @@ from core.models import (
     IncidentStatus,
     Meaning,
     Offer,
-    ReportChannel,
     Standing,
     ThreadMessage,
     Weighing,
@@ -39,7 +38,11 @@ from pydantic import ValidationError
 from incident_record_test.framework import written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
 
-SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
+SOME_MESSAGE = a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", "1760000100.000200")
 SOME_PERSON = "U-some-person"
 SOME_NAME = "Some Person"
 SOME_WORDS = "it's the checkout flag, not the other one"
@@ -460,7 +463,7 @@ def _a_message_in(incident_id: str, text: str) -> ThreadMessage:
 
 def _a_message_at(incident_id: str, ts: str, *, minutes: int) -> ThreadMessage:
     return ThreadMessage(incident_id=incident_id,
-                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                         message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", ts),
                          person_id=SOME_PERSON,
                          text=SOME_WORDS,
                          written_at=SOME_TIME + timedelta(minutes=minutes))

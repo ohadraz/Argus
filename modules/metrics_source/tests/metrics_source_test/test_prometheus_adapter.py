@@ -27,8 +27,9 @@ from argus_testkit import (
     the_error_mentioned,
 )
 from core.models import MetricBucket, RuleLine, RuleReading, RuleSeries, SeriesQuery, Unit
-from metrics_source.minutes import Measure, MetricsSettings, MetricsUnavailable, SeriesKind
+from metrics_source.minutes import Measure, MetricsUnavailable, SeriesKind
 from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
+from metrics_source.prometheus_settings import PrometheusSettings
 
 # Prometheus's own vocabulary, spelled out here rather than shared with the
 # module under test: the assertion is that Argus speaks *these* words, and a
@@ -73,7 +74,7 @@ def test_every_question_is_put_to_prometheus_range_query_api() -> None:
         .when(
             lambda: buckets_between(
                 some_window_start, some_window_end,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=_a_prometheus_answering({}, asked=asked))
         ) \
         .then(
@@ -112,7 +113,7 @@ def test_a_minutes_samples_become_that_minutes_bucket() -> None:
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus)
         ) \
         .then(
@@ -158,7 +159,7 @@ def test_a_minute_missing_a_reading_every_bucket_needs_is_not_reported() -> None
         .when(
             lambda: buckets_between(
                 some_minute, the_next_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=_a_prometheus_answering(samples))
         ) \
         .then(
@@ -186,7 +187,7 @@ def test_a_series_a_service_does_not_expose_is_reported_as_absent() -> None:
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus)
         ) \
         .then(
@@ -223,7 +224,7 @@ def test_a_minute_a_needed_reading_of_which_is_no_number_is_not_reported(field: 
         .when(
             lambda: buckets_between(
                 some_minute, the_next_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=_a_prometheus_answering(samples))
         ) \
         .then(
@@ -247,7 +248,7 @@ def test_a_reading_that_is_no_number_where_a_series_may_be_absent_is_absent() ->
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus)
         ) \
         .then(
@@ -289,7 +290,7 @@ def test_the_window_is_asked_for_by_the_ends_of_its_minutes() -> None:
         .when(
             lambda: buckets_between(
                 some_window_start, some_window_end,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=_a_prometheus_answering({}, asked=asked))
         ) \
         .then(
@@ -314,7 +315,7 @@ def test_an_error_prometheus_reports_is_unavailability() -> None:
         .when(
             attempting(lambda: buckets_between(
                 some_window_start, some_window_end,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=_a_prometheus_refusing_with(400, "bad_data", some_reason)))
         ) \
         .then(
@@ -336,7 +337,7 @@ def test_a_prometheus_nobody_can_reach_is_unavailability() -> None:
         .when(
             attempting(lambda: buckets_between(
                 some_window_start, some_window_end,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=_a_prometheus_nobody_can_reach()))
         ) \
         .then(
@@ -362,7 +363,7 @@ def test_the_paging_rules_query_rides_on_the_buckets_with_its_direction() -> Non
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
         ) \
@@ -389,7 +390,7 @@ def test_the_paging_rules_line_rides_on_the_buckets_with_its_reading() -> None:
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below",
                                        line=some_line))
@@ -418,7 +419,7 @@ def test_a_rules_query_prometheus_refuses_leaves_the_fixed_window_intact() -> No
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
         ) \
@@ -447,7 +448,7 @@ def test_a_rules_reading_that_is_no_number_leaves_its_minute_without_one() -> No
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
         ) \
@@ -473,7 +474,7 @@ def test_a_rules_query_with_no_samples_leaves_every_minute_without_a_reading() -
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
         ) \
@@ -507,7 +508,7 @@ def test_a_rules_query_answered_in_several_series_leaves_every_minute_without_a_
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
         ) \
@@ -539,7 +540,7 @@ def test_a_rules_query_prometheus_refuses_is_logged_as_a_warning(
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
         ) \
@@ -573,7 +574,7 @@ def test_a_rules_query_answered_in_several_series_is_logged_as_a_warning(
         .when(
             lambda: buckets_between(
                 some_minute, some_minute,
-                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
                 get=prometheus,
                 rule_series=RuleSeries(query=some_rule_query, worse_when="below"))
         ) \

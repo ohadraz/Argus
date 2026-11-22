@@ -50,12 +50,17 @@ SUBMIT_ANSWER = ToolDefinition(
 _ATTEMPTS: Final = 2
 
 
-def answer(question: str, story: Sequence[NarrationLine], llm: LLMClient) -> str | None:
-    """The answer to `question` from the incident's timeline, or `None` where
-    the model gave no usable answer twice."""
+def answer(question: str,
+           story: Sequence[NarrationLine],
+           llm: LLMClient,
+           *,
+           platform: str) -> str | None:
+    """The answer to `question`, asked on `platform` - the chat platform's name,
+    as its adapter gives it - from the incident's timeline, or `None` where the
+    model gave no usable answer twice."""
     for _ in range(_ATTEMPTS):
         try:
-            answered = _the_answer_in(llm.converse(_the_opening(question, story),
+            answered = _the_answer_in(llm.converse(_the_opening(question, story, platform),
                                                    [SUBMIT_ANSWER]))
         except ModelDidNotAnswer:
             answered = None
@@ -66,11 +71,13 @@ def answer(question: str, story: Sequence[NarrationLine], llm: LLMClient) -> str
     return None
 
 
-def _the_opening(question: str, story: Sequence[NarrationLine]) -> Transcript:
+def _the_opening(question: str,
+                 story: Sequence[NarrationLine],
+                 platform: str) -> Transcript:
     """The question, the timeline, and what the answer may rest on, in one
     message."""
     return [Ask(text="\n".join([
-        "A person asked this in the Slack thread of an incident Argus is "
+        f"A person asked this in the {platform} thread of an incident Argus is "
         "responding to:",
         "",
         question,

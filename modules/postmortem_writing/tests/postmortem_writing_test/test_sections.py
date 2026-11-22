@@ -38,7 +38,6 @@ from core.models import (
     OpenedPullRequest,
     Ownership,
     Refusal,
-    ReportChannel,
     ResolutionStep,
     RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
@@ -92,6 +91,10 @@ from postmortem_writing_test.framework.builders import (
     an_action,
     an_evidence_bundle,
 )
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_FLAG = "monthly-spend-feature"
 SOME_RULE = "kuki-rule"
@@ -203,7 +206,7 @@ def test_detection_carries_when_argus_first_posted_about_the_incident() -> None:
     # Written by code rather than left to the model: a write-up told only that
     # nobody was paged said nobody was told at all, of an incident Argus had
     # announced in its thread.
-    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+    some_post = FirstTold(platform=THE_CHAT_PLATFORM, at=STARTED_AT + timedelta(seconds=2))
 
     Scenario() \
         .given(

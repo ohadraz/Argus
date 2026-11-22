@@ -72,7 +72,6 @@ from core.models import (
     PostmortemDocument,
     Reference,
     ReplicaUndo,
-    ReportChannel,
     RetrievalChannel,
     ServiceDependency,
     TakenAction,
@@ -344,7 +343,7 @@ def _when_people_were_first_told(conn: psycopg.Connection,
     if thread is None:
         return None
 
-    return FirstTold(channel=ReportChannel(thread.reference.source), at=thread.recorded_at)
+    return FirstTold(platform=thread.reference.source, at=thread.recorded_at)
 
 
 def _what_was_refused(account: list[IncidentEvent],

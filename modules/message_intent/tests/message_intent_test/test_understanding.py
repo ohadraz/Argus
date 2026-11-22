@@ -54,14 +54,17 @@ from core.models import (
     IncidentStatus,
     Meaning,
     Reference,
-    ReportChannel,
     ThreadMessage,
     a_chat_message,
 )
 from message_intent.understanding import COULD_NOT_ANSWER, understand
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
 SOME_INCIDENT = new_id()
-SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
+SOME_MESSAGE = a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", "1760000100.000200")
 SOME_PERSON = "U-some-person"
 SOME_WORDS = "rolled the flag back by hand, we're fine"
 SOME_NAME = "Some Person"

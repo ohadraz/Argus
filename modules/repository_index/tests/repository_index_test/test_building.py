@@ -239,7 +239,7 @@ def _indexed_then_read(store: QdrantIndex,
 
 def _some_settings() -> IndexSettings:
     return IndexSettings(
-        github_source_paths=SOME_DIRECTORY,
+        service_source_paths=SOME_DIRECTORY,
         deployed_branch=DONT_CARE_BRANCH,
         repository_index_collection=DONT_CARE_COLLECTION,
         repository_index_max_lines=SOME_MAX_LINES,

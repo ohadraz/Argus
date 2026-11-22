@@ -25,7 +25,6 @@ from core.models import (
     ImpactExtent,
     OpenedPullRequest,
     Refusal,
-    ReportChannel,
     ResolutionStep,
     ReviewCriterion,
     TimelineMarker,
@@ -36,6 +35,10 @@ from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
 
 from postmortem_rendering_test.framework.builders import a_marker, a_postmortem, an_alert
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
@@ -755,7 +758,7 @@ def _an_action_item(number: str, status: ActionItemStatus) -> ActionItem:
 
 def _detected_and_posted_at(at: datetime) -> Detection:
     return Detection(alerted_at=at, rule=None, onset_at=None, gap=None,
-                     first_told=FirstTold(channel=ReportChannel.SLACK, at=at))
+                     first_told=FirstTold(platform=THE_CHAT_PLATFORM, at=at))
 
 
 def _has_no_first_told_row() -> Assertion[Head]:

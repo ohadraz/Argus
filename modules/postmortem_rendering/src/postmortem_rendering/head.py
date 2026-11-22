@@ -24,7 +24,7 @@ from core.models import (
     PostmortemDocument,
     TimelineMarker,
 )
-from narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW, where_a_report_came_from
+from narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_revision, on_the_day_and_clock
@@ -244,7 +244,7 @@ def _who_was_first_told(postmortem: Postmortem) -> Line | None:
     if told is None:
         return None
 
-    return Line(runs=(Run(text=f"{_ARGUS} posted in {where_a_report_came_from(told.channel)}, "),
+    return Line(runs=(Run(text=f"{_ARGUS} posted in {told.platform}, "),
                       Run.a_moment(told.at)))
 
 

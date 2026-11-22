@@ -48,8 +48,9 @@ from argus_testkit import (
 )
 from core import get_settings
 from core.models import MetricBucket, RuleSeries, SeriesQuery, WorseWhen
-from metrics_source import MetricsSettings, MetricsUnavailable
+from metrics_source import MetricsUnavailable
 from metrics_source.prometheus_adapter import buckets_between
+from metrics_source.prometheus_settings import PrometheusSettings
 
 # Where each half answers. The real one is the `prometheus` service in Argus's
 # `docker-compose.yml`, published there on 9090 and read by nothing but this
@@ -220,7 +221,7 @@ def _the_last_few_minutes() -> tuple[datetime, datetime]:
     return now - A_FEW_MINUTES, now
 
 
-def _settings_for(base_url: str) -> MetricsSettings:
+def _settings_for(base_url: str) -> PrometheusSettings:
     """Refuses a stand-in configured as the real one: the two halves would
     then be one Prometheus compared with itself, which passes and proves
     nothing."""
@@ -230,7 +231,7 @@ def _settings_for(base_url: str) -> MetricsSettings:
             f"Prometheus [{THE_REAL_ONE}]."
         )
 
-    return MetricsSettings(prometheus_base_url=base_url)
+    return PrometheusSettings(prometheus_base_url=base_url)
 
 
 def _some_minute_came_back() -> Assertion[list[MetricBucket]]:

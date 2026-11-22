@@ -36,6 +36,11 @@ from read_mcp_server.deploy_history import fetch_deploys, the_revisions_deployed
 
 SOME_APPLICATION = "kukibuki-service"
 A_DEPLOY_MINUTE = "2026-08-20T11:05:00Z"
+# Three deployments by who the platform says started them, told apart by
+# revision.
+ARGUS_S_ROLLBACK = "a1a1a1a1"
+SOMEBODY_ELSE_S = "b2b2b2b2"
+NOBODY_CAN_SAY_WHOSE = "c3c3c3c3"
 A_WHILE = timedelta(hours=1)
 
 # Where the code host says a revision can be read - its own pages, whatever
@@ -88,6 +93,48 @@ def test_a_deploy_event_carries_who_deployed_it() -> None:
             code=a_code_host()
         )) \
         .then(_the_first_deploy_was_made_by(some_username))
+
+
+@pytest.mark.unit
+def test_argus_s_own_deployments_are_left_out_where_asked() -> None:
+    # A caller deciding what to undo must not read Argus's own rollback as
+    # somebody else's change. Only what the platform's adapter says is Argus's
+    # goes: a deployment nobody can say about is kept, since leaving it out
+    # would be dropping a cause on a guess.
+    Scenario() \
+        .given(platform := _a_platform_that_recorded(
+            a_deployment_of(ARGUS_S_ROLLBACK, at=A_DEPLOY_MINUTE, made_by_argus=True),
+            a_deployment_of(SOMEBODY_ELSE_S, at=A_DEPLOY_MINUTE, made_by_argus=False),
+            a_deployment_of(NOBODY_CAN_SAY_WHOSE, at=A_DEPLOY_MINUTE, made_by_argus=None)
+        )) \
+        .when(lambda: fetch_deploys(
+            SOME_APPLICATION,
+            window_start=a_while_before(A_DEPLOY_MINUTE),
+            window_end=a_while_after(A_DEPLOY_MINUTE),
+            platform=platform,
+            code=a_code_host(),
+            excluding_argus_s_own=True
+        )) \
+        .then(_the_deploys_are(SOMEBODY_ELSE_S, NOBODY_CAN_SAY_WHOSE))
+
+
+@pytest.mark.unit
+def test_argus_s_own_deployments_are_kept_where_not_asked() -> None:
+    # The change channel the Investigator reads shows every deployment: Argus's
+    # own rollback is part of what changed, and saying whose it was is the
+    # actor's job, not a filter's.
+    Scenario() \
+        .given(platform := _a_platform_that_recorded(
+            a_deployment_of(ARGUS_S_ROLLBACK, at=A_DEPLOY_MINUTE, made_by_argus=True)
+        )) \
+        .when(lambda: fetch_deploys(
+            SOME_APPLICATION,
+            window_start=a_while_before(A_DEPLOY_MINUTE),
+            window_end=a_while_after(A_DEPLOY_MINUTE),
+            platform=platform,
+            code=a_code_host()
+        )) \
+        .then(_the_deploys_are(ARGUS_S_ROLLBACK))
 
 
 @pytest.mark.unit
@@ -324,7 +371,8 @@ def a_deployment_of(revision: str,
                     at: str,
                     initiated_by: str | None = "kuki",
                     repo_url: str | None = "https://github.com/kuki/k8s-configs",
-                    path: str | None = "apps/target-service/production"
+                    path: str | None = "apps/target-service/production",
+                    made_by_argus: bool | None = None
                     ) -> DeploymentRecord:
     return DeploymentRecord(
         history_id=12,
@@ -332,7 +380,8 @@ def a_deployment_of(revision: str,
         deployed_at=at,
         repo_url=repo_url,
         path=path,
-        initiated_by=initiated_by
+        initiated_by=initiated_by,
+        made_by_argus=made_by_argus
     )
 
 

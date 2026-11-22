@@ -45,11 +45,8 @@ from exchange_rate_source.frankfurter import (
 from incident_record.repository import exchange_rates, incidents, references
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
-from pay_band_source import (
-    PayBandSettings,
-    PayBandsUnavailable,
-    pay_bands,
-)
+from pay_band_source import PayBandSettings, PayBandsUnavailable
+from pay_band_source.bamboohr_adapter import pay_bands
 from postmortem_writing import (
     EngagedResponder,
     EngagementAnswer,
@@ -59,8 +56,9 @@ from postmortem_writing import (
     Sources,
 )
 from read_mcp_client import ReadTier
-from revenue_source import RevenueSettings, taken_between
+from revenue_source import taken_between
 from revenue_source.stripe_adapter import charges_between
+from revenue_source.stripe_settings import StripeSettings
 
 from orchestrator.rates import todays_rates
 
@@ -110,7 +108,7 @@ def the_real_sources(settings: Settings,
     return Sources(
         thresholds=thresholds,
         revenue=partial(_the_services_takings,
-                        settings=RevenueSettings.of(settings)),
+                        settings=StripeSettings.of(settings)),
         rates=partial(_todays_rates,
                       connections,
                       base=settings.reporting_currency,
@@ -130,7 +128,7 @@ def the_real_sources(settings: Settings,
 def _the_services_takings(started_at: datetime,
                           ended_at: datetime,
                           *,
-                          settings: RevenueSettings) -> Mapping[str, Decimal] | None:
+                          settings: StripeSettings) -> Mapping[str, Decimal] | None:
     """What the service took over the incident, read from the payment provider.
 
     A provider that cannot be read - or a deployment holding no credential -
@@ -274,7 +272,7 @@ def _the_platform_incidents_of(incident_id: str,
     if len(found) == 1:
         with connections() as conn:
             references.add(conn, incident_id, [
-                Reference(source=platform.channel, kind=ON_CALL_INCIDENT, value=found[0])
+                Reference(source=platform.name, kind=ON_CALL_INCIDENT, value=found[0])
             ])
             conn.commit()
 

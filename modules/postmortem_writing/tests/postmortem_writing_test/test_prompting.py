@@ -48,7 +48,6 @@ from core.models import (
     LogsInTheGap,
     OpenedPullRequest,
     Ownership,
-    ReportChannel,
     RevisionSource,
     SeriesQuery,
     ServiceDependency,
@@ -168,6 +167,10 @@ from postmortem_writing_test.framework.builders import (
     an_answer,
     an_evidence_bundle,
 )
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_FAULT = "the field [root_cause] was missing from your answer"
 
@@ -2822,7 +2825,7 @@ def test_a_post_where_nobody_was_paged_is_told_with_the_one_claim_it_refutes_ref
     # claim is refused by name, and the finding kept open beside it. Refused
     # only "told", a write-up said no person was engaged: taking part is
     # refused with it.
-    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+    some_post = FirstTold(platform=THE_CHAT_PLATFORM, at=STARTED_AT + timedelta(seconds=2))
 
     Scenario() \
         .given(
@@ -2847,7 +2850,7 @@ def test_a_post_where_nobody_was_paged_is_told_with_the_one_claim_it_refutes_ref
 def test_a_post_is_not_told_where_nobody_is_known_unpaged(
         engaged: EngagementAnswer | None) -> None:
     # The claim it refutes is made only of an incident nobody was paged for.
-    dont_care_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT)
+    dont_care_post = FirstTold(platform=THE_CHAT_PLATFORM, at=STARTED_AT)
 
     Scenario() \
         .given(

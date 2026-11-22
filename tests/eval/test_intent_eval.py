@@ -37,6 +37,11 @@ RUNS_PER_CASE = 10
 # own name, because a pool outlives a rename.
 THIS_EVAL = "intent"
 
+# Where the person wrote, by the name the chat platform's adapter gives it - the
+# platform every pooled sample was taken on, so the model is asked what it was
+# asked then.
+THE_CHAT_PLATFORM = "Slack"
+
 # **Unmeasured** - no pooled samples yet. Written at the figure a single lapse
 # survives and two do not, as a starting point; a failure before the first pool
 # reads as "unmeasured", not as a regression. Re-derive per case once each has
@@ -148,7 +153,7 @@ def _the_real_model_reads_repeatedly(words: str) -> list[Reading]:
     def read_once(_: int) -> Reading:
         tally = Tally(llm)
         # Unclassified counts as the intent reader counts it: nothing to act on.
-        meaning = classify(words, tally)
+        meaning = classify(words, tally, platform=THE_CHAT_PLATFORM)
 
         return Reading(meaning if meaning is not None else Meaning.OTHER, tally.spent())
 
@@ -193,7 +198,8 @@ def the_setup_under_test() -> Setup:
         texts={
             "tool": json.dumps(to_tool(SUBMIT_MEANING), sort_keys=True),
             "ask": json.dumps(
-                [said.model_dump(mode="json") for said in opening_ask("<the message>")],
+                [said.model_dump(mode="json")
+                 for said in opening_ask("<the message>", THE_CHAT_PLATFORM)],
                 sort_keys=True
             )
         }

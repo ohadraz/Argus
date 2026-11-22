@@ -20,7 +20,6 @@ from argus_testkit import Assertion, Scenario
 from core import new_id
 from core.models import (
     Meaning,
-    ReportChannel,
     Standing,
     ThreadMessage,
     Weighing,
@@ -28,6 +27,10 @@ from core.models import (
     labelled,
     not_yet_shown,
 )
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_TS = "1760000100.000200"
 ANOTHER_TS = "1760000200.000300"
@@ -107,7 +110,7 @@ def _a_lead(words: str, ts: str) -> ThreadMessage:
     """Something a person told the incident, understood as information - the
     message named by `ts`."""
     return ThreadMessage(incident_id=new_id(),
-                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                         message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", ts),
                          person_id="U-some-person",
                          text=words,
                          written_at=datetime(2026, 8, 20, 11, 5, tzinfo=UTC),

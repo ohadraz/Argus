@@ -15,7 +15,6 @@ the same reason - an adapter exercised only against a fake written by the same
 hand proves the fake.
 """
 
-from pay_band_source.bamboohr_adapter import pay_bands
 from pay_band_source.bands import (
     PayBand,
     PayBandsByTitle,
@@ -27,6 +26,5 @@ __all__ = [
     "PayBand",
     "PayBandsByTitle",
     "PayBandsUnavailable",
-    "PayBandSettings",
-    "pay_bands"
+    "PayBandSettings"
 ]

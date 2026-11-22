@@ -21,10 +21,10 @@ from core.models import RULE_READING_FIELD, MetricBucket, RuleReading, RuleSerie
 
 from metrics_source.minutes import (
     Measure,
-    MetricsSettings,
     MetricsUnavailable,
     SeriesKind,
 )
+from metrics_source.prometheus_settings import PrometheusSettings
 from metrics_source.prometheus_units import the_unit_its_name_carries
 
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ def _without_whitespace(query: str) -> str:
 
 def buckets_between(started_at: datetime,
                     ended_at: datetime,
-                    settings: MetricsSettings,
+                    settings: PrometheusSettings,
                     get: Get = httpx2.get,
                     rule_series: RuleSeries | None = None) -> list[MetricBucket]:
     """The service's minute buckets between two instants, as Prometheus

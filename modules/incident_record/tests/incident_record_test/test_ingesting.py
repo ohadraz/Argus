@@ -21,11 +21,15 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling
 from core import connect_from_env, utc_now
 from core.events import PersonWrote
-from core.models import Alert, ReportChannel, ThreadMessage, a_chat_message
+from core.models import Alert, ThreadMessage, a_chat_message
 from incident_record.ingesting import ingest_a_message
 from incident_record.repository import conversation, events, incidents
 
-SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
+SOME_MESSAGE = a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", "1760000100.000200")
 SOME_PERSON = "U-some-person"
 SOME_WORDS = "rolled the flag back by hand, we're fine"
 SOME_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)

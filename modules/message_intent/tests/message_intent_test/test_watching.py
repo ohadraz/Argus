@@ -25,8 +25,12 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from core import LLMSettings, Settings, get_settings, new_id
 from core.llm.adapters.anthropic_adapter import AnthropicProvider
-from core.models import ModelPolicy, Reasoning, ReportChannel, ThreadMessage, a_chat_message
+from core.models import ModelPolicy, Reasoning, ThreadMessage, a_chat_message
 from message_intent.watching import the_model_for, watch_once
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_INCIDENT = new_id()
 SOME_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
@@ -127,7 +131,7 @@ def test_a_look_asks_for_no_more_than_a_batch() -> None:
 
 def _a_person_writing(words: str) -> ThreadMessage:
     return ThreadMessage(incident_id=SOME_INCIDENT,
-                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", words),
+                         message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", words),
                          person_id="U-some-person",
                          text=words,
                          written_at=SOME_TIME)

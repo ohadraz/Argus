@@ -49,11 +49,12 @@ import httpx2
 import uvicorn
 from anthropic_double.recordings import RECORDINGS_DIR
 from anthropic_double.server import app as the_double
+from chat_platform.slack_deliveries import SLACK
 from core import DatabaseSettings, LLMSettings, Settings, get_settings, open_pool, utc_now
 from core.events import PersonWrote
 from core.llm import build_llm_client
 from core.llm.adapters.anthropic_adapter import AnthropicProvider
-from core.models import Meaning, ModelPolicy, ReportChannel, a_chat_message
+from core.models import Meaning, ModelPolicy, a_chat_message
 from incident_record.repository import events
 from message_intent.answering import answer
 from message_intent.classifying import classify
@@ -67,7 +68,7 @@ _BASE_URL: Final = f"http://localhost:{_PORT}"
 # Who wrote the question, and which message it was. Never said in the timeline
 # - a person's line names nobody and no message - so any will do.
 _THE_PERSON: Final = "U-recording"
-_THE_MESSAGE: Final = a_chat_message(ReportChannel.SLACK, "recording", "0")
+_THE_MESSAGE: Final = a_chat_message(SLACK, "recording", "0")
 
 _A_MOMENT: Final = 0.05
 _LONG_ENOUGH_TO_COME_UP: Final = 10.0
@@ -105,8 +106,8 @@ def main() -> None:
         llm = build_llm_client(AnthropicProvider(LLMSettings.of(settings)),
                                policy=ModelPolicy(model=settings.intent_model,
                                                   effort=settings.intent_effort))
-        meaning = classify(asked.message, llm=llm)
-        answered = (answer(asked.message, story, llm)
+        meaning = classify(asked.message, llm=llm, platform=SLACK)
+        answered = (answer(asked.message, story, llm, platform=SLACK)
                     if story is not None and meaning is Meaning.QUESTION else None)
         answers = int(_the_double_holds()["recorded"])
     finally:

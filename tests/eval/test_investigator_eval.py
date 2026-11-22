@@ -24,7 +24,6 @@ from core.models import (
     ModelPolicy,
     Ownership,
     PodPlacement,
-    ReportChannel,
     RetrievalChannel,
     RolloutAccount,
     RolloutProgress,
@@ -49,6 +48,10 @@ from tests.framework.investigating import (
 from tests.framework.models import the_configured_models
 from tests.framework.pooling import Outcome, Setup, the_samples_taken
 from tests.framework.spending import Spend, Tally
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
 # real API and spends tokens every run. Each run is now a whole investigation -
@@ -1928,7 +1931,7 @@ def a_lead_saying(words: str) -> ThreadMessage:
     information and not yet weighed."""
     return ThreadMessage(
         incident_id=new_id(),
-        message=a_chat_message(ReportChannel.SLACK, "C-some-channel", "1772445900.000100"),
+        message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", "1772445900.000100"),
         person_id="U-some-person",
         text=words,
         written_at=ONSET + timedelta(minutes=1),

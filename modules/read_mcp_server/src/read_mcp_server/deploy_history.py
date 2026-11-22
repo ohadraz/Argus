@@ -46,17 +46,7 @@ def the_revisions_deployed(application: str,
     The code host says where each revision can be read, as pages a person
     opens; it reads nothing to say so.
     """
-    try:
-        recorded = platform.deployments_of(application)
-    except DeploymentPlatformError as error:
-        raise ChangeSourceUnavailable(
-            f"could not read deploy history for [{application}]: {error}"
-        ) from error
-
-    return sorted(
-        (_a_deploy_from(record, code) for record in recorded),
-        key=lambda deploy: parse_iso(deploy.occurred_at)
-    )
+    return [deploy for _, deploy in _the_history_of(application, platform=platform, code=code)]
 
 
 def fetch_deploys(
@@ -65,7 +55,8 @@ def fetch_deploys(
     window_start: str,
     window_end: str,
     platform: DeploymentPlatformReads,
-    code: CodeHostReads
+    code: CodeHostReads,
+    excluding_argus_s_own: bool = False
 ) -> list[ChangeEvent]:
     """The deploys of one application within one window, as `ChangeEvent`s.
 
@@ -78,15 +69,44 @@ def fetch_deploys(
     window: a channel asking about a stretch of time and a channel asking what
     one deployment replaced are different questions, and a defaulted window is
     how the second one silently becomes the first.
+
+    `excluding_argus_s_own` leaves out the deployments the platform says Argus
+    started - its own rollbacks - which a caller deciding what to undo must not
+    read as somebody else's change. Only those the platform's adapter says are
+    Argus's: one nobody can say about is kept, since leaving it out would be
+    acting on a guess. Left out here rather than marked on each change, because
+    a change is evidence put to a model, and whether Argus made it is a fact
+    code acts on - a model told it would weigh Argus's own rollback as a cause,
+    or rule one out on Argus's say-so.
     """
     window_opened = parse_iso(window_start)
     window_closed = parse_iso(window_end)
 
     return [
         deploy
-        for deploy in the_revisions_deployed(application, platform=platform, code=code)
+        for record, deploy in _the_history_of(application, platform=platform, code=code)
         if window_opened <= parse_iso(deploy.occurred_at) <= window_closed
+        and not (excluding_argus_s_own and record.made_by_argus is True)
     ]
+
+
+def _the_history_of(application: str,
+                    *,
+                    platform: DeploymentPlatformReads,
+                    code: CodeHostReads) -> list[tuple[DeploymentRecord, ChangeEvent]]:
+    """Every deployment the platform recorded, oldest first, beside the deploy
+    event it is said as."""
+    try:
+        recorded = platform.deployments_of(application)
+    except DeploymentPlatformError as error:
+        raise ChangeSourceUnavailable(
+            f"could not read deploy history for [{application}]: {error}"
+        ) from error
+
+    return sorted(
+        ((record, _a_deploy_from(record, code)) for record in recorded),
+        key=lambda pair: parse_iso(pair[1].occurred_at)
+    )
 
 
 def _a_deploy_from(record: DeploymentRecord, code: CodeHostReads) -> ChangeEvent:

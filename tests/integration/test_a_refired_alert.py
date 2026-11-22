@@ -35,12 +35,15 @@ import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core import connect_from_env, utc_now
-from core.models import NOTIFICATION_KEY, IncidentStatus, ReportChannel
+from core.models import NOTIFICATION_KEY, IncidentStatus
 from fastapi.testclient import TestClient
 from incident_record.repository import incidents, references
 from oncall_source import ReportedIncident
 from oncall_source.platform import OnCallPlatform, ResolvedByAPerson
 from web_app.app import app, oncall_platform_of
+
+# The on-call platform's name, as its adapter gives it.
+THE_ON_CALL_PLATFORM = "PagerDuty"
 
 ALERTS_WEBHOOK: Final = "/webhooks/alerts"
 ONCALL_WEBHOOK: Final = "/webhooks/oncall"
@@ -352,7 +355,7 @@ def _a_page_resolved_by_a_person(page: str, keys: list[str], opened_at: datetime
     """The platform, saying a person resolved `page`: opened at `opened_at`,
     carrying `keys`, and resolved now."""
     platform = create_autospec(OnCallPlatform, instance=True)
-    platform.channel = ReportChannel.PAGERDUTY
+    platform.name = THE_ON_CALL_PLATFORM
     platform.parse_delivery.return_value = ResolvedByAPerson(platform_incident=page,
                                                              by=SOME_PERSON)
     platform.keys_of.return_value = keys

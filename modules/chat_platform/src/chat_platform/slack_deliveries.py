@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 from urllib.parse import parse_qs
 
-from core.models import ReportChannel, a_chat_message, a_chat_thread
+from core.models import a_chat_message, a_chat_thread
 
 from chat_platform.platform import (
     ChatDeliveryUnverified,
@@ -34,6 +34,13 @@ from chat_platform.platform import (
     Pressed,
     Written,
 )
+
+# The platform's name, as people know it. What a reader is told a report came
+# from and where Argus posted, and the source every reference to a place in
+# Slack is filed under - so it is said once, here, where both the deliveries
+# and the adapter built on them read it. Changing its spelling orphans every
+# reference already filed.
+SLACK: Final = "Slack"
 
 # Where Slack puts its signature and the moment it signed, and how it versions
 # the scheme. The version is both the signature's prefix and the first part of
@@ -144,8 +151,8 @@ def _a_message(event: Mapping[str, Any]) -> Delivery:
     channel = str(event[CHANNEL])
 
     return Written(
-        thread=a_chat_thread(ReportChannel.SLACK, channel, str(thread)),
-        message=a_chat_message(ReportChannel.SLACK, channel, ts),
+        thread=a_chat_thread(SLACK, channel, str(thread)),
+        message=a_chat_message(SLACK, channel, ts),
         person_id=str(event[USER]),
         text=str(event.get(TEXT, ""))
     )
@@ -166,9 +173,9 @@ def _a_press(payload: Mapping[str, Any]) -> Delivery:
     channel = str(payload[CHANNEL][ID])
 
     return Pressed(
-        thread=a_chat_thread(ReportChannel.SLACK, channel, str(payload[MESSAGE][THREAD_TS])),
+        thread=a_chat_thread(SLACK, channel, str(payload[MESSAGE][THREAD_TS])),
         person_id=str(payload[USER][ID]),
-        message=a_chat_message(ReportChannel.SLACK, channel, str(action[VALUE]))
+        message=a_chat_message(SLACK, channel, str(action[VALUE]))
     )
 
 

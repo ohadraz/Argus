@@ -159,7 +159,9 @@ class ReadTier:
     def get_change_events(self,
                           service: str,
                           window_start: str,
-                          window_end: str) -> list[ChangeEvent]:
+                          window_end: str,
+                          *,
+                          excluding_argus_s_own: bool = False) -> list[ChangeEvent]:
         """Reads what changed on a service within one window of an incident.
 
         The third retrieval channel (spec §16). Its window is deliberately far
@@ -169,6 +171,10 @@ class ReadTier:
 
         Raises rather than returning an empty list when the change source cannot be
         reached, because "nothing changed" is a conclusion a caller will act on.
+
+        `excluding_argus_s_own` leaves out what the source says Argus made - asked
+        by a caller deciding what to undo, which must not take Argus's own rollback
+        for somebody else's change.
         """
         return self._session.call(
             "get_change_events",
@@ -177,6 +183,7 @@ class ReadTier:
             service=service,
             window_start=window_start,
             window_end=window_end,
+            excluding_argus_s_own=excluding_argus_s_own
         )
 
     def get_what_a_deployment_changed(self, service: str, revision: str) -> DeploymentChanges:

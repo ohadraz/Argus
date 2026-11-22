@@ -245,10 +245,15 @@ class ArgoCdSettings(SettingsSlice):
     The two namespaces are the restart's and the scale-out's, each addressing the
     Deployment its action is run against. The autoscaler has none, because its
     address is read from the tree rather than configured.
+
+    `argocd_actor` is the account Argus signs in as, which is how a deployment it
+    started is told from anybody else's. Empty where Argus shares its credential
+    with people, and then no deployment is said to be anybody's in particular.
     """
 
     argocd_base_url: str
     argocd_auth_token: str
+    argocd_actor: str
     argocd_application_path: str
     # Where the platform says what is actually *running*, and where an autoscaler
     # is patched. The values file says what git asks for.
@@ -293,7 +298,8 @@ class ArgoCd:
         history = state.get(_STATUS, {}).get(_HISTORY, [])
 
         return [
-            _parsed(partial(_a_record_of, entry), f"[{application}]'s deployment history")
+            _parsed(partial(_a_record_of, entry, self._settings.argocd_actor),
+                    f"[{application}]'s deployment history")
             for entry in history
         ]
 
@@ -399,20 +405,26 @@ class ArgoCd:
         """
         state = self._get(self._settings.argocd_application_path, application)
 
+        argus = self._settings.argocd_actor
+
         def operations() -> SyncOperations:
             requested = state.get(_OPERATION)
             run = (state.get(_STATUS) or {}).get(_OPERATION_STATE)
+            asked_by = None if requested is None else _who_asked_for(requested)
+            run_by = None if run is None else _who_asked_for(run[_OPERATION])
 
             return SyncOperations(
                 requested=None if requested is None else RequestedSync(
                     revision=_the_revision_synced_by(requested),
-                    initiated_by=_who_asked_for(requested)
+                    initiated_by=asked_by,
+                    made_by_argus=_whether_argus_started(asked_by, argus)
                 ),
                 last_run=None if run is None else SyncRun(
                     revision=_the_revision_synced_by(run[_OPERATION]),
-                    initiated_by=_who_asked_for(run[_OPERATION]),
+                    initiated_by=run_by,
                     started_at=datetime.fromisoformat(str(run[_STARTED_AT])),
-                    phase=_the_phase_of(run)
+                    phase=_the_phase_of(run),
+                    made_by_argus=_whether_argus_started(run_by, argus)
                 )
             )
 
@@ -939,9 +951,9 @@ def _who_asked_for(operation: dict[str, Any]) -> str | None:
     return str(username) if username else None
 
 
-def _a_record_of(entry: dict[str, Any]) -> DeploymentRecord:
+def _a_record_of(entry: dict[str, Any], argus: str) -> DeploymentRecord:
     source = entry.get(_SOURCE) or {}
-    initiated_by = entry.get(_INITIATED_BY) or {}
+    initiated_by = (entry.get(_INITIATED_BY) or {}).get(_USERNAME)
 
     return DeploymentRecord(
         history_id=int(entry[_HISTORY_ID]),
@@ -951,8 +963,32 @@ def _a_record_of(entry: dict[str, Any]) -> DeploymentRecord:
         # The root is no directory within the repository, and "." is only
         # Argo CD's way of saying it.
         path=None if source.get(_PATH) == _THE_ROOT else source.get(_PATH),
-        initiated_by=initiated_by.get(_USERNAME)
+        initiated_by=initiated_by,
+        made_by_argus=_whether_argus_started(initiated_by, argus)
     )
+
+
+def _whether_argus_started(initiated_by: str | None, argus: str) -> bool | None:
+    """Whether the account a deployment or a sync was started by is the one
+    Argus signs in as. The one place either tier learns whose a change is: the
+    read tier from a deployment's `made_by_argus`, the write tier from a
+    deployment's and a sync's alike.
+
+    Without regard to case. The account is seeded in the Target Environment's
+    repository and named again in Argus's configuration, and case drifting
+    between the two would quietly make Argus's own changes somebody else's.
+
+    `None` where either is missing. With no account configured as Argus's,
+    Argus shares its credential with people and nothing can tell them apart;
+    with no account recorded, nobody is named. Reading either as "not Argus"
+    would be acting on a guess - and in the one direction that matters, since a
+    rollback Argus made, read as somebody else's, is a deployment it would then
+    propose rolling back.
+    """
+    if not argus or not initiated_by:
+        return None
+
+    return initiated_by.casefold() == argus.casefold()
 
 
 def _cannot_finish(status: dict[str, Any]) -> bool:

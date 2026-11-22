@@ -65,7 +65,6 @@ from core.models import (
     PodPlacement,
     Reasoning,
     RecordedPlacement,
-    ReportChannel,
     RetrievalChannel,
     RuleReading,
     Standing,
@@ -151,6 +150,10 @@ from investigation_agent_test.framework.builders.model import (
 )
 from investigation_agent_test.framework.failures import ChannelFailed
 from investigation_agent_test.framework.recording import a_recorder_that_keeps_what_it_is_given
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 # ---- from test_loop.py ----
 
@@ -3159,7 +3162,7 @@ def _a_lead(words: str,
     """Something a person told the incident, understood as information - the
     message named by `ts`, where a test needs two of them."""
     return ThreadMessage(incident_id=new_id(),
-                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                         message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", ts),
                          person_id="U-some-person",
                          text=words,
                          written_at=datetime(2026, 8, 20, 11, 5, tzinfo=UTC),

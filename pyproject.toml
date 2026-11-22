@@ -469,6 +469,7 @@ ignore_imports = [
     "web_app.** -> oncall_source",
     "web_app.** -> oncall_source.platform",
     "web_app.app -> oncall_source.pagerduty_adapter",
+    "web_app.app -> oncall_source.pagerduty_settings",
     # The chat platform's port, which a person's words in an incident's thread
     # and their press of an offer arrive through - and its Slack adapter, built
     # in the app's lifespan and nowhere else, for the on-call platform's reason.

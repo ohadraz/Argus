@@ -335,7 +335,7 @@ def _sent_to(recipient: str,
 
     with connections() as conn:
         references.add(conn, incident_id,
-                       [a_chat_briefing(chat.channel, recipient, posted.message)])
+                       [a_chat_briefing(chat.name, recipient, posted.message)])
 
     return Outcome.SAID
 
@@ -517,7 +517,7 @@ def _remember_the_thread(connections: Connections,
     incident into a conversation nobody is reading is not.
     """
     with connections() as conn:
-        references.add(conn, incident_id, [a_chat_thread(chat.channel, channel, message)])
+        references.add(conn, incident_id, [a_chat_thread(chat.name, channel, message)])
 
 
 def _remember_the_offer(connections: Connections,
@@ -529,4 +529,4 @@ def _remember_the_offer(connections: Connections,
     """Records an offer Argus posted, as the kind of offer it is, so that the
     incident's endings can find its button again."""
     with connections() as conn:
-        references.add(conn, incident_id, [_REMEMBERED_AS[ending](chat.channel, channel, message)])
+        references.add(conn, incident_id, [_REMEMBERED_AS[ending](chat.name, channel, message)])

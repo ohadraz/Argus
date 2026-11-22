@@ -23,11 +23,6 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core.models.planned import FlagState, Made, NotMade, Planned
 from core.models.undo_descriptor import (
-    PIN_AUTOSCALER_TOOL,
-    PIN_TO_ACCELERATOR_TOOL,
-    ROLL_BACK_DEPLOYMENT_TOOL,
-    SCALE_OUT_TOOL,
-    SET_FEATURE_FLAG_TOOL,
     AcceleratorPinUndo,
     AutoscalerUndo,
     DeploymentRollbackUndo,
@@ -62,7 +57,6 @@ def _the_wire_shape_of_a_planned_flag_change() -> dict[str, Any]:
     no moment to date a write by."""
     return {
         "kind": "feature-flag",
-        "tool": SET_FEATURE_FLAG_TOOL,
         "flag": SOME_FLAG,
         "was_enabled": True,
         "environment": None,
@@ -74,7 +68,6 @@ def _the_wire_shape_of_a_planned_rollback() -> dict[str, Any]:
     """A rollback worked out and not yet made, the entry it returns to chosen."""
     return {
         "kind": "deployment-revision",
-        "tool": ROLL_BACK_DEPLOYMENT_TOOL,
         "application": SOME_APPLICATION,
         "was_on_history_id": SOME_ENTRY_IT_WAS_ON,
         "was_on_revision": SOME_REVISION_IT_WAS_ON,
@@ -89,7 +82,6 @@ def _the_wire_shape_of_a_planned_scale_out() -> dict[str, Any]:
     """A scale-out worked out and not yet made."""
     return {
         "kind": "replica-count",
-        "tool": SCALE_OUT_TOOL,
         "application": SOME_APPLICATION,
         "was_replicas": SOME_COUNT_IT_WAS_RUNNING,
         "replicas_asked_for": SOME_COUNT_TO_ASK_FOR,
@@ -102,7 +94,6 @@ def _the_wire_shape_of_a_planned_autoscaler_pin() -> dict[str, Any]:
     """An autoscaler's floor raise worked out and not yet made."""
     return {
         "kind": "autoscaler-floor",
-        "tool": PIN_AUTOSCALER_TOOL,
         "application": SOME_APPLICATION,
         "was_min_replicas": SOME_FLOOR_IT_HAD,
         "min_replicas_asked_for": SOME_FLOOR_TO_ASK_FOR,
@@ -115,7 +106,6 @@ def _the_wire_shape_of_a_planned_accelerator_pin() -> dict[str, Any]:
     """A pin to a card worked out and not yet made."""
     return {
         "kind": "accelerator-pin",
-        "tool": PIN_TO_ACCELERATOR_TOOL,
         "application": SOME_APPLICATION,
         "was_pinned_to": None,
         "pinned_to": SOME_CARD,

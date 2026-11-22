@@ -26,10 +26,6 @@ from typing import Any
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core.models.undo_descriptor import (
-    PIN_TO_ACCELERATOR_TOOL,
-    ROLL_BACK_DEPLOYMENT_TOOL,
-    SCALE_OUT_TOOL,
-    SET_FEATURE_FLAG_TOOL,
     AcceleratorPinUndo,
     DeploymentRollbackUndo,
     FlagUndo,
@@ -74,9 +70,31 @@ def test_a_descriptor_says_which_flag_to_restore_and_to_what() -> None:
         ) \
         .then(all_of(
             _it_restores(SOME_FLAG, to_state=True),
-            _it_dates_the_write_to(THE_MOMENT_ARGUS_WROTE),
-            _the_tool_that_undoes_it_is(SET_FEATURE_FLAG_TOOL)
+            _it_dates_the_write_to(THE_MOMENT_ARGUS_WROTE)
         ))
+
+
+@pytest.mark.unit
+def test_a_descriptor_stored_with_the_tool_that_made_it_still_reads() -> None:
+    # A row written before the tool name came off the record carries it still.
+    # Which tool puts a kind back is the write tier's client's to know, and a
+    # key nothing reads must not make the row unreadable to the undo it is for.
+    dont_care_tool = "set_feature_flag"
+    a_write_naming_its_tool = {
+        **_the_wire_shape_of_a_write(SOME_FLAG, was_enabled=True),
+        "tool": dont_care_tool
+    }
+
+    Scenario() \
+        .given(
+            a_write_naming_its_tool
+        ) \
+        .when(
+            lambda: parse_undo_descriptor(a_write_naming_its_tool)
+        ) \
+        .then(
+            _it_restores(SOME_FLAG, to_state=True)
+        )
 
 
 @pytest.mark.unit
@@ -86,7 +104,6 @@ def test_a_descriptor_that_does_not_say_which_flag_is_rejected() -> None:
     # the tidying-up into the failure.
     a_write_naming_no_flag = {
         "kind": A_FLAG_CHANGE,
-        "tool": SET_FEATURE_FLAG_TOOL,
         "environment": SOME_ENVIRONMENT,
         "was_enabled": True,
         "written_at": to_iso(THE_MOMENT_ARGUS_WROTE)
@@ -112,7 +129,6 @@ def test_a_descriptor_that_does_not_say_which_state_to_restore_is_rejected() -> 
     # word "restore".
     a_write_naming_no_state = {
         "kind": A_FLAG_CHANGE,
-        "tool": SET_FEATURE_FLAG_TOOL,
         "flag": SOME_FLAG,
         "environment": SOME_ENVIRONMENT,
         "written_at": to_iso(THE_MOMENT_ARGUS_WROTE)
@@ -138,7 +154,6 @@ def test_a_descriptor_that_says_nothing_about_its_kind_is_rejected() -> None:
     # be the only kind there is today: the assumption would be right exactly
     # until it was not, and it would be wrong inside an undo.
     a_change_that_says_nothing_about_its_kind = {
-        "tool": SET_FEATURE_FLAG_TOOL,
         "flag": SOME_FLAG,
         "was_enabled": True
     }
@@ -167,7 +182,6 @@ def test_a_descriptor_that_does_not_say_when_argus_wrote_is_still_a_descriptor()
     # the moment is missing rather than refusing to exist.
     a_change_nobody_dated = {
         "kind": A_FLAG_CHANGE,
-        "tool": SET_FEATURE_FLAG_TOOL,
         "flag": SOME_FLAG,
         "was_enabled": True
     }
@@ -221,8 +235,7 @@ def test_a_rollback_descriptor_records_both_things_it_changed() -> None:
         ) \
         .then(all_of(
             _it_returns_to(THE_REVISION_IT_WAS_ON, history_id=THE_ENTRY_IT_WAS_ON),
-            _it_restores_automated_sync_to(True),
-            _the_tool_that_undoes_it_is(ROLL_BACK_DEPLOYMENT_TOOL)
+            _it_restores_automated_sync_to(True)
         ))
 
 
@@ -387,8 +400,7 @@ def test_a_scale_out_descriptor_records_both_things_it_changed() -> None:
         ) \
         .then(all_of(
             _it_restores_the_count(THE_COUNT_IT_WAS_RUNNING),
-            _it_restores_automated_sync_to(True),
-            _the_tool_that_undoes_it_is(SCALE_OUT_TOOL)
+            _it_restores_automated_sync_to(True)
         ))
 
 
@@ -503,8 +515,7 @@ def test_an_accelerator_pin_descriptor_records_the_selector_it_replaced() -> Non
         .then(all_of(
             _it_is_a(AcceleratorPinUndo),
             _it_puts_the_selector_back_to(None),
-            _it_restores_automated_sync_to(True),
-            _the_tool_that_undoes_it_is(PIN_TO_ACCELERATOR_TOOL)
+            _it_restores_automated_sync_to(True)
         ))
 
 
@@ -550,7 +561,6 @@ def _the_wire_shape_of_an_accelerator_pin(was_pinned_to: str | None) -> dict[str
     it."""
     return {
         "kind": A_PIN_TO_A_CARD,
-        "tool": PIN_TO_ACCELERATOR_TOOL,
         "application": SOME_APPLICATION,
         "was_pinned_to": was_pinned_to,
         "pinned_to": SOME_CARD,
@@ -582,7 +592,6 @@ def _the_wire_shape_of_a_rollback(was_syncing_itself: bool) -> dict[str, Any]:
     """One rollback as the write tier reports it, before anything has read it."""
     return {
         "kind": A_CONFIG_ROLLBACK,
-        "tool": ROLL_BACK_DEPLOYMENT_TOOL,
         "application": SOME_APPLICATION,
         "was_on_history_id": THE_ENTRY_IT_WAS_ON,
         "was_on_revision": THE_REVISION_IT_WAS_ON,
@@ -597,7 +606,6 @@ def _the_wire_shape_of_a_scale_out(was_syncing_itself: bool) -> dict[str, Any]:
     """One scale-out as the write tier reports it, before anything has read it."""
     return {
         "kind": A_RESIZE,
-        "tool": SCALE_OUT_TOOL,
         "application": SOME_APPLICATION,
         "was_replicas": THE_COUNT_IT_WAS_RUNNING,
         "replicas_asked_for": THE_COUNT_IT_ASKED_FOR,
@@ -610,7 +618,6 @@ def _the_wire_shape_of_a_write(flag: str, was_enabled: bool) -> dict[str, Any]:
     """One write as the write tier reports it, before anything has read it."""
     return {
         "kind": A_FLAG_CHANGE,
-        "tool": SET_FEATURE_FLAG_TOOL,
         "flag": flag,
         "environment": SOME_ENVIRONMENT,
         "was_enabled": was_enabled,
@@ -643,19 +650,6 @@ def _it_dates_the_write_to(moment: datetime | None) -> Assertion[UndoDescriptor]
             raise AssertionError(
                 f"Expected the write to be dated [{moment}], and it was dated "
                 f"[{descriptor.written_at}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_tool_that_undoes_it_is(tool: str) -> Assertion[UndoDescriptor]:
-    def assertion(descriptor: UndoDescriptor) -> bool:
-        if descriptor.tool != tool:
-            raise AssertionError(
-                f"Expected [{tool}] to be the tool that undoes it, got "
-                f"[{descriptor.tool}]."
             )
 
         return True

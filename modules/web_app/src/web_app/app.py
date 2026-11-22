@@ -41,8 +41,9 @@ from incident_record import (
     withdraw_incident,
 )
 from incident_record.repository import conversation, references
-from oncall_source import OnCallSettings, OnCallUnavailable
+from oncall_source import OnCallUnavailable
 from oncall_source.pagerduty_adapter import pagerduty_from
+from oncall_source.pagerduty_settings import PagerDutySettings
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
@@ -115,7 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         # `None` where the deployment has no on-call platform, which is how
         # its webhook comes to answer as though it did not exist.
         app.state.oncall_platform = pagerduty_from(
-            OnCallSettings.of(get_settings()),
+            PagerDutySettings.of(get_settings()),
             webhook_secret=OnCallDeliverySettings.of(get_settings()).pagerduty_webhook_secret
         )
         # `None` where the deployment has no chat workspace, for the same reason.

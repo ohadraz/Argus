@@ -840,4 +840,4 @@ def some_settings(source_paths: str = "") -> RepositoryReadSettings:
     """The repository channel's slice, which this tool shares with substring
     search - so a file one channel will not answer from is a file the other
     will not either."""
-    return RepositoryReadSettings(github_source_paths=source_paths)
+    return RepositoryReadSettings(service_source_paths=source_paths)

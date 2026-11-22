@@ -28,7 +28,6 @@ from core.models.action import UnreadVerdict, Verdict
 from core.models.planned import Planned
 from core.models.taken_action import ActionProgress, TakenAction
 from core.models.undo_descriptor import (
-    ROLL_BACK_DEPLOYMENT_TOOL,
     DeploymentRollbackUndo,
     UndoDescriptor,
 )
@@ -123,7 +122,6 @@ def test_a_row_claimed_with_a_plan_reads_back_the_change_it_planned() -> None:
         **_a_row_whose_outcome_is(None),
         "plan": {
             "kind": "deployment-revision",
-            "tool": ROLL_BACK_DEPLOYMENT_TOOL,
             "application": some_plan.application,
             "was_on_history_id": some_plan.was_on_history_id,
             "was_on_revision": some_plan.was_on_revision,

@@ -48,6 +48,10 @@ from incident_record_test.framework.transactions import (
 
 SOME_REPORT = Report(by="some person", channel=ReportChannel.ARGUS_UI,
                      note="rolled the flag back by hand")
+# A report written in a chat platform's thread, by the name its adapter gives it.
+SOME_PLATFORM = "Kukichat"
+SOME_REPORT_IN_A_THREAD = Report(by="some person", channel=ReportChannel.CHAT_PLATFORM,
+                                 platform=SOME_PLATFORM)
 
 
 @pytest.mark.component
@@ -140,13 +144,14 @@ def test_a_resolution_that_took_effect_is_logged_with_where_it_came_from(
             calling(lambda: caplog.set_level(logging.INFO))
         ) \
         .when(
-            lambda: resolve_incident(incident_id, SOME_REPORT, connect_from_env,
+            lambda: resolve_incident(incident_id, SOME_REPORT_IN_A_THREAD, connect_from_env,
                                      publisher_for=_nobody_is_listening)
         ) \
         .then(
             one_record_was_logged(caplog, "incident_record.resolution", logging.INFO,
                                   "incident resolved",
-                                  values={"channel": ReportChannel.ARGUS_UI})
+                                  values={"channel": ReportChannel.CHAT_PLATFORM,
+                                          "platform": SOME_PLATFORM})
         )
 
 

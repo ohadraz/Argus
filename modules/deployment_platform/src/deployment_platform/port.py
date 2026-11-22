@@ -45,6 +45,10 @@ class DeploymentRecord:
     to return to. `deployed_at` is when it landed, which is the moment its symptoms
     could start. Where it was synced from and who started it are `None` where the
     platform did not say.
+
+    `made_by_argus` is whether the account that started it is the one Argus
+    goes by on the platform - which only the adapter knows - and `None` where
+    that cannot be told: no account recorded, or none configured as Argus's.
     """
 
     history_id: int
@@ -53,6 +57,7 @@ class DeploymentRecord:
     repo_url: str | None
     path: str | None
     initiated_by: str | None
+    made_by_argus: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -99,21 +104,27 @@ class SyncPhase(Enum):
 class RequestedSync:
     """A sync asked of the platform and not yet finished - a rollback among
     them, from the moment the request is answered: the revision it is to, and
-    the account that asked, `None` where it names none (the platform's own)."""
+    the account that asked, `None` where it names none (the platform's own).
+
+    `made_by_argus` as `DeploymentRecord` has it."""
 
     revision: str | None
     initiated_by: str | None
+    made_by_argus: bool | None = None
 
 
 @dataclass(frozen=True)
 class SyncRun:
     """The last sync the platform started running: the revision it is to, the
-    account that asked, when it started, and where it stands."""
+    account that asked, when it started, and where it stands.
+
+    `made_by_argus` as `DeploymentRecord` has it."""
 
     revision: str | None
     initiated_by: str | None
     started_at: datetime
     phase: SyncPhase
+    made_by_argus: bool | None = None
 
 
 @dataclass(frozen=True)

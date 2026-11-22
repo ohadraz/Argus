@@ -52,6 +52,29 @@ from deployment_platform.argocd import ANOTHER_OPERATION_IN_PROGRESS, ArgoCd, Ar
 
 SOME_APPLICATION = "io-shop"
 SOME_TOKEN = "some-argocd-token"
+# The account Argus signs in as, which is how a deployment it started is told
+# from anybody else's - and somebody else's.
+THE_ACCOUNT_ARGUS_SIGNS_IN_AS = "Argus"
+SOMEBODY_ELSE = "buki"
+# Every way whose a deployment or a sync is gets told: the account configured
+# as Argus's, the one the platform recorded, and what the adapter says of it.
+EVERY_WAY_WHOSE_A_CHANGE_IS_TOLD = [
+    # A rollback is recorded as a deployment like any other, under the account
+    # that asked for it - so Argus's own is told by that account.
+    pytest.param(THE_ACCOUNT_ARGUS_SIGNS_IN_AS, THE_ACCOUNT_ARGUS_SIGNS_IN_AS, True,
+                 id="argus-s-own"),
+    # The name is configured in one place and recorded in another. Case
+    # drifting between them must not quietly read Argus's rollback as a
+    # person's, which is the one failure telling them apart exists to prevent.
+    pytest.param(THE_ACCOUNT_ARGUS_SIGNS_IN_AS, THE_ACCOUNT_ARGUS_SIGNS_IN_AS.lower(), True,
+                 id="in-another-case"),
+    pytest.param(THE_ACCOUNT_ARGUS_SIGNS_IN_AS, SOMEBODY_ELSE, False, id="somebody-else-s"),
+    # No account recorded is not Argus's account recorded: nobody can say.
+    pytest.param(THE_ACCOUNT_ARGUS_SIGNS_IN_AS, None, None, id="nobody-named"),
+    # Argus sharing its credential with people cannot tell them apart at all,
+    # and saying "not Argus" there would be acting on a guess.
+    pytest.param("", THE_ACCOUNT_ARGUS_SIGNS_IN_AS, None, id="no-account-configured")
+]
 SOME_RESTART_NAMESPACE = "kuki-production"
 SOME_SCALE_NAMESPACE = "buki-production"
 DONT_CARE_BASE_URL = "http://argocd.invalid"
@@ -138,6 +161,8 @@ THE_ASCTIME_DATE = "Sun Nov  6 08:49:37 1994"
 # asked, and the history entry a rollback names.
 SOME_REVISION = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 SOME_ACCOUNT = "argus"
+# Which is the account Argus signs in as, spelled in another case.
+SOME_ACCOUNT_IS_ARGUS_S = True
 SOME_HISTORY_ID = 41
 # When the controller started a sync, as Argo CD spells it and as Argus reads it.
 SOME_SYNC_START = "2026-11-18T13:05:00Z"
@@ -204,7 +229,9 @@ def _ok_dated(date: str | None, body: Any = None) -> httpx2.Response:
     )
 
 
-def _argo_cd_over(platform: Any, auth_token: str = SOME_TOKEN) -> ArgoCd:
+def _argo_cd_over(platform: Any,
+                  auth_token: str = SOME_TOKEN,
+                  argus: str = THE_ACCOUNT_ARGUS_SIGNS_IN_AS) -> ArgoCd:
     """The adapter, configured as a real server would be and reaching only `platform`.
 
     The host does not resolve, so a request that escaped the transport would fail
@@ -214,6 +241,7 @@ def _argo_cd_over(platform: Any, auth_token: str = SOME_TOKEN) -> ArgoCd:
         ArgoCdSettings(
             argocd_base_url=DONT_CARE_BASE_URL,
             argocd_auth_token=auth_token,
+            argocd_actor=argus,
             argocd_application_path="/api/v1/applications/{application}",
             argocd_resource_path="/api/v1/applications/{application}/resource",
             argocd_resource_action_path=(
@@ -406,7 +434,7 @@ def test_an_applications_deployments_are_read_from_its_history() -> None:
             "deployedAt": "2026-10-07T09:14:00Z",
             "deployStartedAt": "2026-10-07T09:13:00Z",
             "source": {"repoURL": "https://github.com/kuki/configs", "path": "apps/shop"},
-            "initiatedBy": {"username": "buki"}
+            "initiatedBy": {"username": SOMEBODY_ELSE}
         }]
     )))
 
@@ -420,9 +448,30 @@ def test_an_applications_deployments_are_read_from_its_history() -> None:
                 deployed_at="2026-10-07T09:14:00Z",
                 repo_url="https://github.com/kuki/configs",
                 path="apps/shop",
-                initiated_by="buki"
+                initiated_by=SOMEBODY_ELSE,
+                made_by_argus=False
             )
         ]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("argus", "started_by", "whether_it_was_argus"),
+                         EVERY_WAY_WHOSE_A_CHANGE_IS_TOLD)
+def test_whether_argus_started_a_deployment_is_told_by_the_account_it_signs_in_as(
+    argus: str,
+    started_by: str | None,
+    whether_it_was_argus: bool | None
+) -> None:
+    initiated_by = {} if started_by is None else {"initiatedBy": {"username": started_by}}
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok(_an_application(
+        history=[{"id": 3, "revision": "abc1234", "deployedAt": "2026-10-07T09:00:00Z",
+                  **initiated_by}]
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform, argus=argus)) \
+        .when(lambda: argo_cd.deployments_of(SOME_APPLICATION)[0].made_by_argus) \
+        .then(the_answer_was(whether_it_was_argus))
 
 
 @pytest.mark.unit
@@ -1374,9 +1423,35 @@ def test_a_sync_asked_and_not_yet_run_is_read_off_the_application_s_operation() 
         .given(argo_cd := _argo_cd_over(platform)) \
         .when(lambda: argo_cd.sync_operations_of(SOME_APPLICATION)) \
         .then(the_answer_was(SyncOperations(
-            requested=RequestedSync(revision=SOME_REVISION, initiated_by=SOME_ACCOUNT),
+            requested=RequestedSync(revision=SOME_REVISION, initiated_by=SOME_ACCOUNT,
+                                    made_by_argus=SOME_ACCOUNT_IS_ARGUS_S),
             last_run=None
         )))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("argus", "started_by", "whether_it_was_argus"),
+                         EVERY_WAY_WHOSE_A_CHANGE_IS_TOLD)
+def test_whether_argus_asked_for_a_sync_is_told_as_whether_it_started_a_deployment(
+    argus: str,
+    started_by: str | None,
+    whether_it_was_argus: bool | None
+) -> None:
+    # The write tier reads whose a sync is off the request and off the run, as
+    # the read tier reads whose a deployment is: one rule, the adapter's.
+    asked_by = {} if started_by is None else {"username": started_by}
+    operation = {"sync": {"revision": SOME_REVISION}, "initiatedBy": asked_by}
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok({
+        **_an_application(),
+        "operation": operation,
+        "status": {"operationState": {"operation": operation, "phase": "Running",
+                                      "startedAt": SOME_SYNC_START}}
+    }))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform, argus=argus)) \
+        .when(lambda: argo_cd.sync_operations_of(SOME_APPLICATION)) \
+        .then(_whose_each_sync_is(whether_it_was_argus))
 
 
 @pytest.mark.unit
@@ -1408,7 +1483,8 @@ def test_the_last_sync_run_is_read_off_the_application_s_operation_state(
         .then(the_answer_was(SyncOperations(
             requested=None,
             last_run=SyncRun(revision=SOME_REVISION, initiated_by=SOME_ACCOUNT,
-                             started_at=THE_SYNC_START_READ, phase=read_as)
+                             started_at=THE_SYNC_START_READ, phase=read_as,
+                             made_by_argus=SOME_ACCOUNT_IS_ARGUS_S)
         )))
 
 
@@ -1451,7 +1527,8 @@ def test_a_run_somebody_terminated_is_read_apart_from_one_that_failed_of_itself(
         .then(the_answer_was(SyncOperations(
             requested=None,
             last_run=SyncRun(revision=SOME_REVISION, initiated_by=SOME_ACCOUNT,
-                             started_at=THE_SYNC_START_READ, phase=read_as)
+                             started_at=THE_SYNC_START_READ, phase=read_as,
+                             made_by_argus=SOME_ACCOUNT_IS_ARGUS_S)
         )))
 
 
@@ -1855,6 +1932,23 @@ def _it_was_known_not_applied(expected: bool) -> Assertion[Exception | None]:
                 f"Expected the failure to say the request was "
                 f"{'known not to have been' if expected else 'perhaps'} applied, "
                 f"and it said known_not_applied={error.known_not_applied}: [{error}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _whose_each_sync_is(expected: bool | None) -> Assertion[SyncOperations]:
+    """The sync asked and the last one run, both said `expected` of."""
+    def assertion(operations: SyncOperations) -> bool:
+        said = (None if operations.requested is None else operations.requested.made_by_argus,
+                None if operations.last_run is None else operations.last_run.made_by_argus)
+
+        if said != (expected, expected):
+            raise AssertionError(
+                f"Expected the sync asked and the sync run both said made_by_argus="
+                f"{expected}, and they were said {said[0]} and {said[1]}."
             )
 
         return True

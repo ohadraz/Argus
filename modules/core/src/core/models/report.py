@@ -10,29 +10,28 @@ comparing spellings.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ReportChannel(StrEnum):
-    """Where a person's report reached Argus.
+    """Where a person's report reached Argus, by the part the door plays.
 
     A channel rather than a free string, because what a reader does with a
     report differs by where it came from - a note typed into Argus's own page
-    and a resolve pressed in a paging tool are answered in different places -
-    and each door that takes a report is one more member here rather than one
-    more spelling somebody has to recognise.
+    and a resolve pressed in a paging tool are answered in different places.
+    By role rather than by vendor: which platform it was is the report's
+    `platform`, supplied by that platform's adapter, so a deployment paging
+    through another vendor adds an adapter and nothing here.
     """
 
     ARGUS_UI = "argus-ui"
-    # The on-call platform that paged the person, resolved there. Named for the
-    # vendor because the channel is where a reader goes to find the person, and
-    # that place has a name; which platform it was stays a fact about the
-    # report, not a word anything branches on.
-    PAGERDUTY = "pagerduty"
+    # The on-call platform that paged the person, resolved there.
+    ON_CALL_PLATFORM = "on-call-platform"
     # The incident's own thread, where the person said it was over and then
-    # confirmed it. Named for the vendor for the reason PagerDuty is.
-    SLACK = "slack"
+    # confirmed it.
+    CHAT_PLATFORM = "chat-platform"
 
 
 class Report(BaseModel):
@@ -43,10 +42,29 @@ class Report(BaseModel):
     and that is the moment the report was taken. A second time here would be a
     second answer to one question.
 
-    `note` is `None` rather than empty where the person said nothing, so that a
-    reader is never shown a blank where a sentence was expected.
+    `platform` is the platform's own name, as its adapter gives it - the place a
+    reader goes to find the person - and `None` for Argus's own page, which is
+    no platform's. `note` is `None` rather than empty where the person said
+    nothing, so that a reader is never shown a blank where a sentence was
+    expected.
     """
 
     by: str
     channel: ReportChannel
+    platform: str | None = None
     note: str | None = None
+
+    @model_validator(mode="after")
+    def _a_platform_exactly_where_one_was_used(self) -> Self:
+        """A platform named for every report that came through one, and none
+        for a report typed into Argus's own page - so a reader is never told
+        a report came from nowhere, or from a platform it never passed through.
+        An empty name is no name, and would be said as one."""
+        if self.platform == "" or (self.platform is None) != (
+                self.channel is ReportChannel.ARGUS_UI):
+            raise ValueError(
+                f"a report through [{self.channel}] names the platform "
+                f"[{self.platform}]: only one through Argus's own page names none"
+            )
+
+        return self

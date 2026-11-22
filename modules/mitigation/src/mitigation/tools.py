@@ -38,8 +38,6 @@ from core.models import (
 )
 from write_mcp_client import WriteTier
 
-from mitigation.attribution import changes_not_made_by
-
 logger = logging.getLogger(__name__)
 
 
@@ -120,14 +118,17 @@ class DeploymentsBetween(Protocol):
 
     A window rather than a moment, unlike the flag history above, because that
     is how the platform is asked: a history entry belongs to an application, and
-    the read tier answers for a span of it.
+    the read tier answers for a span of it. `excluding_argus_s_own` leaves out
+    the deployments the platform says Argus started, which only its adapter can
+    tell.
     """
 
     def __call__(self,
                  *,
                  service: str,
                  window_start: str,
-                 window_end: str) -> list[ChangeEvent]: ...
+                 window_end: str,
+                 excluding_argus_s_own: bool = False) -> list[ChangeEvent]: ...
 # The service's own account of itself, and the ways to change what it does.
 # `Protocol` rather than a `Callable` alias throughout, because a test stands
 # each in with `create_autospec`. A composition root binds each to the tier's
@@ -580,21 +581,18 @@ ChangedFromOutside = Callable[[str, datetime], bool | None]
 class MitigationSettings(SettingsSlice):
     """How Mitigation behaves against the provider and the service.
 
-    How far back a window of recent changes reaches, which deployments Argus
-    recognises as its own, and how long it waits while nothing has been measured.
-    Not how long the service is watched for: that is measured off the window the
-    service answers with - plus `metrics_reporting_lag_minutes`, how long after a
-    minute ends the metrics source reports it, without which the wait ends before
-    the minute that decides it can be read.
+    How far back a window of recent changes reaches, and how long it waits while
+    nothing has been measured. Not how long the service is watched for: that is
+    measured off the window the service answers with - plus
+    `metrics_reporting_lag_minutes`, how long after a minute ends the metrics
+    source reports it, without which the wait ends before the minute that
+    decides it can be read.
 
-    `argocd_actor` is empty where Argus and its operators share one credential on
-    the platform. That is a real deployment and not a misconfiguration - the
-    attribution rules filter nothing there rather than guessing. Whose a flag
-    change was is not here: the provider's adapter says so on the change itself.
+    Not whose a change was. The platform's and the provider's adapters say so on
+    each change, since only they know the name Argus goes by there.
     """
 
     mitigation_change_lookback_minutes: int
-    argocd_actor: str
     mitigation_verification_timeout_seconds: float
     mitigation_attempts_per_subject: int
     metrics_reporting_lag_minutes: int
@@ -770,19 +768,19 @@ def fetch_recent_deployments(
     Argus's own rollbacks are dropped, as its flag reverts are and for the same
     reason: where no onset was stated the window ends now, and a round after
     Argus rolled back would read its rollback as the newest deployment - and
-    propose rolling that back.
+    propose rolling that back. Which deployments are Argus's is the platform's
+    adapter's to say - it knows the account Argus signs in as - so the read tier
+    is asked to leave them out rather than told what Argus is called.
     """
     lookback = timedelta(minutes=settings.mitigation_change_lookback_minutes)
     anchored_at = onset if onset is not None else now()
     window_ends_at = the_end_of_the_onset(onset) if onset is not None else anchored_at
 
-    return changes_not_made_by(
-        settings.argocd_actor,
-        fetch(
-            service=service,
-            window_start=to_iso(anchored_at - lookback),
-            window_end=to_iso(window_ends_at)
-        )
+    return fetch(
+        service=service,
+        window_start=to_iso(anchored_at - lookback),
+        window_end=to_iso(window_ends_at),
+        excluding_argus_s_own=True
     )
 
 

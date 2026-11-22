@@ -40,7 +40,7 @@ from core.models import (
 from mcp.types import Tool
 from read_mcp_client import ReadTier, read_mcp
 
-from read_mcp_client_test.conftest import FakeTargetServiceHandler
+from read_mcp_client_test.conftest import ARGUS_S_ACCOUNT, FakeTargetServiceHandler
 from read_mcp_client_test.framework.assertions import the_tools_offered_are
 from read_mcp_client_test.framework.builders import (
     a_cause_line_at,
@@ -198,6 +198,39 @@ def test_get_change_events_reaches_the_real_read_mcp_server(
         ) \
         .then(
             _the_changes_reference(some_revision)
+        )
+
+
+@pytest.mark.integration
+def test_argus_s_own_deployments_are_left_out_over_the_real_read_mcp_server(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    # The whole of how Mitigation stops reading its own rollback as somebody
+    # else's change: the client asks, the tier passes the question on, and the
+    # Argo CD adapter is what knows which account is Argus's.
+    some_deploy_time = datetime(2026, 8, 20, 11, 45, 0, tzinfo=UTC)
+    argus_s_rollback = "a1a1a1a1"
+    somebody_else_s = "b2b2b2b2"
+    the_target_service_has_deploys = partial(_the_target_service_has_deploys, running_read_mcp)
+
+    Scenario() \
+        .given(
+            calling(the_target_service_has_deploys([
+                _an_argocd_deploy_at(some_deploy_time, revision=argus_s_rollback,
+                                     started_by=ARGUS_S_ACCOUNT),
+                _an_argocd_deploy_at(some_deploy_time, revision=somebody_else_s)
+            ]))
+        ) \
+        .when(
+            _asking_the_server(lambda read: read.get_change_events(
+                "kukibuki-service",
+                window_start=an_iso_minute(some_deploy_time - timedelta(hours=1)),
+                window_end=an_iso_minute(some_deploy_time + timedelta(hours=1)),
+                excluding_argus_s_own=True
+            ))
+        ) \
+        .then(
+            _the_changes_reference(somebody_else_s)
         )
 
 
@@ -600,7 +633,9 @@ def _the_target_service_has_deploys(
     return step
 
 
-def _an_argocd_deploy_at(moment: datetime, revision: str) -> dict[str, object]:
+def _an_argocd_deploy_at(moment: datetime,
+                         revision: str,
+                         started_by: str = "kuki") -> dict[str, object]:
     return {
         "id": 12,
         "revision": revision,
@@ -611,7 +646,7 @@ def _an_argocd_deploy_at(moment: datetime, revision: str) -> dict[str, object]:
             "path": "apps/target-service/production",
             "targetRevision": "main"
         },
-        "initiatedBy": {"username": "kuki"}
+        "initiatedBy": {"username": started_by}
     }
 
 

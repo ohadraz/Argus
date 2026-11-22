@@ -28,7 +28,6 @@ from core.models import (
     CitedEvidence,
     FirstTold,
     Lessons,
-    ReportChannel,
     Unit,
     Verdict,
 )
@@ -99,6 +98,10 @@ from postmortem_writing_test.framework.builders import (
     an_action,
     an_evidence_bundle,
 )
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 # What a shop's integrity check reports, in its own words: two counts, an
 # amount, and an instant.
@@ -1753,7 +1756,7 @@ def test_a_service_back_after_the_action_credited_with_it_names_no_time_it_was_t
 def test_a_post_where_nobody_was_paged_is_named_when_the_platform_accepted_it() -> None:
     # The write-up is told Argus posted, by this name, where nobody was paged -
     # the incident a write-up said nobody was told about.
-    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+    some_post = FirstTold(platform=THE_CHAT_PLATFORM, at=STARTED_AT + timedelta(seconds=2))
 
     Scenario() \
         .given(
@@ -1776,7 +1779,7 @@ def test_a_post_where_nobody_was_paged_is_named_when_the_platform_accepted_it() 
 def test_a_post_where_nobody_is_known_unpaged_is_not_named(
         engaged: EngagementAnswer | None) -> None:
     # Only where it is said, and it is said only beside nobody paged.
-    dont_care_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT)
+    dont_care_post = FirstTold(platform=THE_CHAT_PLATFORM, at=STARTED_AT)
 
     Scenario() \
         .given(

@@ -35,7 +35,6 @@ from core.models import (
     Alert,
     Lifespan,
     Reference,
-    ReportChannel,
 )
 from incident_record.repository import incidents, references
 from oncall_source import Acknowledgement, OnCallUnavailable, ReportedIncident
@@ -43,6 +42,9 @@ from oncall_source.platform import OnCallPlatform, PagedIncident
 from orchestrator.sources import the_real_sources
 from postmortem_writing import EngagementAnswer, NotPaged, Sources
 from read_mcp_client import ReadTier
+
+# The on-call platform's name, as its adapter gives it.
+THE_ON_CALL_PLATFORM = "PagerDuty"
 
 SOME_PLATFORM_INCIDENT = "Q2FJZEW25HFSAW"
 SOME_OTHER_PLATFORM_INCIDENT = "Q0N5RRK7RT1Q46"
@@ -65,7 +67,7 @@ def test_engagement_is_read_on_the_platform_incident_an_earlier_match_linked(
 ) -> None:
     # A person resolved it in the platform, which is when the two were linked.
     incident_id = _an_incident_known_as(
-        Reference(source="pagerduty", kind=ON_CALL_INCIDENT, value=SOME_PLATFORM_INCIDENT)
+        Reference(source=THE_ON_CALL_PLATFORM, kind=ON_CALL_INCIDENT, value=SOME_PLATFORM_INCIDENT)
     )
     some_wait = timedelta(minutes=20)
     platform = _a_platform_holding(SOME_PLATFORM_INCIDENT, acknowledged_after=some_wait)
@@ -86,7 +88,7 @@ def test_a_page_another_incident_is_linked_to_is_said_to_be_shared(
     # second followed, and the platform kept one page open across both. Each
     # write-up reports that page's whole response, and says how many others
     # it was also theirs.
-    platform_link = Reference(source="pagerduty", kind=ON_CALL_INCIDENT,
+    platform_link = Reference(source=THE_ON_CALL_PLATFORM, kind=ON_CALL_INCIDENT,
                               value=SOME_PLATFORM_INCIDENT)
     _an_incident_known_as(platform_link)
     incident_id = _an_incident_known_as(platform_link)
@@ -102,10 +104,11 @@ def test_a_page_no_other_incident_is_linked_to_is_this_incidents_alone(
     a_clean_database: None
 ) -> None:
     incident_id = _an_incident_known_as(
-        Reference(source="pagerduty", kind=ON_CALL_INCIDENT, value=SOME_PLATFORM_INCIDENT)
+        Reference(source=THE_ON_CALL_PLATFORM, kind=ON_CALL_INCIDENT, value=SOME_PLATFORM_INCIDENT)
     )
     _an_incident_known_as(
-        Reference(source="pagerduty", kind=ON_CALL_INCIDENT, value=SOME_OTHER_PLATFORM_INCIDENT)
+        Reference(source=THE_ON_CALL_PLATFORM, kind=ON_CALL_INCIDENT,
+                  value=SOME_OTHER_PLATFORM_INCIDENT)
     )
     platform = _a_platform_holding(SOME_PLATFORM_INCIDENT, acknowledged_after=timedelta(minutes=20))
 
@@ -307,7 +310,7 @@ def _a_page(platform_incident: str,
 def _a_platform_holding(platform_incident: str, acknowledged_after: timedelta) -> Any:
     """A platform holding one incident, acknowledged once, by one person."""
     platform = create_autospec(OnCallPlatform, instance=True)
-    platform.channel = ReportChannel.PAGERDUTY
+    platform.name = THE_ON_CALL_PLATFORM
     platform.reported_incident.return_value = ReportedIncident(
         began_at=SOME_BEGINNING,
         ended_at=SOME_ENDING,

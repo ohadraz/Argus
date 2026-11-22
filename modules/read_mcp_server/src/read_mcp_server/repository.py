@@ -58,7 +58,7 @@ class RepositoryReadSettings(SettingsSlice):
     # about the code that caused one. Configuration rather than a rule, because
     # where a service's source lives is a fact about a deployment and not
     # something this module could know.
-    github_source_paths: str = ""
+    service_source_paths: str = ""
 
 
 def list_repository_files(ref: str,
@@ -172,4 +172,4 @@ def _is_the_service_s_own(path: str, settings: RepositoryReadSettings) -> bool:
     which tool it reached for. What stays here is only the reading of this
     module's own settings slice.
     """
-    return belongs_to_the_service(path, settings.github_source_paths)
+    return belongs_to_the_service(path, settings.service_source_paths)

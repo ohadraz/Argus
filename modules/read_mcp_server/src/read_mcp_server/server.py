@@ -46,8 +46,9 @@ from deployment_platform import DeploymentPlatformReads
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from flag_provider import FlagProviderReads
 from flag_provider.unleash import UnleashFrontend, UnleashFrontendSettings
-from metrics_source import MetricsSettings, MetricsSource, SeriesClassifier
+from metrics_source import MetricsSource, SeriesClassifier
 from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
+from metrics_source.prometheus_settings import PrometheusSettings
 from pydantic import Field
 from repository_index.embedding import an_embedder
 from telemetry import start_telemetry
@@ -85,7 +86,7 @@ logger = logging.getLogger(__name__)
 def build_server(endpoint: ReadMcpEndpoint,
                  retrieval_settings: RetrievalSettings,
                  target_service: TargetServiceSettings,
-                 metrics_settings: MetricsSettings,
+                 metrics_settings: PrometheusSettings,
                  flags: FlagProviderReads,
                  platform: DeploymentPlatformReads,
                  code: CodeHostReads,
@@ -133,13 +134,15 @@ def build_server(endpoint: ReadMcpEndpoint,
     def deploys(application: str,
                 *,
                 window_start: str,
-                window_end: str) -> list[ChangeEvent]:
+                window_end: str,
+                excluding_argus_s_own: bool = False) -> list[ChangeEvent]:
         return fetch_deploys(
             application,
             window_start=window_start,
             window_end=window_end,
             platform=platform,
-            code=code
+            code=code,
+            excluding_argus_s_own=excluding_argus_s_own
         )
 
     changes: ChangeSource = deploys
@@ -213,7 +216,8 @@ def build_server(endpoint: ReadMcpEndpoint,
     @mcp.tool()
     def get_change_events(service: str,
                           window_start: str,
-                          window_end: str) -> list[ChangeEvent]:
+                          window_end: str,
+                          excluding_argus_s_own: bool = False) -> list[ChangeEvent]:
         """Returns what changed on a service within one window.
 
         The third retrieval channel. Metrics locate the minute an incident
@@ -228,10 +232,12 @@ def build_server(endpoint: ReadMcpEndpoint,
 
         Raises rather than returning nothing when the change source cannot be
         reached: "nothing changed" is a conclusion, and an outage is not
-        evidence for it. The behavior, and the source injection seam, live in
-        `retrieval.get_change_events`; this is registration only."""
+        evidence for it. `excluding_argus_s_own` leaves out the changes the
+        source says Argus made. The behavior, and the source injection seam,
+        live in `retrieval.get_change_events`; this is registration only."""
         return retrieval.get_change_events(
-            service, window_start, window_end, source=changes
+            service, window_start, window_end, source=changes,
+            excluding_argus_s_own=excluding_argus_s_own
         )
 
     @mcp.tool()
@@ -555,7 +561,7 @@ def main() -> None:
             ReadMcpEndpoint.of(settings),
             RetrievalSettings.of(settings),
             TargetServiceSettings.of(settings),
-            MetricsSettings.of(settings),
+            PrometheusSettings.of(settings),
             # The flag provider's adapter, built here for the same reason and
             # handed on as its reads port - holding the evaluation credential
             # alone, since its settings have nowhere to put another.

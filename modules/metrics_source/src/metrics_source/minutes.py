@@ -11,7 +11,6 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
-from core import SettingsSlice
 from core.models import MetricBucket, RuleSeries, SeriesQuery, Unit
 
 
@@ -68,17 +67,6 @@ class SeriesClassifier(Protocol):
     """
 
     def __call__(self, query: SeriesQuery, /) -> SeriesKind: ...
-
-
-class MetricsSettings(SettingsSlice):
-    """Where the metrics source answers, and nothing else.
-
-    A base URL rather than a host, so that the path after it is always the
-    vendor's own: a real Prometheus at its root, or a stand-in mounted under a
-    prefix, are the same adapter aimed differently.
-    """
-
-    prometheus_base_url: str
 
 
 class MetricsUnavailable(Exception):

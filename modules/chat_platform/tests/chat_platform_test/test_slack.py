@@ -51,8 +51,11 @@ from chat_platform.slack_deliveries import (
     TYPE,
     URL_VERIFICATION,
 )
-from core.models import ReportChannel
 from slack_sdk.errors import SlackApiError
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 SOME_PERSON = "U-some-person"
 SOME_MOMENT = datetime(2026, 10, 10, 3, 30, tzinfo=UTC)
@@ -73,10 +76,13 @@ def test_without_a_bot_token_there_is_no_platform() -> None:
 
 
 @pytest.mark.unit
-def test_a_report_through_slack_reached_argus_through_slack() -> None:
+def test_a_report_through_slack_is_said_to_come_from_slack() -> None:
+    # Spelled out rather than imported: the name is what a postmortem's model
+    # is told Argus posted in and a person's resolution came from, so its bytes
+    # are the claim.
     Scenario() \
         .when(lambda: slack_from(_settings_with(bot_token="dont care"))) \
-        .then(_its_channel_is(ReportChannel.SLACK))
+        .then(_its_name_is(THE_CHAT_PLATFORM))
 
 
 @pytest.mark.unit
@@ -220,15 +226,15 @@ def _it_answers(expected: object) -> Assertion[object]:
     return assertion
 
 
-def _its_channel_is(expected: ReportChannel) -> Assertion[Slack | None]:
+def _its_name_is(expected: str) -> Assertion[Slack | None]:
     def assertion(platform: Slack | None) -> bool:
         if platform is None:
             raise AssertionError("Expected a platform for a deployment holding a token, got none.")
 
-        if platform.channel is not expected:
+        if platform.name != expected:
             raise AssertionError(
-                f"Expected reports through it to have come through [{expected}], "
-                f"got [{platform.channel}]."
+                f"Expected reports through it to be said to come from [{expected}], "
+                f"got [{platform.name}]."
             )
 
         return True

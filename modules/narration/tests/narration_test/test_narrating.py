@@ -128,6 +128,13 @@ from narration.narrating import (
     what_was_not_done,
 )
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
+# The on-call platform's name, as its adapter gives it.
+THE_ON_CALL_PLATFORM = "PagerDuty"
+
 # The minute most lines here are about, and the one before it: a window from
 # the one to the other spans the minutes between them.
 SOME_MINUTE_AT = datetime(2026, 8, 30, 10, 14, tzinfo=UTC)
@@ -1622,7 +1629,8 @@ def test_a_resolution_from_the_paging_tool_names_that_tool() -> None:
     some_report = StatusChanged(
         incident_id=new_id(),
         to_status=IncidentStatus.RESOLVED,
-        reported=Report(by=SOME_PERSON, channel=ReportChannel.PAGERDUTY)
+        reported=Report(by=SOME_PERSON, channel=ReportChannel.ON_CALL_PLATFORM,
+                        platform=THE_ON_CALL_PLATFORM)
     )
 
     Scenario() \
@@ -1638,7 +1646,8 @@ def test_a_resolution_from_the_slack_thread_names_slack() -> None:
     some_report = StatusChanged(
         incident_id=new_id(),
         to_status=IncidentStatus.RESOLVED,
-        reported=Report(by=SOME_PERSON, channel=ReportChannel.SLACK)
+        reported=Report(by=SOME_PERSON, channel=ReportChannel.CHAT_PLATFORM,
+                        platform=THE_CHAT_PLATFORM)
     )
 
     Scenario() \
@@ -2721,7 +2730,8 @@ def test_only_an_expiry_expires_the_offers(event: IncidentEvent, expires: bool) 
 @pytest.mark.parametrize("event", [
     _a_person_writing(),
     StatusChanged(incident_id=new_id(), to_status=IncidentStatus.RESOLVED,
-                  reported=Report(by=SOME_PERSON, channel=ReportChannel.SLACK)),
+                  reported=Report(by=SOME_PERSON, channel=ReportChannel.CHAT_PLATFORM,
+                                  platform=THE_CHAT_PLATFORM)),
     _a_reading(Meaning.RESOLVE),
     _an_offer(ResolutionOffered),
     _an_offer(WithdrawalOffered),

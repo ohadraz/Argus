@@ -89,6 +89,11 @@ ARCHIVE_MARK = "/tarball/"
 # the repository and the commit.
 ARCHIVE_ROOT = "owner-repo-77296ac"
 
+# The account the read tier is told Argus signs in to the deployment platform
+# as, so that what it says is Argus's is this suite's to say rather than the
+# environment's.
+ARGUS_S_ACCOUNT = "argus-in-the-suite"
+
 
 class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     logs: list[str] = []
@@ -241,6 +246,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     # entirely - so the fake has to be named three times even though one
     # process answers all of them.
     env["ARGOCD_BASE_URL"] = fake_target_service_url
+    env["ARGOCD_ACTOR"] = ARGUS_S_ACCOUNT
     env["PROMETHEUS_BASE_URL"] = f"{fake_target_service_url}{PROMETHEUS_PREFIX}"
     env["GRAFANA_BASE_URL"] = f"{fake_target_service_url}{GRAFANA_PREFIX}"
     env["GITHUB_API_URL"] = f"{fake_target_service_url}{GITHUB_PREFIX}"

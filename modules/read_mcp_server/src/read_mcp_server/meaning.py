@@ -250,7 +250,7 @@ def search_repository_by_meaning(description: str,
     passages = [
         _located(found)
         for found in _the_nearest_to(description, embed, find,
-                                     source_paths=settings.github_source_paths)
+                                     source_paths=settings.service_source_paths)
     ]
     notice = the_index_notice(ref=ref, head_of=head_of, indexed_sha=indexed_sha)
 

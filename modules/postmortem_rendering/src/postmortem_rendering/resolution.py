@@ -69,6 +69,6 @@ def the_reported_resolution(recorded: Sequence[IncidentEvent]) -> ReportedResolu
     assert resolution.reported is not None
 
     return ReportedResolution(by=resolution.reported.by,
-                              channel=where_a_report_came_from(resolution.reported.channel),
+                              channel=where_a_report_came_from(resolution.reported),
                               at=resolution.at,
                               note=resolution.reported.note)

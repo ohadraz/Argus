@@ -14,7 +14,7 @@ import pytest
 from argus_testkit import Scenario, the_answer_was
 from core import new_id
 from core.events import IncidentEvent, StatusChanged
-from core.models import IncidentStatus, ReportChannel
+from core.models import IncidentStatus
 from postmortem_rendering.resolution import (
     Escalation,
     ReportedResolution,
@@ -32,7 +32,6 @@ def test_a_person_s_resolution_says_who_from_where_when_and_what_they_wrote() ->
     Scenario() \
         .given(
             some_events := [a_person_resolved_it("Kuki Buki", at=some_moment,
-                                                 channel=ReportChannel.ARGUS_UI,
                                                  note="rolled the flag back by hand")]
         ) \
         .when(

@@ -59,6 +59,10 @@ from web_app_test.framework.assertions import the_response_was
 from web_app_test.framework.event_loop import handed_off_the_event_loop, on_an_event_loop
 from web_app_test.framework.observing import observing_the_app, the_span_named
 
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
+
 EVENTS_WEBHOOK = "/webhooks/slack/events"
 INTERACTIONS_WEBHOOK = "/webhooks/slack/interactions"
 
@@ -133,7 +137,8 @@ def test_the_person_an_offer_was_made_to_pressing_it_resolves_the_incident() -> 
                 _the_incident_is(incident_id, IncidentStatus.RESOLVED),
                 _the_account_says_it_was_reported_as(
                     incident_id,
-                    Report(by=some_name, channel=ReportChannel.SLACK, note=SOME_WORDS)
+                    Report(by=some_name, channel=ReportChannel.CHAT_PLATFORM,
+                           platform=THE_CHAT_PLATFORM, note=SOME_WORDS)
                 )
             ))
 
@@ -155,7 +160,8 @@ def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_inc
                 _the_incident_is(incident_id, IncidentStatus.WITHDRAWN),
                 _the_account_says_it_was_reported_as(
                     incident_id,
-                    Report(by=some_name, channel=ReportChannel.SLACK, note=SOME_WORDS),
+                    Report(by=some_name, channel=ReportChannel.CHAT_PLATFORM,
+                           platform=THE_CHAT_PLATFORM, note=SOME_WORDS),
                     ending=IncidentStatus.WITHDRAWN
                 )
             ))
@@ -267,12 +273,12 @@ def _a_thread() -> Reference:
     """A thread no other case has used. This suite keeps its rows between
     cases, and a thread shared with an earlier one would find that case's
     incident."""
-    return a_chat_thread(ReportChannel.SLACK, "C-some-channel", f"{uuid4().int % 10**10}.000100")
+    return a_chat_thread(THE_CHAT_PLATFORM, "C-some-channel", f"{uuid4().int % 10**10}.000100")
 
 
 def _a_message() -> Reference:
     """A message no other case has used, for the same reason."""
-    return a_chat_message(ReportChannel.SLACK, "C-some-channel", f"{uuid4().int % 10**10}.000200")
+    return a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", f"{uuid4().int % 10**10}.000200")
 
 
 def _an_incident_told_in(thread: Reference,
@@ -316,7 +322,7 @@ _THE_MEANING_OF: dict[OfferedEnding, Meaning] = {
 @contextmanager
 def _the_platform_saying(delivery: Delivery) -> Generator[None]:
     platform = create_autospec(ChatPlatformReads, instance=True)
-    platform.channel = ReportChannel.SLACK
+    platform.name = THE_CHAT_PLATFORM
     platform.parse_delivery.return_value = delivery
 
     with _the_platform_being(platform):

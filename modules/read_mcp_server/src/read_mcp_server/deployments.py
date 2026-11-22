@@ -21,7 +21,7 @@ be this module deciding something it cannot know - wrongly, the first time
 somebody keeps their values beside their source. It says what changed and leaves
 the reading to whoever weighs causes.
 
-No scope, and the omission is load-bearing. `github_source_paths` narrows what
+No scope, and the omission is load-bearing. `service_source_paths` narrows what
 this tier searches and indexes to the directories holding the service itself,
 which is right for reading code and inverting here: the configuration a deployment
 ships lives outside the source tree by definition, so a narrowed comparison hides

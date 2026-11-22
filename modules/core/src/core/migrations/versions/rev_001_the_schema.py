@@ -560,8 +560,8 @@ CREATE INDEX IF NOT EXISTS incident_run_state_idx ON incident_run (state);
 -- a person resolving it in the paging tool that woke them, or replying in the
 -- chat thread it is told in - arrives carrying that tool's names for it and
 -- none of Argus's, and this is where those names are matched. The thread an
--- incident is told in is one of them: Slack has no thread id, a reply names
--- the timestamp of the message it replies to, so the first message an incident
+-- incident is told in is one of them: a chat platform may have no thread id -
+-- a reply naming the message it replies to - so the first message an incident
 -- got is its thread, found again here in another pass, another process,
 -- another day.
 --
@@ -655,7 +655,7 @@ CREATE INDEX IF NOT EXISTS thread_message_not_understood_idx
     ON thread_message (written_at) WHERE meaning IS NULL;
 
 -- How far each reader of `incident_event` has got. A reader - the relay
--- telling Slack - asks the log what has happened since it last looked, and
+-- telling the chat platform - asks the log what has happened since it last looked, and
 -- this is the whole of its state: lose it and the reader either repeats an
 -- incident from the beginning of time or starts from now and silently drops
 -- whatever was published while it was down.

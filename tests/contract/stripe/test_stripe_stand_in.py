@@ -40,8 +40,9 @@ from typing import Final
 import pytest
 from argus_testkit import Assertion, Scenario
 from core import get_settings
-from revenue_source import Charge, RevenueSettings
+from revenue_source import Charge
 from revenue_source.stripe_adapter import charges_between
+from revenue_source.stripe_settings import StripeSettings
 from stripe import PaymentIntent, StripeClient
 
 # Where the stand-in answers - wherever Argus itself is configured to read
@@ -117,7 +118,7 @@ def test_a_charge_the_stand_in_lists_reads_the_same_when_stripe_took_it() -> Non
         ) \
         .when(lambda: list(charges_between(
             taken_at - A_MINUTE, taken_at + A_MINUTE,
-            RevenueSettings(stripe_api_key=_the_sandbox_key(), stripe_base_url=STRIPE_ITSELF)
+            StripeSettings(stripe_api_key=_the_sandbox_key(), stripe_base_url=STRIPE_ITSELF)
         ))) \
         .then(_it_reads_as(the_charge))
 
@@ -154,7 +155,7 @@ def _a_charge_the_stand_in_lists() -> Charge:
     now = datetime.now(UTC)
     charges = charges_between(
         now - A_MINUTE, now,
-        RevenueSettings(stripe_api_key=ANY_KEY_WILL_DO, stripe_base_url=THE_STAND_IN)
+        StripeSettings(stripe_api_key=ANY_KEY_WILL_DO, stripe_base_url=THE_STAND_IN)
     )
     kept = next((charge for charge in charges if charge.succeeded and not charge.refunded), None)
 

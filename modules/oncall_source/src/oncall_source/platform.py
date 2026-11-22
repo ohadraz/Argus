@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Protocol
 
-from core.models import Lifespan, ReportChannel
+from core.models import Lifespan
 from pydantic import BaseModel
 
 from oncall_source.engagement import ReportedIncident
@@ -104,8 +104,10 @@ class OnCallPlatform(Protocol):
     """
 
     @property
-    def channel(self) -> ReportChannel:
-        """Where a person's report through this platform reached Argus."""
+    def name(self) -> str:
+        """The platform's name, as people know it: where a person's report
+        through it is said to have come from, and the source the incident's
+        references file its incidents under."""
         ...
 
     def parse_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:

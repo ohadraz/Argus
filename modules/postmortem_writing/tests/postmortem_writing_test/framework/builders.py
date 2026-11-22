@@ -30,7 +30,6 @@ from core.models import (
     MetricBucket,
     OpenedPullRequest,
     PostmortemDocument,
-    ReportChannel,
     RuleReading,
     SeriesQuery,
     ThreadMessage,
@@ -97,6 +96,10 @@ from postmortem_writing.sources import (
     Revenue,
     Sources,
 )
+
+# The chat platform's name, as its adapter gives it - what a reader is
+# told a report came from, and what its references are filed under.
+THE_CHAT_PLATFORM = "Slack"
 
 # One incident, dated from its onset. The alert is late by ten minutes, which
 # is the ordinary case rather than an edge one: a rule needs a few minutes of
@@ -348,7 +351,7 @@ def a_lead(words: str,
     """Something a person told the incident, understood as information - the
     message named by `ts`, where a test needs two of them."""
     return ThreadMessage(incident_id=DONT_CARE_INCIDENT_ID,
-                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                         message=a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", ts),
                          person_id="U-some-person",
                          text=words,
                          written_at=datetime(2026, 9, 2, 12, 5, tzinfo=UTC),

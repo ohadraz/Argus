@@ -2,19 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
-
-# The write tool a descriptor is undone by. Named once and imported, rather than
-# spelled where each producer happens to build one: it is written into a JSONB
-# column by one process and read out of it by another, and two spellings of the
-# same tool would be two tools as far as either could tell.
-SET_FEATURE_FLAG_TOOL: Final = "set_feature_flag"
-ROLL_BACK_DEPLOYMENT_TOOL: Final = "roll_back_deployment"
-SCALE_OUT_TOOL: Final = "scale_out"
-PIN_AUTOSCALER_TOOL: Final = "pin_autoscaler"
-PIN_TO_ACCELERATOR_TOOL: Final = "pin_to_accelerator"
 
 
 class FlagUndo(BaseModel):
@@ -46,15 +36,17 @@ class FlagUndo(BaseModel):
     the moment is missing.
     """
 
-    # What kind of change this puts back, in Argus's own vocabulary. Not `tool`,
-    # though one tool performs it today: the tool name is the write tier's MCP
-    # wire word, and tagging stored descriptors by it would re-type every row
-    # already written the day a tool is renamed - and would promise one tool per
-    # kind of change for ever, in both directions.
+    # What kind of change this puts back, in Argus's own vocabulary - and the
+    # whole of what says so. No tool name beside it, though one tool performs
+    # it today: the tool name is the write tier's MCP wire word, nothing reads
+    # it off a record, and storing it would re-type every row already written
+    # the day a tool is renamed - and would promise one tool per kind of change
+    # for ever, in both directions. Which tool puts a kind back is the write
+    # tier's client's to know. A row stored with one still reads: the key is
+    # ignored.
     kind: Literal["feature-flag"] = "feature-flag"
     flag: str
     was_enabled: bool
-    tool: str = SET_FEATURE_FLAG_TOOL
     # The provider environment the change was made in, as the provider's answer
     # to the write named it. Absent where the descriptor was not taken from that
     # answer - a plan, or a change answered as made or found in the history.
@@ -106,7 +98,6 @@ class DeploymentRollbackUndo(BaseModel):
     was_syncing_itself: bool
     rolled_back_to_revision: str | None = None
     rolled_back_to_history_id: int | None = None
-    tool: str = ROLL_BACK_DEPLOYMENT_TOOL
     written_at: datetime | None = None
 
 
@@ -141,7 +132,6 @@ class ReplicaUndo(BaseModel):
     was_replicas: int
     was_syncing_itself: bool
     replicas_asked_for: int | None = None
-    tool: str = SCALE_OUT_TOOL
     written_at: datetime | None = None
 
 
@@ -192,7 +182,6 @@ class AutoscalerUndo(BaseModel):
     was_min_replicas: int
     min_replicas_asked_for: int
     was_syncing_itself: bool
-    tool: str = PIN_AUTOSCALER_TOOL
     written_at: datetime | None = None
 
 
@@ -221,7 +210,6 @@ class AcceleratorPinUndo(BaseModel):
     was_pinned_to: str | None
     pinned_to: str
     was_syncing_itself: bool
-    tool: str = PIN_TO_ACCELERATOR_TOOL
     written_at: datetime | None = None
 
 

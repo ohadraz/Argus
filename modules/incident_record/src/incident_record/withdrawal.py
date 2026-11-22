@@ -61,8 +61,9 @@ def withdraw_incident(incident_id: str,
             publish_beside(conn, narrating, publisher_for(conn))
 
     if withdrawn:
-        # The channel and not the name, as for a resolution: which door it came
-        # through is what an operator reading the log needs.
-        logger.info("incident withdrawn", extra={"channel": reported.channel})
+        # The channel and the platform and not the name, as for a resolution:
+        # which door it came through is what an operator reading the log needs.
+        logger.info("incident withdrawn",
+                    extra={"channel": reported.channel, "platform": reported.platform})
 
     return withdrawn

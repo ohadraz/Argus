@@ -23,7 +23,14 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol, assert_never
 
 from chat_platform import ChatPlatformReads, Handshake, Irrelevant, Pressed, Written
-from core.models import CHAT_THREAD, IncidentStatus, Reference, Report, ThreadMessage
+from core.models import (
+    CHAT_THREAD,
+    IncidentStatus,
+    Reference,
+    Report,
+    ReportChannel,
+    ThreadMessage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +153,8 @@ def _confirm(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) 
     # where the platform could not name them - by its id for them: the one name
     # Argus holds, and one a reader can look up.
     reported = Report(by=written.person_name or written.person_id,
-                      channel=platform.channel,
+                      channel=ReportChannel.CHAT_PLATFORM,
+                      platform=platform.name,
                       note=written.text)
 
     match offer.ending:

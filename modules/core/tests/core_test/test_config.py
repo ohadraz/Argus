@@ -9,6 +9,7 @@ the question there is not what it holds but what it cannot name.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from argus_testkit import (
@@ -28,12 +29,18 @@ from core.config import (
     TelemetrySettings,
 )
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
 SOME_KEY = "some-key"
 SOME_STAND_IN = "http://every-agent.example"
 SOME_STAND_IN_FOR_THE_JUDGE = "http://the-judge.example"
 # No address: the SDK's own, which is the real API.
 THE_REAL_API = ""
+# The environment variable the service's source paths were read from, and the
+# one they are read from now - spelled out rather than imported, because the
+# names a deployment's `.env` holds are the claim.
+THE_RETIRED_NAME = "GITHUB_SOURCE_PATHS"
+THE_NAME_IT_BECAME = "SERVICE_SOURCE_PATHS"
 
 
 @pytest.mark.unit
@@ -640,6 +647,50 @@ def test_a_judge_with_no_address_where_every_agent_has_a_stand_in_is_refused() -
                 _it_complained_about("JUDGE_ANTHROPIC_BASE_URL")
             )
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("held", [pytest.param("src", id="some-paths"),
+                                  pytest.param("", id="empty")])
+def test_an_environment_still_naming_the_retired_source_paths_is_refused(
+    tmp_path: Path, held: str
+) -> None:
+    # A name nothing declares is ignored, so a `.env` kept from before the
+    # rename would start on the whole repository and change what Code-Fix reads
+    # without a word. Refused at the start instead, naming what to rename it to;
+    # empty too, since it still says the deployment meant to set this.
+    an_env_file = tmp_path / ".env"
+    an_env_file.write_text(f"{THE_RETIRED_NAME}={held}\n", encoding="utf-8")
+
+    Scenario() \
+        .given(an_env_file) \
+        .when(attempting(lambda: _settings_read_from(an_env_file))) \
+        .then(all_of(
+            an_error_was_raised(ValidationError),
+            _it_complained_about(THE_NAME_IT_BECAME)
+        ))
+
+
+@pytest.mark.unit
+def test_an_environment_naming_the_service_source_paths_is_read(tmp_path: Path) -> None:
+    some_paths = "src/io_shop,deploy"
+    an_env_file = tmp_path / ".env"
+    an_env_file.write_text(f"{THE_NAME_IT_BECAME}={some_paths}\n", encoding="utf-8")
+
+    Scenario() \
+        .given(an_env_file) \
+        .when(lambda: _settings_read_from(an_env_file).service_source_paths) \
+        .then(the_answer_was(some_paths))
+
+
+def _settings_read_from(env_file: Path) -> Settings:
+    """The whole configuration as a deployment whose `.env` is `env_file` reads
+    it - the one setting changed, every validator inherited."""
+    class ReadFromThatFile(Settings):
+        model_config = SettingsConfigDict(env_file=env_file, extra="ignore",
+                                          populate_by_name=True)
+
+    return ReadFromThatFile()
 
 
 def _reaches(expected: LLMSettings) -> Assertion[LLMSettings]:
